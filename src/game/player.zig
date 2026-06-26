@@ -106,6 +106,10 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
     return dir;
 }
 
+pub fn eyePosition(self: Player) math.Vec3 {
+    return .{ .x = self.position.x, .y = self.position.y + eye_height, .z = self.position.z };
+}
+
 pub fn renderPosition(self: Player, partial_ticks: f32) math.Vec3 {
     const t: f64 = partial_ticks;
     return .{
@@ -134,6 +138,14 @@ test "boundingBox is centered on x/z and rests on the feet position" {
     try std.testing.expectApproxEqAbs(@as(f64, 2.3), box.max_x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), box.min_y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 6.8), box.max_y, 1.0e-9);
+}
+
+test "eyePosition sits eye_height above the feet position" {
+    const player: Player = .{ .position = math.Vec3.init(2, 5, 3) };
+    const eye = player.eyePosition();
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), eye.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0 + eye_height), eye.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), eye.z, 1.0e-9);
 }
 
 test "turn at default sensitivity applies the 0.15 deg/pixel scale" {
