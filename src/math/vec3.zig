@@ -1,0 +1,147 @@
+//! 3D double-precision vector, ported from Minecraft Beta 1.7.3's `Vec3D`.
+//!
+//! The original pooled instances through static `createVector`/`createVectorHelper`
+//! calls to dodge JVM GC pressure. That's unnecessary here: `Vec3` is a plain
+//! value type copied on the stack, so every operation below just returns a
+//! new one.
+const std = @import("std");
+const math = @import("mathutil.zig");
+
+const Vec3 = @This();
+
+x: f64,
+y: f64,
+z: f64,
+
+pub fn init(x: f64, y: f64, z: f64) Vec3 {
+    return .{ .x = x, .y = y, .z = z };
+}
+
+pub fn add(a: Vec3, b: Vec3) Vec3 {
+    return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+}
+
+pub fn sub(a: Vec3, b: Vec3) Vec3 {
+    return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
+}
+
+pub fn scale(v: Vec3, s: f64) Vec3 {
+    return .{ .x = v.x * s, .y = v.y * s, .z = v.z * s };
+}
+
+pub fn dot(a: Vec3, b: Vec3) f64 {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+/// Matches `Vec3D.crossProduct`.
+pub fn cross(a: Vec3, b: Vec3) Vec3 {
+    return .{
+        .x = a.y * b.z - a.z * b.y,
+        .y = a.z * b.x - a.x * b.z,
+        .z = a.x * b.y - a.y * b.x,
+    };
+}
+
+pub fn lengthSquared(v: Vec3) f64 {
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+/// Matches `Vec3D.lengthVector` (the original narrows the sqrt to f32).
+pub fn length(v: Vec3) f64 {
+    return math.sqrtF(v.lengthSquared());
+}
+
+pub fn distanceSquaredTo(a: Vec3, b: Vec3) f64 {
+    return b.sub(a).lengthSquared();
+}
+
+/// Matches `Vec3D.distanceTo` (the original narrows the sqrt to f32).
+pub fn distanceTo(a: Vec3, b: Vec3) f64 {
+    return math.sqrtF(a.distanceSquaredTo(b));
+}
+
+/// Matches `Vec3D.normalize`.
+pub fn normalize(v: Vec3) Vec3 {
+    const len = v.length();
+    if (len < 1.0e-4) return .{ .x = 0, .y = 0, .z = 0 };
+    return v.scale(1.0 / len);
+}
+
+/// Matches `Vec3D.rotateAroundX`.
+pub fn rotateX(v: Vec3, angle: f32) Vec3 {
+    const c = math.cos(angle);
+    const s = math.sin(angle);
+    return .{
+        .x = v.x,
+        .y = v.y * c + v.z * s,
+        .z = v.z * c - v.y * s,
+    };
+}
+
+/// Matches `Vec3D.rotateAroundY`.
+pub fn rotateY(v: Vec3, angle: f32) Vec3 {
+    const c = math.cos(angle);
+    const s = math.sin(angle);
+    return .{
+        .x = v.x * c + v.z * s,
+        .y = v.y,
+        .z = v.z * c - v.x * s,
+    };
+}
+
+/// Point where segment `a -> b` crosses the plane `x = plane_x`. Matches
+/// `Vec3D.getIntermediateWithXValue`: `null` when the segment is
+/// (near-)parallel to the plane or the crossing falls outside the segment.
+pub fn intermediateWithX(a: Vec3, b: Vec3, plane_x: f64) ?Vec3 {
+    const d = b.sub(a);
+    if (d.x * d.x < 1.0e-7) return null;
+    const t = (plane_x - a.x) / d.x;
+    if (t < 0.0 or t > 1.0) return null;
+    return a.add(d.scale(t));
+}
+
+/// Matches `Vec3D.getIntermediateWithYValue`.
+pub fn intermediateWithY(a: Vec3, b: Vec3, plane_y: f64) ?Vec3 {
+    const d = b.sub(a);
+    if (d.y * d.y < 1.0e-7) return null;
+    const t = (plane_y - a.y) / d.y;
+    if (t < 0.0 or t > 1.0) return null;
+    return a.add(d.scale(t));
+}
+
+/// Matches `Vec3D.getIntermediateWithZValue`.
+pub fn intermediateWithZ(a: Vec3, b: Vec3, plane_z: f64) ?Vec3 {
+    const d = b.sub(a);
+    if (d.z * d.z < 1.0e-7) return null;
+    const t = (plane_z - a.z) / d.z;
+    if (t < 0.0 or t > 1.0) return null;
+    return a.add(d.scale(t));
+}
+
+test "length/distanceTo match a 3-4-5 triangle" {
+    const v = Vec3.init(3.0, 4.0, 0.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), v.length(), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), Vec3.init(0, 0, 0).distanceTo(v), 1.0e-6);
+}
+
+test "normalize produces a unit vector" {
+    const v = Vec3.init(3.0, 4.0, 0.0).normalize();
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), v.length(), 1.0e-6);
+}
+
+test "cross product of orthogonal unit axes" {
+    const x = Vec3.init(1, 0, 0);
+    const y = Vec3.init(0, 1, 0);
+    const z = x.cross(y);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), z.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), z.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), z.z, 1.0e-9);
+}
+
+test "intermediateWithY finds the segment/plane crossing" {
+    const a = Vec3.init(0, 0, 0);
+    const b = Vec3.init(0, 10, 0);
+    const hit = a.intermediateWithY(b, 5.0).?;
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), hit.y, 1.0e-9);
+    try std.testing.expect(a.intermediateWithY(b, 20.0) == null);
+}
