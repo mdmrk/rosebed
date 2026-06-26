@@ -5,6 +5,7 @@ const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
 const Climate = @import("climate.zig");
 const biome = @import("biome.zig");
+const caves = @import("caves.zig");
 
 const TerrainGenerator = @This();
 
@@ -14,6 +15,7 @@ blend_noise: NoiseGeneratorOctaves,
 scale_noise: NoiseGeneratorOctaves,
 depth_noise: NoiseGeneratorOctaves,
 climate: Climate,
+world_seed: i64,
 
 const sea_level: i32 = 64;
 const density_x = 5;
@@ -32,6 +34,7 @@ pub fn init(gpa: std.mem.Allocator, seed: i64) !TerrainGenerator {
         .scale_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 10),
         .depth_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16),
         .climate = try Climate.init(gpa, seed),
+        .world_seed = seed,
     };
 }
 
@@ -192,6 +195,7 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     }
 
     dressSurface(&chunk, &climate_sample);
+    caves.carve(&chunk, chunk_x, chunk_z, self.world_seed);
     return chunk;
 }
 
