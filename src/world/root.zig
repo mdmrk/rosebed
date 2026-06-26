@@ -8,6 +8,8 @@ pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
 pub const TerrainGenerator = @import("terrain_gen.zig");
 pub const NoiseGenerator2 = @import("noise_simplex.zig");
 pub const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
+pub const biome = @import("biome.zig");
+pub const Climate = @import("climate.zig");
 
 test {
     _ = Chunk;
@@ -19,4 +21,6 @@ test {
     _ = TerrainGenerator;
     _ = NoiseGenerator2;
     _ = NoiseGeneratorOctaves2;
+    _ = biome;
+    _ = Climate;
 }
