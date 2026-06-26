@@ -44,6 +44,12 @@ pub fn nextFloat(self: *JavaRandom) f32 {
     return @as(f32, @floatFromInt(self.next(24))) / @as(f32, @floatFromInt(@as(i32, 1) << 24));
 }
 
+pub fn nextLong(self: *JavaRandom) i64 {
+    const hi: i64 = self.next(32);
+    const lo: i64 = self.next(32);
+    return (hi << 32) +% lo;
+}
+
 test "nextInt matches java.util.Random(12345).nextInt()" {
     var r = JavaRandom.init(12345);
     const expected = [_]i32{ 1553932502, -2090749135, -287790814, -355989640, -716867186 };
@@ -73,5 +79,21 @@ test "nextIntBound(37) matches java.util.Random(12345).nextInt(37), non-power-of
     const expected = [_]i32{ 32, 33, 20, 29, 7 };
     for (expected) |e| {
         try std.testing.expectEqual(e, r.nextIntBound(37));
+    }
+}
+
+test "nextLong matches java.util.Random(12345).nextLong()" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]i64{ 6674089274190705457, -1236052134575208584, -3078921119283744887, 6022414958441676900, 4344647195749500666 };
+    for (expected) |e| {
+        try std.testing.expectEqual(e, r.nextLong());
+    }
+}
+
+test "nextLong matches java.util.Random(-987654321).nextLong()" {
+    var r = JavaRandom.init(-987654321);
+    const expected = [_]i64{ -5646896605836454244, -7312776516532582084, -3244340451393990214 };
+    for (expected) |e| {
+        try std.testing.expectEqual(e, r.nextLong());
     }
 }
