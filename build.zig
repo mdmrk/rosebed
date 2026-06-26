@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "sdl3", .module = sdl3.module("sdl3") },
                 .{ .name = "math", .module = math_mod },
                 .{ .name = "core", .module = core_mod },
+                .{ .name = "world", .module = world_mod },
                 .{ .name = "render", .module = render_mod },
             },
         }),

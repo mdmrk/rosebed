@@ -4,7 +4,10 @@ const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
 const Timer = @import("core").Timer;
-const Atlas = @import("render").Atlas;
+const math = @import("math");
+const world = @import("world");
+const render = @import("render");
+const Atlas = render.Atlas;
 
 const fps = 60;
 const ticks_per_second = 20.0;
@@ -12,6 +15,9 @@ const screen_width = 640;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_path = "../decompilation/assets/terrain.png";
+const fov_y_radians = 70.0 * std.math.pi / 180.0;
+const near_plane = 0.05;
+const far_plane = 1000.0;
 
 comptime {
     _ = sdl3.main_callbacks;
@@ -25,9 +31,24 @@ const AppState = struct {
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
     atlas: Atlas,
+    shader: render.Shader,
+    chunk_mesh: render.GpuMesh,
     timer: Timer,
     tick_count: u64 = 0,
 };
+
+fn buildTestChunk() world.Chunk {
+    var chunk = world.Chunk.init(0, 0);
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.bedrock);
+            chunk.setBlockId(@intCast(x), 1, @intCast(z), world.block.stone);
+            chunk.setBlockId(@intCast(x), 2, @intCast(z), world.block.dirt);
+            chunk.setBlockId(@intCast(x), 3, @intCast(z), world.block.grass);
+        }
+    }
+    return chunk;
+}
 
 fn glGetProcAddress(name: [*:0]const u8) ?gl.PROC {
     return @ptrCast(@alignCast(sdl3.video.gl.getProcAddress(std.mem.span(name))));
@@ -60,6 +81,8 @@ pub fn init(
         .gl_context = gl_context,
         .gl_procs = undefined,
         .atlas = undefined,
+        .shader = undefined,
+        .chunk_mesh = undefined,
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
@@ -67,6 +90,14 @@ pub fn init(
 
     app_state.atlas = try Atlas.load(terrain_path);
     errdefer app_state.atlas.deinit();
+
+    app_state.shader = try render.terrain_shader.init();
+    errdefer app_state.shader.deinit();
+
+    var chunk = buildTestChunk();
+    var mesh = try render.chunk_mesher.build(std.heap.page_allocator, &chunk);
+    defer mesh.deinit(std.heap.page_allocator);
+    app_state.chunk_mesh = render.GpuMesh.upload(&mesh);
 
     return .{ app_state, .run };
 }
@@ -89,9 +120,22 @@ pub fn iterate(
         tick(app_state);
     }
 
+    gl.Enable(gl.DEPTH_TEST);
     gl.ClearColor(0.502, 0.118, 1.0, 1.0);
-    gl.Clear(gl.COLOR_BUFFER_BIT);
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const aspect: f32 = @as(f32, screen_width) / @as(f32, screen_height);
+    const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
+    const view = math.Mat4.lookAt(.{ 8, 10, 24 }, .{ 8, 2, 8 }, .{ 0, 1, 0 });
+    const view_proj = proj.mul(view);
+
+    app_state.shader.use();
+    app_state.shader.setMat4("u_view_proj", view_proj.m);
+    gl.ActiveTexture(gl.TEXTURE0);
     app_state.atlas.bind();
+    app_state.shader.setInt("u_atlas", 0);
+    app_state.chunk_mesh.draw();
+
     try sdl3.video.gl.swapWindow(app_state.window);
 
     return .run;
@@ -118,6 +162,8 @@ pub fn quit(
 
     if (app_state) |state| {
         gl.makeProcTableCurrent(&state.gl_procs);
+        state.chunk_mesh.deinit();
+        state.shader.deinit();
         state.atlas.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
