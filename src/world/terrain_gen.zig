@@ -7,6 +7,7 @@ const Climate = @import("climate.zig");
 const biome = @import("biome.zig");
 const caves = @import("caves.zig");
 const decorate = @import("decorate.zig");
+const lakes = @import("lakes.zig");
 
 const TerrainGenerator = @This();
 
@@ -203,6 +204,25 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     const mult_z = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
     const decorate_seed = (@as(i64, chunk_x) *% mult_x +% @as(i64, chunk_z) *% mult_z) ^ self.world_seed;
     decorate_rand.setSeed(decorate_seed);
+
+    const base_x = chunk_x * 16;
+    const base_z = chunk_z * 16;
+
+    if (decorate_rand.nextIntBound(4) == 0) {
+        const x = base_x + decorate_rand.nextIntBound(16) + 8;
+        const y = decorate_rand.nextIntBound(128);
+        const z = base_z + decorate_rand.nextIntBound(16) + 8;
+        _ = lakes.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z, block.stationary_water);
+    }
+
+    if (decorate_rand.nextIntBound(8) == 0) {
+        const x = base_x + decorate_rand.nextIntBound(16) + 8;
+        const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
+        const z = base_z + decorate_rand.nextIntBound(16) + 8;
+        if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
+            _ = lakes.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z, block.flowing_lava);
+        }
+    }
 
     decorate.generateOreVeins(&chunk, chunk_x, chunk_z, &decorate_rand);
     decorate.generateTrees(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));

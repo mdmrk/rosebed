@@ -22,6 +22,10 @@ pub fn isOpaque(id: u8) bool {
     return id != air;
 }
 
+pub fn isLiquid(id: u8) bool {
+    return id == stationary_water or id == flowing_lava;
+}
+
 pub const down = 0;
 pub const up = 1;
 pub const north = 2;
