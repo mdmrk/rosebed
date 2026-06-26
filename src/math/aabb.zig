@@ -1,7 +1,6 @@
 //! Axis-aligned bounding box, ported from Minecraft Beta 1.7.3's
-//! `AxisAlignedBB`. The original pooled instances to dodge GC churn; that's
-//! unneeded here since `AABB` is a plain value type, so every operation
-//! below returns a new box instead of mutating in place.
+//! `AxisAlignedBB`. The original pooled instances to dodge GC churn; unneeded
+//! here, so every operation below returns a new box instead of mutating.
 const std = @import("std");
 
 const AABB = @This();
@@ -17,8 +16,6 @@ pub fn init(min_x: f64, min_y: f64, min_z: f64, max_x: f64, max_y: f64, max_z: f
     return .{ .min_x = min_x, .min_y = min_y, .min_z = min_z, .max_x = max_x, .max_y = max_y, .max_z = max_z };
 }
 
-/// Matches `AxisAlignedBB.expand`: grows (or, with negative arguments,
-/// shrinks) the box symmetrically around its center.
 pub fn expand(b: AABB, x: f64, y: f64, z: f64) AABB {
     return .{
         .min_x = b.min_x - x,
@@ -30,12 +27,10 @@ pub fn expand(b: AABB, x: f64, y: f64, z: f64) AABB {
     };
 }
 
-/// Matches `AxisAlignedBB.func_28195_e` (the inverse of `expand`).
 pub fn contract(b: AABB, x: f64, y: f64, z: f64) AABB {
     return b.expand(-x, -y, -z);
 }
 
-/// Matches `AxisAlignedBB.offset`: translates the box by a delta.
 pub fn offset(b: AABB, x: f64, y: f64, z: f64) AABB {
     return .{
         .min_x = b.min_x + x,
@@ -47,8 +42,8 @@ pub fn offset(b: AABB, x: f64, y: f64, z: f64) AABB {
     };
 }
 
-/// Matches `AxisAlignedBB.addCoord`: grows the box only in the direction(s)
-/// a motion vector points, for broad-phase sweep collision.
+// Grows the box only in the direction(s) a motion vector points, for
+// broad-phase sweep collision.
 pub fn addCoord(b: AABB, x: f64, y: f64, z: f64) AABB {
     var r = b;
     if (x < 0.0) r.min_x += x;
@@ -60,7 +55,6 @@ pub fn addCoord(b: AABB, x: f64, y: f64, z: f64) AABB {
     return r;
 }
 
-/// Matches `AxisAlignedBB.intersectsWith`.
 pub fn intersects(a: AABB, b: AABB) bool {
     if (b.max_x <= a.min_x or b.min_x >= a.max_x) return false;
     if (b.max_y <= a.min_y or b.min_y >= a.max_y) return false;
@@ -68,9 +62,6 @@ pub fn intersects(a: AABB, b: AABB) bool {
     return true;
 }
 
-/// Matches `AxisAlignedBB.calculateXOffset`: given `other` sweeping by `dx`
-/// along X relative to `this`, clamps `dx` so the boxes stop touching
-/// instead of passing through each other.
 pub fn calculateXOffset(this: AABB, other: AABB, dx: f64) f64 {
     if (other.max_y <= this.min_y or other.min_y >= this.max_y) return dx;
     if (other.max_z <= this.min_z or other.min_z >= this.max_z) return dx;
@@ -87,7 +78,6 @@ pub fn calculateXOffset(this: AABB, other: AABB, dx: f64) f64 {
     return d;
 }
 
-/// Matches `AxisAlignedBB.calculateYOffset`.
 pub fn calculateYOffset(this: AABB, other: AABB, dy: f64) f64 {
     if (other.max_x <= this.min_x or other.min_x >= this.max_x) return dy;
     if (other.max_z <= this.min_z or other.min_z >= this.max_z) return dy;
@@ -104,7 +94,6 @@ pub fn calculateYOffset(this: AABB, other: AABB, dy: f64) f64 {
     return d;
 }
 
-/// Matches `AxisAlignedBB.calculateZOffset`.
 pub fn calculateZOffset(this: AABB, other: AABB, dz: f64) f64 {
     if (other.max_x <= this.min_x or other.min_x >= this.max_x) return dz;
     if (other.max_y <= this.min_y or other.min_y >= this.max_y) return dz;
@@ -132,10 +121,7 @@ test "intersects detects overlap and rejects touching boxes" {
 test "calculateXOffset clamps motion at the point of contact" {
     const floor = AABB.init(0, 0, 0, 1, 1, 1);
     const mover = AABB.init(2, 0, 0, 3, 1, 1);
-    // Moving 5 units in -X would tunnel through `floor`; it should clamp to
-    // the exact distance between the boxes (2 - 1 = 1, negated).
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), floor.calculateXOffset(mover, -5.0), 1.0e-9);
-    // Moving away should be unaffected.
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), floor.calculateXOffset(mover, 5.0), 1.0e-9);
 }
 

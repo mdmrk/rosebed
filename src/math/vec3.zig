@@ -1,9 +1,6 @@
 //! 3D double-precision vector, ported from Minecraft Beta 1.7.3's `Vec3D`.
-//!
-//! The original pooled instances through static `createVector`/`createVectorHelper`
-//! calls to dodge JVM GC pressure. That's unnecessary here: `Vec3` is a plain
-//! value type copied on the stack, so every operation below just returns a
-//! new one.
+//! The original pooled instances to dodge JVM GC pressure; unneeded here
+//! since `Vec3` is a plain stack value.
 const std = @import("std");
 const math = @import("mathutil.zig");
 
@@ -33,7 +30,6 @@ pub fn dot(a: Vec3, b: Vec3) f64 {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-/// Matches `Vec3D.crossProduct`.
 pub fn cross(a: Vec3, b: Vec3) Vec3 {
     return .{
         .x = a.y * b.z - a.z * b.y,
@@ -46,7 +42,6 @@ pub fn lengthSquared(v: Vec3) f64 {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-/// Matches `Vec3D.lengthVector` (the original narrows the sqrt to f32).
 pub fn length(v: Vec3) f64 {
     return math.sqrtF(v.lengthSquared());
 }
@@ -55,19 +50,17 @@ pub fn distanceSquaredTo(a: Vec3, b: Vec3) f64 {
     return b.sub(a).lengthSquared();
 }
 
-/// Matches `Vec3D.distanceTo` (the original narrows the sqrt to f32).
+// `math.sqrtF` narrows to f32, matching the precision the original had.
 pub fn distanceTo(a: Vec3, b: Vec3) f64 {
     return math.sqrtF(a.distanceSquaredTo(b));
 }
 
-/// Matches `Vec3D.normalize`.
 pub fn normalize(v: Vec3) Vec3 {
     const len = v.length();
     if (len < 1.0e-4) return .{ .x = 0, .y = 0, .z = 0 };
     return v.scale(1.0 / len);
 }
 
-/// Matches `Vec3D.rotateAroundX`.
 pub fn rotateX(v: Vec3, angle: f32) Vec3 {
     const c = math.cos(angle);
     const s = math.sin(angle);
@@ -78,7 +71,6 @@ pub fn rotateX(v: Vec3, angle: f32) Vec3 {
     };
 }
 
-/// Matches `Vec3D.rotateAroundY`.
 pub fn rotateY(v: Vec3, angle: f32) Vec3 {
     const c = math.cos(angle);
     const s = math.sin(angle);
@@ -89,9 +81,8 @@ pub fn rotateY(v: Vec3, angle: f32) Vec3 {
     };
 }
 
-/// Point where segment `a -> b` crosses the plane `x = plane_x`. Matches
-/// `Vec3D.getIntermediateWithXValue`: `null` when the segment is
-/// (near-)parallel to the plane or the crossing falls outside the segment.
+// null when segment a->b is (near-)parallel to the plane, or the crossing
+// falls outside the segment.
 pub fn intermediateWithX(a: Vec3, b: Vec3, plane_x: f64) ?Vec3 {
     const d = b.sub(a);
     if (d.x * d.x < 1.0e-7) return null;
@@ -100,7 +91,6 @@ pub fn intermediateWithX(a: Vec3, b: Vec3, plane_x: f64) ?Vec3 {
     return a.add(d.scale(t));
 }
 
-/// Matches `Vec3D.getIntermediateWithYValue`.
 pub fn intermediateWithY(a: Vec3, b: Vec3, plane_y: f64) ?Vec3 {
     const d = b.sub(a);
     if (d.y * d.y < 1.0e-7) return null;
@@ -109,7 +99,6 @@ pub fn intermediateWithY(a: Vec3, b: Vec3, plane_y: f64) ?Vec3 {
     return a.add(d.scale(t));
 }
 
-/// Matches `Vec3D.getIntermediateWithZValue`.
 pub fn intermediateWithZ(a: Vec3, b: Vec3, plane_z: f64) ?Vec3 {
     const d = b.sub(a);
     if (d.z * d.z < 1.0e-7) return null;
