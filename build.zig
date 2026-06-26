@@ -37,6 +37,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/world/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "math", .module = math_mod },
+        },
     });
 
     const render_mod = b.createModule(.{
