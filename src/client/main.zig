@@ -38,7 +38,7 @@ const AppState = struct {
     chunk: world.Chunk,
     timer: Timer,
     tick_count: u64 = 0,
-    player: game.Player = .{ .position = math.Vec3.init(8, 90, 8) },
+    player: game.Player = .{ .position = math.Vec3.init(8, 90, 8), .prev_position = math.Vec3.init(8, 90, 8) },
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -137,7 +137,7 @@ pub fn iterate(
 
     const aspect: f32 = @as(f32, screen_width) / @as(f32, screen_height);
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
-    const view = app_state.player.viewMatrix();
+    const view = app_state.player.viewMatrix(app_state.timer.render_partial_ticks);
     const view_proj = proj.mul(view);
 
     app_state.shader.use();

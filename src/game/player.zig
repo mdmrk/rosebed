@@ -6,6 +6,7 @@ const physics = @import("physics.zig");
 const Player = @This();
 
 position: math.Vec3,
+prev_position: math.Vec3 = math.Vec3.init(0, 0, 0),
 yaw: f32 = 0,
 pitch: f32 = 0,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),
@@ -27,6 +28,8 @@ const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
 pub fn tick(self: *Player, chunk: *const world.Chunk, strafe: f32, forward: f32, jump: bool) void {
+    self.prev_position = self.position;
+
     if (self.on_ground and jump) {
         self.motion.y = jump_velocity;
     }
@@ -103,11 +106,21 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
     return dir;
 }
 
-pub fn viewMatrix(self: Player) math.Mat4 {
+pub fn renderPosition(self: Player, partial_ticks: f32) math.Vec3 {
+    const t: f64 = partial_ticks;
+    return .{
+        .x = self.prev_position.x + (self.position.x - self.prev_position.x) * t,
+        .y = self.prev_position.y + (self.position.y - self.prev_position.y) * t,
+        .z = self.prev_position.z + (self.position.z - self.prev_position.z) * t,
+    };
+}
+
+pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
+    const render_position = self.renderPosition(partial_ticks);
     const eye = [3]f32{
-        @floatCast(self.position.x),
-        @floatCast(self.position.y + eye_height),
-        @floatCast(self.position.z),
+        @floatCast(render_position.x),
+        @floatCast(render_position.y + eye_height),
+        @floatCast(render_position.z),
     };
     const look = self.lookVector();
     const center = [3]f32{ eye[0] + look[0], eye[1] + look[1], eye[2] + look[2] };
@@ -163,6 +176,16 @@ test "moveDirection at yaw 0 matches forward/strafe axes" {
     const strafe = player.moveDirection(1, 0);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), strafe[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), strafe[2], 1.0e-5);
+}
+
+test "renderPosition interpolates between the previous and current tick" {
+    const player: Player = .{
+        .position = math.Vec3.init(10, 0, 0),
+        .prev_position = math.Vec3.init(0, 0, 0),
+    };
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), player.renderPosition(0.0).x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), player.renderPosition(0.5).x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), player.renderPosition(1.0).x, 1.0e-9);
 }
 
 fn testChunkWithFloor() world.Chunk {
