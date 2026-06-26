@@ -20,6 +20,8 @@ const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
 const world_seed = 1;
+const reach_distance = 4.5;
+const place_block_id = world.block.stone;
 
 comptime {
     _ = sdl3.main_callbacks;
@@ -109,6 +111,45 @@ pub fn init(
     return .{ app_state, .run };
 }
 
+fn rebuildMesh(app_state: *AppState) !void {
+    var mesh = try render.chunk_mesher.build(std.heap.page_allocator, &app_state.chunk);
+    defer mesh.deinit(std.heap.page_allocator);
+    app_state.chunk_mesh.deinit();
+    app_state.chunk_mesh = render.GpuMesh.upload(&mesh);
+}
+
+fn faceOffset(face: u3) [3]i32 {
+    return switch (face) {
+        world.block.down => .{ 0, -1, 0 },
+        world.block.up => .{ 0, 1, 0 },
+        world.block.north => .{ 0, 0, -1 },
+        world.block.south => .{ 0, 0, 1 },
+        world.block.west => .{ -1, 0, 0 },
+        world.block.east => .{ 1, 0, 0 },
+        else => .{ 0, 0, 0 },
+    };
+}
+
+fn breakTargetedBlock(app_state: *AppState) !void {
+    const hit = game.raycast.cast(&app_state.chunk, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
+    app_state.chunk.setBlockId(@intCast(hit.x), @intCast(hit.y), @intCast(hit.z), world.block.air);
+    try rebuildMesh(app_state);
+}
+
+fn placeBlockAtTarget(app_state: *AppState) !void {
+    const hit = game.raycast.cast(&app_state.chunk, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
+    const offset = faceOffset(hit.face);
+    const px = hit.x + offset[0];
+    const py = hit.y + offset[1];
+    const pz = hit.z + offset[2];
+    if (px < 0 or px >= world.constants.chunk_width or
+        py < 0 or py >= world.constants.chunk_height or
+        pz < 0 or pz >= world.constants.chunk_width) return;
+    if (world.block.isOpaque(app_state.chunk.getBlockId(@intCast(px), @intCast(py), @intCast(pz)))) return;
+    app_state.chunk.setBlockId(@intCast(px), @intCast(py), @intCast(pz), place_block_id);
+    try rebuildMesh(app_state);
+}
+
 fn tick(app_state: *AppState) void {
     app_state.tick_count += 1;
 
@@ -167,11 +208,17 @@ pub fn event(
     app_state: *AppState,
     curr_event: sdl3.events.Event,
 ) !sdl3.AppResult {
+    gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
         .key_down => |k| setKeyState(app_state, k.key, true),
         .key_up => |k| setKeyState(app_state, k.key, false),
         .mouse_motion => |m| app_state.player.turn(m.x_rel, m.y_rel),
+        .mouse_button_down => |m| switch (m.button) {
+            .left => try breakTargetedBlock(app_state),
+            .right => try placeBlockAtTarget(app_state),
+            else => {},
+        },
         else => {},
     }
     return .run;
