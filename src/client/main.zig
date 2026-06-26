@@ -19,6 +19,7 @@ const terrain_path = "../decompilation/assets/terrain.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
+const world_seed = 1;
 
 comptime {
     _ = sdl3.main_callbacks;
@@ -37,7 +38,7 @@ const AppState = struct {
     chunk: world.Chunk,
     timer: Timer,
     tick_count: u64 = 0,
-    player: game.Player = .{ .position = math.Vec3.init(8, 4, 8) },
+    player: game.Player = .{ .position = math.Vec3.init(8, 90, 8) },
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -47,17 +48,11 @@ const AppState = struct {
     } = .{},
 };
 
-fn buildTestChunk() world.Chunk {
-    var chunk = world.Chunk.init(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.bedrock);
-            chunk.setBlockId(@intCast(x), 1, @intCast(z), world.block.stone);
-            chunk.setBlockId(@intCast(x), 2, @intCast(z), world.block.dirt);
-            chunk.setBlockId(@intCast(x), 3, @intCast(z), world.block.grass);
-        }
-    }
-    return chunk;
+fn buildTestChunk() !world.Chunk {
+    const gpa = std.heap.page_allocator;
+    const generator = try world.TerrainGenerator.init(gpa, world_seed);
+    defer generator.deinit(gpa);
+    return generator.generateChunk(0, 0);
 }
 
 fn glGetProcAddress(name: [*:0]const u8) ?gl.PROC {
@@ -95,7 +90,7 @@ pub fn init(
         .atlas = undefined,
         .shader = undefined,
         .chunk_mesh = undefined,
-        .chunk = buildTestChunk(),
+        .chunk = try buildTestChunk(),
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
