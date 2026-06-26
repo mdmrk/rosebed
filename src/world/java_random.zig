@@ -1,0 +1,77 @@
+const std = @import("std");
+
+const JavaRandom = @This();
+
+const multiplier: i64 = 0x5DEECE66D;
+const addend: i64 = 0xB;
+const mask: i64 = (1 << 48) - 1;
+
+seed: i64,
+
+pub fn init(seed: i64) JavaRandom {
+    return .{ .seed = (seed ^ multiplier) & mask };
+}
+
+fn next(self: *JavaRandom, bits: u6) i32 {
+    self.seed = (self.seed *% multiplier +% addend) & mask;
+    const shifted = self.seed >> @intCast(48 - bits);
+    return @truncate(shifted);
+}
+
+pub fn nextInt(self: *JavaRandom) i32 {
+    return self.next(32);
+}
+
+pub fn nextIntBound(self: *JavaRandom, bound: i32) i32 {
+    if ((bound & -%bound) == bound) {
+        return @intCast((@as(i64, bound) *% @as(i64, self.next(31))) >> 31);
+    }
+    while (true) {
+        const bits = self.next(31);
+        const val = @rem(bits, bound);
+        if (bits -% val +% (bound - 1) >= 0) return val;
+    }
+}
+
+pub fn nextDouble(self: *JavaRandom) f64 {
+    const hi: i64 = self.next(26);
+    const lo: i64 = self.next(27);
+    const combined = (hi << 27) +% lo;
+    return @as(f64, @floatFromInt(combined)) / @as(f64, @floatFromInt(@as(i64, 1) << 53));
+}
+
+pub fn nextFloat(self: *JavaRandom) f32 {
+    return @as(f32, @floatFromInt(self.next(24))) / @as(f32, @floatFromInt(@as(i32, 1) << 24));
+}
+
+test "nextInt matches java.util.Random(12345).nextInt()" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]i32{ 1553932502, -2090749135, -287790814, -355989640, -716867186 };
+    for (expected) |e| {
+        try std.testing.expectEqual(e, r.nextInt());
+    }
+}
+
+test "nextDouble matches java.util.Random(12345).nextDouble()" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]f64{ 0.3618031071604718, 0.932993485288541, 0.8330913489710237, 0.32647575623792624, 0.2355237906476252 };
+    for (expected) |e| {
+        try std.testing.expectApproxEqAbs(e, r.nextDouble(), 1.0e-15);
+    }
+}
+
+test "nextIntBound(100) matches java.util.Random(12345).nextInt(100)" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]i32{ 51, 80, 41, 28, 55 };
+    for (expected) |e| {
+        try std.testing.expectEqual(e, r.nextIntBound(100));
+    }
+}
+
+test "nextIntBound(37) matches java.util.Random(12345).nextInt(37), non-power-of-2 rejection path" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]i32{ 32, 33, 20, 29, 7 };
+    for (expected) |e| {
+        try std.testing.expectEqual(e, r.nextIntBound(37));
+    }
+}
