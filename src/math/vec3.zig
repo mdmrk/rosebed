@@ -11,20 +11,30 @@ pub fn init(x: f64, y: f64, z: f64) Vec3 {
     return .{ .x = x, .y = y, .z = z };
 }
 
+const Simd = @Vector(3, f64);
+
+fn toSimd(v: Vec3) Simd {
+    return .{ v.x, v.y, v.z };
+}
+
+fn fromSimd(v: Simd) Vec3 {
+    return .{ .x = v[0], .y = v[1], .z = v[2] };
+}
+
 pub fn add(a: Vec3, b: Vec3) Vec3 {
-    return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+    return fromSimd(toSimd(a) + toSimd(b));
 }
 
 pub fn sub(a: Vec3, b: Vec3) Vec3 {
-    return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
+    return fromSimd(toSimd(a) - toSimd(b));
 }
 
 pub fn scale(v: Vec3, s: f64) Vec3 {
-    return .{ .x = v.x * s, .y = v.y * s, .z = v.z * s };
+    return fromSimd(toSimd(v) * @as(Simd, @splat(s)));
 }
 
 pub fn dot(a: Vec3, b: Vec3) f64 {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
+    return @reduce(.Add, toSimd(a) * toSimd(b));
 }
 
 pub fn cross(a: Vec3, b: Vec3) Vec3 {
@@ -36,7 +46,8 @@ pub fn cross(a: Vec3, b: Vec3) Vec3 {
 }
 
 pub fn lengthSquared(v: Vec3) f64 {
-    return v.x * v.x + v.y * v.y + v.z * v.z;
+    const s = toSimd(v);
+    return @reduce(.Add, s * s);
 }
 
 pub fn length(v: Vec3) f64 {
