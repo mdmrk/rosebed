@@ -50,6 +50,15 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const game_mod = b.createModule(.{
+        .root_source_file = b.path("src/game/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "math", .module = math_mod },
+        },
+    });
+
     const client = b.addExecutable(.{
         .name = "rosebed",
         .root_module = b.createModule(.{
@@ -64,6 +73,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "core", .module = core_mod },
                 .{ .name = "world", .module = world_mod },
                 .{ .name = "render", .module = render_mod },
+                .{ .name = "game", .module = game_mod },
             },
         }),
     });
@@ -87,4 +97,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = core_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = render_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = game_mod })).step);
 }
