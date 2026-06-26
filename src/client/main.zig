@@ -4,12 +4,14 @@ const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
 const Timer = @import("core").Timer;
+const Atlas = @import("render").Atlas;
 
 const fps = 60;
 const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
+const terrain_path = "../decompilation/assets/terrain.png";
 
 comptime {
     _ = sdl3.main_callbacks;
@@ -22,6 +24,7 @@ const AppState = struct {
     window: sdl3.video.Window,
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
+    atlas: Atlas,
     timer: Timer,
     tick_count: u64 = 0,
 };
@@ -56,9 +59,14 @@ pub fn init(
         .window = window,
         .gl_context = gl_context,
         .gl_procs = undefined,
+        .atlas = undefined,
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
+    gl.makeProcTableCurrent(&app_state.gl_procs);
+
+    app_state.atlas = try Atlas.load(terrain_path);
+    errdefer app_state.atlas.deinit();
 
     return .{ app_state, .run };
 }
@@ -83,6 +91,7 @@ pub fn iterate(
 
     gl.ClearColor(0.502, 0.118, 1.0, 1.0);
     gl.Clear(gl.COLOR_BUFFER_BIT);
+    app_state.atlas.bind();
     try sdl3.video.gl.swapWindow(app_state.window);
 
     return .run;
@@ -108,6 +117,8 @@ pub fn quit(
     _ = result;
 
     if (app_state) |state| {
+        gl.makeProcTableCurrent(&state.gl_procs);
+        state.atlas.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
     }
