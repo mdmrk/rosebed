@@ -1,5 +1,7 @@
 const std = @import("std");
 const math = @import("math");
+const world = @import("world");
+const physics = @import("physics.zig");
 
 const Player = @This();
 
@@ -15,6 +17,44 @@ pub const eye_height: f64 = 1.62;
 
 const base_sensitivity = 0.5;
 const turn_scale = 0.15;
+
+const gravity: f64 = 0.08;
+const vertical_drag: f64 = 0.98;
+const air_friction: f64 = 0.91;
+const ground_friction: f64 = 0.6 * 0.91;
+const ground_speed: f64 = 0.1;
+const air_speed: f64 = 0.02;
+const jump_velocity: f64 = 0.42;
+
+pub fn tick(self: *Player, chunk: *const world.Chunk, strafe: f32, forward: f32, jump: bool) void {
+    if (self.on_ground and jump) {
+        self.motion.y = jump_velocity;
+    }
+
+    const speed: f64 = if (self.on_ground) ground_speed else air_speed;
+    const dir = self.moveDirection(strafe, forward);
+    self.motion.x += @as(f64, dir[0]) * speed;
+    self.motion.z += @as(f64, dir[2]) * speed;
+
+    const result = physics.moveEntity(chunk, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
+
+    self.position = .{
+        .x = (result.aabb.min_x + result.aabb.max_x) / 2.0,
+        .y = result.aabb.min_y,
+        .z = (result.aabb.min_z + result.aabb.max_z) / 2.0,
+    };
+
+    self.on_ground = self.motion.y != result.dy and self.motion.y < 0.0;
+    if (self.motion.x != result.dx) self.motion.x = 0;
+    if (self.motion.y != result.dy) self.motion.y = 0;
+    if (self.motion.z != result.dz) self.motion.z = 0;
+
+    self.motion.y -= gravity;
+    self.motion.y *= vertical_drag;
+    const friction: f64 = if (self.on_ground) ground_friction else air_friction;
+    self.motion.x *= friction;
+    self.motion.z *= friction;
+}
 
 pub fn boundingBox(self: Player) math.AABB {
     const half_width = width / 2.0;
@@ -123,4 +163,47 @@ test "moveDirection at yaw 0 matches forward/strafe axes" {
     const strafe = player.moveDirection(1, 0);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), strafe[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), strafe[2], 1.0e-5);
+}
+
+fn testChunkWithFloor() world.Chunk {
+    var chunk = world.Chunk.init(0, 0);
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
+        }
+    }
+    return chunk;
+}
+
+test "resting on the ground stays grounded" {
+    const chunk = testChunkWithFloor();
+    var player: Player = .{
+        .position = math.Vec3.init(8, 1, 8),
+        .on_ground = true,
+        .motion = math.Vec3.init(0, -0.0784, 0),
+    };
+    player.tick(&chunk, 0, 0, false);
+    try std.testing.expect(player.on_ground);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.position.y, 1.0e-9);
+}
+
+test "gravity accelerates a falling player" {
+    const chunk = world.Chunk.init(0, 0);
+    var player: Player = .{ .position = math.Vec3.init(8, 50, 8) };
+    player.tick(&chunk, 0, 0, false);
+    try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.motion.y, 1.0e-9);
+}
+
+test "jumping from the ground sets the jump velocity" {
+    const chunk = testChunkWithFloor();
+    var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
+    player.tick(&chunk, 0, 0, true);
+    try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.motion.y, 1.0e-9);
+}
+
+test "forward input on the ground moves the player each tick" {
+    const chunk = testChunkWithFloor();
+    var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
+    player.tick(&chunk, 0, 1, false);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.position.z, 1.0e-9);
 }
