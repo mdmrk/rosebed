@@ -39,6 +39,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const render_mod = b.createModule(.{
+        .root_source_file = b.path("src/render/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "gl", .module = gl_bindings },
+            .{ .name = "sdl3", .module = sdl3.module("sdl3") },
+        },
+    });
+
     const client = b.addExecutable(.{
         .name = "rosebed",
         .root_module = b.createModule(.{
@@ -51,6 +61,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "sdl3", .module = sdl3.module("sdl3") },
                 .{ .name = "math", .module = math_mod },
                 .{ .name = "core", .module = core_mod },
+                .{ .name = "render", .module = render_mod },
             },
         }),
     });
@@ -73,4 +84,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = core_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = world_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = render_mod })).step);
 }
