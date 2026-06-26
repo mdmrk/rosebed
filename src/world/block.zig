@@ -8,6 +8,15 @@ pub const bedrock: u8 = 7;
 pub const stationary_water: u8 = 9;
 pub const flowing_lava: u8 = 10;
 pub const sand: u8 = 12;
+pub const gravel: u8 = 13;
+pub const ore_gold: u8 = 14;
+pub const ore_iron: u8 = 15;
+pub const ore_coal: u8 = 16;
+pub const log: u8 = 17;
+pub const leaves: u8 = 18;
+pub const ore_lapis: u8 = 21;
+pub const ore_diamond: u8 = 56;
+pub const ore_redstone: u8 = 73;
 
 pub fn isOpaque(id: u8) bool {
     return id != air;
@@ -29,6 +38,15 @@ pub fn faceTextures(id: u8) [6]u8 {
         stationary_water => .{ 205, 205, 205, 205, 205, 205 },
         flowing_lava => .{ 237, 237, 237, 237, 237, 237 },
         sand => .{ 18, 18, 18, 18, 18, 18 },
+        gravel => .{ 19, 19, 19, 19, 19, 19 },
+        ore_gold => .{ 32, 32, 32, 32, 32, 32 },
+        ore_iron => .{ 33, 33, 33, 33, 33, 33 },
+        ore_coal => .{ 34, 34, 34, 34, 34, 34 },
+        log => .{ 21, 21, 20, 20, 20, 20 },
+        leaves => .{ 52, 52, 52, 52, 52, 52 },
+        ore_lapis => .{ 160, 160, 160, 160, 160, 160 },
+        ore_diamond => .{ 50, 50, 50, 50, 50, 50 },
+        ore_redstone => .{ 51, 51, 51, 51, 51, 51 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
 }
