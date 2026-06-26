@@ -14,7 +14,6 @@ const fps = 60;
 const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
-const fly_speed = 8.0;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_path = "../decompilation/assets/terrain.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
@@ -35,14 +34,16 @@ const AppState = struct {
     atlas: Atlas,
     shader: render.Shader,
     chunk_mesh: render.GpuMesh,
+    chunk: world.Chunk,
     timer: Timer,
     tick_count: u64 = 0,
-    player: game.Player = .{ .position = math.Vec3.init(8, 10, 24), .yaw = 180, .pitch = 25 },
+    player: game.Player = .{ .position = math.Vec3.init(8, 4, 8) },
     keys: struct {
         forward: bool = false,
         back: bool = false,
         left: bool = false,
         right: bool = false,
+        jump: bool = false,
     } = .{},
 };
 
@@ -94,6 +95,7 @@ pub fn init(
         .atlas = undefined,
         .shader = undefined,
         .chunk_mesh = undefined,
+        .chunk = buildTestChunk(),
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
@@ -105,8 +107,7 @@ pub fn init(
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
-    var chunk = buildTestChunk();
-    var mesh = try render.chunk_mesher.build(std.heap.page_allocator, &chunk);
+    var mesh = try render.chunk_mesher.build(std.heap.page_allocator, &app_state.chunk);
     defer mesh.deinit(std.heap.page_allocator);
     app_state.chunk_mesh = render.GpuMesh.upload(&mesh);
 
@@ -115,6 +116,10 @@ pub fn init(
 
 fn tick(app_state: *AppState) void {
     app_state.tick_count += 1;
+
+    const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
+    const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
+    app_state.player.tick(&app_state.chunk, strafe, forward, app_state.keys.jump);
 }
 
 pub fn iterate(
@@ -124,18 +129,12 @@ pub fn iterate(
     gl.Viewport(0, 0, screen_width, screen_height);
 
     const dt = app_state.fps_capper.delay();
+    _ = dt;
 
     app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
     for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
         tick(app_state);
     }
-
-    const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
-    const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
-    const move_dir = app_state.player.moveDirection(strafe, forward);
-    const move_dist = fly_speed * dt;
-    app_state.player.position.x += @as(f64, move_dir[0]) * move_dist;
-    app_state.player.position.z += @as(f64, move_dir[2]) * move_dist;
 
     gl.Enable(gl.DEPTH_TEST);
     gl.ClearColor(0.502, 0.118, 1.0, 1.0);
@@ -164,6 +163,7 @@ fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) voi
         .s => app_state.keys.back = down,
         .a => app_state.keys.left = down,
         .d => app_state.keys.right = down,
+        .space => app_state.keys.jump = down,
         else => {},
     }
 }
