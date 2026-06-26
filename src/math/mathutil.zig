@@ -1,8 +1,5 @@
-//! Numeric helpers ported from Minecraft Beta 1.7.3's `MathHelper`.
 const std = @import("std");
 
-// Reproduced exactly instead of calling `@sin` directly: vanilla tuned some
-// animations against this table's 65536-entry quantization.
 const sin_table: [65536]f32 = blk: {
     @setEvalBranchQuota(2_000_000);
     var table: [65536]f32 = undefined;
@@ -25,8 +22,6 @@ pub fn cos(x: f32) f32 {
     return sin_table[tableIndex(x * 10430.378 + 16384.0)];
 }
 
-// Java had sqrt_float and sqrt_double as separate methods, but both just
-// narrowed a sqrt to f32, so one function covers both here.
 pub fn sqrtF(x: f64) f32 {
     return @floatCast(@sqrt(x));
 }
@@ -49,7 +44,6 @@ pub fn absMax(a: f64, b: f64) f64 {
     return @max(@abs(a), @abs(b));
 }
 
-// Floors toward negative infinity, unlike `@divTrunc` which rounds toward 0.
 pub fn bucketInt(a: i32, b: i32) i32 {
     return if (a < 0) -(@divTrunc(-a - 1, b)) - 1 else @divTrunc(a, b);
 }

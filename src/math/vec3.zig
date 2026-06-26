@@ -1,6 +1,3 @@
-//! 3D double-precision vector, ported from Minecraft Beta 1.7.3's `Vec3D`.
-//! The original pooled instances to dodge JVM GC pressure; unneeded here
-//! since `Vec3` is a plain stack value.
 const std = @import("std");
 const math = @import("mathutil.zig");
 
@@ -50,7 +47,6 @@ pub fn distanceSquaredTo(a: Vec3, b: Vec3) f64 {
     return b.sub(a).lengthSquared();
 }
 
-// `math.sqrtF` narrows to f32, matching the precision the original had.
 pub fn distanceTo(a: Vec3, b: Vec3) f64 {
     return math.sqrtF(a.distanceSquaredTo(b));
 }
@@ -81,8 +77,6 @@ pub fn rotateY(v: Vec3, angle: f32) Vec3 {
     };
 }
 
-// null when segment a->b is (near-)parallel to the plane, or the crossing
-// falls outside the segment.
 pub fn intermediateWithX(a: Vec3, b: Vec3, plane_x: f64) ?Vec3 {
     const d = b.sub(a);
     if (d.x * d.x < 1.0e-7) return null;

@@ -1,6 +1,3 @@
-//! Fixed-rate game timer ported from Minecraft Beta 1.7.3's `Timer`. Tracks
-//! how many logic ticks have elapsed since the last frame, plus a fractional
-//! remainder used to interpolate rendering between two tick states.
 const std = @import("std");
 
 const Timer = @This();
@@ -18,10 +15,6 @@ pub fn init(ticks_per_second: f32, now_ns: u64) Timer {
     return .{ .ticks_per_second = ticks_per_second, .last_time_ns = now_ns };
 }
 
-// The original derived elapsed time from two clocks (a coarse wall clock
-// resynced against a monotonic one) to smooth over System.currentTimeMillis
-// jumps. The caller's `now_ns` is already monotonic, so that resync isn't
-// needed here.
 pub fn advance(self: *Timer, now_ns: u64) void {
     var dt: f64 = @as(f64, @floatFromInt(now_ns - self.last_time_ns)) / std.time.ns_per_s;
     self.last_time_ns = now_ns;
@@ -44,13 +37,13 @@ test "advance produces one tick per 1/20s at 20 ticks/second" {
 
 test "advance accumulates a fractional remainder" {
     var t = Timer.init(20.0, 0);
-    t.advance(std.time.ns_per_s / 40); // half a tick
+    t.advance(std.time.ns_per_s / 40);
     try std.testing.expectEqual(@as(i32, 0), t.elapsed_ticks);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), t.render_partial_ticks, 1.0e-4);
 }
 
 test "advance caps ticks per frame to avoid a spiral of death" {
     var t = Timer.init(20.0, 0);
-    t.advance(std.time.ns_per_s * 5); // 5 seconds stalled -> 100 ticks owed
+    t.advance(std.time.ns_per_s * 5);
     try std.testing.expectEqual(@as(i32, 10), t.elapsed_ticks);
 }

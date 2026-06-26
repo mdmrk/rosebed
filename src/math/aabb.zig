@@ -1,6 +1,3 @@
-//! Axis-aligned bounding box, ported from Minecraft Beta 1.7.3's
-//! `AxisAlignedBB`. The original pooled instances to dodge GC churn; unneeded
-//! here, so every operation below returns a new box instead of mutating.
 const std = @import("std");
 
 const AABB = @This();
@@ -42,8 +39,6 @@ pub fn offset(b: AABB, x: f64, y: f64, z: f64) AABB {
     };
 }
 
-// Grows the box only in the direction(s) a motion vector points, for
-// broad-phase sweep collision.
 pub fn addCoord(b: AABB, x: f64, y: f64, z: f64) AABB {
     var r = b;
     if (x < 0.0) r.min_x += x;
