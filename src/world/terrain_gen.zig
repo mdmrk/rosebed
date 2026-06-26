@@ -6,6 +6,7 @@ const block = @import("block.zig");
 const Climate = @import("climate.zig");
 const biome = @import("biome.zig");
 const caves = @import("caves.zig");
+const decorate = @import("decorate.zig");
 
 const TerrainGenerator = @This();
 
@@ -196,6 +197,16 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
 
     dressSurface(&chunk, &climate_sample);
     caves.carve(&chunk, chunk_x, chunk_z, self.world_seed);
+
+    var decorate_rand = JavaRandom.init(self.world_seed);
+    const mult_x = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
+    const mult_z = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
+    const decorate_seed = (@as(i64, chunk_x) *% mult_x +% @as(i64, chunk_z) *% mult_z) ^ self.world_seed;
+    decorate_rand.setSeed(decorate_seed);
+
+    decorate.generateOreVeins(&chunk, chunk_x, chunk_z, &decorate_rand);
+    decorate.generateTrees(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
+
     return chunk;
 }
 

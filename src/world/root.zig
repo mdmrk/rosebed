@@ -11,6 +11,7 @@ pub const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
 pub const biome = @import("biome.zig");
 pub const Climate = @import("climate.zig");
 pub const caves = @import("caves.zig");
+pub const decorate = @import("decorate.zig");
 
 test {
     _ = Chunk;
@@ -25,4 +26,5 @@ test {
     _ = biome;
     _ = Climate;
     _ = caves;
+    _ = decorate;
 }
