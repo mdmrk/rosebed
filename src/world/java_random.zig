@@ -12,6 +12,10 @@ pub fn init(seed: i64) JavaRandom {
     return .{ .seed = (seed ^ multiplier) & mask };
 }
 
+pub fn setSeed(self: *JavaRandom, seed: i64) void {
+    self.seed = (seed ^ multiplier) & mask;
+}
+
 fn next(self: *JavaRandom, bits: u6) i32 {
     self.seed = (self.seed *% multiplier +% addend) & mask;
     const shifted = self.seed >> @intCast(48 - bits);
@@ -88,6 +92,17 @@ test "nextLong matches java.util.Random(12345).nextLong()" {
     for (expected) |e| {
         try std.testing.expectEqual(e, r.nextLong());
     }
+}
+
+test "setSeed on an existing instance matches a freshly-initialized one" {
+    var r = JavaRandom.init(1);
+    _ = r.nextInt();
+    _ = r.nextInt();
+    r.setSeed(12345);
+
+    var expected = JavaRandom.init(12345);
+    try std.testing.expectEqual(expected.nextInt(), r.nextInt());
+    try std.testing.expectEqual(expected.nextInt(), r.nextInt());
 }
 
 test "nextLong matches java.util.Random(-987654321).nextLong()" {
