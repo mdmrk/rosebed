@@ -51,6 +51,51 @@ pub fn faceTextures(id: u8) [6]u8 {
     };
 }
 
+fn hardness(id: u8) f32 {
+    return switch (id) {
+        stone => 1.5,
+        grass => 0.6,
+        dirt => 0.5,
+        bedrock => -1.0,
+        stationary_water => 100.0,
+        flowing_lava => 0.0,
+        sand => 0.5,
+        gravel => 0.6,
+        ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone => 3.0,
+        log => 2.0,
+        leaves => 0.2,
+        else => 0.0,
+    };
+}
+
+fn isHarvestableByHand(id: u8) bool {
+    return switch (id) {
+        stone, ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone => false,
+        else => true,
+    };
+}
+
+pub fn digTicksRequired(id: u8) ?f32 {
+    const h = hardness(id);
+    if (h < 0.0) return null;
+    const divisor: f32 = if (isHarvestableByHand(id)) 30.0 else 100.0;
+    return h * divisor;
+}
+
+test "digTicksRequired matches hardness*30 for hand-harvestable blocks" {
+    try std.testing.expectApproxEqAbs(@as(f32, 15.0), digTicksRequired(dirt).?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 60.0), digTicksRequired(log).?, 1.0e-6);
+}
+
+test "digTicksRequired matches hardness*100 for blocks needing a tool" {
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicksRequired(stone).?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 300.0), digTicksRequired(ore_diamond).?, 1.0e-6);
+}
+
+test "bedrock is unbreakable" {
+    try std.testing.expect(digTicksRequired(bedrock) == null);
+}
+
 test "grass has a distinct top, bottom and side texture" {
     const textures = faceTextures(grass);
     try std.testing.expectEqual(@as(u8, 0), textures[up]);

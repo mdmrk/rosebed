@@ -48,6 +48,15 @@ const AppState = struct {
         right: bool = false,
         jump: bool = false,
     } = .{},
+    mouse_left_down: bool = false,
+    digging: ?Digging = null,
+};
+
+const Digging = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+    progress: f32,
 };
 
 fn buildTestChunk() !world.Chunk {
@@ -130,10 +139,36 @@ fn faceOffset(face: u3) [3]i32 {
     };
 }
 
-fn breakTargetedBlock(app_state: *AppState) !void {
-    const hit = game.raycast.cast(&app_state.chunk, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
-    app_state.chunk.setBlockId(@intCast(hit.x), @intCast(hit.y), @intCast(hit.z), world.block.air);
-    try rebuildMesh(app_state);
+fn digStep(app_state: *AppState) !void {
+    if (!app_state.mouse_left_down) {
+        app_state.digging = null;
+        return;
+    }
+
+    const hit = game.raycast.cast(&app_state.chunk, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+        app_state.digging = null;
+        return;
+    };
+
+    if (app_state.digging == null or app_state.digging.?.x != hit.x or app_state.digging.?.y != hit.y or app_state.digging.?.z != hit.z) {
+        app_state.digging = .{ .x = hit.x, .y = hit.y, .z = hit.z, .progress = 0 };
+    }
+
+    const block_id = app_state.chunk.getBlockId(@intCast(hit.x), @intCast(hit.y), @intCast(hit.z));
+    const ticks_required = world.block.digTicksRequired(block_id) orelse return;
+    if (ticks_required <= 0.0) {
+        app_state.chunk.setBlockId(@intCast(hit.x), @intCast(hit.y), @intCast(hit.z), world.block.air);
+        app_state.digging = null;
+        try rebuildMesh(app_state);
+        return;
+    }
+
+    app_state.digging.?.progress += 1.0 / ticks_required;
+    if (app_state.digging.?.progress >= 1.0) {
+        app_state.chunk.setBlockId(@intCast(hit.x), @intCast(hit.y), @intCast(hit.z), world.block.air);
+        app_state.digging = null;
+        try rebuildMesh(app_state);
+    }
 }
 
 fn placeBlockAtTarget(app_state: *AppState) !void {
@@ -150,12 +185,13 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     try rebuildMesh(app_state);
 }
 
-fn tick(app_state: *AppState) void {
+fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
 
     const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.chunk, strafe, forward, app_state.keys.jump);
+    try digStep(app_state);
 }
 
 pub fn iterate(
@@ -169,7 +205,7 @@ pub fn iterate(
 
     app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
     for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
-        tick(app_state);
+        try tick(app_state);
     }
 
     gl.Enable(gl.DEPTH_TEST);
@@ -215,8 +251,12 @@ pub fn event(
         .key_up => |k| setKeyState(app_state, k.key, false),
         .mouse_motion => |m| app_state.player.turn(m.x_rel, m.y_rel),
         .mouse_button_down => |m| switch (m.button) {
-            .left => try breakTargetedBlock(app_state),
+            .left => app_state.mouse_left_down = true,
             .right => try placeBlockAtTarget(app_state),
+            else => {},
+        },
+        .mouse_button_up => |m| switch (m.button) {
+            .left => app_state.mouse_left_down = false,
             else => {},
         },
         else => {},
