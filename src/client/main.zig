@@ -3,7 +3,10 @@ const std = @import("std");
 const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
+const Timer = @import("core").Timer;
+
 const fps = 60;
+const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
@@ -17,6 +20,8 @@ pub const WinMainCRTStartup = void;
 const AppState = struct {
     fps_capper: sdl3.extras.FramerateCapper(f32),
     window: sdl3.video.Window,
+    timer: Timer,
+    tick_count: u64 = 0,
 };
 
 pub fn init(
@@ -37,9 +42,14 @@ pub fn init(
         .{
             .fps_capper = .{ .mode = .{ .limited = fps } },
             .window = window,
+            .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
         },
         .run,
     };
+}
+
+fn tick(app_state: *AppState) void {
+    app_state.tick_count += 1;
 }
 
 pub fn iterate(
@@ -47,6 +57,11 @@ pub fn iterate(
 ) !sdl3.AppResult {
     const dt = app_state.fps_capper.delay();
     _ = dt;
+
+    app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
+    for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
+        tick(app_state);
+    }
 
     const surface = try app_state.window.getSurface();
     try surface.fillRect(null, surface.mapRgb(128, 30, 255));
