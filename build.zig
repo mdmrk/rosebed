@@ -33,6 +33,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const world_mod = b.createModule(.{
+        .root_source_file = b.path("src/world/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const client = b.addExecutable(.{
         .name = "rosebed",
         .root_module = b.createModule(.{
@@ -66,4 +72,5 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = core_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = world_mod })).step);
 }
