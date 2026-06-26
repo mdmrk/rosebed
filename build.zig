@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "gl", .module = gl_bindings },
             .{ .name = "sdl3", .module = sdl3.module("sdl3") },
+            .{ .name = "world", .module = world_mod },
         },
     });
 
