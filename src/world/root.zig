@@ -7,6 +7,7 @@ pub const NoiseGeneratorPerlin = @import("noise_perlin.zig");
 pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
 pub const TerrainGenerator = @import("terrain_gen.zig");
 pub const NoiseGenerator2 = @import("noise_simplex.zig");
+pub const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
 
 test {
     _ = Chunk;
@@ -17,4 +18,5 @@ test {
     _ = NoiseGeneratorOctaves;
     _ = TerrainGenerator;
     _ = NoiseGenerator2;
+    _ = NoiseGeneratorOctaves2;
 }
