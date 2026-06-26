@@ -73,6 +73,102 @@ pub fn noise(self: NoiseGeneratorPerlin, x_in: f64, y_in: f64, z_in: f64) f64 {
     return lerp(w, lerp(v, lerp(u, grad(p[aa], x, y, z), grad(p[ba], x - 1.0, y, z)), lerp(u, grad(p[ab], x, y - 1.0, z), grad(p[bb], x - 1.0, y - 1.0, z))), lerp(v, lerp(u, grad(p[aa + 1], x, y, z - 1.0), grad(p[ba + 1], x - 1.0, y, z - 1.0)), lerp(u, grad(p[ab + 1], x, y - 1.0, z - 1.0), grad(p[bb + 1], x - 1.0, y - 1.0, z - 1.0))));
 }
 
+fn floorAndFrac(v_in: f64) struct { i: i32, frac: f64 } {
+    var i: i32 = @intFromFloat(v_in);
+    if (v_in < @as(f64, @floatFromInt(i))) i -= 1;
+    return .{ .i = i, .frac = v_in - @as(f64, @floatFromInt(i)) };
+}
+
+fn fade(t: f64) f64 {
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+pub const BatchSize = struct { x: usize, y: usize, z: usize };
+pub const BatchOffset = struct { x: f64, y: f64, z: f64 };
+pub const BatchScale = struct { x: f64, y: f64, z: f64 };
+
+pub fn addBatch(
+    self: NoiseGeneratorPerlin,
+    out: []f64,
+    offset: BatchOffset,
+    size: BatchSize,
+    scale: BatchScale,
+    noise_scale: f64,
+) void {
+    const p = self.permutations;
+    const inv_scale = 1.0 / noise_scale;
+
+    if (size.y == 1) {
+        var index: usize = 0;
+        for (0..size.x) |ix| {
+            const xf = floorAndFrac((offset.x + @as(f64, @floatFromInt(ix))) * scale.x + self.x_coord);
+            const x_idx: usize = @intCast(xf.i & 255);
+            const fade_x = fade(xf.frac);
+
+            for (0..size.z) |iz| {
+                const zf = floorAndFrac((offset.z + @as(f64, @floatFromInt(iz))) * scale.z + self.z_coord);
+                const z_idx: usize = @intCast(zf.i & 255);
+                const fade_z = fade(zf.frac);
+
+                const a: usize = @intCast(p[x_idx]);
+                const aa: usize = @intCast(p[a] + @as(i32, @intCast(z_idx)));
+                const b: usize = @intCast(p[x_idx + 1]);
+                const bb: usize = @intCast(p[b] + @as(i32, @intCast(z_idx)));
+
+                const lo = lerp(fade_x, grad(p[aa], xf.frac, 0.0, zf.frac), grad(p[bb], xf.frac - 1.0, 0.0, zf.frac));
+                const hi = lerp(fade_x, grad(p[aa + 1], xf.frac, 0.0, zf.frac - 1.0), grad(p[bb + 1], xf.frac - 1.0, 0.0, zf.frac - 1.0));
+                out[index] += lerp(fade_z, lo, hi) * inv_scale;
+                index += 1;
+            }
+        }
+        return;
+    }
+
+    var index: usize = 0;
+    var cached_y_idx: i32 = -1;
+    var corner_ll: f64 = 0;
+    var corner_lh: f64 = 0;
+    var corner_hl: f64 = 0;
+    var corner_hh: f64 = 0;
+    for (0..size.x) |ix| {
+        const xf = floorAndFrac((offset.x + @as(f64, @floatFromInt(ix))) * scale.x + self.x_coord);
+        const x_idx: usize = @intCast(xf.i & 255);
+        const fade_x = fade(xf.frac);
+
+        for (0..size.z) |iz| {
+            const zf = floorAndFrac((offset.z + @as(f64, @floatFromInt(iz))) * scale.z + self.z_coord);
+            const z_idx: usize = @intCast(zf.i & 255);
+            const fade_z = fade(zf.frac);
+
+            for (0..size.y) |iy| {
+                const yf = floorAndFrac((offset.y + @as(f64, @floatFromInt(iy))) * scale.y + self.y_coord);
+                const y_idx: i32 = yf.i & 255;
+                const fade_y = fade(yf.frac);
+
+                if (iy == 0 or y_idx != cached_y_idx) {
+                    cached_y_idx = y_idx;
+                    const a: usize = @intCast(p[x_idx] + y_idx);
+                    const aa: usize = @intCast(p[a] + @as(i32, @intCast(z_idx)));
+                    const ab: usize = @intCast(p[a + 1] + @as(i32, @intCast(z_idx)));
+                    const b: usize = @intCast(p[x_idx + 1] + y_idx);
+                    const ba: usize = @intCast(p[b] + @as(i32, @intCast(z_idx)));
+                    const bb: usize = @intCast(p[b + 1] + @as(i32, @intCast(z_idx)));
+
+                    corner_ll = lerp(fade_x, grad(p[aa], xf.frac, yf.frac, zf.frac), grad(p[ba], xf.frac - 1.0, yf.frac, zf.frac));
+                    corner_lh = lerp(fade_x, grad(p[ab], xf.frac, yf.frac - 1.0, zf.frac), grad(p[bb], xf.frac - 1.0, yf.frac - 1.0, zf.frac));
+                    corner_hl = lerp(fade_x, grad(p[aa + 1], xf.frac, yf.frac, zf.frac - 1.0), grad(p[ba + 1], xf.frac - 1.0, yf.frac, zf.frac - 1.0));
+                    corner_hh = lerp(fade_x, grad(p[ab + 1], xf.frac, yf.frac - 1.0, zf.frac - 1.0), grad(p[bb + 1], xf.frac - 1.0, yf.frac - 1.0, zf.frac - 1.0));
+                }
+
+                const lo = lerp(fade_y, corner_ll, corner_lh);
+                const hi = lerp(fade_y, corner_hl, corner_hh);
+                out[index] += lerp(fade_z, lo, hi) * inv_scale;
+                index += 1;
+            }
+        }
+    }
+}
+
 test "permutation table and coords match java.util.Random(42) reference" {
     var rand = JavaRandom.init(42);
     const gen = NoiseGeneratorPerlin.init(&rand);
