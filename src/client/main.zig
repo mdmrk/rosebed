@@ -7,12 +7,14 @@ const Timer = @import("core").Timer;
 const math = @import("math");
 const world = @import("world");
 const render = @import("render");
+const game = @import("game");
 const Atlas = render.Atlas;
 
 const fps = 60;
 const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
+const fly_speed = 8.0;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_path = "../decompilation/assets/terrain.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
@@ -35,6 +37,13 @@ const AppState = struct {
     chunk_mesh: render.GpuMesh,
     timer: Timer,
     tick_count: u64 = 0,
+    player: game.Player = .{ .position = math.Vec3.init(8, 10, 24), .yaw = 180, .pitch = 25 },
+    keys: struct {
+        forward: bool = false,
+        back: bool = false,
+        left: bool = false,
+        right: bool = false,
+    } = .{},
 };
 
 fn buildTestChunk() world.Chunk {
@@ -75,6 +84,8 @@ pub fn init(
     const gl_context = try sdl3.video.gl.Context.init(window);
     errdefer gl_context.deinit() catch {};
 
+    try sdl3.mouse.setWindowRelativeMode(window, true);
+
     var app_state: AppState = .{
         .fps_capper = .{ .mode = .{ .limited = fps } },
         .window = window,
@@ -113,12 +124,18 @@ pub fn iterate(
     gl.Viewport(0, 0, screen_width, screen_height);
 
     const dt = app_state.fps_capper.delay();
-    _ = dt;
 
     app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
     for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
         tick(app_state);
     }
+
+    const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
+    const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
+    const move_dir = app_state.player.moveDirection(strafe, forward);
+    const move_dist = fly_speed * dt;
+    app_state.player.position.x += @as(f64, move_dir[0]) * move_dist;
+    app_state.player.position.z += @as(f64, move_dir[2]) * move_dist;
 
     gl.Enable(gl.DEPTH_TEST);
     gl.ClearColor(0.502, 0.118, 1.0, 1.0);
@@ -126,7 +143,7 @@ pub fn iterate(
 
     const aspect: f32 = @as(f32, screen_width) / @as(f32, screen_height);
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
-    const view = math.Mat4.lookAt(.{ 8, 10, 24 }, .{ 8, 2, 8 }, .{ 0, 1, 0 });
+    const view = app_state.player.viewMatrix();
     const view_proj = proj.mul(view);
 
     app_state.shader.use();
@@ -141,17 +158,28 @@ pub fn iterate(
     return .run;
 }
 
+fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) void {
+    switch (key orelse return) {
+        .w => app_state.keys.forward = down,
+        .s => app_state.keys.back = down,
+        .a => app_state.keys.left = down,
+        .d => app_state.keys.right = down,
+        else => {},
+    }
+}
+
 pub fn event(
     app_state: *AppState,
     curr_event: sdl3.events.Event,
 ) !sdl3.AppResult {
-    _ = app_state;
-
-    return switch (curr_event) {
-        .quit => .success,
-        .terminating => .success,
-        else => .run,
-    };
+    switch (curr_event) {
+        .quit, .terminating => return .success,
+        .key_down => |k| setKeyState(app_state, k.key, true),
+        .key_up => |k| setKeyState(app_state, k.key, false),
+        .mouse_motion => |m| app_state.player.turn(m.x_rel, m.y_rel),
+        else => {},
+    }
+    return .run;
 }
 
 pub fn quit(
