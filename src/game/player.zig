@@ -6,9 +6,27 @@ const Player = @This();
 position: math.Vec3,
 yaw: f32 = 0,
 pitch: f32 = 0,
+motion: math.Vec3 = math.Vec3.init(0, 0, 0),
+on_ground: bool = false,
+
+pub const width: f64 = 0.6;
+pub const height: f64 = 1.8;
+pub const eye_height: f64 = 1.62;
 
 const base_sensitivity = 0.5;
 const turn_scale = 0.15;
+
+pub fn boundingBox(self: Player) math.AABB {
+    const half_width = width / 2.0;
+    return math.AABB.init(
+        self.position.x - half_width,
+        self.position.y,
+        self.position.z - half_width,
+        self.position.x + half_width,
+        self.position.y + height,
+        self.position.z + half_width,
+    );
+}
 
 fn turnFactor() f32 {
     const s = base_sensitivity * 0.6 + 0.2;
@@ -46,10 +64,23 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
 }
 
 pub fn viewMatrix(self: Player) math.Mat4 {
-    const eye = [3]f32{ @floatCast(self.position.x), @floatCast(self.position.y), @floatCast(self.position.z) };
+    const eye = [3]f32{
+        @floatCast(self.position.x),
+        @floatCast(self.position.y + eye_height),
+        @floatCast(self.position.z),
+    };
     const look = self.lookVector();
     const center = [3]f32{ eye[0] + look[0], eye[1] + look[1], eye[2] + look[2] };
     return math.Mat4.lookAt(eye, center, .{ 0, 1, 0 });
+}
+
+test "boundingBox is centered on x/z and rests on the feet position" {
+    const player: Player = .{ .position = math.Vec3.init(2, 5, 3) };
+    const box = player.boundingBox();
+    try std.testing.expectApproxEqAbs(@as(f64, 1.7), box.min_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.3), box.max_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), box.min_y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 6.8), box.max_y, 1.0e-9);
 }
 
 test "turn at default sensitivity applies the 0.15 deg/pixel scale" {
