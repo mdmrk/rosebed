@@ -11,7 +11,7 @@ pub const Hit = struct {
 
 const step: f64 = 0.05;
 
-pub fn cast(chunk: *const world.Chunk, origin: math.Vec3, direction: [3]f32, max_distance: f64) ?Hit {
+pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32, max_distance: f64) ?Hit {
     var traveled: f64 = 0;
     var prev_bx = math.util.floorDouble(origin.x);
     var prev_by = math.util.floorDouble(origin.y);
@@ -31,11 +31,7 @@ pub fn cast(chunk: *const world.Chunk, origin: math.Vec3, direction: [3]f32, max
             prev_bz = bz;
         }
 
-        if (bx < 0 or bx >= world.constants.chunk_width or
-            by < 0 or by >= world.constants.chunk_height or
-            bz < 0 or bz >= world.constants.chunk_width) continue;
-
-        const id = chunk.getBlockId(@intCast(bx), @intCast(by), @intCast(bz));
+        const id = world_map.getBlockId(bx, by, bz);
         if (!world.block.isOpaque(id)) continue;
 
         var face: u3 = world.block.down;
@@ -53,19 +49,22 @@ pub fn cast(chunk: *const world.Chunk, origin: math.Vec3, direction: [3]f32, max
     return null;
 }
 
-fn testChunkWithFloor() world.Chunk {
+fn testWorldWithFloor() !world.World {
+    var w = world.World.init(std.testing.allocator);
     var chunk = world.Chunk.init(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 5, @intCast(z), world.block.stone);
         }
     }
-    return chunk;
+    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
+    return w;
 }
 
 test "looking straight down hits the floor's top face" {
-    const chunk = testChunkWithFloor();
-    const hit = cast(&chunk, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 20.0).?;
+    var w = try testWorldWithFloor();
+    defer w.deinit();
+    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 8), hit.x);
     try std.testing.expectEqual(@as(i32, 5), hit.y);
     try std.testing.expectEqual(@as(i32, 8), hit.z);
@@ -73,21 +72,26 @@ test "looking straight down hits the floor's top face" {
 }
 
 test "looking away from anything solid finds nothing within range" {
-    const chunk = testChunkWithFloor();
-    const hit = cast(&chunk, math.Vec3.init(8, 10, 8), .{ 0, 1, 0 }, 20.0);
+    var w = try testWorldWithFloor();
+    defer w.deinit();
+    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, 1, 0 }, 20.0);
     try std.testing.expect(hit == null);
 }
 
 test "approaching a wall from the side hits its facing side face" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var chunk = world.Chunk.init(0, 0);
     chunk.setBlockId(10, 5, 8, world.block.stone);
-    const hit = cast(&chunk, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
+    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
+    const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 10), hit.x);
     try std.testing.expectEqual(world.block.west, hit.face);
 }
 
 test "a target beyond max_distance is not hit" {
-    const chunk = testChunkWithFloor();
-    const hit = cast(&chunk, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 2.0);
+    var w = try testWorldWithFloor();
+    defer w.deinit();
+    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 2.0);
     try std.testing.expect(hit == null);
 }

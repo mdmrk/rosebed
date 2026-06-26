@@ -27,7 +27,7 @@ const ground_speed: f64 = 0.1;
 const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
-pub fn tick(self: *Player, chunk: *const world.Chunk, strafe: f32, forward: f32, jump: bool) void {
+pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: f32, jump: bool) void {
     self.prev_position = self.position;
 
     if (self.on_ground and jump) {
@@ -39,7 +39,7 @@ pub fn tick(self: *Player, chunk: *const world.Chunk, strafe: f32, forward: f32,
     self.motion.x += @as(f64, dir[0]) * speed;
     self.motion.z += @as(f64, dir[2]) * speed;
 
-    const result = physics.moveEntity(chunk, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
+    const result = physics.moveEntity(world_map, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
 
     self.position = .{
         .x = (result.aabb.min_x + result.aabb.max_x) / 2.0,
@@ -200,45 +200,52 @@ test "renderPosition interpolates between the previous and current tick" {
     try std.testing.expectApproxEqAbs(@as(f64, 10.0), player.renderPosition(1.0).x, 1.0e-9);
 }
 
-fn testChunkWithFloor() world.Chunk {
+fn testWorldWithFloor() !world.World {
+    var w = world.World.init(std.testing.allocator);
     var chunk = world.Chunk.init(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
         }
     }
-    return chunk;
+    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
+    return w;
 }
 
 test "resting on the ground stays grounded" {
-    const chunk = testChunkWithFloor();
+    var w = try testWorldWithFloor();
+    defer w.deinit();
     var player: Player = .{
         .position = math.Vec3.init(8, 1, 8),
         .on_ground = true,
         .motion = math.Vec3.init(0, -0.0784, 0),
     };
-    player.tick(&chunk, 0, 0, false);
+    player.tick(&w, 0, 0, false);
     try std.testing.expect(player.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.position.y, 1.0e-9);
 }
 
 test "gravity accelerates a falling player" {
-    const chunk = world.Chunk.init(0, 0);
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
     var player: Player = .{ .position = math.Vec3.init(8, 50, 8) };
-    player.tick(&chunk, 0, 0, false);
+    player.tick(&w, 0, 0, false);
     try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.motion.y, 1.0e-9);
 }
 
 test "jumping from the ground sets the jump velocity" {
-    const chunk = testChunkWithFloor();
+    var w = try testWorldWithFloor();
+    defer w.deinit();
     var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
-    player.tick(&chunk, 0, 0, true);
+    player.tick(&w, 0, 0, true);
     try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.motion.y, 1.0e-9);
 }
 
 test "forward input on the ground moves the player each tick" {
-    const chunk = testChunkWithFloor();
+    var w = try testWorldWithFloor();
+    defer w.deinit();
     var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
-    player.tick(&chunk, 0, 1, false);
+    player.tick(&w, 0, 1, false);
     try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.position.z, 1.0e-9);
 }

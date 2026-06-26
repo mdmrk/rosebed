@@ -31,14 +31,13 @@ const faces = [6]FaceDir{
     } },
 };
 
-fn neighborIsOpaque(chunk: *const world.Chunk, x: i32, y: i32, z: i32) bool {
-    if (x < 0 or x >= world.constants.chunk_width) return false;
-    if (y < 0 or y >= world.constants.chunk_height) return false;
-    if (z < 0 or z >= world.constants.chunk_width) return false;
-    return world.block.isOpaque(chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z)));
+fn neighborIsOpaque(world_map: *const world.World, chunk: *const world.Chunk, x: i32, y: i32, z: i32) bool {
+    const world_x = chunk.x * world.constants.chunk_width + x;
+    const world_z = chunk.z * world.constants.chunk_width + z;
+    return world.block.isOpaque(world_map.getBlockId(world_x, y, world_z));
 }
 
-pub fn build(gpa: std.mem.Allocator, chunk: *const world.Chunk) !MeshBuilder {
+pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk) !MeshBuilder {
     var mesh: MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
 
@@ -60,7 +59,7 @@ pub fn build(gpa: std.mem.Allocator, chunk: *const world.Chunk) !MeshBuilder {
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];
                     const ny: i32 = @as(i32, @intCast(ly)) + face.normal[1];
                     const nz: i32 = @as(i32, @intCast(lz)) + face.normal[2];
-                    if (neighborIsOpaque(chunk, nx, ny, nz)) continue;
+                    if (neighborIsOpaque(world_map, chunk, nx, ny, nz)) continue;
 
                     const uv = Atlas.tileUv(textures[face.side]);
                     var positions: [4][3]f32 = undefined;
@@ -85,10 +84,13 @@ pub fn build(gpa: std.mem.Allocator, chunk: *const world.Chunk) !MeshBuilder {
 
 test "a lone block emits all 6 faces" {
     const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
     var chunk = world.Chunk.init(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
-    var mesh = try build(gpa, &chunk);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
@@ -97,11 +99,14 @@ test "a lone block emits all 6 faces" {
 
 test "adjacent blocks cull their shared face" {
     const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
     var chunk = world.Chunk.init(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
     chunk.setBlockId(1, 0, 0, world.block.stone);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
-    var mesh = try build(gpa, &chunk);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 10 * 4), mesh.vertices.items.len);
@@ -109,10 +114,29 @@ test "adjacent blocks cull their shared face" {
 
 test "an all-air chunk produces an empty mesh" {
     const gpa = std.testing.allocator;
-    const chunk = world.Chunk.init(0, 0);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
 
-    var mesh = try build(gpa, &chunk);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+}
+
+test "a block at a chunk boundary culls its face against a loaded neighbor chunk" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    var a = world.Chunk.init(0, 0);
+    a.setBlockId(15, 0, 0, world.block.stone);
+    var b = world.Chunk.init(1, 0);
+    b.setBlockId(0, 0, 0, world.block.stone);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, a);
+    try world_map.chunks.put(gpa, .{ .x = 1, .z = 0 }, b);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 5 * 4), mesh.vertices.items.len);
 }

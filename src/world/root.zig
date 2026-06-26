@@ -12,6 +12,7 @@ pub const biome = @import("biome.zig");
 pub const Climate = @import("climate.zig");
 pub const caves = @import("caves.zig");
 pub const decorate = @import("decorate.zig");
+pub const World = @import("world_map.zig");
 
 test {
     _ = Chunk;
@@ -27,4 +28,5 @@ test {
     _ = Climate;
     _ = caves;
     _ = decorate;
+    _ = World;
 }
