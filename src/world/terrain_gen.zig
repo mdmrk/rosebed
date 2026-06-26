@@ -3,6 +3,8 @@ const JavaRandom = @import("java_random.zig");
 const NoiseGeneratorOctaves = @import("noise_octaves.zig");
 const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
+const Climate = @import("climate.zig");
+const biome = @import("biome.zig");
 
 const TerrainGenerator = @This();
 
@@ -11,6 +13,7 @@ upper_noise: NoiseGeneratorOctaves,
 blend_noise: NoiseGeneratorOctaves,
 scale_noise: NoiseGeneratorOctaves,
 depth_noise: NoiseGeneratorOctaves,
+climate: Climate,
 
 const sea_level: i32 = 64;
 const density_x = 5;
@@ -18,6 +21,7 @@ const density_y = 17;
 const density_z = 5;
 const horizontal_cells = 4;
 const vertical_cells = 16;
+const climate_downsample_step = Climate.grid_size / density_x;
 
 pub fn init(gpa: std.mem.Allocator, seed: i64) !TerrainGenerator {
     var rand = JavaRandom.init(seed);
@@ -27,6 +31,7 @@ pub fn init(gpa: std.mem.Allocator, seed: i64) !TerrainGenerator {
         .blend_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 8),
         .scale_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 10),
         .depth_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16),
+        .climate = try Climate.init(gpa, seed),
     };
 }
 
@@ -36,16 +41,15 @@ pub fn deinit(self: TerrainGenerator, gpa: std.mem.Allocator) void {
     self.blend_noise.deinit(gpa);
     self.scale_noise.deinit(gpa);
     self.depth_noise.deinit(gpa);
+    self.climate.deinit(gpa);
 }
 
 fn densityIndex(ix: usize, iz: usize, iy: usize) usize {
     return (ix * density_z + iz) * density_y + iy;
 }
 
-fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * density_z]f64, x_offset: i32, z_offset: i32) void {
+fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * density_z]f64, x_offset: i32, z_offset: i32, climate_sample: *const Climate.Sample) void {
     const xz_scale = 684.412;
-    const temperature = 0.5;
-    const humidity = 0.5;
     const fx: f64 = @floatFromInt(x_offset);
     const fz: f64 = @floatFromInt(z_offset);
 
@@ -67,6 +71,12 @@ fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * de
     for (0..density_x) |ix| {
         for (0..density_z) |iz| {
             const col = ix * density_z + iz;
+            const sample_x = ix * climate_downsample_step + climate_downsample_step / 2;
+            const sample_z = iz * climate_downsample_step + climate_downsample_step / 2;
+            const climate_idx = sample_x * Climate.grid_size + sample_z;
+            const temperature = climate_sample.temperature[climate_idx];
+            const humidity = climate_sample.humidity[climate_idx];
+
             var scale = (scale_field[col] + 256.0) / 512.0;
             var weight: f64 = 1.0 - humidity * temperature;
             weight *= weight;
@@ -126,8 +136,10 @@ fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * de
 pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     var chunk = Chunk.init(chunk_x, chunk_z);
 
+    const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
+
     var density: [density_x * density_y * density_z]f64 = undefined;
-    self.computeDensityField(&density, chunk_x * horizontal_cells, chunk_z * horizontal_cells);
+    self.computeDensityField(&density, chunk_x * horizontal_cells, chunk_z * horizontal_cells, &climate_sample);
 
     for (0..horizontal_cells) |cx| {
         for (0..horizontal_cells) |cz| {
@@ -179,20 +191,24 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         }
     }
 
-    dressSurface(&chunk);
+    dressSurface(&chunk, &climate_sample);
     return chunk;
 }
 
-fn dressSurface(chunk: *Chunk) void {
+fn dressSurface(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
     for (0..16) |x| {
         for (0..16) |z| {
+            const surface_biome = climate_sample.biomeAt(x, z);
+            const top_block = surface_biome.topBlock();
+            const filler_block = surface_biome.fillerBlock();
+
             var y: u32 = 127;
             while (y > 0) : (y -= 1) {
                 if (chunk.getBlockId(@intCast(x), y, @intCast(z)) == block.stone) {
-                    chunk.setBlockId(@intCast(x), y, @intCast(z), block.grass);
-                    if (y > 0) chunk.setBlockId(@intCast(x), y - 1, @intCast(z), block.dirt);
-                    if (y > 1) chunk.setBlockId(@intCast(x), y - 2, @intCast(z), block.dirt);
-                    if (y > 2) chunk.setBlockId(@intCast(x), y - 3, @intCast(z), block.dirt);
+                    chunk.setBlockId(@intCast(x), y, @intCast(z), top_block);
+                    if (y > 0) chunk.setBlockId(@intCast(x), y - 1, @intCast(z), filler_block);
+                    if (y > 1) chunk.setBlockId(@intCast(x), y - 2, @intCast(z), filler_block);
+                    if (y > 2) chunk.setBlockId(@intCast(x), y - 3, @intCast(z), filler_block);
                     break;
                 }
             }

@@ -31,6 +31,11 @@ pub fn deinit(self: Climate, gpa: std.mem.Allocator) void {
 pub const Sample = struct {
     temperature: [grid_size * grid_size]f64,
     humidity: [grid_size * grid_size]f64,
+
+    pub fn biomeAt(self: Sample, x: usize, z: usize) biome.Biome {
+        const i = x * grid_size + z;
+        return biome.classify(self.temperature[i], self.humidity[i]);
+    }
 };
 
 pub fn sample(self: Climate, x_offset: i32, z_offset: i32) Sample {
@@ -59,11 +64,6 @@ pub fn sample(self: Climate, x_offset: i32, z_offset: i32) Sample {
     }
 
     return result;
-}
-
-pub fn biomeAt(self: Sample, x: usize, z: usize) biome.Biome {
-    const i = x + z * grid_size;
-    return biome.classify(self.temperature[i], self.humidity[i]);
 }
 
 test "sample produces climate values in range and varies across a chunk" {
