@@ -5,6 +5,7 @@ pub const stone: u8 = 1;
 pub const grass: u8 = 2;
 pub const dirt: u8 = 3;
 pub const bedrock: u8 = 7;
+pub const stationary_water: u8 = 9;
 pub const sand: u8 = 12;
 
 pub fn isOpaque(id: u8) bool {
@@ -24,6 +25,7 @@ pub fn faceTextures(id: u8) [6]u8 {
         grass => .{ 2, 0, 3, 3, 3, 3 },
         dirt => .{ 2, 2, 2, 2, 2, 2 },
         bedrock => .{ 17, 17, 17, 17, 17, 17 },
+        stationary_water => .{ 205, 205, 205, 205, 205, 205 },
         sand => .{ 18, 18, 18, 18, 18, 18 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
