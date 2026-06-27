@@ -17,6 +17,7 @@ pub const leaves: u8 = 18;
 pub const ore_lapis: u8 = 21;
 pub const ore_diamond: u8 = 56;
 pub const ore_redstone: u8 = 73;
+pub const clay: u8 = 82;
 
 pub fn isOpaque(id: u8) bool {
     return id != air;
@@ -51,6 +52,7 @@ pub fn faceTextures(id: u8) [6]u8 {
         ore_lapis => .{ 160, 160, 160, 160, 160, 160 },
         ore_diamond => .{ 50, 50, 50, 50, 50, 50 },
         ore_redstone => .{ 51, 51, 51, 51, 51, 51 },
+        clay => .{ 72, 72, 72, 72, 72, 72 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
 }
@@ -68,6 +70,7 @@ fn hardness(id: u8) f32 {
         ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone => 3.0,
         log => 2.0,
         leaves => 0.2,
+        clay => 0.6,
         else => 0.0,
     };
 }

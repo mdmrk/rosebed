@@ -5,16 +5,16 @@ const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
 const biome = @import("biome.zig");
 
-fn tryPlaceIfStone(chunk: *Chunk, chunk_x: i32, chunk_z: i32, wx: i32, wy: i32, wz: i32, id: u8) void {
+fn tryPlaceIfMatches(chunk: *Chunk, chunk_x: i32, chunk_z: i32, wx: i32, wy: i32, wz: i32, match_id: u8, replace_id: u8) void {
     const lx = wx - chunk_x * 16;
     const lz = wz - chunk_z * 16;
     if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 0 or wy >= 128) return;
-    if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) == block.stone) {
-        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), id);
+    if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) == match_id) {
+        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), replace_id);
     }
 }
 
-pub fn generateOreVein(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32, ore_id: u8, vein_size: i32) void {
+pub fn generateVeinBlob(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32, match_id: u8, replace_id: u8, vein_size: i32) void {
     const angle = rand.nextFloat() * std.math.pi;
     const size_f: f32 = @floatFromInt(vein_size);
 
@@ -56,7 +56,7 @@ pub fn generateOreVein(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRan
                 while (bz <= z1) : (bz += 1) {
                     const nz = (@as(f64, @floatFromInt(bz)) + 0.5 - cz) / half_radius;
                     if (nx * nx + ny * ny + nz * nz >= 1.0) continue;
-                    tryPlaceIfStone(chunk, chunk_x, chunk_z, bx, by, bz, ore_id);
+                    tryPlaceIfMatches(chunk, chunk_x, chunk_z, bx, by, bz, match_id, replace_id);
                 }
             }
         }
@@ -89,7 +89,7 @@ pub fn generateOreVeins(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRa
             const x = base_x + rand.nextIntBound(16);
             const y = rand.nextIntBound(vein.max_height);
             const z = base_z + rand.nextIntBound(16);
-            generateOreVein(chunk, chunk_x, chunk_z, rand, x, y, z, vein.id, vein.size);
+            generateVeinBlob(chunk, chunk_x, chunk_z, rand, x, y, z, block.stone, vein.id, vein.size);
         }
     }
 
@@ -97,7 +97,23 @@ pub fn generateOreVeins(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRa
         const x = base_x + rand.nextIntBound(16);
         const y = rand.nextIntBound(16) + rand.nextIntBound(16);
         const z = base_z + rand.nextIntBound(16);
-        generateOreVein(chunk, chunk_x, chunk_z, rand, x, y, z, block.ore_lapis, 6);
+        generateVeinBlob(chunk, chunk_x, chunk_z, rand, x, y, z, block.stone, block.ore_lapis, 6);
+    }
+}
+
+pub fn generateClayPatches(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom) void {
+    const base_x = chunk_x * 16;
+    const base_z = chunk_z * 16;
+
+    for (0..10) |_| {
+        const x = base_x + rand.nextIntBound(16);
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16);
+        const lx = x - base_x;
+        const lz = z - base_z;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or y < 0 or y >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(y), @intCast(lz)) != block.stationary_water) continue;
+        generateVeinBlob(chunk, chunk_x, chunk_z, rand, x, y, z, block.sand, block.clay, 32);
     }
 }
 
@@ -205,6 +221,50 @@ pub fn generateTrees(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRando
         if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16) continue;
         const y = columnTopY(chunk, @intCast(lx), @intCast(lz));
         _ = generateTree(chunk, rand, lx, y, lz);
+    }
+}
+
+test "clay patches replace sand only where the origin is underwater" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            var y: u32 = 0;
+            while (y < 128) : (y += 1) {
+                const id: u8 = if (y % 2 == 0) block.stationary_water else block.sand;
+                chunk.setBlockId(@intCast(x), y, @intCast(z), id);
+            }
+        }
+    }
+
+    var rand = JavaRandom.init(7);
+    generateClayPatches(&chunk, 0, 0, &rand);
+
+    var found_clay = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..128) |y| {
+                if (chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z)) == block.clay) found_clay = true;
+            }
+        }
+    }
+    try std.testing.expect(found_clay);
+}
+
+test "clay patches do nothing without water at the origin" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 60, @intCast(z), block.sand);
+        }
+    }
+
+    var rand = JavaRandom.init(7);
+    generateClayPatches(&chunk, 0, 0, &rand);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(chunk.getBlockId(@intCast(x), 60, @intCast(z)) != block.clay);
+        }
     }
 }
 

@@ -224,6 +224,7 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         }
     }
 
+    decorate.generateClayPatches(&chunk, chunk_x, chunk_z, &decorate_rand);
     decorate.generateOreVeins(&chunk, chunk_x, chunk_z, &decorate_rand);
     decorate.generateTrees(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
 
