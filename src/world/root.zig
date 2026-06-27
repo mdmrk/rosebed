@@ -13,6 +13,7 @@ pub const Climate = @import("climate.zig");
 pub const caves = @import("caves.zig");
 pub const decorate = @import("decorate.zig");
 pub const lakes = @import("lakes.zig");
+pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
 
 test {
@@ -30,5 +31,6 @@ test {
     _ = caves;
     _ = decorate;
     _ = lakes;
+    _ = dungeons;
     _ = World;
 }

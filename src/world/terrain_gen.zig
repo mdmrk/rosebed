@@ -8,6 +8,7 @@ const biome = @import("biome.zig");
 const caves = @import("caves.zig");
 const decorate = @import("decorate.zig");
 const lakes = @import("lakes.zig");
+const dungeons = @import("dungeons.zig");
 
 const TerrainGenerator = @This();
 
@@ -222,6 +223,13 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
             _ = lakes.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z, block.flowing_lava);
         }
+    }
+
+    for (0..8) |_| {
+        const x = base_x + decorate_rand.nextIntBound(16) + 8;
+        const y = decorate_rand.nextIntBound(128);
+        const z = base_z + decorate_rand.nextIntBound(16) + 8;
+        _ = dungeons.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z);
     }
 
     decorate.generateClayPatches(&chunk, chunk_x, chunk_z, &decorate_rand);

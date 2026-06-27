@@ -27,6 +27,9 @@ pub const mushroom_red: u8 = 40;
 pub const pumpkin: u8 = 86;
 pub const reed: u8 = 83;
 pub const snow_layer: u8 = 78;
+pub const cobblestone: u8 = 4;
+pub const cobblestone_mossy: u8 = 48;
+pub const mob_spawner: u8 = 52;
 
 pub fn isCross(id: u8) bool {
     return id == tall_grass or id == dead_bush or id == dandelion or id == rose or
@@ -94,6 +97,9 @@ pub fn faceTextures(id: u8) [6]u8 {
         clay => .{ 72, 72, 72, 72, 72, 72 },
         pumpkin => .{ 102, 102, 118, 118, 118, 118 },
         snow_layer => .{ 66, 66, 66, 66, 66, 66 },
+        cobblestone => .{ 16, 16, 16, 16, 16, 16 },
+        cobblestone_mossy => .{ 36, 36, 36, 36, 36, 36 },
+        mob_spawner => .{ 65, 65, 65, 65, 65, 65 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
 }
@@ -114,13 +120,15 @@ fn hardness(id: u8) f32 {
         clay => 0.6,
         pumpkin => 1.0,
         snow_layer => 0.1,
+        cobblestone, cobblestone_mossy => 2.0,
+        mob_spawner => 5.0,
         else => 0.0,
     };
 }
 
 fn isHarvestableByHand(id: u8) bool {
     return switch (id) {
-        stone, ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone => false,
+        stone, ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone, cobblestone, cobblestone_mossy, mob_spawner => false,
         else => true,
     };
 }
