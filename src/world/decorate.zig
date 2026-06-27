@@ -117,7 +117,7 @@ pub fn generateClayPatches(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *Jav
     }
 }
 
-fn columnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
+pub fn columnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
     var y: i32 = 127;
     while (y >= 0) : (y -= 1) {
         if (chunk.getBlockId(x, @intCast(y), z) != block.air) return y + 1;

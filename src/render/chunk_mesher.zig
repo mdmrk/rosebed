@@ -86,6 +86,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures[world.block.east] = side_tile;
                 }
 
+                const height_scale = world.block.heightScale(id);
+
                 for (faces) |face| {
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];
                     const ny: i32 = @as(i32, @intCast(ly)) + face.normal[1];
@@ -95,7 +97,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     const uv = Atlas.tileUv(textures[face.side]);
                     var positions: [4][3]f32 = undefined;
                     for (face.corners, 0..) |corner, i| {
-                        positions[i] = .{ bx + corner[0], by + corner[1], bz + corner[2] };
+                        positions[i] = .{ bx + corner[0], by + corner[1] * height_scale, bz + corner[2] };
                     }
                     const uvs = [4][2]f32{
                         .{ uv.u0, uv.v1 },
@@ -140,6 +142,25 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4 + 2 * 4), mesh.vertices.items.len);
+}
+
+test "a snow layer renders as a thin partial-height cube" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    var chunk = world.Chunk.init(0, 0);
+    chunk.setBlockId(0, 1, 0, world.block.stone);
+    chunk.setBlockId(0, 2, 0, world.block.snow_layer);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    var max_y: f32 = 0;
+    for (mesh.vertices.items) |v| {
+        if (v.y > 2.0 and v.y < 3.0) max_y = @max(max_y, v.y);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 2.125), max_y, 1.0e-5);
 }
 
 test "a lone block emits all 6 faces" {

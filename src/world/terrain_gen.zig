@@ -228,8 +228,29 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     decorate.generateOreVeins(&chunk, chunk_x, chunk_z, &decorate_rand);
     decorate.generateTrees(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
     decorate.generateSurfacePlants(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
+    placeSnowLayers(&chunk, &climate_sample);
 
     return chunk;
+}
+
+fn placeSnowLayers(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
+    for (0..16) |x| {
+        for (0..16) |z| {
+            const top_y = decorate.columnTopY(chunk, @intCast(x), @intCast(z));
+            if (top_y <= 0 or top_y >= 128) continue;
+
+            const climate_idx = x * Climate.grid_size + z;
+            const altitude_penalty = (@as(f64, @floatFromInt(top_y)) - 64.0) / 64.0 * 0.3;
+            const temperature = climate_sample.temperature[climate_idx] - altitude_penalty;
+            if (temperature >= 0.5) continue;
+
+            if (chunk.getBlockId(@intCast(x), @intCast(top_y), @intCast(z)) != block.air) continue;
+            const below = chunk.getBlockId(@intCast(x), @intCast(top_y - 1), @intCast(z));
+            if (!block.isOpaque(below) or block.isLiquid(below)) continue;
+
+            chunk.setBlockId(@intCast(x), @intCast(top_y), @intCast(z), block.snow_layer);
+        }
+    }
 }
 
 fn dressSurface(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
@@ -252,6 +273,49 @@ fn dressSurface(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
             for (0..5) |by| {
                 chunk.setBlockId(@intCast(x), @intCast(by), @intCast(z), block.bedrock);
             }
+        }
+    }
+}
+
+test "snow layers form on solid ground in cold climates but not warm ones" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 70, @intCast(z), block.grass);
+        }
+    }
+
+    var cold: Climate.Sample = undefined;
+    for (0..Climate.grid_size * Climate.grid_size) |i| {
+        cold.temperature[i] = 0.1;
+        cold.humidity[i] = 0.5;
+    }
+    placeSnowLayers(&chunk, &cold);
+
+    var found_snow = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 71, @intCast(z)) == block.snow_layer) found_snow = true;
+        }
+    }
+    try std.testing.expect(found_snow);
+
+    var warm_chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            warm_chunk.setBlockId(@intCast(x), 70, @intCast(z), block.grass);
+        }
+    }
+    var warm: Climate.Sample = undefined;
+    for (0..Climate.grid_size * Climate.grid_size) |i| {
+        warm.temperature[i] = 0.9;
+        warm.humidity[i] = 0.5;
+    }
+    placeSnowLayers(&warm_chunk, &warm);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(warm_chunk.getBlockId(@intCast(x), 71, @intCast(z)) != block.snow_layer);
         }
     }
 }

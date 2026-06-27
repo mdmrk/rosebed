@@ -26,14 +26,19 @@ pub const mushroom_brown: u8 = 39;
 pub const mushroom_red: u8 = 40;
 pub const pumpkin: u8 = 86;
 pub const reed: u8 = 83;
+pub const snow_layer: u8 = 78;
 
 pub fn isCross(id: u8) bool {
     return id == tall_grass or id == dead_bush or id == dandelion or id == rose or
         id == mushroom_brown or id == mushroom_red or id == reed;
 }
 
+pub fn heightScale(id: u8) f32 {
+    return if (id == snow_layer) 0.125 else 1.0;
+}
+
 pub fn isOpaque(id: u8) bool {
-    return id != air and !isCross(id);
+    return id != air and !isCross(id) and id != snow_layer;
 }
 
 pub fn isLiquid(id: u8) bool {
@@ -88,6 +93,7 @@ pub fn faceTextures(id: u8) [6]u8 {
         ore_redstone => .{ 51, 51, 51, 51, 51, 51 },
         clay => .{ 72, 72, 72, 72, 72, 72 },
         pumpkin => .{ 102, 102, 118, 118, 118, 118 },
+        snow_layer => .{ 66, 66, 66, 66, 66, 66 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
 }
@@ -107,6 +113,7 @@ fn hardness(id: u8) f32 {
         leaves => 0.2,
         clay => 0.6,
         pumpkin => 1.0,
+        snow_layer => 0.1,
         else => 0.0,
     };
 }
@@ -137,6 +144,12 @@ test "digTicksRequired matches hardness*100 for blocks needing a tool" {
 
 test "bedrock is unbreakable" {
     try std.testing.expect(digTicksRequired(bedrock) == null);
+}
+
+test "snow layers are thin and non-opaque, unlike regular blocks" {
+    try std.testing.expectEqual(@as(f32, 0.125), heightScale(snow_layer));
+    try std.testing.expectEqual(@as(f32, 1.0), heightScale(stone));
+    try std.testing.expect(!isOpaque(snow_layer));
 }
 
 test "grass has a distinct top, bottom and side texture" {
