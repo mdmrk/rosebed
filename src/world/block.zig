@@ -25,10 +25,11 @@ pub const rose: u8 = 38;
 pub const mushroom_brown: u8 = 39;
 pub const mushroom_red: u8 = 40;
 pub const pumpkin: u8 = 86;
+pub const reed: u8 = 83;
 
 pub fn isCross(id: u8) bool {
     return id == tall_grass or id == dead_bush or id == dandelion or id == rose or
-        id == mushroom_brown or id == mushroom_red;
+        id == mushroom_brown or id == mushroom_red or id == reed;
 }
 
 pub fn isOpaque(id: u8) bool {
@@ -47,6 +48,7 @@ pub fn crossTile(id: u8, metadata: u4) u8 {
         rose => 12,
         mushroom_brown => 29,
         mushroom_red => 28,
+        reed => 73,
         else => 0,
     };
 }

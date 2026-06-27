@@ -198,7 +198,7 @@ pub fn generateTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32)
     return true;
 }
 
-fn bigTreeBlockAt(chunk: *const Chunk, lx: i32, ly: i32, lz: i32) u8 {
+fn localBlockAt(chunk: *const Chunk, lx: i32, ly: i32, lz: i32) u8 {
     if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or ly < 0 or ly >= 128) return block.air;
     return chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
 }
@@ -226,7 +226,7 @@ fn bigTreeLineIsClear(chunk: *const Chunk, x0: i32, y0: i32, z0: i32, x1: i32, y
         const lx = x0 + math.util.floorDouble(@as(f64, @floatFromInt(dx)) * t + 0.5);
         const ly = y0 + math.util.floorDouble(@as(f64, @floatFromInt(dy)) * t + 0.5);
         const lz = z0 + math.util.floorDouble(@as(f64, @floatFromInt(dz)) * t + 0.5);
-        const id = bigTreeBlockAt(chunk, lx, ly, lz);
+        const id = localBlockAt(chunk, lx, ly, lz);
         if (id != block.air and id != block.leaves) return false;
     }
     return true;
@@ -274,7 +274,7 @@ pub fn generateBigTree(chunk: *Chunk, world_rand: *JavaRandom, x: i32, y_in: i32
 
     var checked: i32 = 0;
     while (checked < height - 1) : (checked += 1) {
-        const id = bigTreeBlockAt(chunk, x, y_in + checked, z);
+        const id = localBlockAt(chunk, x, y_in + checked, z);
         if (id != block.air and id != block.leaves) {
             if (checked < 6) return false;
             height = checked;
@@ -458,6 +458,36 @@ pub fn generatePumpkinPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *Ja
     }
 }
 
+fn hasAdjacentWater(chunk: *const Chunk, lx: i32, ly: i32, lz: i32) bool {
+    return localBlockAt(chunk, lx - 1, ly, lz) == block.stationary_water or
+        localBlockAt(chunk, lx + 1, ly, lz) == block.stationary_water or
+        localBlockAt(chunk, lx, ly, lz - 1) == block.stationary_water or
+        localBlockAt(chunk, lx, ly, lz + 1) == block.stationary_water;
+}
+
+pub fn generateReedPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32) void {
+    for (0..20) |_| {
+        const wx = x + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const lx = wx - chunk_x * 16;
+        const lz = wz - chunk_z * 16;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or y < 1 or y >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(y), @intCast(lz)) != block.air) continue;
+        const below = chunk.getBlockId(@intCast(lx), @intCast(y - 1), @intCast(lz));
+        if (below != block.grass and below != block.dirt) continue;
+        if (!hasAdjacentWater(chunk, lx, y - 1, lz)) continue;
+
+        const height = 2 + rand.nextIntBound(rand.nextIntBound(3) + 1);
+        var k: i32 = 0;
+        while (k < height) : (k += 1) {
+            const ry = y + k;
+            if (ry >= 128) break;
+            if (chunk.getBlockId(@intCast(lx), @intCast(ry), @intCast(lz)) != block.air) break;
+            chunk.setBlockId(@intCast(lx), @intCast(ry), @intCast(lz), block.reed);
+        }
+    }
+}
+
 fn dandelionCountFor(surface_biome: biome.Biome) i32 {
     return switch (surface_biome) {
         .forest => 2,
@@ -530,6 +560,14 @@ pub fn generateSurfacePlants(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *J
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
         generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.mushroom_red, block.isOpaque);
+    }
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateReedPatch(chunk, chunk_x, chunk_z, rand, x, y, z);
     }
 
     if (rand.nextIntBound(32) == 0) {
@@ -797,6 +835,39 @@ test "mushrooms can stay on any opaque block, unlike flowers" {
         }
     }
     try std.testing.expect(found);
+}
+
+test "reeds only take root on grass adjacent to water" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            const id: u8 = if (x % 2 == 0) block.stationary_water else block.grass;
+            chunk.setBlockId(@intCast(x), 10, @intCast(z), id);
+        }
+    }
+
+    var rand = JavaRandom.init(1);
+    generateReedPatch(&chunk, 0, 0, &rand, 8, 11, 8);
+
+    var found = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 11, @intCast(z)) == block.reed) found = true;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "reeds do not take root on grass away from water" {
+    var chunk = flatGrassChunk();
+    var rand = JavaRandom.init(1);
+    generateReedPatch(&chunk, 0, 0, &rand, 8, 11, 8);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(chunk.getBlockId(@intCast(x), 11, @intCast(z)) != block.reed);
+        }
+    }
 }
 
 test "pumpkins only take root on grass and store a random facing" {
