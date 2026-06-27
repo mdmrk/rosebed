@@ -198,6 +198,146 @@ pub fn generateTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32)
     return true;
 }
 
+fn bigTreeBlockAt(chunk: *const Chunk, lx: i32, ly: i32, lz: i32) u8 {
+    if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or ly < 0 or ly >= 128) return block.air;
+    return chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
+}
+
+fn bigTreeSetLog(chunk: *Chunk, lx: i32, ly: i32, lz: i32) void {
+    if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or ly < 0 or ly >= 128) return;
+    chunk.setBlockId(@intCast(lx), @intCast(ly), @intCast(lz), block.log);
+}
+
+fn bigTreeSetLeafIfClear(chunk: *Chunk, lx: i32, ly: i32, lz: i32) void {
+    if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or ly < 0 or ly >= 128) return;
+    const id = chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
+    if (id == block.air) chunk.setBlockId(@intCast(lx), @intCast(ly), @intCast(lz), block.leaves);
+}
+
+fn bigTreeLineIsClear(chunk: *const Chunk, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32) bool {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dz = z1 - z0;
+    const steps: i32 = @intCast(@max(@max(@abs(dx), @abs(dy)), @abs(dz)));
+    if (steps == 0) return true;
+    var i: i32 = 0;
+    while (i <= steps) : (i += 1) {
+        const t = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
+        const lx = x0 + math.util.floorDouble(@as(f64, @floatFromInt(dx)) * t + 0.5);
+        const ly = y0 + math.util.floorDouble(@as(f64, @floatFromInt(dy)) * t + 0.5);
+        const lz = z0 + math.util.floorDouble(@as(f64, @floatFromInt(dz)) * t + 0.5);
+        const id = bigTreeBlockAt(chunk, lx, ly, lz);
+        if (id != block.air and id != block.leaves) return false;
+    }
+    return true;
+}
+
+fn bigTreeDrawLogLine(chunk: *Chunk, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32) void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dz = z1 - z0;
+    const steps: i32 = @intCast(@max(@max(@abs(dx), @abs(dy)), @abs(dz)));
+    if (steps == 0) {
+        bigTreeSetLog(chunk, x0, y0, z0);
+        return;
+    }
+    var i: i32 = 0;
+    while (i <= steps) : (i += 1) {
+        const t = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
+        const lx = x0 + math.util.floorDouble(@as(f64, @floatFromInt(dx)) * t + 0.5);
+        const ly = y0 + math.util.floorDouble(@as(f64, @floatFromInt(dy)) * t + 0.5);
+        const lz = z0 + math.util.floorDouble(@as(f64, @floatFromInt(dz)) * t + 0.5);
+        bigTreeSetLog(chunk, lx, ly, lz);
+    }
+}
+
+fn bigTreeLeafDisc(chunk: *Chunk, cx: i32, cy: i32, cz: i32, radius: f64) void {
+    const r: i32 = @intFromFloat(@ceil(radius));
+    var dx: i32 = -r;
+    while (dx <= r) : (dx += 1) {
+        var dz: i32 = -r;
+        while (dz <= r) : (dz += 1) {
+            const fdx = @abs(@as(f64, @floatFromInt(dx))) + 0.5;
+            const fdz = @abs(@as(f64, @floatFromInt(dz))) + 0.5;
+            if (@sqrt(fdx * fdx + fdz * fdz) > radius) continue;
+            bigTreeSetLeafIfClear(chunk, cx + dx, cy, cz + dz);
+        }
+    }
+}
+
+const big_tree_leaf_cluster_height: i32 = 5;
+
+pub fn generateBigTree(chunk: *Chunk, world_rand: *JavaRandom, x: i32, y_in: i32, z: i32) bool {
+    var rand = JavaRandom.init(world_rand.nextLong());
+
+    var height: i32 = 5 + rand.nextIntBound(12);
+
+    var checked: i32 = 0;
+    while (checked < height - 1) : (checked += 1) {
+        const id = bigTreeBlockAt(chunk, x, y_in + checked, z);
+        if (id != block.air and id != block.leaves) {
+            if (checked < 6) return false;
+            height = checked;
+            break;
+        }
+    }
+    if (y_in < 1 or height < 6 or y_in + height + 1 > 128) return false;
+
+    const crown_y: i32 = @min(math.util.floorDouble(@as(f64, @floatFromInt(height)) * 0.618), height - 1);
+    const half_h: f64 = @as(f64, @floatFromInt(height)) / 2.0;
+    const branches_per_layer_f = 1.382 + std.math.pow(f64, @as(f64, @floatFromInt(height)) / 13.0, 2.0);
+    const branches_per_layer: i32 = @max(1, @as(i32, @intFromFloat(@floor(branches_per_layer_f))));
+
+    const Cluster = struct { x: i32, y: i32, z: i32, base_y: i32 };
+    var clusters: [128]Cluster = undefined;
+    clusters[0] = .{ .x = x, .y = y_in + height - big_tree_leaf_cluster_height, .z = z, .base_y = y_in + crown_y };
+    var cluster_count: usize = 1;
+
+    var y = height - big_tree_leaf_cluster_height;
+    const min_y: i32 = math.util.floorDouble(0.3 * @as(f64, @floatFromInt(height)));
+    while (y >= min_y) : (y -= 1) {
+        const centered = half_h - @as(f64, @floatFromInt(y));
+        const term = half_h * half_h - centered * centered;
+        const radius: f64 = if (term > 0) 0.5 * @sqrt(term) else 0.0;
+
+        var i: i32 = 0;
+        while (i < branches_per_layer) : (i += 1) {
+            if (cluster_count >= clusters.len) break;
+            const len = radius * (@as(f64, rand.nextFloat()) + 0.328);
+            const angle: f64 = @as(f64, rand.nextFloat()) * 2.0 * std.math.pi;
+            const dx = len * @sin(angle);
+            const dz = len * @cos(angle);
+            const tip_x = x + math.util.floorDouble(dx);
+            const tip_z = z + math.util.floorDouble(dz);
+            const tip_y = y_in + y;
+
+            if (!bigTreeLineIsClear(chunk, tip_x, tip_y, tip_z, tip_x, tip_y + big_tree_leaf_cluster_height - 1, tip_z)) continue;
+
+            var base_y = tip_y - math.util.floorDouble(len * 0.381);
+            if (base_y < y_in + crown_y) base_y = y_in + crown_y;
+
+            if (!bigTreeLineIsClear(chunk, x, base_y, z, tip_x, tip_y, tip_z)) continue;
+
+            clusters[cluster_count] = .{ .x = tip_x, .y = tip_y, .z = tip_z, .base_y = base_y };
+            cluster_count += 1;
+        }
+    }
+
+    bigTreeDrawLogLine(chunk, x, y_in, z, x, y_in + crown_y, z);
+    for (clusters[1..cluster_count]) |c| {
+        bigTreeDrawLogLine(chunk, x, c.base_y, z, c.x, c.y, c.z);
+    }
+    for (clusters[0..cluster_count]) |c| {
+        bigTreeLeafDisc(chunk, c.x, c.y, c.z, 2.0);
+        bigTreeLeafDisc(chunk, c.x, c.y + 1, c.z, 3.0);
+        bigTreeLeafDisc(chunk, c.x, c.y + 2, c.z, 3.0);
+        bigTreeLeafDisc(chunk, c.x, c.y + 3, c.z, 3.0);
+        bigTreeLeafDisc(chunk, c.x, c.y + 4, c.z, 2.0);
+    }
+
+    return true;
+}
+
 fn treeCountFor(surface_biome: biome.Biome) i32 {
     return switch (surface_biome) {
         .forest, .rainforest, .taiga => 10,
@@ -220,7 +360,20 @@ pub fn generateTrees(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRando
         const lz = z - base_z;
         if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16) continue;
         const y = columnTopY(chunk, @intCast(lx), @intCast(lz));
-        _ = generateTree(chunk, rand, lx, y, lz);
+
+        if (surface_biome == .forest) {
+            if (rand.nextIntBound(5) == 0) {
+                _ = generateTree(chunk, rand, lx, y, lz);
+            } else if (rand.nextIntBound(3) == 0) {
+                _ = generateBigTree(chunk, rand, lx, y, lz);
+            } else {
+                _ = generateTree(chunk, rand, lx, y, lz);
+            }
+        } else if (rand.nextIntBound(10) == 0) {
+            _ = generateBigTree(chunk, rand, lx, y, lz);
+        } else {
+            _ = generateTree(chunk, rand, lx, y, lz);
+        }
     }
 }
 
@@ -477,6 +630,43 @@ test "a tree does not grow without clear space above" {
 
     var rand = JavaRandom.init(1);
     const grew = generateTree(&chunk, &rand, 8, 1, 8);
+    try std.testing.expect(!grew);
+}
+
+test "a big tree grows a taller trunk with leaf clusters" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
+        }
+    }
+
+    var rand = JavaRandom.init(1);
+    const grew = generateBigTree(&chunk, &rand, 8, 1, 8);
+    try std.testing.expect(grew);
+
+    var logs: usize = 0;
+    var leaves: usize = 0;
+    for (0..16) |x| {
+        for (1..40) |y| {
+            for (0..16) |z| {
+                const id = chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z));
+                if (id == block.log) logs += 1;
+                if (id == block.leaves) leaves += 1;
+            }
+        }
+    }
+    try std.testing.expect(logs > 0);
+    try std.testing.expect(leaves > 0);
+}
+
+test "a big tree refuses to grow with an obstruction right above its base" {
+    var chunk = Chunk.init(0, 0);
+    chunk.setBlockId(8, 0, 8, block.grass);
+    chunk.setBlockId(8, 3, 8, block.stone);
+
+    var rand = JavaRandom.init(1);
+    const grew = generateBigTree(&chunk, &rand, 8, 1, 8);
     try std.testing.expect(!grew);
 }
 
