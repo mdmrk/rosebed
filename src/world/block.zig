@@ -22,9 +22,13 @@ pub const tall_grass: u8 = 31;
 pub const dead_bush: u8 = 32;
 pub const dandelion: u8 = 37;
 pub const rose: u8 = 38;
+pub const mushroom_brown: u8 = 39;
+pub const mushroom_red: u8 = 40;
+pub const pumpkin: u8 = 86;
 
 pub fn isCross(id: u8) bool {
-    return id == tall_grass or id == dead_bush or id == dandelion or id == rose;
+    return id == tall_grass or id == dead_bush or id == dandelion or id == rose or
+        id == mushroom_brown or id == mushroom_red;
 }
 
 pub fn isOpaque(id: u8) bool {
@@ -41,6 +45,8 @@ pub fn crossTile(id: u8, metadata: u4) u8 {
         dead_bush => 55,
         dandelion => 13,
         rose => 12,
+        mushroom_brown => 29,
+        mushroom_red => 28,
         else => 0,
     };
 }
@@ -71,6 +77,7 @@ pub fn faceTextures(id: u8) [6]u8 {
         ore_diamond => .{ 50, 50, 50, 50, 50, 50 },
         ore_redstone => .{ 51, 51, 51, 51, 51, 51 },
         clay => .{ 72, 72, 72, 72, 72, 72 },
+        pumpkin => .{ 102, 102, 118, 118, 118, 118 },
         else => .{ 0, 0, 0, 0, 0, 0 },
     };
 }
@@ -89,6 +96,7 @@ fn hardness(id: u8) f32 {
         log => 2.0,
         leaves => 0.2,
         clay => 0.6,
+        pumpkin => 1.0,
         else => 0.0,
     };
 }

@@ -274,7 +274,7 @@ pub fn generateDeadBushPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *J
     }
 }
 
-pub fn generateFlowerPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32, flower_id: u8) void {
+pub fn generateFlowerPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32, flower_id: u8, stayCheck: *const fn (u8) bool) void {
     for (0..64) |_| {
         const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
@@ -284,8 +284,24 @@ pub fn generateFlowerPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *Jav
         if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 1 or wy >= 128) continue;
         if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) != block.air) continue;
         const below = chunk.getBlockId(@intCast(lx), @intCast(wy - 1), @intCast(lz));
-        if (!canPlantStayOn(below)) continue;
+        if (!stayCheck(below)) continue;
         chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), flower_id);
+    }
+}
+
+pub fn generatePumpkinPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32) void {
+    for (0..64) |_| {
+        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const lx = wx - chunk_x * 16;
+        const lz = wz - chunk_z * 16;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 1 or wy >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) != block.air) continue;
+        const below = chunk.getBlockId(@intCast(lx), @intCast(wy - 1), @intCast(lz));
+        if (below != block.grass) continue;
+        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), block.pumpkin);
+        chunk.setBlockMetadata(@intCast(lx), @intCast(wy), @intCast(lz), @intCast(rand.nextIntBound(4)));
     }
 }
 
@@ -319,7 +335,7 @@ pub fn generateSurfacePlants(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *J
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.dandelion);
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.dandelion, canPlantStayOn);
     }
 
     i = 0;
@@ -346,7 +362,28 @@ pub fn generateSurfacePlants(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *J
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.rose);
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.rose, canPlantStayOn);
+    }
+
+    if (rand.nextIntBound(4) == 0) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.mushroom_brown, block.isOpaque);
+    }
+
+    if (rand.nextIntBound(8) == 0) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.mushroom_red, block.isOpaque);
+    }
+
+    if (rand.nextIntBound(32) == 0) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generatePumpkinPatch(chunk, chunk_x, chunk_z, rand, x, y, z);
     }
 }
 
@@ -551,4 +588,40 @@ test "surface plants place dandelions in plains but not in the ocean" {
         }
     }
     try std.testing.expect(found_flower_or_grass);
+}
+
+test "mushrooms can stay on any opaque block, unlike flowers" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 10, @intCast(z), block.stone);
+        }
+    }
+    var rand = JavaRandom.init(1);
+    generateFlowerPatch(&chunk, 0, 0, &rand, 8, 11, 8, block.mushroom_brown, block.isOpaque);
+
+    var found = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 11, @intCast(z)) == block.mushroom_brown) found = true;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "pumpkins only take root on grass and store a random facing" {
+    var chunk = flatGrassChunk();
+    var rand = JavaRandom.init(1);
+    generatePumpkinPatch(&chunk, 0, 0, &rand, 8, 11, 8);
+
+    var found = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 11, @intCast(z)) == block.pumpkin) {
+                found = true;
+                try std.testing.expect(chunk.getBlockMetadata(@intCast(x), 11, @intCast(z)) < 4);
+            }
+        }
+    }
+    try std.testing.expect(found);
 }
