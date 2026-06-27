@@ -76,7 +76,15 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     continue;
                 }
 
-                const textures = world.block.faceTextures(id);
+                var textures = world.block.faceTextures(id);
+                if (id == world.block.log) {
+                    const metadata = chunk.getBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz));
+                    const side_tile = world.block.logSideTile(metadata);
+                    textures[world.block.north] = side_tile;
+                    textures[world.block.south] = side_tile;
+                    textures[world.block.west] = side_tile;
+                    textures[world.block.east] = side_tile;
+                }
 
                 for (faces) |face| {
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];

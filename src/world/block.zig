@@ -40,6 +40,14 @@ pub fn isLiquid(id: u8) bool {
     return id == stationary_water or id == flowing_lava;
 }
 
+pub fn logSideTile(metadata: u4) u8 {
+    return switch (metadata) {
+        1 => 116,
+        2 => 117,
+        else => 20,
+    };
+}
+
 pub fn crossTile(id: u8, metadata: u4) u8 {
     return switch (id) {
         tall_grass => if (metadata == 2) 56 else 39,
@@ -149,4 +157,10 @@ test "air and cross-shaped plants are the only non-opaque blocks" {
 test "tall grass picks the fern tile only at metadata 2" {
     try std.testing.expectEqual(@as(u8, 39), crossTile(tall_grass, 1));
     try std.testing.expectEqual(@as(u8, 56), crossTile(tall_grass, 2));
+}
+
+test "log side texture varies by wood type metadata" {
+    try std.testing.expectEqual(@as(u8, 20), logSideTile(0));
+    try std.testing.expectEqual(@as(u8, 116), logSideTile(1));
+    try std.testing.expectEqual(@as(u8, 117), logSideTile(2));
 }

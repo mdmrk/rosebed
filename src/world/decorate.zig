@@ -126,7 +126,15 @@ fn columnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
 }
 
 pub fn generateTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32) bool {
-    const trunk_height = rand.nextIntBound(3) + 4;
+    return generateTreeVariant(chunk, rand, x, y_in, z, 4, 0);
+}
+
+pub fn generateBirchTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32) bool {
+    return generateTreeVariant(chunk, rand, x, y_in, z, 5, 2);
+}
+
+fn generateTreeVariant(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32, height_base: i32, wood_metadata: u4) bool {
+    const trunk_height = rand.nextIntBound(3) + height_base;
     if (y_in < 1 or y_in + trunk_height + 1 > 128) return false;
 
     var can_grow = true;
@@ -179,6 +187,7 @@ pub fn generateTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32)
                     const id = chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
                     if (id == block.air) {
                         chunk.setBlockId(@intCast(lx), @intCast(ly), @intCast(lz), block.leaves);
+                        chunk.setBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz), wood_metadata);
                     }
                 }
             }
@@ -192,6 +201,7 @@ pub fn generateTree(chunk: *Chunk, rand: *JavaRandom, x: i32, y_in: i32, z: i32)
         const id = chunk.getBlockId(@intCast(x), @intCast(ty), @intCast(z));
         if (id == block.air or id == block.leaves) {
             chunk.setBlockId(@intCast(x), @intCast(ty), @intCast(z), block.log);
+            chunk.setBlockMetadata(@intCast(x), @intCast(ty), @intCast(z), wood_metadata);
         }
     }
 
@@ -363,7 +373,7 @@ pub fn generateTrees(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRando
 
         if (surface_biome == .forest) {
             if (rand.nextIntBound(5) == 0) {
-                _ = generateTree(chunk, rand, lx, y, lz);
+                _ = generateBirchTree(chunk, rand, lx, y, lz);
             } else if (rand.nextIntBound(3) == 0) {
                 _ = generateBigTree(chunk, rand, lx, y, lz);
             } else {
@@ -659,6 +669,21 @@ test "a tree grows on grass with clear space above" {
     const grew = generateTree(&chunk, &rand, 8, 1, 8);
     try std.testing.expect(grew);
     try std.testing.expectEqual(@as(u8, block.log), chunk.getBlockId(8, 1, 8));
+}
+
+test "a birch tree stores wood metadata 2 on its log and leaves" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
+        }
+    }
+
+    var rand = JavaRandom.init(1);
+    const grew = generateBirchTree(&chunk, &rand, 8, 1, 8);
+    try std.testing.expect(grew);
+    try std.testing.expectEqual(@as(u8, block.log), chunk.getBlockId(8, 1, 8));
+    try std.testing.expectEqual(@as(u4, 2), chunk.getBlockMetadata(8, 1, 8));
 }
 
 test "a tree does not grow without clear space above" {
