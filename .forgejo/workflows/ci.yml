@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: https://github.com/actions/checkout@v4
+
+      - uses: https://github.com/mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+
+      - name: Cache Zig package cache
+        uses: https://github.com/actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            ~/AppData/Local/zig
+          key: zig-pkgs-${{ matrix.os }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-pkgs-${{ matrix.os }}-
+
+      - name: Run tests
+        run: zig build test --summary all
+
+      - name: Build
+        run: zig build --summary all
