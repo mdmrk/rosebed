@@ -18,13 +18,31 @@ pub const ore_lapis: u8 = 21;
 pub const ore_diamond: u8 = 56;
 pub const ore_redstone: u8 = 73;
 pub const clay: u8 = 82;
+pub const tall_grass: u8 = 31;
+pub const dead_bush: u8 = 32;
+pub const dandelion: u8 = 37;
+pub const rose: u8 = 38;
+
+pub fn isCross(id: u8) bool {
+    return id == tall_grass or id == dead_bush or id == dandelion or id == rose;
+}
 
 pub fn isOpaque(id: u8) bool {
-    return id != air;
+    return id != air and !isCross(id);
 }
 
 pub fn isLiquid(id: u8) bool {
     return id == stationary_water or id == flowing_lava;
+}
+
+pub fn crossTile(id: u8, metadata: u4) u8 {
+    return switch (id) {
+        tall_grass => if (metadata == 2) 56 else 39,
+        dead_bush => 55,
+        dandelion => 13,
+        rose => 12,
+        else => 0,
+    };
 }
 
 pub const down = 0;
@@ -111,8 +129,14 @@ test "grass has a distinct top, bottom and side texture" {
     try std.testing.expectEqual(@as(u8, 3), textures[east]);
 }
 
-test "air is the only non-opaque registered block" {
+test "air and cross-shaped plants are the only non-opaque blocks" {
     try std.testing.expect(!isOpaque(air));
+    try std.testing.expect(!isOpaque(tall_grass));
     try std.testing.expect(isOpaque(stone));
     try std.testing.expect(isOpaque(bedrock));
+}
+
+test "tall grass picks the fern tile only at metadata 2" {
+    try std.testing.expectEqual(@as(u8, 39), crossTile(tall_grass, 1));
+    try std.testing.expectEqual(@as(u8, 56), crossTile(tall_grass, 2));
 }

@@ -37,6 +37,22 @@ fn neighborIsOpaque(world_map: *const world.World, chunk: *const world.Chunk, x:
     return world.block.isOpaque(world_map.getBlockId(world_x, y, world_z));
 }
 
+fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bx: f32, by: f32, bz: f32) !void {
+    const uv = Atlas.tileUv(tile);
+    const uvs = [4][2]f32{
+        .{ uv.u0, uv.v1 },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u1, uv.v0 },
+        .{ uv.u0, uv.v0 },
+    };
+    try mesh.quad(gpa, .{
+        .{ bx, by, bz }, .{ bx + 1, by, bz + 1 }, .{ bx + 1, by + 1, bz + 1 }, .{ bx, by + 1, bz },
+    }, uvs, .{ 255, 255, 255, 255 });
+    try mesh.quad(gpa, .{
+        .{ bx + 1, by, bz }, .{ bx, by, bz + 1 }, .{ bx, by + 1, bz + 1 }, .{ bx + 1, by + 1, bz },
+    }, uvs, .{ 255, 255, 255, 255 });
+}
+
 pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk) !MeshBuilder {
     var mesh: MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
@@ -48,12 +64,19 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
         for (0..world.constants.chunk_height) |ly| {
             for (0..world.constants.chunk_width) |lz| {
                 const id = chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
-                if (!world.block.isOpaque(id)) continue;
+                if (id == world.block.air) continue;
 
-                const textures = world.block.faceTextures(id);
                 const bx = origin_x + @as(f32, @floatFromInt(lx));
                 const by: f32 = @floatFromInt(ly);
                 const bz = origin_z + @as(f32, @floatFromInt(lz));
+
+                if (world.block.isCross(id)) {
+                    const metadata = chunk.getBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz));
+                    try buildCross(&mesh, gpa, world.block.crossTile(id, metadata), bx, by, bz);
+                    continue;
+                }
+
+                const textures = world.block.faceTextures(id);
 
                 for (faces) |face| {
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];
@@ -80,6 +103,35 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     }
 
     return mesh;
+}
+
+test "a cross-shaped plant emits two crossing quads instead of a cube" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    var chunk = world.Chunk.init(0, 0);
+    chunk.setBlockId(0, 0, 0, world.block.tall_grass);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
+}
+
+test "a solid neighbor does not cull a cross-shaped plant" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    var chunk = world.Chunk.init(0, 0);
+    chunk.setBlockId(0, 0, 0, world.block.stone);
+    chunk.setBlockId(1, 0, 0, world.block.tall_grass);
+    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4 + 2 * 4), mesh.vertices.items.len);
 }
 
 test "a lone block emits all 6 faces" {

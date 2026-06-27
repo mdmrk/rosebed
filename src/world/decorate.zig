@@ -224,6 +224,132 @@ pub fn generateTrees(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRando
     }
 }
 
+fn descendToAnchor(chunk: *const Chunk, chunk_x: i32, chunk_z: i32, x: i32, y_in: i32, z: i32) i32 {
+    const lx = x - chunk_x * 16;
+    const lz = z - chunk_z * 16;
+    if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16) return y_in;
+    var y = y_in;
+    while (y > 0) {
+        const id = chunk.getBlockId(@intCast(lx), @intCast(y), @intCast(lz));
+        if (id != block.air and id != block.leaves) break;
+        y -= 1;
+    }
+    return y;
+}
+
+fn canPlantStayOn(below: u8) bool {
+    return below == block.grass or below == block.dirt;
+}
+
+pub fn generateTallGrassPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y_in: i32, z: i32, metadata: u4) void {
+    const y = descendToAnchor(chunk, chunk_x, chunk_z, x, y_in, z);
+    for (0..128) |_| {
+        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const lx = wx - chunk_x * 16;
+        const lz = wz - chunk_z * 16;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 1 or wy >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) != block.air) continue;
+        const below = chunk.getBlockId(@intCast(lx), @intCast(wy - 1), @intCast(lz));
+        if (!canPlantStayOn(below)) continue;
+        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), block.tall_grass);
+        chunk.setBlockMetadata(@intCast(lx), @intCast(wy), @intCast(lz), metadata);
+    }
+}
+
+pub fn generateDeadBushPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y_in: i32, z: i32) void {
+    const y = descendToAnchor(chunk, chunk_x, chunk_z, x, y_in, z);
+    for (0..4) |_| {
+        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const lx = wx - chunk_x * 16;
+        const lz = wz - chunk_z * 16;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 1 or wy >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) != block.air) continue;
+        const below = chunk.getBlockId(@intCast(lx), @intCast(wy - 1), @intCast(lz));
+        if (below != block.sand) continue;
+        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), block.dead_bush);
+    }
+}
+
+pub fn generateFlowerPatch(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, x: i32, y: i32, z: i32, flower_id: u8) void {
+    for (0..64) |_| {
+        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const lx = wx - chunk_x * 16;
+        const lz = wz - chunk_z * 16;
+        if (lx < 0 or lx >= 16 or lz < 0 or lz >= 16 or wy < 1 or wy >= 128) continue;
+        if (chunk.getBlockId(@intCast(lx), @intCast(wy), @intCast(lz)) != block.air) continue;
+        const below = chunk.getBlockId(@intCast(lx), @intCast(wy - 1), @intCast(lz));
+        if (!canPlantStayOn(below)) continue;
+        chunk.setBlockId(@intCast(lx), @intCast(wy), @intCast(lz), flower_id);
+    }
+}
+
+fn dandelionCountFor(surface_biome: biome.Biome) i32 {
+    return switch (surface_biome) {
+        .forest => 2,
+        .seasonal_forest => 4,
+        .taiga => 2,
+        .plains => 3,
+        else => 0,
+    };
+}
+
+fn tallGrassCountFor(surface_biome: biome.Biome) i32 {
+    return switch (surface_biome) {
+        .forest => 2,
+        .rainforest, .plains => 10,
+        .seasonal_forest => 2,
+        .taiga => 1,
+        else => 0,
+    };
+}
+
+pub fn generateSurfacePlants(chunk: *Chunk, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, surface_biome: biome.Biome) void {
+    const base_x = chunk_x * 16;
+    const base_z = chunk_z * 16;
+
+    var i: i32 = 0;
+    const dandelion_count = dandelionCountFor(surface_biome);
+    while (i < dandelion_count) : (i += 1) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.dandelion);
+    }
+
+    i = 0;
+    const grass_count = tallGrassCountFor(surface_biome);
+    while (i < grass_count) : (i += 1) {
+        const is_fern = surface_biome == .rainforest and rand.nextIntBound(3) != 0;
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateTallGrassPatch(chunk, chunk_x, chunk_z, rand, x, y, z, if (is_fern) 2 else 1);
+    }
+
+    if (surface_biome == .desert) {
+        i = 0;
+        while (i < 2) : (i += 1) {
+            const x = base_x + rand.nextIntBound(16) + 8;
+            const y = rand.nextIntBound(128);
+            const z = base_z + rand.nextIntBound(16) + 8;
+            generateDeadBushPatch(chunk, chunk_x, chunk_z, rand, x, y, z);
+        }
+    }
+
+    if (rand.nextIntBound(2) == 0) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const y = rand.nextIntBound(128);
+        const z = base_z + rand.nextIntBound(16) + 8;
+        generateFlowerPatch(chunk, chunk_x, chunk_z, rand, x, y, z, block.rose);
+    }
+}
+
 test "clay patches replace sand only where the origin is underwater" {
     var chunk = Chunk.init(0, 0);
     for (0..16) |x| {
@@ -355,4 +481,74 @@ test "generateTrees places trees in a forest biome and none in desert" {
         }
     }
     try std.testing.expectEqual(@as(usize, 0), desert_logs);
+}
+
+fn flatGrassChunk() Chunk {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 10, @intCast(z), block.grass);
+        }
+    }
+    return chunk;
+}
+
+test "tall grass patches place blades on grass with air above" {
+    var chunk = flatGrassChunk();
+    var rand = JavaRandom.init(1);
+    generateTallGrassPatch(&chunk, 0, 0, &rand, 8, 20, 8, 1);
+
+    var found = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 11, @intCast(z)) == block.tall_grass) found = true;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "dead bush only takes root on sand" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlockId(@intCast(x), 10, @intCast(z), block.sand);
+        }
+    }
+    var rand = JavaRandom.init(1);
+    generateDeadBushPatch(&chunk, 0, 0, &rand, 8, 20, 8);
+
+    var found = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            if (chunk.getBlockId(@intCast(x), 11, @intCast(z)) == block.dead_bush) found = true;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "dead bush does not take root on grass" {
+    var chunk = flatGrassChunk();
+    var rand = JavaRandom.init(1);
+    generateDeadBushPatch(&chunk, 0, 0, &rand, 8, 20, 8);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(chunk.getBlockId(@intCast(x), 11, @intCast(z)) != block.dead_bush);
+        }
+    }
+}
+
+test "surface plants place dandelions in plains but not in the ocean" {
+    var chunk = flatGrassChunk();
+    var rand = JavaRandom.init(1);
+    generateSurfacePlants(&chunk, 0, 0, &rand, .plains);
+
+    var found_flower_or_grass = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            const id = chunk.getBlockId(@intCast(x), 11, @intCast(z));
+            if (id == block.dandelion or id == block.tall_grass or id == block.rose) found_flower_or_grass = true;
+        }
+    }
+    try std.testing.expect(found_flower_or_grass);
 }

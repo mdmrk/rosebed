@@ -9,4 +9,5 @@ out vec4 frag_color;
 
 void main() {
     frag_color = texture(u_atlas, v_uv) * v_color;
+    if (frag_color.a < 0.5) discard;
 }

@@ -32,7 +32,7 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
         }
 
         const id = world_map.getBlockId(bx, by, bz);
-        if (!world.block.isOpaque(id)) continue;
+        if (id == world.block.air) continue;
 
         var face: u3 = world.block.down;
         if (bx != prev_bx) {
@@ -94,4 +94,15 @@ test "a target beyond max_distance is not hit" {
     defer w.deinit();
     const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 2.0);
     try std.testing.expect(hit == null);
+}
+
+test "a cross-shaped plant is still targetable despite having no collision" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    var chunk = world.Chunk.init(0, 0);
+    chunk.setBlockId(8, 5, 8, world.block.tall_grass);
+    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
+
+    const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 5), hit.y);
 }
