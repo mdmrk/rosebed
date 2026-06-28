@@ -9,6 +9,7 @@ const caves = @import("caves.zig");
 const decorate = @import("decorate.zig");
 const lakes = @import("lakes.zig");
 const dungeons = @import("dungeons.zig");
+const World = @import("world_map.zig");
 
 const TerrainGenerator = @This();
 
@@ -139,7 +140,7 @@ fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * de
     }
 }
 
-pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
+pub fn generateShape(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     var chunk = Chunk.init(chunk_x, chunk_z);
 
     const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
@@ -200,6 +201,13 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
     dressSurface(&chunk, &climate_sample);
     caves.carve(&chunk, chunk_x, chunk_z, self.world_seed);
 
+    return chunk;
+}
+
+pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) void {
+    const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
+    const chunk = world_map.getChunk(chunk_x, chunk_z).?;
+
     var decorate_rand = JavaRandom.init(self.world_seed);
     const mult_x = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
     const mult_z = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
@@ -213,7 +221,7 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = lakes.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z, block.stationary_water);
+        _ = lakes.generate(world_map, &decorate_rand, x, y, z, block.stationary_water);
     }
 
     if (decorate_rand.nextIntBound(8) == 0) {
@@ -221,7 +229,7 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
         if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
-            _ = lakes.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z, block.flowing_lava);
+            _ = lakes.generate(world_map, &decorate_rand, x, y, z, block.flowing_lava);
         }
     }
 
@@ -229,22 +237,28 @@ pub fn generateChunk(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = dungeons.generate(&chunk, chunk_x, chunk_z, &decorate_rand, x, y, z);
+        _ = dungeons.generate(world_map, &decorate_rand, x, y, z);
     }
 
-    decorate.generateClayPatches(&chunk, chunk_x, chunk_z, &decorate_rand);
-    decorate.generateOreVeins(&chunk, chunk_x, chunk_z, &decorate_rand);
-    decorate.generateTrees(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
-    decorate.generateSurfacePlants(&chunk, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
-    placeSnowLayers(&chunk, &climate_sample);
+    decorate.generateClayPatches(chunk, chunk_x, chunk_z, &decorate_rand);
+    decorate.generateOreVeins(chunk, chunk_x, chunk_z, &decorate_rand);
+    decorate.generateTrees(world_map, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
+    decorate.generateSurfacePlants(world_map, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
+    placeSnowLayers(chunk, &climate_sample);
+}
 
-    return chunk;
+fn chunkColumnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
+    var y: i32 = 127;
+    while (y >= 0) : (y -= 1) {
+        if (chunk.getBlockId(x, @intCast(y), z) != block.air) return y + 1;
+    }
+    return 0;
 }
 
 fn placeSnowLayers(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
     for (0..16) |x| {
         for (0..16) |z| {
-            const top_y = decorate.columnTopY(chunk, @intCast(x), @intCast(z));
+            const top_y = chunkColumnTopY(chunk, @intCast(x), @intCast(z));
             if (top_y <= 0 or top_y >= 128) continue;
 
             const climate_idx = x * Climate.grid_size + z;
@@ -333,7 +347,7 @@ test "generated chunk has bedrock at the bottom and grass somewhere" {
     const gen = try TerrainGenerator.init(gpa, 12345);
     defer gen.deinit(gpa);
 
-    const chunk = gen.generateChunk(0, 0);
+    const chunk = gen.generateShape(0, 0);
 
     try std.testing.expectEqual(@as(u8, block.bedrock), chunk.getBlockId(8, 0, 8));
 
@@ -357,8 +371,8 @@ test "different seeds produce different terrain" {
     const gen_b = try TerrainGenerator.init(gpa, 2);
     defer gen_b.deinit(gpa);
 
-    const chunk_a = gen_a.generateChunk(0, 0);
-    const chunk_b = gen_b.generateChunk(0, 0);
+    const chunk_a = gen_a.generateShape(0, 0);
+    const chunk_b = gen_b.generateShape(0, 0);
 
     var any_different = false;
     for (0..16) |x| {
@@ -378,8 +392,8 @@ test "the same seed and chunk position are deterministic" {
     const gen = try TerrainGenerator.init(gpa, 777);
     defer gen.deinit(gpa);
 
-    const chunk_a = gen.generateChunk(3, -2);
-    const chunk_b = gen.generateChunk(3, -2);
+    const chunk_a = gen.generateShape(3, -2);
+    const chunk_b = gen.generateShape(3, -2);
 
     for (0..16) |x| {
         for (0..128) |y| {

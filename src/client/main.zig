@@ -71,7 +71,7 @@ fn generateWorld(world_map: *world.World) !void {
     while (cx <= view_radius) : (cx += 1) {
         var cz: i32 = -view_radius;
         while (cz <= view_radius) : (cz += 1) {
-            _ = try world_map.getOrGenerateChunk(generator, cx, cz);
+            try world_map.ensureDecorated(generator, cx, cz);
         }
     }
 }
