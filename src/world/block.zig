@@ -1,9 +1,12 @@
 const std = @import("std");
+const JavaRandom = @import("java_random.zig");
+const item = @import("item.zig");
 
 pub const air: u8 = 0;
 pub const stone: u8 = 1;
 pub const grass: u8 = 2;
 pub const dirt: u8 = 3;
+pub const sapling: u8 = 6;
 pub const bedrock: u8 = 7;
 pub const stationary_water: u8 = 9;
 pub const flowing_lava: u8 = 10;
@@ -140,6 +143,33 @@ pub fn digTicksRequired(id: u8) ?f32 {
     return h * divisor;
 }
 
+pub const Drop = struct { id: u16, count: u8, meta: u4 = 0 };
+
+pub fn drop(id: u8, meta: u4, rand: *JavaRandom) ?Drop {
+    return switch (id) {
+        stone => .{ .id = cobblestone, .count = 1 },
+        grass => .{ .id = dirt, .count = 1 },
+        gravel => if (rand.nextIntBound(10) == 0)
+            .{ .id = item.flint, .count = 1 }
+        else
+            .{ .id = gravel, .count = 1 },
+        ore_coal => .{ .id = item.coal, .count = 1 },
+        ore_diamond => .{ .id = item.diamond, .count = 1 },
+        ore_redstone => .{ .id = item.redstone, .count = @intCast(4 + rand.nextIntBound(2)) },
+        ore_lapis => .{ .id = item.dye, .count = @intCast(4 + rand.nextIntBound(5)), .meta = item.dye_meta_lapis },
+        log => .{ .id = log, .count = 1, .meta = meta },
+        leaves => if (rand.nextIntBound(20) == 0) .{ .id = sapling, .count = 1, .meta = meta & 3 } else null,
+        clay => .{ .id = item.clay_ball, .count = 4 },
+        tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = item.seeds, .count = 1 } else null,
+        dead_bush => null,
+        reed => .{ .id = item.reed, .count = 1 },
+        snow_layer => .{ .id = item.snowball, .count = 1 },
+        mob_spawner => null,
+        stationary_water, flowing_lava => null,
+        else => .{ .id = id, .count = 1 },
+    };
+}
+
 test "digTicksRequired matches hardness*30 for hand-harvestable blocks" {
     try std.testing.expectApproxEqAbs(@as(f32, 15.0), digTicksRequired(dirt).?, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 60.0), digTicksRequired(log).?, 1.0e-6);
@@ -184,4 +214,128 @@ test "log side texture varies by wood type metadata" {
     try std.testing.expectEqual(@as(u8, 20), logSideTile(0));
     try std.testing.expectEqual(@as(u8, 116), logSideTile(1));
     try std.testing.expectEqual(@as(u8, 117), logSideTile(2));
+}
+
+test "stone drops cobblestone, not itself" {
+    var rand = JavaRandom.init(0);
+    const dropped = drop(stone, 0, &rand).?;
+    try std.testing.expectEqual(@as(u16, cobblestone), dropped.id);
+    try std.testing.expectEqual(@as(u8, 1), dropped.count);
+}
+
+test "grass drops dirt" {
+    var rand = JavaRandom.init(0);
+    const dropped = drop(grass, 0, &rand).?;
+    try std.testing.expectEqual(@as(u16, dirt), dropped.id);
+}
+
+test "ore ids drop their raw item form" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(@as(u16, item.coal), drop(ore_coal, 0, &rand).?.id);
+    try std.testing.expectEqual(@as(u16, item.diamond), drop(ore_diamond, 0, &rand).?.id);
+}
+
+test "gold and iron ore self-drop, unlike coal/diamond/lapis/redstone" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(@as(u16, ore_gold), drop(ore_gold, 0, &rand).?.id);
+    try std.testing.expectEqual(@as(u16, ore_iron), drop(ore_iron, 0, &rand).?.id);
+}
+
+test "lapis ore drops 4-8 lapis dye" {
+    var rand = JavaRandom.init(0);
+    for (0..50) |_| {
+        const dropped = drop(ore_lapis, 0, &rand).?;
+        try std.testing.expectEqual(@as(u16, item.dye), dropped.id);
+        try std.testing.expectEqual(item.dye_meta_lapis, dropped.meta);
+        try std.testing.expect(dropped.count >= 4 and dropped.count <= 8);
+    }
+}
+
+test "redstone ore drops 4-5 redstone" {
+    var rand = JavaRandom.init(0);
+    for (0..50) |_| {
+        const dropped = drop(ore_redstone, 0, &rand).?;
+        try std.testing.expectEqual(@as(u16, item.redstone), dropped.id);
+        try std.testing.expect(dropped.count >= 4 and dropped.count <= 5);
+    }
+}
+
+test "log preserves its wood-type metadata when dropped" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(@as(u4, 1), drop(log, 1, &rand).?.meta);
+}
+
+test "gravel occasionally drops flint instead of itself" {
+    var rand = JavaRandom.init(0);
+    var saw_flint = false;
+    var saw_gravel = false;
+    for (0..200) |_| {
+        const dropped = drop(gravel, 0, &rand).?;
+        try std.testing.expectEqual(@as(u8, 1), dropped.count);
+        if (dropped.id == item.flint) saw_flint = true;
+        if (dropped.id == gravel) saw_gravel = true;
+    }
+    try std.testing.expect(saw_flint);
+    try std.testing.expect(saw_gravel);
+}
+
+test "leaves rarely drop a sapling, preserving wood type in its metadata" {
+    var rand = JavaRandom.init(0);
+    var saw_sapling = false;
+    var saw_nothing = false;
+    for (0..200) |_| {
+        if (drop(leaves, 1, &rand)) |dropped| {
+            try std.testing.expectEqual(@as(u16, sapling), dropped.id);
+            try std.testing.expectEqual(@as(u4, 1), dropped.meta);
+            saw_sapling = true;
+        } else {
+            saw_nothing = true;
+        }
+    }
+    try std.testing.expect(saw_sapling);
+    try std.testing.expect(saw_nothing);
+}
+
+test "tall grass rarely drops seeds, otherwise nothing" {
+    var rand = JavaRandom.init(0);
+    var saw_seeds = false;
+    var saw_nothing = false;
+    for (0..200) |_| {
+        if (drop(tall_grass, 0, &rand)) |dropped| {
+            try std.testing.expectEqual(@as(u16, item.seeds), dropped.id);
+            saw_seeds = true;
+        } else {
+            saw_nothing = true;
+        }
+    }
+    try std.testing.expect(saw_seeds);
+    try std.testing.expect(saw_nothing);
+}
+
+test "dead bush, the mob spawner and liquids never drop anything" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expect(drop(dead_bush, 0, &rand) == null);
+    try std.testing.expect(drop(mob_spawner, 0, &rand) == null);
+    try std.testing.expect(drop(stationary_water, 0, &rand) == null);
+    try std.testing.expect(drop(flowing_lava, 0, &rand) == null);
+}
+
+test "clay always drops 4 clay balls" {
+    var rand = JavaRandom.init(0);
+    const dropped = drop(clay, 0, &rand).?;
+    try std.testing.expectEqual(@as(u16, item.clay_ball), dropped.id);
+    try std.testing.expectEqual(@as(u8, 4), dropped.count);
+}
+
+test "reed drops its item form and snow drops a snowball" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(@as(u16, item.reed), drop(reed, 0, &rand).?.id);
+    try std.testing.expectEqual(@as(u16, item.snowball), drop(snow_layer, 0, &rand).?.id);
+}
+
+test "blocks without a special drop rule self-drop with metadata reset to 0" {
+    var rand = JavaRandom.init(0);
+    const dropped = drop(pumpkin, 3, &rand).?;
+    try std.testing.expectEqual(@as(u16, pumpkin), dropped.id);
+    try std.testing.expectEqual(@as(u4, 0), dropped.meta);
 }

@@ -2,6 +2,7 @@ pub const Chunk = @import("chunk.zig");
 pub const NibbleArray = @import("nibble_array.zig");
 pub const constants = @import("constants.zig");
 pub const block = @import("block.zig");
+pub const item = @import("item.zig");
 pub const JavaRandom = @import("java_random.zig");
 pub const NoiseGeneratorPerlin = @import("noise_perlin.zig");
 pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
@@ -20,6 +21,7 @@ test {
     _ = Chunk;
     _ = NibbleArray;
     _ = block;
+    _ = item;
     _ = JavaRandom;
     _ = NoiseGeneratorPerlin;
     _ = NoiseGeneratorOctaves;

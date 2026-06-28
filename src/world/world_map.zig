@@ -3,6 +3,7 @@ const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const block = @import("block.zig");
 const TerrainGenerator = @import("terrain_gen.zig");
+const JavaRandom = @import("java_random.zig");
 
 const World = @This();
 
@@ -11,6 +12,7 @@ pub const ChunkCoord = struct { x: i32, z: i32 };
 allocator: std.mem.Allocator,
 chunks: std.AutoHashMapUnmanaged(ChunkCoord, Chunk) = .{},
 decorated: std.AutoHashMapUnmanaged(ChunkCoord, void) = .{},
+rand: JavaRandom = JavaRandom.init(0),
 
 pub fn init(allocator: std.mem.Allocator) World {
     return .{ .allocator = allocator };
