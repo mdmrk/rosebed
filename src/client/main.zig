@@ -377,50 +377,63 @@ fn tickItemEntities(app_state: *AppState) void {
     }
 }
 
-fn slotClick(app_state: *AppState, slot_index: usize) void {
+const ClickType = enum { left, right };
+
+fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
+    const held = app_state.held_stack orelse return;
+    const drop_count = if (click_type == .left) held.count else 1;
+    try spawnDroppedItem(
+        app_state,
+        @intFromFloat(@floor(app_state.player.position.x)),
+        @intFromFloat(@floor(app_state.player.position.y)),
+        @intFromFloat(@floor(app_state.player.position.z)),
+        .{ .id = held.id, .count = drop_count, .meta = held.meta },
+    );
+    const remaining = held.count - drop_count;
+    app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
+}
+
+fn slotClick(app_state: *AppState, slot_index: usize, click_type: ClickType) void {
     const slot = &app_state.player.inventory.slots[slot_index];
-    const held = app_state.held_stack orelse {
-        if (slot.*) |existing| {
-            app_state.held_stack = existing;
-            slot.* = null;
-        }
-        return;
-    };
 
     if (slot.*) |*existing| {
-        if (existing.id == held.id and existing.meta == held.meta) {
-            const room = game.Inventory.max_stack_size - existing.count;
-            const moved = @min(room, held.count);
-            existing.count += moved;
-            const remaining = held.count - moved;
-            app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
+        if (app_state.held_stack) |*held| {
+            if (existing.id == held.id and existing.meta == held.meta) {
+                const amount = @min(if (click_type == .left) held.count else 1, game.Inventory.max_stack_size - existing.count);
+                existing.count += amount;
+                held.count -= amount;
+                if (held.count == 0) app_state.held_stack = null;
+            } else {
+                const swapped = existing.*;
+                slot.* = held.*;
+                app_state.held_stack = swapped;
+            }
         } else {
-            const swapped = existing.*;
-            slot.* = held;
-            app_state.held_stack = swapped;
+            const amount = if (click_type == .left) existing.count else (existing.count + 1) / 2;
+            app_state.held_stack = .{ .id = existing.id, .count = amount, .meta = existing.meta };
+            existing.count -= amount;
+            if (existing.count == 0) slot.* = null;
         }
+    } else if (app_state.held_stack) |*held| {
+        const amount = if (click_type == .left) held.count else 1;
+        slot.* = .{ .id = held.id, .count = amount, .meta = held.meta };
+        held.count -= amount;
+        if (held.count == 0) app_state.held_stack = null;
+    }
+}
+
+fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
+    if (render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |slot_index| {
+        slotClick(app_state, slot_index, click_type);
     } else {
-        slot.* = held;
-        app_state.held_stack = null;
+        try dropHeldStack(app_state, click_type);
     }
 }
 
 fn toggleInventory(app_state: *AppState) !void {
     app_state.inventory_open = !app_state.inventory_open;
     try sdl3.mouse.setWindowRelativeMode(app_state.window, !app_state.inventory_open);
-
-    if (!app_state.inventory_open) {
-        if (app_state.held_stack) |stack| {
-            try spawnDroppedItem(
-                app_state,
-                @intFromFloat(@floor(app_state.player.position.x)),
-                @intFromFloat(@floor(app_state.player.position.y)),
-                @intFromFloat(@floor(app_state.player.position.z)),
-                stack,
-            );
-            app_state.held_stack = null;
-        }
-    }
+    if (!app_state.inventory_open) try dropHeldStack(app_state, .left);
 }
 
 fn consumeSelectedStack(app_state: *AppState) void {
@@ -449,13 +462,12 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
 }
 
 fn tick(app_state: *AppState) !void {
-    if (app_state.inventory_open) return;
-
     app_state.tick_count += 1;
 
-    const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
-    const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
-    app_state.player.tick(&app_state.world_map, strafe, forward, app_state.keys.jump);
+    const moving_allowed = !app_state.inventory_open;
+    const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
+    const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
+    app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
     try digStep(app_state);
     tickItemEntities(app_state);
     try tickFallingBlocks(app_state);
@@ -686,13 +698,15 @@ pub fn event(
         },
         .mouse_button_down => |m| switch (m.button) {
             .left => if (app_state.inventory_open) {
-                if (render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |slot_index| {
-                    slotClick(app_state, slot_index);
-                }
+                try inventoryClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
             },
-            .right => if (!app_state.inventory_open) try placeBlockAtTarget(app_state),
+            .right => if (app_state.inventory_open) {
+                try inventoryClickAt(app_state, .right);
+            } else {
+                try placeBlockAtTarget(app_state);
+            },
             else => {},
         },
         .mouse_button_up => |m| switch (m.button) {
