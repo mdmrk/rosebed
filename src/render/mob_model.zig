@@ -49,12 +49,12 @@ fn faceSpecs(box: Box) [6]FaceSpec {
     const tv = box.tex_v;
 
     return .{
-        .{ .corners = .{ .{ x1, y1, z2 }, .{ x1, y1, z1 }, .{ x1, y2, z1 }, .{ x1, y2, z2 } }, .rect = .{ tu, tv + d, tu + d, tv + d + h } },
-        .{ .corners = .{ .{ x2, y1, z1 }, .{ x2, y1, z2 }, .{ x2, y2, z2 }, .{ x2, y2, z1 } }, .rect = .{ tu + d + w, tv + d, tu + 2 * d + w, tv + d + h } },
-        .{ .corners = .{ .{ x1, y1, z1 }, .{ x2, y1, z1 }, .{ x2, y2, z1 }, .{ x1, y2, z1 } }, .rect = .{ tu + d, tv + d, tu + d + w, tv + d + h } },
-        .{ .corners = .{ .{ x2, y1, z2 }, .{ x1, y1, z2 }, .{ x1, y2, z2 }, .{ x2, y2, z2 } }, .rect = .{ tu + 2 * d + w, tv + d, tu + 2 * d + 2 * w, tv + d + h } },
-        .{ .corners = .{ .{ x1, y1, z2 }, .{ x2, y1, z2 }, .{ x2, y1, z1 }, .{ x1, y1, z1 } }, .rect = .{ tu + d, tv, tu + d + w, tv + d } },
-        .{ .corners = .{ .{ x1, y2, z1 }, .{ x2, y2, z1 }, .{ x2, y2, z2 }, .{ x1, y2, z2 } }, .rect = .{ tu + d + w, tv, tu + 2 * w + d, tv + d } },
+        .{ .corners = .{ .{ x2, y1, z2 }, .{ x2, y1, z1 }, .{ x2, y2, z1 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv + d, tu + 2 * d + w, tv + d + h } },
+        .{ .corners = .{ .{ x1, y1, z1 }, .{ x1, y1, z2 }, .{ x1, y2, z2 }, .{ x1, y2, z1 } }, .rect = .{ tu, tv + d, tu + d, tv + d + h } },
+        .{ .corners = .{ .{ x2, y1, z2 }, .{ x1, y1, z2 }, .{ x1, y1, z1 }, .{ x2, y1, z1 } }, .rect = .{ tu + d, tv, tu + d + w, tv + d } },
+        .{ .corners = .{ .{ x2, y2, z1 }, .{ x1, y2, z1 }, .{ x1, y2, z2 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv, tu + 2 * w + d, tv + d } },
+        .{ .corners = .{ .{ x2, y1, z1 }, .{ x1, y1, z1 }, .{ x1, y2, z1 }, .{ x2, y2, z1 } }, .rect = .{ tu + d, tv + d, tu + d + w, tv + d + h } },
+        .{ .corners = .{ .{ x1, y1, z2 }, .{ x2, y1, z2 }, .{ x2, y2, z2 }, .{ x1, y2, z2 } }, .rect = .{ tu + 2 * d + w, tv + d, tu + 2 * d + 2 * w, tv + d + h } },
     };
 }
 
@@ -77,9 +77,9 @@ pub fn appendPart(
             positions[i] = .{ xz[0] + entity_pos[0], world_scale[1] + entity_pos[1], xz[1] + entity_pos[2] };
         }
         const uvs = [4][2]f32{
-            .{ face.rect[0] / tex_width, face.rect[3] / tex_height },
-            .{ face.rect[0] / tex_width, face.rect[1] / tex_height },
             .{ face.rect[2] / tex_width, face.rect[1] / tex_height },
+            .{ face.rect[0] / tex_width, face.rect[1] / tex_height },
+            .{ face.rect[0] / tex_width, face.rect[3] / tex_height },
             .{ face.rect[2] / tex_width, face.rect[3] / tex_height },
         };
         try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
