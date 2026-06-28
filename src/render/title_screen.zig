@@ -9,6 +9,8 @@ const button = @import("button.zig");
 const hud = @import("hud.zig");
 
 const logo_texture_size: f32 = 256;
+const logo_width: f32 = 256;
+const logo_height: f32 = 44;
 const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const version_color: [4]u8 = .{ 80, 80, 80, 255 };
@@ -70,9 +72,8 @@ pub fn draw(
 
     var logo: MeshBuilder = .{};
     defer logo.deinit(gpa);
-    const logo_left = scaled_width / 2.0 - 137.0;
-    try hud.appendRect(&logo, gpa, logo_left, 30, 155, 44, hud.pixelUv(0, 0, 155, 44, logo_texture_size, logo_texture_size), scaled_width, scaled_height);
-    try hud.appendRect(&logo, gpa, logo_left + 155, 30, 155, 44, hud.pixelUv(0, 45, 155, 44, logo_texture_size, logo_texture_size), scaled_width, scaled_height);
+    const logo_left = scaled_width / 2.0 - logo_width / 2.0;
+    try hud.appendRect(&logo, gpa, logo_left, 30, logo_width, logo_height, hud.pixelUv(0, 0, logo_width, logo_height, logo_texture_size, logo_texture_size), scaled_width, scaled_height);
     try hud.drawTexturedMesh(&logo, icon_shader, logo_texture);
 
     var backgrounds: MeshBuilder = .{};
