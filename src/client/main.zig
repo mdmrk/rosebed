@@ -15,13 +15,25 @@ const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
-const terrain_path = "../decompilation/assets/terrain.png";
+const terrain_path = "assets/terrain.png";
+const pig_texture_path = "assets/mob/pig.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
 const world_seed = 1;
 const reach_distance = 4.5;
 const view_radius = 1;
+const pig_texture_width = 64;
+const pig_texture_height = 32;
+
+const pig_parts = [6]render.mob_model.Part{
+    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, 12, -6 } },
+    .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, 11, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, -5 } },
+};
 
 comptime {
     _ = sdl3.main_callbacks;
@@ -37,6 +49,7 @@ const AppState = struct {
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
     atlas: Atlas,
+    pig_texture: Atlas,
     shader: render.Shader,
     hud_shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -44,6 +57,7 @@ const AppState = struct {
     chunk_meshes: ChunkMeshMap,
     item_entities: std.ArrayListUnmanaged(game.ItemEntity) = .empty,
     falling_blocks: std.ArrayListUnmanaged(game.FallingBlock) = .empty,
+    pigs: std.ArrayListUnmanaged(game.Pig) = .empty,
     timer: Timer,
     tick_count: u64 = 0,
     player: game.Player = .{
@@ -145,6 +159,7 @@ pub fn init(
         .gl_context = gl_context,
         .gl_procs = undefined,
         .atlas = undefined,
+        .pig_texture = undefined,
         .shader = undefined,
         .hud_shader = undefined,
         .generator = undefined,
@@ -159,6 +174,11 @@ pub fn init(
 
     app_state.atlas = try Atlas.load(terrain_path);
     errdefer app_state.atlas.deinit();
+
+    app_state.pig_texture = try Atlas.load(pig_texture_path);
+    errdefer app_state.pig_texture.deinit();
+
+    try app_state.pigs.append(std.heap.page_allocator, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
@@ -362,6 +382,7 @@ fn tick(app_state: *AppState) !void {
     try digStep(app_state);
     tickItemEntities(app_state);
     try tickFallingBlocks(app_state);
+    for (app_state.pigs.items) |*pig| pig.tick(&app_state.world_map, &app_state.world_map.rand);
     try ensureChunksAroundPlayer(app_state);
 }
 
@@ -423,6 +444,26 @@ fn buildFallingBlockMesh(gpa: std.mem.Allocator, app_state: *const AppState, par
     return mesh;
 }
 
+fn buildPigMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
+    var mesh: render.MeshBuilder = .{};
+    errdefer mesh.deinit(gpa);
+
+    for (app_state.pigs.items) |pig| {
+        const pos = pig.renderPosition(partial_ticks);
+        const entity_pos = [3]f32{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) };
+        const yaw_rad = pig.yaw * std.math.pi / 180.0;
+        const swing = @cos(pig.walk_distance * 0.6662) * 1.4;
+
+        for (pig_parts, 0..) |part, i| {
+            var p = part;
+            if (i >= 2) p.rotate_x = if (i == 2 or i == 5) swing else -swing;
+            try render.mob_model.appendPart(&mesh, gpa, p, pig_texture_width, pig_texture_height, entity_pos, yaw_rad);
+        }
+    }
+
+    return mesh;
+}
+
 pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
@@ -468,6 +509,16 @@ pub fn iterate(
         var falling_gpu = render.GpuMesh.upload(&falling_mesh);
         defer falling_gpu.deinit();
         falling_gpu.draw();
+    }
+
+    var pig_mesh = try buildPigMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
+    defer pig_mesh.deinit(std.heap.page_allocator);
+    if (pig_mesh.vertices.items.len > 0) {
+        var pig_gpu = render.GpuMesh.upload(&pig_mesh);
+        defer pig_gpu.deinit();
+        app_state.pig_texture.bind();
+        pig_gpu.draw();
+        app_state.atlas.bind();
     }
 
     try render.hud.draw(
@@ -553,11 +604,13 @@ pub fn quit(
         state.chunk_meshes.deinit(std.heap.page_allocator);
         state.item_entities.deinit(std.heap.page_allocator);
         state.falling_blocks.deinit(std.heap.page_allocator);
+        state.pigs.deinit(std.heap.page_allocator);
         state.world_map.deinit();
         state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
         state.hud_shader.deinit();
         state.atlas.deinit();
+        state.pig_texture.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
     }
