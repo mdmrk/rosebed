@@ -9,6 +9,14 @@ pub const tiles_per_row = 16;
 texture: gl.uint,
 
 pub fn load(path: [:0]const u8) !Atlas {
+    return loadWrapped(path, gl.CLAMP_TO_EDGE);
+}
+
+pub fn loadRepeat(path: [:0]const u8) !Atlas {
+    return loadWrapped(path, gl.REPEAT);
+}
+
+fn loadWrapped(path: [:0]const u8, wrap: gl.int) !Atlas {
     const surface = try sdl3.surface.Surface.initFromPngFile(path);
     defer surface.deinit();
 
@@ -24,8 +32,8 @@ pub fn load(path: [:0]const u8) !Atlas {
     gl.BindTexture(gl.TEXTURE_2D, texture);
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
     gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels.ptr);
 
     return .{ .texture = texture };

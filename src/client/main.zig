@@ -23,6 +23,8 @@ const icons_texture_path = "assets/gui/icons.png";
 const items_texture_path = "assets/gui/items.png";
 const font_path = "assets/font/default.png";
 const inventory_texture_path = "assets/gui/inventory.png";
+const dirt_texture_path = "assets/gui/background.png";
+const logo_texture_path = "assets/gui/logo.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -73,6 +75,8 @@ const AppState = struct {
     icons_texture: Atlas,
     items_texture: Atlas,
     inventory_texture: Atlas,
+    dirt_texture: Atlas,
+    logo_texture: Atlas,
     font: render.Font,
     shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -99,11 +103,14 @@ const AppState = struct {
     digging: ?Digging = null,
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
+    screen: Screen = .title,
     inventory_open: bool = false,
     paused: bool = false,
     held_stack: ?game.Inventory.ItemStack = null,
     crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack = @splat(null),
 };
+
+const Screen = enum { title, playing };
 
 const Digging = struct {
     x: i32,
@@ -180,7 +187,7 @@ pub fn init(
     const gl_context = try sdl3.video.gl.Context.init(window);
     errdefer gl_context.deinit() catch {};
 
-    try sdl3.mouse.setWindowRelativeMode(window, true);
+    try sdl3.mouse.setWindowRelativeMode(window, false);
 
     var app_state: AppState = .{
         .fps_capper = .{ .mode = .{ .limited = fps } },
@@ -194,6 +201,8 @@ pub fn init(
         .icons_texture = undefined,
         .items_texture = undefined,
         .inventory_texture = undefined,
+        .dirt_texture = undefined,
+        .logo_texture = undefined,
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
@@ -226,6 +235,12 @@ pub fn init(
 
     app_state.inventory_texture = try Atlas.load(inventory_texture_path);
     errdefer app_state.inventory_texture.deinit();
+
+    app_state.dirt_texture = try Atlas.loadRepeat(dirt_texture_path);
+    errdefer app_state.dirt_texture.deinit();
+
+    app_state.logo_texture = try Atlas.load(logo_texture_path);
+    errdefer app_state.logo_texture.deinit();
 
     app_state.font = try render.Font.load(font_path);
     errdefer app_state.font.deinit();
@@ -478,12 +493,12 @@ fn dropCraftingGrid(app_state: *AppState) !void {
     }
 }
 
-fn anyScreenOpen(app_state: *const AppState) bool {
-    return app_state.inventory_open or app_state.paused;
+fn worldFocused(app_state: *const AppState) bool {
+    return app_state.screen == .playing and !app_state.inventory_open and !app_state.paused;
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
-    try sdl3.mouse.setWindowRelativeMode(app_state.window, !anyScreenOpen(app_state));
+    try sdl3.mouse.setWindowRelativeMode(app_state.window, worldFocused(app_state));
 }
 
 fn toggleInventory(app_state: *AppState) !void {
@@ -500,10 +515,22 @@ fn togglePause(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn enterWorld(app_state: *AppState) !void {
+    app_state.screen = .playing;
+    try updateMouseMode(app_state);
+}
+
+fn quitToTitle(app_state: *AppState) !void {
+    app_state.screen = .title;
+    app_state.paused = false;
+    try updateMouseMode(app_state);
+}
+
 fn pauseMenuClick(app_state: *AppState) !void {
     const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height) orelse return;
     switch (action) {
         .resume_game => try togglePause(app_state),
+        .quit_to_title => try quitToTitle(app_state),
     }
 }
 
@@ -624,26 +651,7 @@ fn buildPigMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_tick
     return mesh;
 }
 
-pub fn iterate(
-    app_state: *AppState,
-) !sdl3.AppResult {
-    gl.makeProcTableCurrent(&app_state.gl_procs);
-    gl.Viewport(0, 0, screen_width, screen_height);
-
-    const dt = app_state.fps_capper.delay();
-    _ = dt;
-
-    app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
-    if (!app_state.paused) {
-        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
-            try tick(app_state);
-        }
-    }
-
-    gl.Enable(gl.DEPTH_TEST);
-    gl.ClearColor(0.502, 0.118, 1.0, 1.0);
-    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
+fn renderWorld(app_state: *AppState) !void {
     const aspect: f32 = @as(f32, screen_width) / @as(f32, screen_height);
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
     const view = app_state.player.viewMatrix(app_state.timer.render_partial_ticks);
@@ -682,8 +690,44 @@ pub fn iterate(
         pig_gpu.draw();
         app_state.atlas.bind();
     }
+}
 
-    if (app_state.paused) {
+pub fn iterate(
+    app_state: *AppState,
+) !sdl3.AppResult {
+    gl.makeProcTableCurrent(&app_state.gl_procs);
+    gl.Viewport(0, 0, screen_width, screen_height);
+
+    const dt = app_state.fps_capper.delay();
+    _ = dt;
+
+    app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
+    if (app_state.screen == .playing and !app_state.paused) {
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
+            try tick(app_state);
+        }
+    }
+
+    gl.Enable(gl.DEPTH_TEST);
+    gl.ClearColor(0.502, 0.118, 1.0, 1.0);
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if (app_state.screen == .playing) try renderWorld(app_state);
+
+    if (app_state.screen == .title) {
+        try render.title_screen.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.dirt_texture,
+            app_state.logo_texture,
+            app_state.gui_texture,
+            app_state.font,
+            app_state.mouse_x,
+            app_state.mouse_y,
+            screen_width,
+            screen_height,
+        );
+    } else if (app_state.paused) {
         try render.menu.draw(
             std.heap.page_allocator,
             app_state.shader,
@@ -769,7 +813,7 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| {
+        .key_down => |k| if (app_state.screen == .playing) {
             if (k.key == .escape) {
                 if (app_state.inventory_open) {
                     try toggleInventory(app_state);
@@ -787,20 +831,25 @@ pub fn event(
         .mouse_motion => |m| {
             app_state.mouse_x = m.x;
             app_state.mouse_y = m.y;
-            if (!anyScreenOpen(app_state)) app_state.player.turn(m.x_rel, m.y_rel);
+            if (worldFocused(app_state)) app_state.player.turn(m.x_rel, m.y_rel);
         },
-        .mouse_wheel => |w| if (!anyScreenOpen(app_state)) {
+        .mouse_wheel => |w| if (worldFocused(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         },
         .mouse_button_down => |m| switch (m.button) {
-            .left => if (app_state.paused) {
+            .left => if (app_state.screen == .title) {
+                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |action| switch (action) {
+                    .singleplayer => try enterWorld(app_state),
+                    .quit => return .success,
+                };
+            } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
             } else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
             },
-            .right => if (app_state.paused) {} else if (app_state.inventory_open) {
+            .right => if (app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);
@@ -840,6 +889,8 @@ pub fn quit(
         state.icons_texture.deinit();
         state.items_texture.deinit();
         state.inventory_texture.deinit();
+        state.dirt_texture.deinit();
+        state.logo_texture.deinit();
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
