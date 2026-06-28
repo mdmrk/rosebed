@@ -42,6 +42,7 @@ const AppState = struct {
     generator: world.TerrainGenerator,
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
+    item_entities: std.ArrayListUnmanaged(game.ItemEntity) = .empty,
     timer: Timer,
     tick_count: u64 = 0,
     player: game.Player = .{
@@ -223,24 +224,62 @@ fn digStep(app_state: *AppState) !void {
     const block_id = app_state.world_map.getBlockId(hit.x, hit.y, hit.z);
     const ticks_required = world.block.digTicksRequired(block_id) orelse return;
     if (ticks_required <= 0.0) {
-        breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
+        try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try rebuildMeshesAround(app_state, hit.x, hit.z);
         return;
     }
 
     app_state.digging.?.progress += 1.0 / ticks_required;
     if (app_state.digging.?.progress >= 1.0) {
-        breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
+        try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try rebuildMeshesAround(app_state, hit.x, hit.z);
     }
 }
 
-fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) void {
+fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
+    const rand = &app_state.world_map.rand;
+    const jitter_x = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
+    const jitter_y = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
+    const jitter_z = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
+    const position = math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + jitter_x,
+        @as(f64, @floatFromInt(y)) + jitter_y,
+        @as(f64, @floatFromInt(z)) + jitter_z,
+    );
+    const item = game.ItemEntity.spawn(position, stack, rand);
+    try app_state.item_entities.append(std.heap.page_allocator, item);
+}
+
+fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
     const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
     app_state.world_map.setBlockId(x, y, z, world.block.air);
     app_state.digging = null;
-    if (dropped) |d| _ = app_state.player.inventory.addStack(.{ .id = d.id, .count = d.count, .meta = d.meta });
+    if (dropped) |d| try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+}
+
+fn tickItemEntities(app_state: *AppState) void {
+    var i: usize = 0;
+    while (i < app_state.item_entities.items.len) {
+        const item = &app_state.item_entities.items[i];
+        item.tick(&app_state.world_map);
+
+        var picked_up = false;
+        if (item.canPickUp() and item.boundingBox().intersects(app_state.player.boundingBox())) {
+            const leftover = app_state.player.inventory.addStack(item.stack);
+            if (leftover == 0) {
+                picked_up = true;
+            } else {
+                item.stack.count = leftover;
+            }
+        }
+
+        if (picked_up or item.isExpired()) {
+            _ = app_state.item_entities.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 }
 
 fn consumeSelectedStack(app_state: *AppState) void {
@@ -274,7 +313,43 @@ fn tick(app_state: *AppState) !void {
     const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.world_map, strafe, forward, app_state.keys.jump);
     try digStep(app_state);
+    tickItemEntities(app_state);
     try ensureChunksAroundPlayer(app_state);
+}
+
+fn buildItemEntityMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
+    var mesh: render.MeshBuilder = .{};
+    errdefer mesh.deinit(gpa);
+
+    for (app_state.item_entities.items) |item| {
+        if (item.stack.id > 255) continue;
+
+        const pos = item.renderPosition(partial_ticks);
+        const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
+        const uv = render.Atlas.tileUv(tile);
+        const uvs = [4][2]f32{
+            .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
+        };
+
+        const half: f32 = @floatCast(game.ItemEntity.width / 2.0);
+        const cx: f32 = @floatCast(pos.x);
+        const cz: f32 = @floatCast(pos.z);
+        const y0: f32 = @floatCast(pos.y);
+        const y1: f32 = @floatCast(pos.y + game.ItemEntity.height);
+        const minx = cx - half;
+        const maxx = cx + half;
+        const minz = cz - half;
+        const maxz = cz + half;
+
+        try mesh.quad(gpa, .{
+            .{ minx, y0, minz }, .{ maxx, y0, maxz }, .{ maxx, y1, maxz }, .{ minx, y1, minz },
+        }, uvs, .{ 255, 255, 255, 255 });
+        try mesh.quad(gpa, .{
+            .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
+        }, uvs, .{ 255, 255, 255, 255 });
+    }
+
+    return mesh;
 }
 
 pub fn iterate(
@@ -307,6 +382,14 @@ pub fn iterate(
     app_state.shader.setInt("u_atlas", 0);
     var mesh_it = app_state.chunk_meshes.valueIterator();
     while (mesh_it.next()) |mesh| mesh.draw();
+
+    var item_mesh = try buildItemEntityMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
+    defer item_mesh.deinit(std.heap.page_allocator);
+    if (item_mesh.vertices.items.len > 0) {
+        var item_gpu = render.GpuMesh.upload(&item_mesh);
+        defer item_gpu.deinit();
+        item_gpu.draw();
+    }
 
     try render.hud.draw(
         std.heap.page_allocator,
@@ -389,6 +472,7 @@ pub fn quit(
         var mesh_it = state.chunk_meshes.valueIterator();
         while (mesh_it.next()) |mesh| mesh.deinit();
         state.chunk_meshes.deinit(std.heap.page_allocator);
+        state.item_entities.deinit(std.heap.page_allocator);
         state.world_map.deinit();
         state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
