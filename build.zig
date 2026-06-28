@@ -97,6 +97,16 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    const fetch_assets = b.addExecutable(.{
+        .name = "fetch-assets",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/fetch_assets.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const fetch_assets_step = b.step("fetch-assets", "Download the official Beta 1.7.3 client jar and extract its assets");
+    fetch_assets_step.dependOn(&b.addRunArtifact(fetch_assets).step);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = core_mod })).step);
