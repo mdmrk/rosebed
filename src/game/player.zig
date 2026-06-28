@@ -2,6 +2,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 const physics = @import("physics.zig");
+const Inventory = @import("inventory.zig");
 
 const Player = @This();
 
@@ -11,6 +12,7 @@ yaw: f32 = 0,
 pitch: f32 = 0,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),
 on_ground: bool = false,
+inventory: Inventory = .{},
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;

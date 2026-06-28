@@ -21,7 +21,6 @@ const near_plane = 0.05;
 const far_plane = 1000.0;
 const world_seed = 1;
 const reach_distance = 4.5;
-const place_block_id = world.block.stone;
 const view_radius = 1;
 
 comptime {
@@ -43,7 +42,11 @@ const AppState = struct {
     chunk_meshes: ChunkMeshMap,
     timer: Timer,
     tick_count: u64 = 0,
-    player: game.Player = .{ .position = math.Vec3.init(8, 90, 8), .prev_position = math.Vec3.init(8, 90, 8) },
+    player: game.Player = .{
+        .position = math.Vec3.init(8, 90, 8),
+        .prev_position = math.Vec3.init(8, 90, 8),
+        .inventory = starterInventory(),
+    },
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -61,6 +64,17 @@ const Digging = struct {
     z: i32,
     progress: f32,
 };
+
+fn starterInventory() game.Inventory {
+    var inv: game.Inventory = .{};
+    inv.slots[0] = .{ .id = world.block.stone, .count = 64 };
+    inv.slots[1] = .{ .id = world.block.dirt, .count = 64 };
+    inv.slots[2] = .{ .id = world.block.cobblestone, .count = 64 };
+    inv.slots[3] = .{ .id = world.block.sand, .count = 64 };
+    inv.slots[4] = .{ .id = world.block.gravel, .count = 64 };
+    inv.slots[5] = .{ .id = world.block.log, .count = 64 };
+    return inv;
+}
 
 fn generateWorld(world_map: *world.World) !void {
     const gpa = std.heap.page_allocator;
@@ -198,21 +212,35 @@ fn digStep(app_state: *AppState) !void {
     const block_id = app_state.world_map.getBlockId(hit.x, hit.y, hit.z);
     const ticks_required = world.block.digTicksRequired(block_id) orelse return;
     if (ticks_required <= 0.0) {
-        app_state.world_map.setBlockId(hit.x, hit.y, hit.z, world.block.air);
-        app_state.digging = null;
+        breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try rebuildMeshesAround(app_state, hit.x, hit.z);
         return;
     }
 
     app_state.digging.?.progress += 1.0 / ticks_required;
     if (app_state.digging.?.progress >= 1.0) {
-        app_state.world_map.setBlockId(hit.x, hit.y, hit.z, world.block.air);
-        app_state.digging = null;
+        breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try rebuildMeshesAround(app_state, hit.x, hit.z);
     }
 }
 
+fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) void {
+    const meta = app_state.world_map.getBlockMetadata(x, y, z);
+    app_state.world_map.setBlockId(x, y, z, world.block.air);
+    app_state.digging = null;
+    _ = app_state.player.inventory.addStack(.{ .id = block_id, .count = 1, .meta = meta });
+}
+
+fn consumeSelectedStack(app_state: *AppState) void {
+    const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
+    if (slot.*) |*stack| {
+        stack.count -= 1;
+        if (stack.count == 0) slot.* = null;
+    }
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !void {
+    const stack = app_state.player.inventory.selectedStack() orelse return;
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
     const offset = faceOffset(hit.face);
     const px = hit.x + offset[0];
@@ -220,7 +248,9 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (world.block.isOpaque(app_state.world_map.getBlockId(px, py, pz))) return;
-    app_state.world_map.setBlockId(px, py, pz, place_block_id);
+    app_state.world_map.setBlockId(px, py, pz, stack.id);
+    app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
+    consumeSelectedStack(app_state);
     try rebuildMeshesAround(app_state, px, pz);
 }
 
@@ -280,6 +310,22 @@ fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) voi
     }
 }
 
+fn selectHotbarFromKey(app_state: *AppState, key: ?sdl3.keycode.Keycode) void {
+    const index: u8 = switch (key orelse return) {
+        .one => 0,
+        .two => 1,
+        .three => 2,
+        .four => 3,
+        .five => 4,
+        .six => 5,
+        .seven => 6,
+        .eight => 7,
+        .nine => 8,
+        else => return,
+    };
+    app_state.player.inventory.selectHotbar(index);
+}
+
 pub fn event(
     app_state: *AppState,
     curr_event: sdl3.events.Event,
@@ -287,9 +333,13 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| setKeyState(app_state, k.key, true),
+        .key_down => |k| {
+            setKeyState(app_state, k.key, true);
+            selectHotbarFromKey(app_state, k.key);
+        },
         .key_up => |k| setKeyState(app_state, k.key, false),
         .mouse_motion => |m| app_state.player.turn(m.x_rel, m.y_rel),
+        .mouse_wheel => |w| app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0),
         .mouse_button_down => |m| switch (m.button) {
             .left => app_state.mouse_left_down = true,
             .right => try placeBlockAtTarget(app_state),
