@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const ItemStack = struct {
-    id: u8,
+    id: u16,
     count: u8,
     meta: u4 = 0,
 };
@@ -36,7 +36,7 @@ fn firstEmptySlot(self: Inventory) ?usize {
     return null;
 }
 
-fn matchingSlot(self: Inventory, id: u8, meta: u4) ?usize {
+fn matchingSlot(self: Inventory, id: u16, meta: u4) ?usize {
     for (self.slots, 0..) |slot, i| {
         if (slot) |s| {
             if (s.id == id and s.meta == meta and s.count < max_stack_size) return i;

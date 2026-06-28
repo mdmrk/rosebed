@@ -151,6 +151,8 @@ pub fn init(
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
 
+    app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
+
     app_state.atlas = try Atlas.load(terrain_path);
     errdefer app_state.atlas.deinit();
 
@@ -230,9 +232,10 @@ fn digStep(app_state: *AppState) !void {
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
+    const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
     app_state.world_map.setBlockId(x, y, z, world.block.air);
     app_state.digging = null;
-    _ = app_state.player.inventory.addStack(.{ .id = block_id, .count = 1, .meta = meta });
+    if (dropped) |d| _ = app_state.player.inventory.addStack(.{ .id = d.id, .count = d.count, .meta = d.meta });
 }
 
 fn consumeSelectedStack(app_state: *AppState) void {
@@ -245,6 +248,7 @@ fn consumeSelectedStack(app_state: *AppState) void {
 
 fn placeBlockAtTarget(app_state: *AppState) !void {
     const stack = app_state.player.inventory.selectedStack() orelse return;
+    if (stack.id > 255) return;
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
     const offset = faceOffset(hit.face);
     const px = hit.x + offset[0];
@@ -252,7 +256,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (world.block.isOpaque(app_state.world_map.getBlockId(px, py, pz))) return;
-    app_state.world_map.setBlockId(px, py, pz, stack.id);
+    app_state.world_map.setBlockId(px, py, pz, @intCast(stack.id));
     app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
     consumeSelectedStack(app_state);
     try rebuildMeshesAround(app_state, px, pz);
