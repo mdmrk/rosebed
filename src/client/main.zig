@@ -468,7 +468,8 @@ fn resultSlotClick(app_state: *AppState) void {
 }
 
 fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
-    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height) orelse {
+    const gui = guiSize(app_state);
+    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse {
         try dropHeldStack(app_state, click_type);
         return;
     };
@@ -527,7 +528,8 @@ fn quitToTitle(app_state: *AppState) !void {
 }
 
 fn pauseMenuClick(app_state: *AppState) !void {
-    const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height) orelse return;
+    const gui = guiSize(app_state);
+    const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse return;
     switch (action) {
         .resume_game => try togglePause(app_state),
         .quit_to_title => try quitToTitle(app_state),
@@ -651,8 +653,19 @@ fn buildPigMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_tick
     return mesh;
 }
 
+fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } {
+    const s = app_state.window.getSizeInPixels() catch return .{ .w = screen_width, .h = screen_height };
+    return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
+}
+
+fn guiSize(app_state: *const AppState) struct { w: f32, h: f32 } {
+    const s = app_state.window.getSize() catch return .{ .w = screen_width, .h = screen_height };
+    return .{ .w = @floatFromInt(@max(s[0], 1)), .h = @floatFromInt(@max(s[1], 1)) };
+}
+
 fn renderWorld(app_state: *AppState) !void {
-    const aspect: f32 = @as(f32, screen_width) / @as(f32, screen_height);
+    const px = drawableSize(app_state);
+    const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
     const view = app_state.player.viewMatrix(app_state.timer.render_partial_ticks);
     const view_proj = proj.mul(view);
@@ -696,7 +709,9 @@ pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
-    gl.Viewport(0, 0, screen_width, screen_height);
+    const px = drawableSize(app_state);
+    gl.Viewport(0, 0, px.w, px.h);
+    const gui = guiSize(app_state);
 
     const dt = app_state.fps_capper.delay();
     _ = dt;
@@ -724,8 +739,8 @@ pub fn iterate(
             app_state.font,
             app_state.mouse_x,
             app_state.mouse_y,
-            screen_width,
-            screen_height,
+            gui.w,
+            gui.h,
         );
     } else if (app_state.paused) {
         try render.menu.draw(
@@ -735,8 +750,8 @@ pub fn iterate(
             app_state.font,
             app_state.mouse_x,
             app_state.mouse_y,
-            screen_width,
-            screen_height,
+            gui.w,
+            gui.h,
         );
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
@@ -756,8 +771,8 @@ pub fn iterate(
             app_state.held_stack,
             app_state.mouse_x,
             app_state.mouse_y,
-            screen_width,
-            screen_height,
+            gui.w,
+            gui.h,
         );
     } else {
         try render.hud.draw(
@@ -769,8 +784,8 @@ pub fn iterate(
             app_state.items_texture,
             app_state.font,
             app_state.player.inventory,
-            screen_width,
-            screen_height,
+            gui.w,
+            gui.h,
         );
     }
 
@@ -838,7 +853,8 @@ pub fn event(
         },
         .mouse_button_down => |m| switch (m.button) {
             .left => if (app_state.screen == .title) {
-                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |action| switch (action) {
+                const gui = guiSize(app_state);
+                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h)) |action| switch (action) {
                     .singleplayer => try enterWorld(app_state),
                     .quit => return .success,
                 };
