@@ -100,6 +100,7 @@ const AppState = struct {
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
     inventory_open: bool = false,
+    paused: bool = false,
     held_stack: ?game.Inventory.ItemStack = null,
     crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack = @splat(null),
 };
@@ -477,12 +478,32 @@ fn dropCraftingGrid(app_state: *AppState) !void {
     }
 }
 
+fn anyScreenOpen(app_state: *const AppState) bool {
+    return app_state.inventory_open or app_state.paused;
+}
+
+fn updateMouseMode(app_state: *AppState) !void {
+    try sdl3.mouse.setWindowRelativeMode(app_state.window, !anyScreenOpen(app_state));
+}
+
 fn toggleInventory(app_state: *AppState) !void {
     app_state.inventory_open = !app_state.inventory_open;
-    try sdl3.mouse.setWindowRelativeMode(app_state.window, !app_state.inventory_open);
+    try updateMouseMode(app_state);
     if (!app_state.inventory_open) {
         try dropHeldStack(app_state, .left);
         try dropCraftingGrid(app_state);
+    }
+}
+
+fn togglePause(app_state: *AppState) !void {
+    app_state.paused = !app_state.paused;
+    try updateMouseMode(app_state);
+}
+
+fn pauseMenuClick(app_state: *AppState) !void {
+    const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height) orelse return;
+    switch (action) {
+        .resume_game => try togglePause(app_state),
     }
 }
 
@@ -613,8 +634,10 @@ pub fn iterate(
     _ = dt;
 
     app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
-    for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
-        try tick(app_state);
+    if (!app_state.paused) {
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
+            try tick(app_state);
+        }
     }
 
     gl.Enable(gl.DEPTH_TEST);
@@ -660,7 +683,18 @@ pub fn iterate(
         app_state.atlas.bind();
     }
 
-    if (app_state.inventory_open) {
+    if (app_state.paused) {
+        try render.menu.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.gui_texture,
+            app_state.font,
+            app_state.mouse_x,
+            app_state.mouse_y,
+            screen_width,
+            screen_height,
+        );
+    } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
             std.heap.page_allocator,
             app_state.shader,
@@ -736,7 +770,13 @@ pub fn event(
     switch (curr_event) {
         .quit, .terminating => return .success,
         .key_down => |k| {
-            if (k.key == .e) {
+            if (k.key == .escape) {
+                if (app_state.inventory_open) {
+                    try toggleInventory(app_state);
+                } else {
+                    try togglePause(app_state);
+                }
+            } else if (k.key == .e and !app_state.paused) {
                 try toggleInventory(app_state);
             } else {
                 setKeyState(app_state, k.key, true);
@@ -747,18 +787,20 @@ pub fn event(
         .mouse_motion => |m| {
             app_state.mouse_x = m.x;
             app_state.mouse_y = m.y;
-            if (!app_state.inventory_open) app_state.player.turn(m.x_rel, m.y_rel);
+            if (!anyScreenOpen(app_state)) app_state.player.turn(m.x_rel, m.y_rel);
         },
-        .mouse_wheel => |w| if (!app_state.inventory_open) {
+        .mouse_wheel => |w| if (!anyScreenOpen(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         },
         .mouse_button_down => |m| switch (m.button) {
-            .left => if (app_state.inventory_open) {
+            .left => if (app_state.paused) {
+                try pauseMenuClick(app_state);
+            } else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
             },
-            .right => if (app_state.inventory_open) {
+            .right => if (app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);

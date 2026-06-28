@@ -8,6 +8,7 @@ pub const hud = @import("hud.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const Font = @import("font.zig");
 pub const inventory_screen = @import("inventory_screen.zig");
+pub const menu = @import("menu.zig");
 
 test {
     _ = Atlas;
@@ -20,4 +21,5 @@ test {
     _ = mob_model;
     _ = Font;
     _ = inventory_screen;
+    _ = menu;
 }

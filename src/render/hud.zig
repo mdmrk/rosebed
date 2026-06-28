@@ -34,26 +34,34 @@ pub fn toNdc(x: f32, y: f32, scaled_width: f32, scaled_height: f32) [2]f32 {
     };
 }
 
-pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, scaled_width: f32, scaled_height: f32) !void {
+pub fn appendRectColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, color: [4]u8, scaled_width: f32, scaled_height: f32) !void {
     const tl = toNdc(x, y, scaled_width, scaled_height);
     const tr = toNdc(x + w, y, scaled_width, scaled_height);
     const br = toNdc(x + w, y + h, scaled_width, scaled_height);
     const bl = toNdc(x, y + h, scaled_width, scaled_height);
     try mesh.quad(gpa, .{
         .{ tl[0], tl[1], 0 }, .{ tr[0], tr[1], 0 }, .{ br[0], br[1], 0 }, .{ bl[0], bl[1], 0 },
-    }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, .{ 255, 255, 255, 255 });
+    }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, color);
+}
+
+pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, scaled_width: f32, scaled_height: f32) !void {
+    try appendRectColor(mesh, gpa, x, y, w, h, uv, .{ 255, 255, 255, 255 }, scaled_width, scaled_height);
 }
 
 pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }
 
-pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, scaled_width: f32, scaled_height: f32) !void {
+pub fn appendTextColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, scaled_width: f32, scaled_height: f32) !void {
     var cursor = x;
     for (text) |c| {
-        try appendRect(mesh, gpa, cursor, y, Font.glyph_size, Font.glyph_size, Font.glyphUv(c), scaled_width, scaled_height);
+        try appendRectColor(mesh, gpa, cursor, y, Font.glyph_size, Font.glyph_size, Font.glyphUv(c), color, scaled_width, scaled_height);
         cursor += @floatFromInt(font.char_width[c]);
     }
+}
+
+pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, scaled_width: f32, scaled_height: f32) !void {
+    try appendTextColor(mesh, gpa, font, text, x, y, .{ 255, 255, 255, 255 }, scaled_width, scaled_height);
 }
 
 pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
