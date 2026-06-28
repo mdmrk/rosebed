@@ -17,6 +17,7 @@ const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_path = "assets/terrain.png";
 const pig_texture_path = "assets/mob/pig.png";
+const char_texture_path = "assets/mob/char.png";
 const gui_texture_path = "assets/gui/gui.png";
 const icons_texture_path = "assets/gui/icons.png";
 const items_texture_path = "assets/gui/items.png";
@@ -30,6 +31,8 @@ const reach_distance = 4.5;
 const view_radius = 1;
 const pig_texture_width = 64;
 const pig_texture_height = 32;
+const char_texture_width = 64;
+const char_texture_height = 32;
 
 const pig_parts = [6]render.mob_model.Part{
     .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, 12, -6 } },
@@ -38,6 +41,16 @@ const pig_parts = [6]render.mob_model.Part{
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, 7 } },
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, -5 } },
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, -5 } },
+};
+
+const biped_head_index = 5;
+const biped_parts = [6]render.mob_model.Part{
+    .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 2, -12, 0 } },
+    .{ .box = .{ .origin = .{ -3, -2, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 40, .tex_v = 16 }, .pivot = .{ -5, -22, 0 } },
+    .{ .box = .{ .origin = .{ -1, -2, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 40, .tex_v = 16 }, .pivot = .{ 5, -22, 0 } },
+    .{ .box = .{ .origin = .{ -4, -8, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },
 };
 
 comptime {
@@ -55,6 +68,7 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     atlas: Atlas,
     pig_texture: Atlas,
+    char_texture: Atlas,
     gui_texture: Atlas,
     icons_texture: Atlas,
     items_texture: Atlas,
@@ -173,6 +187,7 @@ pub fn init(
         .gl_procs = undefined,
         .atlas = undefined,
         .pig_texture = undefined,
+        .char_texture = undefined,
         .gui_texture = undefined,
         .icons_texture = undefined,
         .items_texture = undefined,
@@ -194,6 +209,9 @@ pub fn init(
 
     app_state.pig_texture = try Atlas.load(pig_texture_path);
     errdefer app_state.pig_texture.deinit();
+
+    app_state.char_texture = try Atlas.load(char_texture_path);
+    errdefer app_state.char_texture.deinit();
 
     app_state.gui_texture = try Atlas.load(gui_texture_path);
     errdefer app_state.gui_texture.deinit();
@@ -618,6 +636,11 @@ pub fn iterate(
             app_state.atlas,
             app_state.items_texture,
             app_state.font,
+            app_state.char_texture,
+            &biped_parts,
+            biped_head_index,
+            char_texture_width,
+            char_texture_height,
             app_state.player.inventory,
             app_state.held_stack,
             app_state.mouse_x,
@@ -737,6 +760,7 @@ pub fn quit(
         state.shader.deinit();
         state.atlas.deinit();
         state.pig_texture.deinit();
+        state.char_texture.deinit();
         state.gui_texture.deinit();
         state.icons_texture.deinit();
         state.items_texture.deinit();
