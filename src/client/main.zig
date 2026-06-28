@@ -38,6 +38,7 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     atlas: Atlas,
     shader: render.Shader,
+    generator: world.TerrainGenerator,
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
     timer: Timer,
@@ -76,20 +77,6 @@ fn starterInventory() game.Inventory {
     return inv;
 }
 
-fn generateWorld(world_map: *world.World) !void {
-    const gpa = std.heap.page_allocator;
-    const generator = try world.TerrainGenerator.init(gpa, world_seed);
-    defer generator.deinit(gpa);
-
-    var cx: i32 = -view_radius;
-    while (cx <= view_radius) : (cx += 1) {
-        var cz: i32 = -view_radius;
-        while (cz <= view_radius) : (cz += 1) {
-            try world_map.ensureDecorated(generator, cx, cz);
-        }
-    }
-}
-
 fn buildChunkMesh(world_map: *const world.World, chunk_x: i32, chunk_z: i32) !render.GpuMesh {
     const chunk = world_map.getChunk(chunk_x, chunk_z).?;
     var mesh = try render.chunk_mesher.build(std.heap.page_allocator, world_map, chunk);
@@ -97,13 +84,27 @@ fn buildChunkMesh(world_map: *const world.World, chunk_x: i32, chunk_z: i32) !re
     return render.GpuMesh.upload(&mesh);
 }
 
-fn buildAllChunkMeshes(app_state: *AppState) !void {
-    var cx: i32 = -view_radius;
-    while (cx <= view_radius) : (cx += 1) {
-        var cz: i32 = -view_radius;
-        while (cz <= view_radius) : (cz += 1) {
+fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
+    const x: i32 = @intFromFloat(@floor(app_state.player.position.x));
+    const z: i32 = @intFromFloat(@floor(app_state.player.position.z));
+    return .{
+        .x = @divFloor(x, world.constants.chunk_width),
+        .z = @divFloor(z, world.constants.chunk_width),
+    };
+}
+
+fn ensureChunksAroundPlayer(app_state: *AppState) !void {
+    const center = playerChunkCoord(app_state);
+
+    var cx = center.x - view_radius;
+    while (cx <= center.x + view_radius) : (cx += 1) {
+        var cz = center.z - view_radius;
+        while (cz <= center.z + view_radius) : (cz += 1) {
+            const coord = world.World.ChunkCoord{ .x = cx, .z = cz };
+            if (app_state.chunk_meshes.contains(coord)) continue;
+            try app_state.world_map.ensureDecorated(app_state.generator, cx, cz);
             const mesh = try buildChunkMesh(&app_state.world_map, cx, cz);
-            try app_state.chunk_meshes.put(std.heap.page_allocator, .{ .x = cx, .z = cz }, mesh);
+            try app_state.chunk_meshes.put(std.heap.page_allocator, coord, mesh);
         }
     }
 }
@@ -142,6 +143,7 @@ pub fn init(
         .gl_procs = undefined,
         .atlas = undefined,
         .shader = undefined,
+        .generator = undefined,
         .world_map = world.World.init(std.heap.page_allocator),
         .chunk_meshes = .{},
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
@@ -155,8 +157,10 @@ pub fn init(
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
-    try generateWorld(&app_state.world_map);
-    try buildAllChunkMeshes(&app_state);
+    app_state.generator = try world.TerrainGenerator.init(std.heap.page_allocator, world_seed);
+    errdefer app_state.generator.deinit(std.heap.page_allocator);
+
+    try ensureChunksAroundPlayer(&app_state);
 
     return .{ app_state, .run };
 }
@@ -261,6 +265,7 @@ fn tick(app_state: *AppState) !void {
     const strafe: f32 = (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.world_map, strafe, forward, app_state.keys.jump);
     try digStep(app_state);
+    try ensureChunksAroundPlayer(app_state);
 }
 
 pub fn iterate(
@@ -366,6 +371,7 @@ pub fn quit(
         while (mesh_it.next()) |mesh| mesh.deinit();
         state.chunk_meshes.deinit(std.heap.page_allocator);
         state.world_map.deinit();
+        state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
         state.atlas.deinit();
         state.gl_context.deinit() catch {};
