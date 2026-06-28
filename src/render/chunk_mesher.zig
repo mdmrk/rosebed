@@ -37,6 +37,27 @@ fn neighborIsOpaque(world_map: *const world.World, chunk: *const world.Chunk, x:
     return world.block.isOpaque(world_map.getBlockId(world_x, y, world_z));
 }
 
+pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [3]f32, face_textures: [6]u8) !void {
+    for (faces) |face| {
+        const uv = Atlas.tileUv(face_textures[face.side]);
+        var positions: [4][3]f32 = undefined;
+        for (face.corners, 0..) |corner, i| {
+            positions[i] = .{
+                if (corner[0] == 0) min[0] else max[0],
+                if (corner[1] == 0) min[1] else max[1],
+                if (corner[2] == 0) min[2] else max[2],
+            };
+        }
+        const uvs = [4][2]f32{
+            .{ uv.u0, uv.v1 },
+            .{ uv.u0, uv.v0 },
+            .{ uv.u1, uv.v0 },
+            .{ uv.u1, uv.v1 },
+        };
+        try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+    }
+}
+
 fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bx: f32, by: f32, bz: f32) !void {
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{

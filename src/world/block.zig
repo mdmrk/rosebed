@@ -51,6 +51,14 @@ pub fn isLiquid(id: u8) bool {
     return id == stationary_water or id == flowing_lava;
 }
 
+pub fn isFalling(id: u8) bool {
+    return id == sand or id == gravel;
+}
+
+pub fn canFallInto(id: u8) bool {
+    return id == air or isLiquid(id);
+}
+
 pub fn logSideTile(metadata: u4) u8 {
     return switch (metadata) {
         1 => 116,
@@ -338,4 +346,18 @@ test "blocks without a special drop rule self-drop with metadata reset to 0" {
     const dropped = drop(pumpkin, 3, &rand).?;
     try std.testing.expectEqual(@as(u16, pumpkin), dropped.id);
     try std.testing.expectEqual(@as(u4, 0), dropped.meta);
+}
+
+test "only sand and gravel are falling blocks" {
+    try std.testing.expect(isFalling(sand));
+    try std.testing.expect(isFalling(gravel));
+    try std.testing.expect(!isFalling(stone));
+    try std.testing.expect(!isFalling(dirt));
+}
+
+test "a falling block can fall into air or liquid, not solid ground" {
+    try std.testing.expect(canFallInto(air));
+    try std.testing.expect(canFallInto(stationary_water));
+    try std.testing.expect(canFallInto(flowing_lava));
+    try std.testing.expect(!canFallInto(stone));
 }

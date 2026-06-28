@@ -3,6 +3,7 @@ pub const physics = @import("physics.zig");
 pub const raycast = @import("raycast.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
+pub const FallingBlock = @import("falling_block.zig");
 
 test {
     _ = Player;
@@ -10,4 +11,5 @@ test {
     _ = raycast;
     _ = Inventory;
     _ = ItemEntity;
+    _ = FallingBlock;
 }

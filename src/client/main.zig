@@ -43,6 +43,7 @@ const AppState = struct {
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
     item_entities: std.ArrayListUnmanaged(game.ItemEntity) = .empty,
+    falling_blocks: std.ArrayListUnmanaged(game.FallingBlock) = .empty,
     timer: Timer,
     tick_count: u64 = 0,
     player: game.Player = .{
@@ -250,12 +251,57 @@ fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.In
     try app_state.item_entities.append(std.heap.page_allocator, item);
 }
 
+fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    const id = app_state.world_map.getBlockId(x, y, z);
+    if (!world.block.isFalling(id)) return;
+    if (!world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z))) return;
+
+    app_state.world_map.setBlockId(x, y, z, world.block.air);
+    try rebuildMeshesAround(app_state, x, z);
+
+    const position = math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @floatFromInt(y),
+        @as(f64, @floatFromInt(z)) + 0.5,
+    );
+    try app_state.falling_blocks.append(std.heap.page_allocator, game.FallingBlock.spawn(position, id));
+}
+
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
     const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
     app_state.world_map.setBlockId(x, y, z, world.block.air);
     app_state.digging = null;
     if (dropped) |d| try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+    try checkFall(app_state, x, y + 1, z);
+}
+
+fn tickFallingBlocks(app_state: *AppState) !void {
+    var i: usize = 0;
+    while (i < app_state.falling_blocks.items.len) {
+        const block = &app_state.falling_blocks.items[i];
+        const outcome = block.tick(&app_state.world_map);
+
+        if (outcome == .falling) {
+            i += 1;
+            continue;
+        }
+
+        const x: i32 = @intFromFloat(@floor(block.position.x));
+        const y: i32 = @intFromFloat(@floor(block.position.y));
+        const z: i32 = @intFromFloat(@floor(block.position.z));
+
+        const landing_empty = !world.block.isOpaque(app_state.world_map.getBlockId(x, y, z));
+        const support_solid = !world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z));
+        if (outcome == .landed and landing_empty and support_solid) {
+            app_state.world_map.setBlockId(x, y, z, block.block_id);
+            try rebuildMeshesAround(app_state, x, z);
+        } else {
+            try spawnDroppedItem(app_state, x, y, z, .{ .id = block.block_id, .count = 1 });
+        }
+
+        _ = app_state.falling_blocks.swapRemove(i);
+    }
 }
 
 fn tickItemEntities(app_state: *AppState) void {
@@ -304,6 +350,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
     consumeSelectedStack(app_state);
     try rebuildMeshesAround(app_state, px, pz);
+    try checkFall(app_state, px, py, pz);
 }
 
 fn tick(app_state: *AppState) !void {
@@ -314,6 +361,7 @@ fn tick(app_state: *AppState) !void {
     app_state.player.tick(&app_state.world_map, strafe, forward, app_state.keys.jump);
     try digStep(app_state);
     tickItemEntities(app_state);
+    try tickFallingBlocks(app_state);
     try ensureChunksAroundPlayer(app_state);
 }
 
@@ -347,6 +395,29 @@ fn buildItemEntityMesh(gpa: std.mem.Allocator, app_state: *const AppState, parti
         try mesh.quad(gpa, .{
             .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
         }, uvs, .{ 255, 255, 255, 255 });
+    }
+
+    return mesh;
+}
+
+fn buildFallingBlockMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
+    var mesh: render.MeshBuilder = .{};
+    errdefer mesh.deinit(gpa);
+
+    for (app_state.falling_blocks.items) |block| {
+        const pos = block.renderPosition(partial_ticks);
+        const size: f32 = @floatCast(game.FallingBlock.size);
+        const half = size / 2.0;
+        const cx: f32 = @floatCast(pos.x);
+        const cy: f32 = @floatCast(pos.y);
+        const cz: f32 = @floatCast(pos.z);
+        try render.chunk_mesher.buildCube(
+            &mesh,
+            gpa,
+            .{ cx - half, cy, cz - half },
+            .{ cx + half, cy + size, cz + half },
+            world.block.faceTextures(block.block_id),
+        );
     }
 
     return mesh;
@@ -389,6 +460,14 @@ pub fn iterate(
         var item_gpu = render.GpuMesh.upload(&item_mesh);
         defer item_gpu.deinit();
         item_gpu.draw();
+    }
+
+    var falling_mesh = try buildFallingBlockMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
+    defer falling_mesh.deinit(std.heap.page_allocator);
+    if (falling_mesh.vertices.items.len > 0) {
+        var falling_gpu = render.GpuMesh.upload(&falling_mesh);
+        defer falling_gpu.deinit();
+        falling_gpu.draw();
     }
 
     try render.hud.draw(
@@ -473,6 +552,7 @@ pub fn quit(
         while (mesh_it.next()) |mesh| mesh.deinit();
         state.chunk_meshes.deinit(std.heap.page_allocator);
         state.item_entities.deinit(std.heap.page_allocator);
+        state.falling_blocks.deinit(std.heap.page_allocator);
         state.world_map.deinit();
         state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
