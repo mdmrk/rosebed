@@ -16,7 +16,7 @@ const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const version_color: [4]u8 = .{ 80, 80, 80, 255 };
 const copyright_color: [4]u8 = .{ 255, 255, 255, 255 };
 
-pub const Action = enum { singleplayer, quit };
+pub const Action = enum { singleplayer, options, quit };
 
 const Entry = struct { button: button.Button, action: ?Action };
 
@@ -27,7 +27,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
         .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer },
         .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = false }, .action = null },
         .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = false }, .action = null },
-        .{ .button = .{ .x = cx - 100, .y = top + 84, .w = 98, .label = "Options...", .enabled = false }, .action = null },
+        .{ .button = .{ .x = cx - 100, .y = top + 84, .w = 98, .label = "Options...", .enabled = true }, .action = .options },
         .{ .button = .{ .x = cx + 2, .y = top + 84, .w = 98, .label = "Quit Game", .enabled = true }, .action = .quit },
     };
 }

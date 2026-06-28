@@ -18,7 +18,6 @@ pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
 pub const eye_height: f64 = 1.62;
 
-const base_sensitivity = 0.5;
 const turn_scale = 0.15;
 
 const gravity: f64 = 0.08;
@@ -73,15 +72,16 @@ pub fn boundingBox(self: Player) math.AABB {
     );
 }
 
-fn turnFactor() f32 {
-    const s = base_sensitivity * 0.6 + 0.2;
+fn turnFactor(sensitivity: f32) f32 {
+    const s = sensitivity * 0.6 + 0.2;
     return s * s * s * 8.0;
 }
 
-pub fn turn(self: *Player, dx: f32, dy: f32) void {
-    const factor = turnFactor();
+pub fn turn(self: *Player, dx: f32, dy: f32, sensitivity: f32, invert: bool) void {
+    const factor = turnFactor(sensitivity);
+    const pitch_delta = if (invert) -dy else dy;
     self.yaw += dx * factor * turn_scale;
-    self.pitch += dy * factor * turn_scale;
+    self.pitch += pitch_delta * factor * turn_scale;
     self.pitch = std.math.clamp(self.pitch, -90.0, 90.0);
 }
 
@@ -152,16 +152,22 @@ test "eyePosition sits eye_height above the feet position" {
 
 test "turn at default sensitivity applies the 0.15 deg/pixel scale" {
     var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
-    player.turn(10, 4);
+    player.turn(10, 4, 0.5, false);
     try std.testing.expectApproxEqAbs(@as(f32, 1.5), player.yaw, 1.0e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), player.pitch, 1.0e-4);
 }
 
+test "inverting the mouse flips the pitch delta" {
+    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    player.turn(0, 4, 0.5, true);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.6), player.pitch, 1.0e-4);
+}
+
 test "pitch clamps to +/-90 degrees" {
     var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
-    player.turn(0, 10000);
+    player.turn(0, 10000, 0.5, false);
     try std.testing.expectApproxEqAbs(@as(f32, 90.0), player.pitch, 1.0e-4);
-    player.turn(0, -20000);
+    player.turn(0, -20000, 0.5, false);
     try std.testing.expectApproxEqAbs(@as(f32, -90.0), player.pitch, 1.0e-4);
 }
 

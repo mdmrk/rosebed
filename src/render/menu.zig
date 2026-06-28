@@ -12,7 +12,7 @@ const gui_texture_size: f32 = 256;
 const overlay_color: [4]u8 = .{ 16, 16, 16, 196 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
-pub const Action = enum { resume_game, quit_to_title };
+pub const Action = enum { resume_game, options, quit_to_title };
 
 const Entry = struct { button: button.Button, action: ?Action };
 
@@ -24,7 +24,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
         .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Back to game", .enabled = true }, .action = .resume_game },
         .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 98, .label = "Achievements", .enabled = false }, .action = null },
         .{ .button = .{ .x = cx + 2, .y = top + 48, .w = 98, .label = "Statistics", .enabled = false }, .action = null },
-        .{ .button = .{ .x = cx - 100, .y = top + 96, .w = 200, .label = "Options...", .enabled = false }, .action = null },
+        .{ .button = .{ .x = cx - 100, .y = top + 96, .w = 200, .label = "Options...", .enabled = true }, .action = .options },
         .{ .button = .{ .x = cx - 100, .y = top + 120, .w = 200, .label = "Save and quit to title", .enabled = true }, .action = .quit_to_title },
     };
 }
@@ -92,7 +92,7 @@ test "save and quit to title returns to the title screen" {
 }
 
 test "clicking a disabled button does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 280, 640, 480));
+    try std.testing.expectEqual(@as(?Action, null), actionAt(200, 200, 640, 480));
 }
 
 test "clicking empty space does nothing" {

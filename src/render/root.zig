@@ -11,6 +11,7 @@ pub const inventory_screen = @import("inventory_screen.zig");
 pub const button = @import("button.zig");
 pub const menu = @import("menu.zig");
 pub const title_screen = @import("title_screen.zig");
+pub const options_screen = @import("options_screen.zig");
 
 test {
     _ = Atlas;
@@ -26,4 +27,5 @@ test {
     _ = button;
     _ = menu;
     _ = title_screen;
+    _ = options_screen;
 }

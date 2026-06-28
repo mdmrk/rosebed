@@ -9,9 +9,9 @@ const tex_row: f32 = 46;
 
 pub const height: f32 = 20;
 
-const text_normal: [4]u8 = .{ 224, 224, 224, 255 };
-const text_hover: [4]u8 = .{ 255, 255, 160, 255 };
-const text_disabled: [4]u8 = .{ 160, 160, 160, 255 };
+pub const text_normal: [4]u8 = .{ 224, 224, 224, 255 };
+pub const text_hover: [4]u8 = .{ 255, 255, 160, 255 };
+pub const text_disabled: [4]u8 = .{ 160, 160, 160, 255 };
 
 pub const Button = struct { x: f32, y: f32, w: f32, label: []const u8, enabled: bool };
 
@@ -25,6 +25,40 @@ fn hoverState(button: Button, hovered: bool) f32 {
     return 1;
 }
 
+pub fn appendBackground(
+    bg: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    x: f32,
+    y: f32,
+    w: f32,
+    state: f32,
+    scaled_width: f32,
+    scaled_height: f32,
+) !void {
+    const row = tex_row + state * height;
+    const half = w / 2.0;
+    try hud.appendRect(bg, gpa, x, y, half, height, hud.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+    try hud.appendRect(bg, gpa, x + half, y, half, height, hud.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+}
+
+pub fn appendLabel(
+    text: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    font: Font,
+    x: f32,
+    y: f32,
+    w: f32,
+    label: []const u8,
+    color: [4]u8,
+    scaled_width: f32,
+    scaled_height: f32,
+) !void {
+    const label_width: f32 = @floatFromInt(font.stringWidth(label));
+    const text_x = x + w / 2.0 - label_width / 2.0;
+    const text_y = y + (height - Font.glyph_size) / 2.0;
+    try hud.appendTextColor(text, gpa, font, label, text_x, text_y, color, scaled_width, scaled_height);
+}
+
 pub fn append(
     bg: *MeshBuilder,
     text: *MeshBuilder,
@@ -35,16 +69,9 @@ pub fn append(
     scaled_width: f32,
     scaled_height: f32,
 ) !void {
-    const row = tex_row + hoverState(button, hovered) * height;
-    const half = button.w / 2.0;
-    try hud.appendRect(bg, gpa, button.x, button.y, half, height, hud.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
-    try hud.appendRect(bg, gpa, button.x + half, button.y, half, height, hud.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
-
+    try appendBackground(bg, gpa, button.x, button.y, button.w, hoverState(button, hovered), scaled_width, scaled_height);
     const color = if (!button.enabled) text_disabled else if (hovered) text_hover else text_normal;
-    const label_width: f32 = @floatFromInt(font.stringWidth(button.label));
-    const text_x = button.x + button.w / 2.0 - label_width / 2.0;
-    const text_y = button.y + (height - Font.glyph_size) / 2.0;
-    try hud.appendTextColor(text, gpa, font, button.label, text_x, text_y, color, scaled_width, scaled_height);
+    try appendLabel(text, gpa, font, button.x, button.y, button.w, button.label, color, scaled_width, scaled_height);
 }
 
 test "contains hits inside the button rect and misses outside" {

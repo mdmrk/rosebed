@@ -106,11 +106,16 @@ const AppState = struct {
     screen: Screen = .title,
     inventory_open: bool = false,
     paused: bool = false,
+    options_open: bool = false,
+    options_parent: OptionsParent = .title,
+    dragging_slider: ?render.options_screen.Slider = null,
+    settings: game.Settings = .{},
     held_stack: ?game.Inventory.ItemStack = null,
     crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack = @splat(null),
 };
 
 const Screen = enum { title, playing };
+const OptionsParent = enum { title, pause };
 
 const Digging = struct {
     x: i32,
@@ -495,7 +500,7 @@ fn dropCraftingGrid(app_state: *AppState) !void {
 }
 
 fn worldFocused(app_state: *const AppState) bool {
-    return app_state.screen == .playing and !app_state.inventory_open and !app_state.paused;
+    return app_state.screen == .playing and !app_state.inventory_open and !app_state.paused and !app_state.options_open;
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
@@ -527,12 +532,47 @@ fn quitToTitle(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn openOptions(app_state: *AppState, parent: OptionsParent) !void {
+    app_state.options_open = true;
+    app_state.options_parent = parent;
+    try updateMouseMode(app_state);
+}
+
+fn closeOptions(app_state: *AppState) !void {
+    app_state.options_open = false;
+    app_state.dragging_slider = null;
+    try updateMouseMode(app_state);
+}
+
+fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f32) void {
+    switch (which) {
+        .music => app_state.settings.music_volume = value,
+        .sound => app_state.settings.sound_volume = value,
+        .sensitivity => app_state.settings.sensitivity = value,
+    }
+}
+
 fn pauseMenuClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse return;
     switch (action) {
         .resume_game => try togglePause(app_state),
+        .options => try openOptions(app_state, .pause),
         .quit_to_title => try quitToTitle(app_state),
+    }
+}
+
+fn optionsClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.options_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse return;
+    switch (hit) {
+        .slider => |s| {
+            app_state.dragging_slider = s;
+            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui.w));
+        },
+        .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
+        .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
+        .done => try closeOptions(app_state),
     }
 }
 
@@ -729,7 +769,21 @@ pub fn iterate(
 
     if (app_state.screen == .playing) try renderWorld(app_state);
 
-    if (app_state.screen == .title) {
+    if (app_state.options_open) {
+        try render.options_screen.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.dirt_texture,
+            app_state.gui_texture,
+            app_state.font,
+            app_state.settings,
+            if (app_state.options_parent == .pause) .veil else .dirt,
+            app_state.mouse_x,
+            app_state.mouse_y,
+            gui.w,
+            gui.h,
+        );
+    } else if (app_state.screen == .title) {
         try render.title_screen.draw(
             std.heap.page_allocator,
             app_state.shader,
@@ -828,7 +882,9 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| if (app_state.screen == .playing) {
+        .key_down => |k| if (app_state.options_open) {
+            if (k.key == .escape) try closeOptions(app_state);
+        } else if (app_state.screen == .playing) {
             if (k.key == .escape) {
                 if (app_state.inventory_open) {
                     try toggleInventory(app_state);
@@ -846,16 +902,24 @@ pub fn event(
         .mouse_motion => |m| {
             app_state.mouse_x = m.x;
             app_state.mouse_y = m.y;
-            if (worldFocused(app_state)) app_state.player.turn(m.x_rel, m.y_rel);
+            if (app_state.dragging_slider) |s| {
+                const gui = guiSize(app_state);
+                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui.w));
+            } else if (worldFocused(app_state)) {
+                app_state.player.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+            }
         },
         .mouse_wheel => |w| if (worldFocused(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         },
         .mouse_button_down => |m| switch (m.button) {
-            .left => if (app_state.screen == .title) {
+            .left => if (app_state.options_open) {
+                try optionsClick(app_state);
+            } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h)) |action| switch (action) {
                     .singleplayer => try enterWorld(app_state),
+                    .options => try openOptions(app_state, .title),
                     .quit => return .success,
                 };
             } else if (app_state.paused) {
@@ -865,7 +929,7 @@ pub fn event(
             } else {
                 app_state.mouse_left_down = true;
             },
-            .right => if (app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
+            .right => if (app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);
@@ -873,7 +937,10 @@ pub fn event(
             else => {},
         },
         .mouse_button_up => |m| switch (m.button) {
-            .left => app_state.mouse_left_down = false,
+            .left => {
+                app_state.mouse_left_down = false;
+                app_state.dragging_slider = null;
+            },
             else => {},
         },
         else => {},
