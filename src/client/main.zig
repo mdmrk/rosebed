@@ -17,6 +17,10 @@ const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_path = "assets/terrain.png";
 const pig_texture_path = "assets/mob/pig.png";
+const gui_texture_path = "assets/gui/gui.png";
+const icons_texture_path = "assets/gui/icons.png";
+const items_texture_path = "assets/gui/items.png";
+const font_path = "assets/font/default.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -50,8 +54,11 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     atlas: Atlas,
     pig_texture: Atlas,
+    gui_texture: Atlas,
+    icons_texture: Atlas,
+    items_texture: Atlas,
+    font: render.Font,
     shader: render.Shader,
-    hud_shader: render.Shader,
     generator: world.TerrainGenerator,
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
@@ -160,8 +167,11 @@ pub fn init(
         .gl_procs = undefined,
         .atlas = undefined,
         .pig_texture = undefined,
+        .gui_texture = undefined,
+        .icons_texture = undefined,
+        .items_texture = undefined,
+        .font = undefined,
         .shader = undefined,
-        .hud_shader = undefined,
         .generator = undefined,
         .world_map = world.World.init(std.heap.page_allocator),
         .chunk_meshes = .{},
@@ -178,13 +188,22 @@ pub fn init(
     app_state.pig_texture = try Atlas.load(pig_texture_path);
     errdefer app_state.pig_texture.deinit();
 
+    app_state.gui_texture = try Atlas.load(gui_texture_path);
+    errdefer app_state.gui_texture.deinit();
+
+    app_state.icons_texture = try Atlas.load(icons_texture_path);
+    errdefer app_state.icons_texture.deinit();
+
+    app_state.items_texture = try Atlas.load(items_texture_path);
+    errdefer app_state.items_texture.deinit();
+
+    app_state.font = try render.Font.load(font_path);
+    errdefer app_state.font.deinit();
+
     try app_state.pigs.append(std.heap.page_allocator, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
-
-    app_state.hud_shader = try render.hud_solid_shader.init();
-    errdefer app_state.hud_shader.deinit();
 
     app_state.generator = try world.TerrainGenerator.init(std.heap.page_allocator, world_seed);
     errdefer app_state.generator.deinit(std.heap.page_allocator);
@@ -523,9 +542,12 @@ pub fn iterate(
 
     try render.hud.draw(
         std.heap.page_allocator,
-        app_state.hud_shader,
         app_state.shader,
         app_state.atlas,
+        app_state.gui_texture,
+        app_state.icons_texture,
+        app_state.items_texture,
+        app_state.font,
         app_state.player.inventory,
         screen_width,
         screen_height,
@@ -608,9 +630,12 @@ pub fn quit(
         state.world_map.deinit();
         state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
-        state.hud_shader.deinit();
         state.atlas.deinit();
         state.pig_texture.deinit();
+        state.gui_texture.deinit();
+        state.icons_texture.deinit();
+        state.items_texture.deinit();
+        state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
     }
