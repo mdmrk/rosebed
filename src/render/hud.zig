@@ -68,6 +68,85 @@ pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !v
     gpu.draw();
 }
 
+const iso_light_ambient: f32 = 0.4;
+const iso_light_diffuse: f32 = 0.6;
+
+fn normalize3(v: [3]f32) [3]f32 {
+    const len = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return .{ v[0] / len, v[1] / len, v[2] / len };
+}
+
+fn isoFaceBrightness(normal: [3]f32) f32 {
+    const light0 = normalize3(.{ 0.2, 1.0, -0.7 });
+    const light1 = normalize3(.{ -0.2, 1.0, 0.7 });
+    const d0 = @max(0.0, normal[0] * light0[0] + normal[1] * light0[1] + normal[2] * light0[2]);
+    const d1 = @max(0.0, normal[0] * light1[0] + normal[1] * light1[1] + normal[2] * light1[2]);
+    return @min(1.0, iso_light_ambient + iso_light_diffuse * d0 + iso_light_diffuse * d1);
+}
+
+const iso_brightness_up = isoFaceBrightness(.{ 0, 1, 0 });
+const iso_brightness_south = isoFaceBrightness(.{ 0, 0, 1 });
+const iso_brightness_east = isoFaceBrightness(.{ 1, 0, 0 });
+
+const iso_s2: f32 = @sqrt(2.0) / 2.0;
+const iso_s3: f32 = @sqrt(3.0) / 2.0;
+const iso_scale: f32 = 10.0;
+
+fn isoOffset(vx: f32, vy: f32, vz: f32) [2]f32 {
+    return .{
+        iso_scale * iso_s2 * (vx - vz),
+        iso_scale * (0.5 * iso_s2 * (vx + vz) - iso_s3 * vy),
+    };
+}
+
+const iso_up_corners = [4][3]f32{ .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 1, 1 } };
+const iso_south_corners = [4][3]f32{ .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 1, 1, 1 }, .{ 1, 0, 1 } };
+const iso_east_corners = [4][3]f32{ .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 1, 0, 0 } };
+
+fn appendIsoFace(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    corners: [4][3]f32,
+    tile: u8,
+    brightness: f32,
+    x: f32,
+    y: f32,
+    scaled_width: f32,
+    scaled_height: f32,
+) !void {
+    const uv = Atlas.tileUv(tile);
+    const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
+    var positions: [4][3]f32 = undefined;
+    for (corners, 0..) |c, i| {
+        const offset = isoOffset(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5);
+        const ndc = toNdc(x + 8.0 + offset[0], y + 8.0 + offset[1], scaled_width, scaled_height);
+        positions[i] = .{ ndc[0], ndc[1], 0 };
+    }
+    const shade: u8 = @intFromFloat(@round(brightness * 255.0));
+    try mesh.quad(gpa, positions, uvs, .{ shade, shade, shade, 255 });
+}
+
+pub fn appendBlockIcon3d(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    id: u8,
+    meta: u4,
+    x: f32,
+    y: f32,
+    scaled_width: f32,
+    scaled_height: f32,
+) !void {
+    var textures = world.block.faceTextures(id);
+    if (id == world.block.log) {
+        const side_tile = world.block.logSideTile(meta);
+        textures[world.block.south] = side_tile;
+        textures[world.block.east] = side_tile;
+    }
+    try appendIsoFace(mesh, gpa, iso_up_corners, textures[world.block.up], iso_brightness_up, x, y, scaled_width, scaled_height);
+    try appendIsoFace(mesh, gpa, iso_south_corners, textures[world.block.south], iso_brightness_south, x, y, scaled_width, scaled_height);
+    try appendIsoFace(mesh, gpa, iso_east_corners, textures[world.block.east], iso_brightness_east, x, y, scaled_width, scaled_height);
+}
+
 pub fn appendStackIcon(
     block_mesh: *MeshBuilder,
     item_mesh: *MeshBuilder,
@@ -81,8 +160,13 @@ pub fn appendStackIcon(
     scaled_height: f32,
 ) !void {
     if (stack.id <= 255) {
-        const tile = world.block.faceTextures(@intCast(stack.id))[world.block.up];
-        try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+        const id: u8 = @intCast(stack.id);
+        if (world.block.isCross(id)) {
+            const tile = world.block.crossTile(id, stack.meta);
+            try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+        } else {
+            try appendBlockIcon3d(block_mesh, gpa, id, stack.meta, x, y, scaled_width, scaled_height);
+        }
     } else if (world.item.iconTile(stack.id)) |tile| {
         try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
     }
