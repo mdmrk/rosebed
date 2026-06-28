@@ -23,18 +23,18 @@ const hotbar_height: f32 = 22;
 const highlight_width: f32 = 24;
 const highlight_height: f32 = 22;
 const slot_pitch: f32 = 20;
-const icon_size: f32 = 16;
+pub const icon_size: f32 = 16;
 const crosshair_size: f32 = 16;
 const gui_texture_size: f32 = 256;
 
-fn toNdc(x: f32, y: f32, scaled_width: f32, scaled_height: f32) [2]f32 {
+pub fn toNdc(x: f32, y: f32, scaled_width: f32, scaled_height: f32) [2]f32 {
     return .{
         (x / scaled_width) * 2.0 - 1.0,
         1.0 - (y / scaled_height) * 2.0,
     };
 }
 
-fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, scaled_width: f32, scaled_height: f32) !void {
+pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, scaled_width: f32, scaled_height: f32) !void {
     const tl = toNdc(x, y, scaled_width, scaled_height);
     const tr = toNdc(x + w, y, scaled_width, scaled_height);
     const br = toNdc(x + w, y + h, scaled_width, scaled_height);
@@ -44,11 +44,11 @@ fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32
     }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, .{ 255, 255, 255, 255 });
 }
 
-fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
+pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }
 
-fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, scaled_width: f32, scaled_height: f32) !void {
+pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, scaled_width: f32, scaled_height: f32) !void {
     var cursor = x;
     for (text) |c| {
         try appendRect(mesh, gpa, cursor, y, Font.glyph_size, Font.glyph_size, Font.glyphUv(c), scaled_width, scaled_height);
@@ -56,7 +56,7 @@ fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []co
     }
 }
 
-fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
+pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
     if (mesh.vertices.items.len == 0) return;
     var gpu = GpuMesh.upload(mesh);
     defer gpu.deinit();
@@ -66,6 +66,33 @@ fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void 
     shader.setInt("u_atlas", 0);
     shader.setMat4("u_view_proj", identity);
     gpu.draw();
+}
+
+pub fn appendStackIcon(
+    block_mesh: *MeshBuilder,
+    item_mesh: *MeshBuilder,
+    text_mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    font: Font,
+    stack: game.Inventory.ItemStack,
+    x: f32,
+    y: f32,
+    scaled_width: f32,
+    scaled_height: f32,
+) !void {
+    if (stack.id <= 255) {
+        const tile = world.block.faceTextures(@intCast(stack.id))[world.block.up];
+        try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+    } else if (world.item.iconTile(stack.id)) |tile| {
+        try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+    }
+
+    if (stack.count > 1) {
+        var buf: [3]u8 = undefined;
+        const label = std.fmt.bufPrint(&buf, "{d}", .{stack.count}) catch return;
+        const label_width: f32 = @floatFromInt(font.stringWidth(label));
+        try appendText(text_mesh, gpa, font, label, x + 17.0 - label_width, y + 9.0, scaled_width, scaled_height);
+    }
 }
 
 pub fn draw(
@@ -117,20 +144,7 @@ pub fn draw(
         const stack = inventory.slots[i] orelse continue;
         const slot_x = hotbar_x + 2.0 + @as(f32, @floatFromInt(i)) * slot_pitch;
         const slot_y = hotbar_y + 3.0;
-
-        if (stack.id <= 255) {
-            const tile = world.block.faceTextures(@intCast(stack.id))[world.block.up];
-            try appendRect(&block_icons, gpa, slot_x, slot_y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
-        } else if (world.item.iconTile(stack.id)) |tile| {
-            try appendRect(&item_icons, gpa, slot_x, slot_y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
-        }
-
-        if (stack.count > 1) {
-            var buf: [3]u8 = undefined;
-            const label = std.fmt.bufPrint(&buf, "{d}", .{stack.count}) catch continue;
-            const width: f32 = @floatFromInt(font.stringWidth(label));
-            try appendText(&text, gpa, font, label, slot_x + 17.0 - width, slot_y + 9.0, scaled_width, scaled_height);
-        }
+        try appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, slot_x, slot_y, scaled_width, scaled_height);
     }
 
     try drawTexturedMesh(&block_icons, icon_shader, atlas);

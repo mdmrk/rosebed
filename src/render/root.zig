@@ -7,6 +7,7 @@ pub const terrain_shader = @import("terrain_shader.zig");
 pub const hud = @import("hud.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const Font = @import("font.zig");
+pub const inventory_screen = @import("inventory_screen.zig");
 
 test {
     _ = Atlas;
@@ -18,4 +19,5 @@ test {
     _ = hud;
     _ = mob_model;
     _ = Font;
+    _ = inventory_screen;
 }

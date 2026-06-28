@@ -21,6 +21,7 @@ const gui_texture_path = "assets/gui/gui.png";
 const icons_texture_path = "assets/gui/icons.png";
 const items_texture_path = "assets/gui/items.png";
 const font_path = "assets/font/default.png";
+const inventory_texture_path = "assets/gui/inventory.png";
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -57,6 +58,7 @@ const AppState = struct {
     gui_texture: Atlas,
     icons_texture: Atlas,
     items_texture: Atlas,
+    inventory_texture: Atlas,
     font: render.Font,
     shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -81,6 +83,10 @@ const AppState = struct {
     } = .{},
     mouse_left_down: bool = false,
     digging: ?Digging = null,
+    mouse_x: f32 = 0,
+    mouse_y: f32 = 0,
+    inventory_open: bool = false,
+    held_stack: ?game.Inventory.ItemStack = null,
 };
 
 const Digging = struct {
@@ -170,6 +176,7 @@ pub fn init(
         .gui_texture = undefined,
         .icons_texture = undefined,
         .items_texture = undefined,
+        .inventory_texture = undefined,
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
@@ -196,6 +203,9 @@ pub fn init(
 
     app_state.items_texture = try Atlas.load(items_texture_path);
     errdefer app_state.items_texture.deinit();
+
+    app_state.inventory_texture = try Atlas.load(inventory_texture_path);
+    errdefer app_state.inventory_texture.deinit();
 
     app_state.font = try render.Font.load(font_path);
     errdefer app_state.font.deinit();
@@ -367,6 +377,52 @@ fn tickItemEntities(app_state: *AppState) void {
     }
 }
 
+fn slotClick(app_state: *AppState, slot_index: usize) void {
+    const slot = &app_state.player.inventory.slots[slot_index];
+    const held = app_state.held_stack orelse {
+        if (slot.*) |existing| {
+            app_state.held_stack = existing;
+            slot.* = null;
+        }
+        return;
+    };
+
+    if (slot.*) |*existing| {
+        if (existing.id == held.id and existing.meta == held.meta) {
+            const room = game.Inventory.max_stack_size - existing.count;
+            const moved = @min(room, held.count);
+            existing.count += moved;
+            const remaining = held.count - moved;
+            app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
+        } else {
+            const swapped = existing.*;
+            slot.* = held;
+            app_state.held_stack = swapped;
+        }
+    } else {
+        slot.* = held;
+        app_state.held_stack = null;
+    }
+}
+
+fn toggleInventory(app_state: *AppState) !void {
+    app_state.inventory_open = !app_state.inventory_open;
+    try sdl3.mouse.setWindowRelativeMode(app_state.window, !app_state.inventory_open);
+
+    if (!app_state.inventory_open) {
+        if (app_state.held_stack) |stack| {
+            try spawnDroppedItem(
+                app_state,
+                @intFromFloat(@floor(app_state.player.position.x)),
+                @intFromFloat(@floor(app_state.player.position.y)),
+                @intFromFloat(@floor(app_state.player.position.z)),
+                stack,
+            );
+            app_state.held_stack = null;
+        }
+    }
+}
+
 fn consumeSelectedStack(app_state: *AppState) void {
     const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
     if (slot.*) |*stack| {
@@ -393,6 +449,8 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
 }
 
 fn tick(app_state: *AppState) !void {
+    if (app_state.inventory_open) return;
+
     app_state.tick_count += 1;
 
     const forward: f32 = (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
@@ -540,18 +598,35 @@ pub fn iterate(
         app_state.atlas.bind();
     }
 
-    try render.hud.draw(
-        std.heap.page_allocator,
-        app_state.shader,
-        app_state.atlas,
-        app_state.gui_texture,
-        app_state.icons_texture,
-        app_state.items_texture,
-        app_state.font,
-        app_state.player.inventory,
-        screen_width,
-        screen_height,
-    );
+    if (app_state.inventory_open) {
+        try render.inventory_screen.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.inventory_texture,
+            app_state.atlas,
+            app_state.items_texture,
+            app_state.font,
+            app_state.player.inventory,
+            app_state.held_stack,
+            app_state.mouse_x,
+            app_state.mouse_y,
+            screen_width,
+            screen_height,
+        );
+    } else {
+        try render.hud.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.atlas,
+            app_state.gui_texture,
+            app_state.icons_texture,
+            app_state.items_texture,
+            app_state.font,
+            app_state.player.inventory,
+            screen_width,
+            screen_height,
+        );
+    }
 
     try sdl3.video.gl.swapWindow(app_state.window);
 
@@ -593,15 +668,31 @@ pub fn event(
     switch (curr_event) {
         .quit, .terminating => return .success,
         .key_down => |k| {
-            setKeyState(app_state, k.key, true);
-            selectHotbarFromKey(app_state, k.key);
+            if (k.key == .e) {
+                try toggleInventory(app_state);
+            } else {
+                setKeyState(app_state, k.key, true);
+                selectHotbarFromKey(app_state, k.key);
+            }
         },
         .key_up => |k| setKeyState(app_state, k.key, false),
-        .mouse_motion => |m| app_state.player.turn(m.x_rel, m.y_rel),
-        .mouse_wheel => |w| app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0),
+        .mouse_motion => |m| {
+            app_state.mouse_x = m.x;
+            app_state.mouse_y = m.y;
+            if (!app_state.inventory_open) app_state.player.turn(m.x_rel, m.y_rel);
+        },
+        .mouse_wheel => |w| if (!app_state.inventory_open) {
+            app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
+        },
         .mouse_button_down => |m| switch (m.button) {
-            .left => app_state.mouse_left_down = true,
-            .right => try placeBlockAtTarget(app_state),
+            .left => if (app_state.inventory_open) {
+                if (render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |slot_index| {
+                    slotClick(app_state, slot_index);
+                }
+            } else {
+                app_state.mouse_left_down = true;
+            },
+            .right => if (!app_state.inventory_open) try placeBlockAtTarget(app_state),
             else => {},
         },
         .mouse_button_up => |m| switch (m.button) {
@@ -635,6 +726,7 @@ pub fn quit(
         state.gui_texture.deinit();
         state.icons_texture.deinit();
         state.items_texture.deinit();
+        state.inventory_texture.deinit();
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
