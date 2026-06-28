@@ -38,6 +38,7 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     atlas: Atlas,
     shader: render.Shader,
+    hud_shader: render.Shader,
     generator: world.TerrainGenerator,
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
@@ -143,6 +144,7 @@ pub fn init(
         .gl_procs = undefined,
         .atlas = undefined,
         .shader = undefined,
+        .hud_shader = undefined,
         .generator = undefined,
         .world_map = world.World.init(std.heap.page_allocator),
         .chunk_meshes = .{},
@@ -158,6 +160,9 @@ pub fn init(
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
+
+    app_state.hud_shader = try render.hud_solid_shader.init();
+    errdefer app_state.hud_shader.deinit();
 
     app_state.generator = try world.TerrainGenerator.init(std.heap.page_allocator, world_seed);
     errdefer app_state.generator.deinit(std.heap.page_allocator);
@@ -303,6 +308,16 @@ pub fn iterate(
     var mesh_it = app_state.chunk_meshes.valueIterator();
     while (mesh_it.next()) |mesh| mesh.draw();
 
+    try render.hud.draw(
+        std.heap.page_allocator,
+        app_state.hud_shader,
+        app_state.shader,
+        app_state.atlas,
+        app_state.player.inventory,
+        screen_width,
+        screen_height,
+    );
+
     try sdl3.video.gl.swapWindow(app_state.window);
 
     return .run;
@@ -377,6 +392,7 @@ pub fn quit(
         state.world_map.deinit();
         state.generator.deinit(std.heap.page_allocator);
         state.shader.deinit();
+        state.hud_shader.deinit();
         state.atlas.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();

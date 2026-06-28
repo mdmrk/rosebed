@@ -42,6 +42,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const game_mod = b.createModule(.{
+        .root_source_file = b.path("src/game/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "math", .module = math_mod },
+            .{ .name = "world", .module = world_mod },
+        },
+    });
+
     const render_mod = b.createModule(.{
         .root_source_file = b.path("src/render/root.zig"),
         .target = target,
@@ -50,16 +60,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "gl", .module = gl_bindings },
             .{ .name = "sdl3", .module = sdl3.module("sdl3") },
             .{ .name = "world", .module = world_mod },
-        },
-    });
-
-    const game_mod = b.createModule(.{
-        .root_source_file = b.path("src/game/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "math", .module = math_mod },
-            .{ .name = "world", .module = world_mod },
+            .{ .name = "game", .module = game_mod },
         },
     });
 
