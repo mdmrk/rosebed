@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const coal: u16 = 263;
 pub const diamond: u16 = 264;
+pub const stick: u16 = 280;
 pub const seeds: u16 = 295;
 pub const flint: u16 = 318;
 pub const redstone: u16 = 331;
@@ -16,6 +17,7 @@ pub fn iconTile(id: u16) ?u8 {
     return switch (id) {
         coal => 7,
         diamond => 3 * 16 + 7,
+        stick => 3 * 16 + 5,
         seeds => 9,
         flint => 6,
         redstone => 3 * 16 + 8,

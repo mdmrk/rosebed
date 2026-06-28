@@ -59,11 +59,30 @@ fn appendPlayerPreview(
     }
 }
 
-pub const Slot = struct { x: f32, y: f32, index: usize };
+pub const SlotKind = enum { inventory, craft_input, craft_result };
+pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 
-pub fn slots() [36]Slot {
-    var result: [36]Slot = undefined;
+const craft_grid_x: f32 = 88;
+const craft_grid_y: f32 = 26;
+const craft_result_x: f32 = 144;
+const craft_result_y: f32 = 36;
+
+pub fn slots() [41]Slot {
+    var result: [41]Slot = undefined;
     var n: usize = 0;
+    result[n] = .{ .x = craft_result_x, .y = craft_result_y, .kind = .craft_result, .index = 0 };
+    n += 1;
+    for (0..2) |row| {
+        for (0..2) |col| {
+            result[n] = .{
+                .x = craft_grid_x + @as(f32, @floatFromInt(col)) * slot_pitch,
+                .y = craft_grid_y + @as(f32, @floatFromInt(row)) * slot_pitch,
+                .kind = .craft_input,
+                .index = col + row * 2,
+            };
+            n += 1;
+        }
+    }
     for (0..3) |row| {
         for (0..9) |col| {
             result[n] = .{
@@ -91,14 +110,14 @@ pub fn origin(screen_width: f32, screen_height: f32) [2]f32 {
     return .{ scaled_width / 2.0 - width / 2.0, scaled_height / 2.0 - height / 2.0 };
 }
 
-/// Returns the inventory slot index under the given window-pixel mouse position, if any.
-pub fn slotAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?usize {
+/// Returns the inventory slot under the given window-pixel mouse position, if any.
+pub fn slotAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Slot {
     const org = origin(screen_width, screen_height);
     const gx = mouse_x / hud.gui_scale - org[0];
     const gy = mouse_y / hud.gui_scale - org[1];
     for (slots()) |slot| {
         if (gx >= slot.x and gx < slot.x + hud.icon_size and gy >= slot.y and gy < slot.y + hud.icon_size) {
-            return slot.index;
+            return slot;
         }
     }
     return null;
@@ -117,6 +136,7 @@ pub fn draw(
     player_tex_width: f32,
     player_tex_height: f32,
     inventory: game.Inventory,
+    crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack,
     held: ?game.Inventory.ItemStack,
     mouse_x: f32,
     mouse_y: f32,
@@ -164,8 +184,13 @@ pub fn draw(
     var text: MeshBuilder = .{};
     defer text.deinit(gpa);
 
+    const craft_result = game.crafting.findMatch(crafting_grid);
     for (slots()) |slot| {
-        const stack = inventory.slots[slot.index] orelse continue;
+        const stack = switch (slot.kind) {
+            .inventory => inventory.slots[slot.index],
+            .craft_input => crafting_grid[slot.index],
+            .craft_result => craft_result,
+        } orelse continue;
         try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, org[0] + slot.x, org[1] + slot.y, scaled_width, scaled_height);
     }
 

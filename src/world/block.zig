@@ -6,6 +6,7 @@ pub const air: u8 = 0;
 pub const stone: u8 = 1;
 pub const grass: u8 = 2;
 pub const dirt: u8 = 3;
+pub const planks: u8 = 5;
 pub const sapling: u8 = 6;
 pub const bedrock: u8 = 7;
 pub const stationary_water: u8 = 9;
@@ -92,6 +93,7 @@ pub fn faceTextures(id: u8) [6]u8 {
         stone => .{ 1, 1, 1, 1, 1, 1 },
         grass => .{ 2, 0, 3, 3, 3, 3 },
         dirt => .{ 2, 2, 2, 2, 2, 2 },
+        planks => .{ 4, 4, 4, 4, 4, 4 },
         bedrock => .{ 17, 17, 17, 17, 17, 17 },
         stationary_water => .{ 205, 205, 205, 205, 205, 205 },
         flowing_lava => .{ 237, 237, 237, 237, 237, 237 },
@@ -120,6 +122,7 @@ fn hardness(id: u8) f32 {
         stone => 1.5,
         grass => 0.6,
         dirt => 0.5,
+        planks => 2.0,
         bedrock => -1.0,
         stationary_water => 100.0,
         flowing_lava => 0.0,

@@ -101,6 +101,7 @@ const AppState = struct {
     mouse_y: f32 = 0,
     inventory_open: bool = false,
     held_stack: ?game.Inventory.ItemStack = null,
+    crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack = @splat(null),
 };
 
 const Digging = struct {
@@ -411,9 +412,7 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
 }
 
-fn slotClick(app_state: *AppState, slot_index: usize, click_type: ClickType) void {
-    const slot = &app_state.player.inventory.slots[slot_index];
-
+fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType) void {
     if (slot.*) |*existing| {
         if (app_state.held_stack) |*held| {
             if (existing.id == held.id and existing.meta == held.meta) {
@@ -440,18 +439,51 @@ fn slotClick(app_state: *AppState, slot_index: usize, click_type: ClickType) voi
     }
 }
 
-fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
-    if (render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height)) |slot_index| {
-        slotClick(app_state, slot_index, click_type);
+fn resultSlotClick(app_state: *AppState) void {
+    const result = game.crafting.findMatch(app_state.crafting_grid) orelse return;
+    if (app_state.held_stack) |*held| {
+        if (held.id != result.id or held.meta != result.meta) return;
+        if (@as(u16, held.count) + result.count > game.Inventory.max_stack_size) return;
+        held.count += result.count;
     } else {
+        app_state.held_stack = result;
+    }
+    game.crafting.consume(&app_state.crafting_grid);
+}
+
+fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
+    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, screen_width, screen_height) orelse {
         try dropHeldStack(app_state, click_type);
+        return;
+    };
+    switch (slot.kind) {
+        .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type),
+        .craft_input => slotClick(app_state, &app_state.crafting_grid[slot.index], click_type),
+        .craft_result => resultSlotClick(app_state),
+    }
+}
+
+fn dropCraftingGrid(app_state: *AppState) !void {
+    for (&app_state.crafting_grid) |*slot| {
+        const stack = slot.* orelse continue;
+        try spawnDroppedItem(
+            app_state,
+            @intFromFloat(@floor(app_state.player.position.x)),
+            @intFromFloat(@floor(app_state.player.position.y)),
+            @intFromFloat(@floor(app_state.player.position.z)),
+            stack,
+        );
+        slot.* = null;
     }
 }
 
 fn toggleInventory(app_state: *AppState) !void {
     app_state.inventory_open = !app_state.inventory_open;
     try sdl3.mouse.setWindowRelativeMode(app_state.window, !app_state.inventory_open);
-    if (!app_state.inventory_open) try dropHeldStack(app_state, .left);
+    if (!app_state.inventory_open) {
+        try dropHeldStack(app_state, .left);
+        try dropCraftingGrid(app_state);
+    }
 }
 
 fn consumeSelectedStack(app_state: *AppState) void {
@@ -642,6 +674,7 @@ pub fn iterate(
             char_texture_width,
             char_texture_height,
             app_state.player.inventory,
+            app_state.crafting_grid,
             app_state.held_stack,
             app_state.mouse_x,
             app_state.mouse_y,
