@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Mat4 = @This();
 
-m: [16]f32,
+m: @Vector(16, f32),
 
 pub const identity: Mat4 = .{ .m = .{
     1, 0, 0, 0,
@@ -13,10 +13,10 @@ pub const identity: Mat4 = .{ .m = .{
 
 pub fn mul(a: Mat4, b: Mat4) Mat4 {
     var r: Mat4 = undefined;
-    for (0..4) |col| {
-        for (0..4) |row| {
+    inline for (0..4) |col| {
+        inline for (0..4) |row| {
             var sum: f32 = 0;
-            for (0..4) |k| {
+            inline for (0..4) |k| {
                 sum += a.m[k * 4 + row] * b.m[col * 4 + k];
             }
             r.m[col * 4 + row] = sum;
