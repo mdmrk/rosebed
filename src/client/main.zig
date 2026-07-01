@@ -1,30 +1,30 @@
 const std = @import("std");
 
-const gl = @import("gl");
-const sdl3 = @import("sdl3");
-
-const Timer = @import("core").Timer;
-const math = @import("math");
-const world = @import("world");
-const render = @import("render");
+const assets = @import("assets");
 const game = @import("game");
+const gl = @import("gl");
+const math = @import("math");
+const render = @import("render");
 const Atlas = render.Atlas;
+const sdl3 = @import("sdl3");
+const Timer = @import("core").Timer;
+const world = @import("world");
 
 const fps = 60;
 const ticks_per_second = 20.0;
 const screen_width = 640;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
-const terrain_path = "assets/terrain.png";
-const pig_texture_path = "assets/mob/pig.png";
-const char_texture_path = "assets/mob/char.png";
-const gui_texture_path = "assets/gui/gui.png";
-const icons_texture_path = "assets/gui/icons.png";
-const items_texture_path = "assets/gui/items.png";
-const font_path = "assets/font/default.png";
-const inventory_texture_path = "assets/gui/inventory.png";
-const dirt_texture_path = "assets/gui/background.png";
-const logo_texture_path = "assets/gui/logo.png";
+const terrain_png = assets.terrain_png;
+const pig_png = assets.mob.pig_png;
+const char_png = assets.mob.char_png;
+const gui_png = assets.gui.gui_png;
+const icons_png = assets.gui.icons_png;
+const items_png = assets.gui.items_png;
+const font_txt = assets.font.font_default;
+const inventory_png = assets.gui.inventory_png;
+const dirt_png = assets.gui.background_png;
+const logo_png = assets.gui.logo_png;
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -220,34 +220,34 @@ pub fn init(
 
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
 
-    app_state.atlas = try Atlas.load(terrain_path);
+    app_state.atlas = try Atlas.load(terrain_png);
     errdefer app_state.atlas.deinit();
 
-    app_state.pig_texture = try Atlas.load(pig_texture_path);
+    app_state.pig_texture = try Atlas.load(pig_png);
     errdefer app_state.pig_texture.deinit();
 
-    app_state.char_texture = try Atlas.load(char_texture_path);
+    app_state.char_texture = try Atlas.load(char_png);
     errdefer app_state.char_texture.deinit();
 
-    app_state.gui_texture = try Atlas.load(gui_texture_path);
+    app_state.gui_texture = try Atlas.load(gui_png);
     errdefer app_state.gui_texture.deinit();
 
-    app_state.icons_texture = try Atlas.load(icons_texture_path);
+    app_state.icons_texture = try Atlas.load(icons_png);
     errdefer app_state.icons_texture.deinit();
 
-    app_state.items_texture = try Atlas.load(items_texture_path);
+    app_state.items_texture = try Atlas.load(items_png);
     errdefer app_state.items_texture.deinit();
 
-    app_state.inventory_texture = try Atlas.load(inventory_texture_path);
+    app_state.inventory_texture = try Atlas.load(inventory_png);
     errdefer app_state.inventory_texture.deinit();
 
-    app_state.dirt_texture = try Atlas.loadRepeat(dirt_texture_path);
+    app_state.dirt_texture = try Atlas.loadRepeat(dirt_png);
     errdefer app_state.dirt_texture.deinit();
 
-    app_state.logo_texture = try Atlas.load(logo_texture_path);
+    app_state.logo_texture = try Atlas.load(logo_png);
     errdefer app_state.logo_texture.deinit();
 
-    app_state.font = try render.Font.load(font_path);
+    app_state.font = try render.Font.load(font_txt);
     errdefer app_state.font.deinit();
 
     try app_state.pigs.append(std.heap.page_allocator, game.Pig.spawn(math.Vec3.init(10, 90, 8)));

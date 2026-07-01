@@ -42,6 +42,12 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const assets_mod = b.createModule(.{
+        .root_source_file = b.path("src/assets/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const game_mod = b.createModule(.{
         .root_source_file = b.path("src/game/root.zig"),
         .target = target,
@@ -79,6 +85,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "world", .module = world_mod },
                 .{ .name = "render", .module = render_mod },
                 .{ .name = "game", .module = game_mod },
+                .{ .name = "assets", .module = assets_mod },
             },
         }),
     });

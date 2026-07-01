@@ -39,8 +39,8 @@ fn scanCharWidth(pixels: []const u8, tex_width: usize, c: usize) u8 {
     return @intCast(rightmost + 2);
 }
 
-pub fn load(path: [:0]const u8) !Font {
-    const surface = try sdl3.surface.Surface.initFromPngFile(path);
+pub fn load(data: []const u8) !Font {
+    const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
 
     const converted = try surface.convertFormat(.array_rgba_32);

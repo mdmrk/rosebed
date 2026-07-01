@@ -8,16 +8,16 @@ pub const tiles_per_row = 16;
 
 texture: gl.uint,
 
-pub fn load(path: [:0]const u8) !Atlas {
-    return loadWrapped(path, gl.CLAMP_TO_EDGE);
+pub fn load(data: []const u8) !Atlas {
+    return loadWrapped(data, gl.CLAMP_TO_EDGE);
 }
 
-pub fn loadRepeat(path: [:0]const u8) !Atlas {
-    return loadWrapped(path, gl.REPEAT);
+pub fn loadRepeat(data: []const u8) !Atlas {
+    return loadWrapped(data, gl.REPEAT);
 }
 
-fn loadWrapped(path: [:0]const u8, wrap: gl.int) !Atlas {
-    const surface = try sdl3.surface.Surface.initFromPngFile(path);
+fn loadWrapped(data: []const u8, wrap: gl.int) !Atlas {
+    const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
 
     const converted = try surface.convertFormat(.array_rgba_32);
