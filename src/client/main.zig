@@ -21,7 +21,7 @@ const char_png = assets.mob.char_png;
 const gui_png = assets.gui.gui_png;
 const icons_png = assets.gui.icons_png;
 const items_png = assets.gui.items_png;
-const font_txt = assets.font.font_default;
+const font_png = assets.font.default_png;
 const inventory_png = assets.gui.inventory_png;
 const dirt_png = assets.gui.background_png;
 const logo_png = assets.gui.logo_png;
@@ -247,7 +247,7 @@ pub fn init(
     app_state.logo_texture = try Atlas.load(logo_png);
     errdefer app_state.logo_texture.deinit();
 
-    app_state.font = try render.Font.load(font_txt);
+    app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
     try app_state.pigs.append(std.heap.page_allocator, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
