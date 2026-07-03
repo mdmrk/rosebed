@@ -1,5 +1,6 @@
 const std = @import("std");
 const gl = @import("gl");
+const math = @import("math");
 
 const Atlas = @import("atlas.zig");
 const Font = @import("font.zig");
@@ -17,6 +18,11 @@ const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const version_color: [4]u8 = .{ 80, 80, 80, 255 };
 const copyright_color: [4]u8 = .{ 255, 255, 255, 255 };
+const splash_color: [4]u8 = .{ 255, 255, 0, 255 };
+const splash_shadow_color: [4]u8 = .{ 63, 63, 0, 255 };
+const splash_offset_x: f32 = 90;
+const splash_y: f32 = 70;
+const splash_rotation: f32 = -20.0 * std.math.pi / 180.0;
 
 pub const Action = enum { singleplayer, options, quit };
 
@@ -51,6 +57,8 @@ pub fn draw(
     logo_texture: Atlas,
     gui_texture: Atlas,
     font: Font,
+    splash: []const u8,
+    time_ms: u64,
     mouse_x: f32,
     mouse_y: f32,
     screen_width: f32,
@@ -86,6 +94,19 @@ pub fn draw(
         const hovered = button.contains(entry.button, gx, gy);
         try button.append(&backgrounds, &text, gpa, font, entry.button, hovered, res);
     }
+
+    const splash_width: f32 = @floatFromInt(font.stringWidth(splash));
+    const pulse: f32 = @floatFromInt(time_ms % 1000);
+    const throb = 1.8 - math.util.abs(math.util.sin(pulse / 1000.0 * std.math.pi * 2.0) * 0.1);
+    const splash_transform: hud.Transform = .{
+        .x = @floor(res.width / 2.0) + splash_offset_x,
+        .y = splash_y,
+        .scale = throb * 100.0 / (splash_width + 32.0),
+        .rotation = splash_rotation,
+    };
+    const splash_x = -@floor(splash_width / 2.0);
+    try hud.appendTextTransformed(&text, gpa, font, splash, splash_x + 1, -8 + 1, splash_shadow_color, splash_transform, res);
+    try hud.appendTextTransformed(&text, gpa, font, splash, splash_x, -8, splash_color, splash_transform, res);
 
     try hud.appendTextColor(&text, gpa, font, "Minecraft Beta 1.7.3", 2, 2, version_color, res);
     const copyright = "Copyright Mojang AB. Do not distribute.";

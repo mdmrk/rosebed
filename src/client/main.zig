@@ -36,6 +36,29 @@ const pig_texture_height = 32;
 const char_texture_width = 64;
 const char_texture_height = 32;
 
+const splashes: []const []const u8 = blk: {
+    @setEvalBranchQuota(100_000);
+    var list: []const []const u8 = &.{};
+    var it = std.mem.tokenizeAny(u8, assets.title.splashes_txt, "\r\n");
+    while (it.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (trimmed.len > 0) list = list ++ [_][]const u8{trimmed};
+    }
+    break :blk list;
+};
+
+fn pickSplash(rand: *world.JavaRandom) []const u8 {
+    const chosen = splashes[@intCast(rand.nextIntBound(@intCast(splashes.len)))];
+    const now = sdl3.time.Time.getCurrent() catch return chosen;
+    const date = sdl3.time.DateTime.fromTime(now, true) catch return chosen;
+    const month = @intFromEnum(date.month);
+    if (month == 11 and date.day == 9) return "Happy birthday, ez!";
+    if (month == 6 and date.day == 1) return "Happy birthday, Notch!";
+    if (month == 12 and date.day == 24) return "Merry X-mas!";
+    if (month == 1 and date.day == 1) return "Happy new year!";
+    return chosen;
+}
+
 const pig_parts = [6]render.mob_model.Part{
     .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, 12, -6 } },
     .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, 11, 2 }, .rotate_x = std.math.pi * 0.5 },
@@ -104,6 +127,7 @@ const AppState = struct {
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
     screen: Screen = .title,
+    splash: []const u8 = splashes[0],
     inventory_open: bool = false,
     paused: bool = false,
     options_open: bool = false,
@@ -219,6 +243,7 @@ pub fn init(
     gl.makeProcTableCurrent(&app_state.gl_procs);
 
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
+    app_state.splash = pickSplash(&app_state.world_map.rand);
 
     app_state.atlas = try Atlas.load(terrain_png);
     errdefer app_state.atlas.deinit();
@@ -527,6 +552,7 @@ fn enterWorld(app_state: *AppState) !void {
 fn quitToTitle(app_state: *AppState) !void {
     app_state.screen = .title;
     app_state.paused = false;
+    app_state.splash = pickSplash(&app_state.world_map.rand);
     try updateMouseMode(app_state);
 }
 
@@ -696,8 +722,6 @@ fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } 
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
 }
 
-/// The GUI is scaled off the same drawable size the viewport uses, so one GUI
-/// pixel stays an exact whole number of device pixels.
 fn guiSize(app_state: *const AppState) struct { w: f32, h: f32 } {
     const px = drawableSize(app_state);
     return .{ .w = @floatFromInt(px.w), .h = @floatFromInt(px.h) };
@@ -791,6 +815,8 @@ pub fn iterate(
             app_state.logo_texture,
             app_state.gui_texture,
             app_state.font,
+            app_state.splash,
+            sdl3.timer.getMillisecondsSinceInit(),
             app_state.mouse_x,
             app_state.mouse_y,
             gui.w,

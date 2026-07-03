@@ -88,6 +88,51 @@ pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: 
     try appendTextColor(mesh, gpa, font, text, x, y, .{ 255, 255, 255, 255 }, res);
 }
 
+pub const Transform = struct {
+    x: f32,
+    y: f32,
+    scale: f32,
+    rotation: f32,
+
+    fn map(self: Transform, px: f32, py: f32) [2]f32 {
+        const cos = @cos(self.rotation);
+        const sin = @sin(self.rotation);
+        const sx = px * self.scale;
+        const sy = py * self.scale;
+        return .{ self.x + sx * cos - sy * sin, self.y + sx * sin + sy * cos };
+    }
+};
+
+pub fn appendTextTransformed(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    font: Font,
+    text: []const u8,
+    x: f32,
+    y: f32,
+    color: [4]u8,
+    transform: Transform,
+    res: Scaled,
+) !void {
+    const g = Font.glyph_draw_size;
+    var cursor = x;
+    for (text) |c| {
+        const uv = Font.glyphUv(c);
+        const tl = transform.map(cursor, y);
+        const tr = transform.map(cursor + g, y);
+        const br = transform.map(cursor + g, y + g);
+        const bl = transform.map(cursor, y + g);
+        const p0 = toNdc(tl[0], tl[1], res);
+        const p1 = toNdc(tr[0], tr[1], res);
+        const p2 = toNdc(br[0], br[1], res);
+        const p3 = toNdc(bl[0], bl[1], res);
+        try mesh.quad(gpa, .{
+            .{ p0[0], p0[1], 0 }, .{ p1[0], p1[1], 0 }, .{ p2[0], p2[1], 0 }, .{ p3[0], p3[1], 0 },
+        }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, color);
+        cursor += @floatFromInt(font.char_width[c]);
+    }
+}
+
 pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
     if (mesh.vertices.items.len == 0) return;
     var gpu = GpuMesh.upload(mesh);
