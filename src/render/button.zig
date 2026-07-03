@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
-const hud = @import("hud.zig");
+const gui = @import("gui.zig");
 
 const gui_texture_size: f32 = 256;
 const tex_row: f32 = 46;
@@ -32,12 +32,12 @@ pub fn appendBackground(
     y: f32,
     w: f32,
     state: f32,
-    res: hud.Scaled,
+    res: gui.Scaled,
 ) !void {
     const row = tex_row + state * height;
     const half = w / 2.0;
-    try hud.appendRect(bg, gpa, x, y, half, height, hud.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), res);
-    try hud.appendRect(bg, gpa, x + half, y, half, height, hud.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), res);
+    try gui.appendRect(bg, gpa, x, y, half, height, gui.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), res);
+    try gui.appendRect(bg, gpa, x + half, y, half, height, gui.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), res);
 }
 
 pub fn appendLabel(
@@ -49,12 +49,12 @@ pub fn appendLabel(
     w: f32,
     label: []const u8,
     color: [4]u8,
-    res: hud.Scaled,
+    res: gui.Scaled,
 ) !void {
     const label_width: f32 = @floatFromInt(font.stringWidth(label));
     const text_x = x + @floor(w / 2.0) - @floor(label_width / 2.0);
     const text_y = y + (height - Font.glyph_size) / 2.0;
-    try hud.appendTextColor(text, gpa, font, label, text_x, text_y, color, res);
+    try gui.appendTextColor(text, gpa, font, label, text_x, text_y, color, res);
 }
 
 pub fn append(
@@ -64,7 +64,7 @@ pub fn append(
     font: Font,
     button: Button,
     hovered: bool,
-    res: hud.Scaled,
+    res: gui.Scaled,
 ) !void {
     try appendBackground(bg, gpa, button.x, button.y, button.w, hoverState(button, hovered), res);
     const color = if (!button.enabled) text_disabled else if (hovered) text_hover else text_normal;

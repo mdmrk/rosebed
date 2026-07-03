@@ -7,7 +7,7 @@ const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const Shader = @import("shader.zig");
 const button = @import("button.zig");
-const hud = @import("hud.zig");
+const gui = @import("gui.zig");
 const options_screen = @import("options_screen.zig");
 
 const opt_width: f32 = 150;
@@ -55,7 +55,7 @@ fn controls(scaled_width: f32, scaled_height: f32) [order.len + 1]Control {
     return result;
 }
 
-pub fn hitAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Hit {
+pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (controls(res.width, res.height)) |control| {
@@ -99,69 +99,62 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
 }
 
 pub fn draw(
-    gpa: std.mem.Allocator,
-    icon_shader: Shader,
-    dirt_texture: Atlas,
-    gui_texture: Atlas,
-    font: Font,
+    ui: gui.Ui,
     settings: game.Settings,
     backdrop: Backdrop,
-    mouse_x: f32,
-    mouse_y: f32,
-    res: hud.Scaled,
 ) !void {
-    const gx = mouse_x / res.factor;
-    const gy = mouse_y / res.factor;
+    const gx = ui.mouse_x / ui.res.factor;
+    const gy = ui.mouse_y / ui.res.factor;
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     var back: MeshBuilder = .{};
-    defer back.deinit(gpa);
+    defer back.deinit(ui.gpa);
     switch (backdrop) {
         .dirt => {
-            const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = res.width / dirt_tile_scale, .v1 = res.height / dirt_tile_scale };
-            try hud.appendRectColor(&back, gpa, 0, 0, res.width, res.height, dirt_uv, dirt_tint, res);
-            try hud.drawTexturedMesh(&back, icon_shader, dirt_texture);
+            const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
+            try gui.appendRectColor(&back, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
+            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.dirt);
         },
         .veil => {
-            try hud.appendVeil(&back, gpa, res);
-            try hud.drawTexturedMesh(&back, icon_shader, gui_texture);
+            try gui.appendVeil(&back, ui.gpa, ui.res);
+            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.gui);
         },
     }
 
     var backgrounds: MeshBuilder = .{};
-    defer backgrounds.deinit(gpa);
+    defer backgrounds.deinit(ui.gpa);
     var text: MeshBuilder = .{};
-    defer text.deinit(gpa);
+    defer text.deinit(ui.gpa);
 
-    for (controls(res.width, res.height)) |control| {
+    for (controls(ui.res.width, ui.res.height)) |control| {
         const hovered = gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height;
         var buf: [64]u8 = undefined;
         const label = controlLabel(control.hit, settings, &buf);
-        try button.append(&backgrounds, &text, gpa, font, .{
+        try button.append(&backgrounds, &text, ui.gpa, ui.font, .{
             .x = control.x,
             .y = control.y,
             .w = control.w,
             .label = label,
             .enabled = true,
-        }, hovered, res);
+        }, hovered, ui.res);
     }
 
     const title = "Video Settings";
-    const title_width: f32 = @floatFromInt(font.stringWidth(title));
-    try hud.appendTextColor(&text, gpa, font, title, @floor(res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, res);
+    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
+    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, ui.res);
 
-    try hud.drawTexturedMesh(&backgrounds, icon_shader, gui_texture);
-    try hud.drawTexturedMesh(&text, icon_shader, font);
+    try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
+    try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
 }
 
 test "the eight options sit in two columns of four rows" {
-    const res = hud.scaledResolution(640, 480, 1000);
+    const res = gui.scaledResolution(640, 480, 1000);
     const list = controls(res.width, res.height);
     try std.testing.expectEqual(@as(f32, 5), list[0].x);
     try std.testing.expectEqual(@as(f32, 165), list[1].x);
@@ -171,7 +164,7 @@ test "the eight options sit in two columns of four rows" {
 }
 
 test "clicking Done returns the done hit" {
-    const res = hud.scaledResolution(640, 480, 1000);
+    const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, res));
 }
 

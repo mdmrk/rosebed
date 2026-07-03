@@ -7,7 +7,7 @@ const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const Shader = @import("shader.zig");
 const button = @import("button.zig");
-const hud = @import("hud.zig");
+const gui = @import("gui.zig");
 
 const logo_texture_size: f32 = 256;
 const logo_piece_width: f32 = 155;
@@ -39,7 +39,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     };
 }
 
-pub fn actionAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Action {
+pub fn actionAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (entries(res.width, res.height)) |entry| {
@@ -49,80 +49,72 @@ pub fn actionAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Action {
 }
 
 pub fn draw(
-    gpa: std.mem.Allocator,
-    icon_shader: Shader,
-    dirt_texture: Atlas,
-    logo_texture: Atlas,
-    gui_texture: Atlas,
-    font: Font,
+    ui: gui.Ui,
     splash: []const u8,
     time_ms: u64,
-    mouse_x: f32,
-    mouse_y: f32,
-    res: hud.Scaled,
 ) !void {
-    const gx = mouse_x / res.factor;
-    const gy = mouse_y / res.factor;
+    const gx = ui.mouse_x / ui.res.factor;
+    const gy = ui.mouse_y / ui.res.factor;
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     var dirt: MeshBuilder = .{};
-    defer dirt.deinit(gpa);
-    const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = res.width / dirt_tile_scale, .v1 = res.height / dirt_tile_scale };
-    try hud.appendRectColor(&dirt, gpa, 0, 0, res.width, res.height, dirt_uv, dirt_tint, res);
-    try hud.drawTexturedMesh(&dirt, icon_shader, dirt_texture);
+    defer dirt.deinit(ui.gpa);
+    const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
+    try gui.appendRectColor(&dirt, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
+    try gui.drawTexturedMesh(&dirt, ui.shader, ui.textures.dirt);
 
     var logo: MeshBuilder = .{};
-    defer logo.deinit(gpa);
-    const logo_left = @floor(res.width / 2.0) - @floor(logo_layout_width / 2.0);
-    try hud.appendRect(&logo, gpa, logo_left, logo_top, logo_piece_width, logo_height, hud.pixelUv(0, 0, logo_piece_width, logo_height, logo_texture_size, logo_texture_size), res);
-    try hud.appendRect(&logo, gpa, logo_left + logo_piece_width, logo_top, logo_piece_width, logo_height, hud.pixelUv(0, 45, logo_piece_width, logo_height, logo_texture_size, logo_texture_size), res);
-    try hud.drawTexturedMesh(&logo, icon_shader, logo_texture);
+    defer logo.deinit(ui.gpa);
+    const logo_left = @floor(ui.res.width / 2.0) - @floor(logo_layout_width / 2.0);
+    try gui.appendRect(&logo, ui.gpa, logo_left, logo_top, logo_piece_width, logo_height, gui.pixelUv(0, 0, logo_piece_width, logo_height, logo_texture_size, logo_texture_size), ui.res);
+    try gui.appendRect(&logo, ui.gpa, logo_left + logo_piece_width, logo_top, logo_piece_width, logo_height, gui.pixelUv(0, 45, logo_piece_width, logo_height, logo_texture_size, logo_texture_size), ui.res);
+    try gui.drawTexturedMesh(&logo, ui.shader, ui.textures.logo);
 
     var backgrounds: MeshBuilder = .{};
-    defer backgrounds.deinit(gpa);
+    defer backgrounds.deinit(ui.gpa);
     var text: MeshBuilder = .{};
-    defer text.deinit(gpa);
+    defer text.deinit(ui.gpa);
 
-    for (entries(res.width, res.height)) |entry| {
+    for (entries(ui.res.width, ui.res.height)) |entry| {
         const hovered = button.contains(entry.button, gx, gy);
-        try button.append(&backgrounds, &text, gpa, font, entry.button, hovered, res);
+        try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
     }
 
-    const splash_width: f32 = @floatFromInt(font.stringWidth(splash));
+    const splash_width: f32 = @floatFromInt(ui.font.stringWidth(splash));
     const pulse: f32 = @floatFromInt(time_ms % 1000);
     const throb = 1.8 - math.util.abs(math.util.sin(pulse / 1000.0 * std.math.pi * 2.0) * 0.1);
-    const splash_transform: hud.Transform = .{
-        .x = @floor(res.width / 2.0) + splash_offset_x,
+    const splash_transform: gui.Transform = .{
+        .x = @floor(ui.res.width / 2.0) + splash_offset_x,
         .y = splash_y,
         .scale = throb * 100.0 / (splash_width + 32.0),
         .rotation = splash_rotation,
     };
     const splash_x = -@floor(splash_width / 2.0);
-    try hud.appendTextTransformed(&text, gpa, font, splash, splash_x, -8, splash_color, splash_transform, res);
+    try gui.appendTextTransformed(&text, ui.gpa, ui.font, splash, splash_x, -8, splash_color, splash_transform, ui.res);
 
-    try hud.appendTextColor(&text, gpa, font, "Minecraft Beta 1.7.3", 2, 2, version_color, res);
+    try gui.appendTextColor(&text, ui.gpa, ui.font, "Minecraft Beta 1.7.3", 2, 2, version_color, ui.res);
     const copyright = "Copyright Mojang AB. Do not distribute.";
-    const copyright_width: f32 = @floatFromInt(font.stringWidth(copyright));
-    try hud.appendTextColor(&text, gpa, font, copyright, res.width - copyright_width - 2, res.height - 10, copyright_color, res);
+    const copyright_width: f32 = @floatFromInt(ui.font.stringWidth(copyright));
+    try gui.appendTextColor(&text, ui.gpa, ui.font, copyright, ui.res.width - copyright_width - 2, ui.res.height - 10, copyright_color, ui.res);
 
-    try hud.drawTexturedMesh(&backgrounds, icon_shader, gui_texture);
-    try hud.drawTexturedMesh(&text, icon_shader, font);
+    try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
+    try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
 }
 
 test "singleplayer is clickable and enters the world" {
-    try std.testing.expectEqual(@as(?Action, .singleplayer), actionAt(320, 240, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Action, .singleplayer), actionAt(320, 240, gui.scaledResolution(640, 480, 1000)));
 }
 
 test "quit game is clickable" {
-    try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, gui.scaledResolution(640, 480, 1000)));
 }
 
 test "multiplayer is disabled offline" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 288, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 288, gui.scaledResolution(640, 480, 1000)));
 }

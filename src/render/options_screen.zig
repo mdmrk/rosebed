@@ -7,7 +7,7 @@ const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const Shader = @import("shader.zig");
 const button = @import("button.zig");
-const hud = @import("hud.zig");
+const gui = @import("gui.zig");
 
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;
@@ -50,7 +50,7 @@ fn kindHit(kind: Kind) ?Hit {
     };
 }
 
-pub fn hitAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Hit {
+pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (controls(res.width, res.height)) |control| {
@@ -71,7 +71,7 @@ fn sliderX(which: Slider, scaled_width: f32) f32 {
     };
 }
 
-pub fn sliderValueAt(which: Slider, mouse_x: f32, res: hud.Scaled) f32 {
+pub fn sliderValueAt(which: Slider, mouse_x: f32, res: gui.Scaled) f32 {
     const gx = mouse_x / res.factor;
     const x = sliderX(which, res.width);
     const value = (gx - (x + 4.0)) / (opt_width - 8.0);
@@ -112,55 +112,48 @@ fn appendSlider(
     value: f32,
     label: []const u8,
     hovered: bool,
-    res: hud.Scaled,
+    res: gui.Scaled,
 ) !void {
     try button.appendBackground(bg, gpa, control.x, control.y, control.w, 0, res);
     const handle_x = control.x + value * (control.w - 8.0);
-    try hud.appendRect(bg, gpa, handle_x, control.y, 4, button.height, hud.pixelUv(0, 66, 4, button.height, gui_texture_size, gui_texture_size), res);
-    try hud.appendRect(bg, gpa, handle_x + 4, control.y, 4, button.height, hud.pixelUv(196, 66, 4, button.height, gui_texture_size, gui_texture_size), res);
+    try gui.appendRect(bg, gpa, handle_x, control.y, 4, button.height, gui.pixelUv(0, 66, 4, button.height, gui_texture_size, gui_texture_size), res);
+    try gui.appendRect(bg, gpa, handle_x + 4, control.y, 4, button.height, gui.pixelUv(196, 66, 4, button.height, gui_texture_size, gui_texture_size), res);
     const color = if (hovered) button.text_hover else button.text_normal;
     try button.appendLabel(text, gpa, font, control.x, control.y, control.w, label, color, res);
 }
 
 pub fn draw(
-    gpa: std.mem.Allocator,
-    icon_shader: Shader,
-    dirt_texture: Atlas,
-    gui_texture: Atlas,
-    font: Font,
+    ui: gui.Ui,
     settings: game.Settings,
     backdrop: Backdrop,
-    mouse_x: f32,
-    mouse_y: f32,
-    res: hud.Scaled,
 ) !void {
-    const gx = mouse_x / res.factor;
-    const gy = mouse_y / res.factor;
+    const gx = ui.mouse_x / ui.res.factor;
+    const gy = ui.mouse_y / ui.res.factor;
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     var back: MeshBuilder = .{};
-    defer back.deinit(gpa);
+    defer back.deinit(ui.gpa);
     switch (backdrop) {
         .dirt => {
-            const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = res.width / dirt_tile_scale, .v1 = res.height / dirt_tile_scale };
-            try hud.appendRectColor(&back, gpa, 0, 0, res.width, res.height, dirt_uv, dirt_tint, res);
-            try hud.drawTexturedMesh(&back, icon_shader, dirt_texture);
+            const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
+            try gui.appendRectColor(&back, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
+            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.dirt);
         },
         .veil => {
-            try hud.appendVeil(&back, gpa, res);
-            try hud.drawTexturedMesh(&back, icon_shader, gui_texture);
+            try gui.appendVeil(&back, ui.gpa, ui.res);
+            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.gui);
         },
     }
 
     var backgrounds: MeshBuilder = .{};
-    defer backgrounds.deinit(gpa);
+    defer backgrounds.deinit(ui.gpa);
     var text: MeshBuilder = .{};
-    defer text.deinit(gpa);
+    defer text.deinit(ui.gpa);
 
-    for (controls(res.width, res.height)) |control| {
+    for (controls(ui.res.width, ui.res.height)) |control| {
         const hovered = control.enabled and gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height;
         var buf: [64]u8 = undefined;
         const label = controlLabel(control.kind, settings, &buf);
@@ -171,42 +164,42 @@ pub fn draw(
                     .sound => settings.sound_volume,
                     .sensitivity => settings.sensitivity,
                 };
-                try appendSlider(&backgrounds, &text, gpa, font, control, value, label, hovered, res);
+                try appendSlider(&backgrounds, &text, ui.gpa, ui.font, control, value, label, hovered, ui.res);
             },
-            else => try button.append(&backgrounds, &text, gpa, font, .{ .x = control.x, .y = control.y, .w = control.w, .label = label, .enabled = control.enabled }, hovered, res),
+            else => try button.append(&backgrounds, &text, ui.gpa, ui.font, .{ .x = control.x, .y = control.y, .w = control.w, .label = label, .enabled = control.enabled }, hovered, ui.res),
         }
     }
 
     const title = "Options";
-    const title_width: f32 = @floatFromInt(font.stringWidth(title));
-    try hud.appendTextColor(&text, gpa, font, title, @floor(res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, res);
+    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
+    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, ui.res);
 
-    try hud.drawTexturedMesh(&backgrounds, icon_shader, gui_texture);
-    try hud.drawTexturedMesh(&text, icon_shader, font);
+    try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
+    try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
 }
 
 test "clicking Done returns the done hit" {
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, gui.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking the difficulty toggle returns cycle_difficulty" {
-    try std.testing.expectEqual(@as(?Hit, .cycle_difficulty), hitAt(80, 176, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Hit, .cycle_difficulty), hitAt(80, 176, gui.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking a slider returns its id" {
-    try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, gui.scaledResolution(640, 480, 1000)));
 }
 
 test "video settings opens, controls is still disabled" {
-    const res = hud.scaledResolution(640, 480, 1000);
+    const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?Hit, .video), hitAt(320, 296, res));
     try std.testing.expectEqual(@as(?Hit, null), hitAt(320, 344, res));
 }
 
 test "slider value maps click x to 0..1 clamped" {
-    try std.testing.expectEqual(@as(f32, 0.0), sliderValueAt(.music, 0, hud.scaledResolution(640, 480, 1000)));
-    try std.testing.expect(sliderValueAt(.music, 100000, hud.scaledResolution(640, 480, 1000)) == 1.0);
+    try std.testing.expectEqual(@as(f32, 0.0), sliderValueAt(.music, 0, gui.scaledResolution(640, 480, 1000)));
+    try std.testing.expect(sliderValueAt(.music, 100000, gui.scaledResolution(640, 480, 1000)) == 1.0);
 }

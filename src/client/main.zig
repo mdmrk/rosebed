@@ -6,7 +6,6 @@ const game = @import("game");
 const gl = @import("gl");
 const math = @import("math");
 const render = @import("render");
-const Atlas = render.Atlas;
 const sdl3 = @import("sdl3");
 const Timer = @import("core").Timer;
 const world = @import("world");
@@ -16,16 +15,7 @@ const ticks_per_second = 20.0;
 const screen_width = 1280;
 const screen_height = 720;
 const init_flags = sdl3.InitFlags{ .video = true };
-const terrain_png = assets.terrain_png;
-const pig_png = assets.mob.pig_png;
-const char_png = assets.mob.char_png;
-const gui_png = assets.gui.gui_png;
-const icons_png = assets.gui.icons_png;
-const items_png = assets.gui.items_png;
 const font_png = assets.font.default_png;
-const inventory_png = assets.gui.inventory_png;
-const dirt_png = assets.gui.background_png;
-const logo_png = assets.title.mclogo_png;
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -73,15 +63,7 @@ const AppState = struct {
     window: sdl3.video.Window,
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
-    atlas: Atlas,
-    pig_texture: Atlas,
-    char_texture: Atlas,
-    gui_texture: Atlas,
-    icons_texture: Atlas,
-    items_texture: Atlas,
-    inventory_texture: Atlas,
-    dirt_texture: Atlas,
-    logo_texture: Atlas,
+    textures: render.Textures,
     font: render.Font,
     shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -267,15 +249,7 @@ pub fn init(
         .window = window,
         .gl_context = gl_context,
         .gl_procs = undefined,
-        .atlas = undefined,
-        .pig_texture = undefined,
-        .char_texture = undefined,
-        .gui_texture = undefined,
-        .icons_texture = undefined,
-        .items_texture = undefined,
-        .inventory_texture = undefined,
-        .dirt_texture = undefined,
-        .logo_texture = undefined,
+        .textures = undefined,
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
@@ -288,32 +262,8 @@ pub fn init(
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
     app_state.splash = pickSplash(&app_state.world_map.rand);
 
-    app_state.atlas = try Atlas.load(terrain_png);
-    errdefer app_state.atlas.deinit();
-
-    app_state.pig_texture = try Atlas.load(pig_png);
-    errdefer app_state.pig_texture.deinit();
-
-    app_state.char_texture = try Atlas.load(char_png);
-    errdefer app_state.char_texture.deinit();
-
-    app_state.gui_texture = try Atlas.load(gui_png);
-    errdefer app_state.gui_texture.deinit();
-
-    app_state.icons_texture = try Atlas.load(icons_png);
-    errdefer app_state.icons_texture.deinit();
-
-    app_state.items_texture = try Atlas.load(items_png);
-    errdefer app_state.items_texture.deinit();
-
-    app_state.inventory_texture = try Atlas.load(inventory_png);
-    errdefer app_state.inventory_texture.deinit();
-
-    app_state.dirt_texture = try Atlas.loadRepeat(dirt_png);
-    errdefer app_state.dirt_texture.deinit();
-
-    app_state.logo_texture = try Atlas.load(logo_png);
-    errdefer app_state.logo_texture.deinit();
+    app_state.textures = try render.Textures.load();
+    errdefer app_state.textures.deinit();
 
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
@@ -639,13 +589,25 @@ fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } 
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
 }
 
-fn guiSize(app_state: *const AppState) render.hud.Scaled {
+fn guiSize(app_state: *const AppState) render.gui.Scaled {
     const px = drawableSize(app_state);
-    return render.hud.scaledResolution(
+    return render.gui.scaledResolution(
         @floatFromInt(px.w),
         @floatFromInt(px.h),
         app_state.settings.gui_scale.limit(),
     );
+}
+
+fn uiContext(app_state: *const AppState, res: render.gui.Scaled) render.Ui {
+    return .{
+        .gpa = app_state.frame,
+        .shader = app_state.shader,
+        .textures = app_state.textures,
+        .font = app_state.font,
+        .mouse_x = app_state.mouse_x,
+        .mouse_y = app_state.mouse_y,
+        .res = res,
+    };
 }
 
 fn drawEntityMesh(mesh: *const render.MeshBuilder) void {
@@ -672,7 +634,7 @@ fn renderWorld(app_state: *AppState) !void {
     app_state.shader.use();
     app_state.shader.setMat4("u_view_proj", view_proj.m);
     gl.ActiveTexture(gl.TEXTURE0);
-    app_state.atlas.bind();
+    app_state.textures.terrain.bind();
     app_state.shader.setInt("u_atlas", 0);
     app_state.chunks.draw();
 
@@ -692,9 +654,9 @@ fn renderWorld(app_state: *AppState) !void {
         try render.entity_render.appendPig(&pig_mesh, app_state.frame, pig, partial);
     }
     if (pig_mesh.vertices.items.len > 0) {
-        app_state.pig_texture.bind();
+        app_state.textures.pig.bind();
         drawEntityMesh(&pig_mesh);
-        app_state.atlas.bind();
+        app_state.textures.terrain.bind();
     }
 }
 
@@ -733,95 +695,31 @@ pub fn iterate(
 
     if (app_state.screen == .playing) try renderWorld(app_state);
 
+    const ui = uiContext(app_state, gui);
+    const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
+
     if (app_state.screen == .playing and app_state.show_debug) {
-        try render.debug_overlay.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.font,
-            debugStats(app_state),
-            gui,
-        );
+        try render.debug_overlay.draw(ui, debugStats(app_state));
     }
 
     if (app_state.video_open) {
-        try render.video_settings_screen.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.dirt_texture,
-            app_state.gui_texture,
-            app_state.font,
-            app_state.settings,
-            if (app_state.options_parent == .pause) .veil else .dirt,
-            app_state.mouse_x,
-            app_state.mouse_y,
-            gui,
-        );
+        try render.video_settings_screen.draw(ui, app_state.settings, backdrop);
     } else if (app_state.options_open) {
-        try render.options_screen.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.dirt_texture,
-            app_state.gui_texture,
-            app_state.font,
-            app_state.settings,
-            if (app_state.options_parent == .pause) .veil else .dirt,
-            app_state.mouse_x,
-            app_state.mouse_y,
-            gui,
-        );
+        try render.options_screen.draw(ui, app_state.settings, backdrop);
     } else if (app_state.screen == .title) {
-        try render.title_screen.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.dirt_texture,
-            app_state.logo_texture,
-            app_state.gui_texture,
-            app_state.font,
-            app_state.splash,
-            sdl3.timer.getMillisecondsSinceInit(),
-            app_state.mouse_x,
-            app_state.mouse_y,
-            gui,
-        );
+        try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.paused) {
-        try render.menu.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.gui_texture,
-            app_state.font,
-            app_state.mouse_x,
-            app_state.mouse_y,
-            gui,
-        );
+        try render.menu.draw(ui);
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.inventory_texture,
-            app_state.atlas,
-            app_state.items_texture,
-            app_state.font,
-            app_state.char_texture,
+            ui,
             render.mob_model.biped,
             app_state.player.inventory,
             app_state.crafting_grid,
             app_state.held_stack,
-            app_state.mouse_x,
-            app_state.mouse_y,
-            gui,
         );
     } else {
-        try render.hud.draw(
-            app_state.frame,
-            app_state.shader,
-            app_state.atlas,
-            app_state.gui_texture,
-            app_state.icons_texture,
-            app_state.items_texture,
-            app_state.font,
-            app_state.player.inventory,
-            gui,
-        );
+        try render.hud.draw(ui, app_state.player.inventory);
     }
 
     try sdl3.video.gl.swapWindow(app_state.window);
@@ -948,15 +846,7 @@ pub fn quit(
         state.world_map.deinit();
         state.generator.deinit(state.gpa);
         state.shader.deinit();
-        state.atlas.deinit();
-        state.pig_texture.deinit();
-        state.char_texture.deinit();
-        state.gui_texture.deinit();
-        state.icons_texture.deinit();
-        state.items_texture.deinit();
-        state.inventory_texture.deinit();
-        state.dirt_texture.deinit();
-        state.logo_texture.deinit();
+        state.textures.deinit();
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
