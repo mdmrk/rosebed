@@ -9,7 +9,7 @@ fn index(x: u32, y: u32, z: u32) usize {
     return (x << 11) | (z << 7) | y;
 }
 
-pub fn get(self: NibbleArray, x: u32, y: u32, z: u32) u4 {
+pub fn get(self: *const NibbleArray, x: u32, y: u32, z: u32) u4 {
     const i = index(x, y, z);
     const byte = self.data[i >> 1];
     return @truncate(if (i & 1 == 0) byte else byte >> 4);

@@ -24,7 +24,7 @@ fn blockIndex(x: u32, y: u32, z: u32) usize {
     return (x << 11) | (z << 7) | y;
 }
 
-pub fn getBlockId(self: Chunk, x: u32, y: u32, z: u32) u8 {
+pub fn getBlockId(self: *const Chunk, x: u32, y: u32, z: u32) u8 {
     return self.blocks[blockIndex(x, y, z)];
 }
 
@@ -32,7 +32,7 @@ pub fn setBlockId(self: *Chunk, x: u32, y: u32, z: u32, id: u8) void {
     self.blocks[blockIndex(x, y, z)] = id;
 }
 
-pub fn getBlockMetadata(self: Chunk, x: u32, y: u32, z: u32) u4 {
+pub fn getBlockMetadata(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
     return self.metadata.get(x, y, z);
 }
 
@@ -44,7 +44,7 @@ fn heightMapIndex(x: u32, z: u32) usize {
     return (z << 4) | x;
 }
 
-pub fn getHeightValue(self: Chunk, x: u32, z: u32) u8 {
+pub fn getHeightValue(self: *const Chunk, x: u32, z: u32) u8 {
     return self.height_map[heightMapIndex(x, z)];
 }
 
