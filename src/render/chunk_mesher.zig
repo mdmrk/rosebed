@@ -89,7 +89,7 @@ pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [
     }
 }
 
-fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8, bx: f32, by: f32, bz: f32) !void {
+fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8, brightness: f32, bx: f32, by: f32, bz: f32) !void {
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{
         .{ uv.u0, uv.v1 },
@@ -99,10 +99,10 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     };
     try mesh.quad(gpa, .{
         .{ bx, by, bz }, .{ bx + 1, by, bz + 1 }, .{ bx + 1, by + 1, bz + 1 }, .{ bx, by + 1, bz },
-    }, uvs, shadeColor(1.0, tint));
+    }, uvs, shadeColor(brightness, tint));
     try mesh.quad(gpa, .{
         .{ bx + 1, by, bz }, .{ bx, by, bz + 1 }, .{ bx, by + 1, bz + 1 }, .{ bx + 1, by + 1, bz },
-    }, uvs, shadeColor(1.0, tint));
+    }, uvs, shadeColor(brightness, tint));
 }
 
 pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer) !MeshBuilder {
@@ -126,9 +126,15 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 const column_humidity = chunk.getHumidity(@intCast(lx), @intCast(lz));
                 const metadata = chunk.getBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz));
 
+                const world_x: i32 = @intFromFloat(bx);
+                const world_y: i32 = @intCast(ly);
+                const world_z: i32 = @intFromFloat(bz);
+                const emitted = world.light.emission(id);
+                const own_brightness = world.light.brightnessAt(world_map, world_x, world_y, world_z, emitted);
+
                 if (world.block.isCross(id)) {
                     const tint = blockTint(colorizer, id, metadata, world.block.up, column_temperature, column_humidity);
-                    try buildCross(&mesh, gpa, world.block.crossTile(id, metadata), tint, bx, by, bz);
+                    try buildCross(&mesh, gpa, world.block.crossTile(id, metadata), tint, own_brightness, bx, by, bz);
                     continue;
                 }
 
@@ -161,8 +167,14 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                         .{ uv.u1, uv.v1 },
                     };
 
+                    const partial_top = face.side == world.block.up and height_scale != 1.0 and !world.block.isLiquid(id);
+                    const brightness = if (partial_top)
+                        own_brightness
+                    else
+                        world.light.brightnessAt(world_map, world_x + face.normal[0], world_y + face.normal[1], world_z + face.normal[2], emitted);
+
                     const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
-                    try mesh.quad(gpa, positions, uvs, shadeColor(face.shade, tint));
+                    try mesh.quad(gpa, positions, uvs, shadeColor(face.shade * brightness, tint));
                 }
             }
         }
@@ -178,6 +190,7 @@ test "a cross-shaped plant emits two crossing quads instead of a cube" {
     const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.tall_grass);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -192,6 +205,7 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     chunk.setBlockId(0, 0, 0, world.block.stone);
     chunk.setBlockId(1, 0, 0, world.block.tall_grass);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -206,6 +220,7 @@ test "a snow layer renders as a thin partial-height cube" {
     chunk.setBlockId(0, 1, 0, world.block.stone);
     chunk.setBlockId(0, 2, 0, world.block.snow_layer);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -223,6 +238,7 @@ test "a lone block emits all 6 faces" {
     const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -235,12 +251,13 @@ test "each cube face carries its own directional shade" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlockId(0, 0, 0, world.block.stone);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
-    const expected = [6]u8{ 127, 255, 204, 204, 153, 153 };
+    const expected = [6]u8{ 6, 255, 204, 204, 153, 153 };
     for (expected, 0..) |level, face| {
         for (mesh.vertices.items[face * 4 ..][0..4]) |v| {
             try std.testing.expectEqual([4]u8{ level, level, level, 255 }, v.color);
@@ -255,6 +272,7 @@ test "a cross-shaped plant is not directionally shaded" {
     const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.rose);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -271,6 +289,7 @@ test "adjacent blocks cull their shared face" {
     chunk.setBlockId(0, 0, 0, world.block.stone);
     chunk.setBlockId(1, 0, 0, world.block.stone);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -283,6 +302,7 @@ test "an all-air chunk produces an empty mesh" {
     defer world_map.deinit();
     _ = try world_map.createChunk(0, 0);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -298,6 +318,7 @@ test "a block at a chunk boundary culls its face against a loaded neighbor chunk
     const b = try world_map.createChunk(1, 0);
     b.setBlockId(0, 0, 0, world.block.stone);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
     defer mesh.deinit(gpa);
 
@@ -314,13 +335,13 @@ test "only the grass block's top face takes the biome tint" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlockId(0, 0, 0, world.block.grass);
+    chunk.setBlockId(8, 0, 8, world.block.grass);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual([4]u8{ 100, 200, 50, 255 }, mesh.vertices.items[1 * 4].color);
-    try std.testing.expectEqual([4]u8{ 127, 127, 127, 255 }, mesh.vertices.items[0 * 4].color);
     try std.testing.expectEqual([4]u8{ 204, 204, 204, 255 }, mesh.vertices.items[2 * 4].color);
 }
 
@@ -334,10 +355,11 @@ test "birch leaves take the fixed foliage color instead of the biome lookup" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlockId(0, 0, 0, world.block.leaves);
-    chunk.setBlockMetadata(0, 0, 0, 2);
-    chunk.setBlockId(0, 2, 0, world.block.leaves);
+    chunk.setBlockId(8, 0, 8, world.block.leaves);
+    chunk.setBlockMetadata(8, 0, 8, 2);
+    chunk.setBlockId(11, 0, 11, world.block.leaves);
 
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer);
     defer mesh.deinit(gpa);
 

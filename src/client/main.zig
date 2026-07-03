@@ -277,15 +277,20 @@ fn digStep(app_state: *AppState) !void {
     const ticks_required = world.block.digTicksRequired(block_id) orelse return;
     if (ticks_required <= 0.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try app_state.chunks.markBlockDirty(app_state.gpa, hit.x, hit.z);
+        try markBlockChanged(app_state, hit.x, hit.z);
         return;
     }
 
     app_state.digging.?.progress += 1.0 / ticks_required;
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try app_state.chunks.markBlockDirty(app_state.gpa, hit.x, hit.z);
+        try markBlockChanged(app_state, hit.x, hit.z);
     }
+}
+
+fn markBlockChanged(app_state: *AppState, x: i32, z: i32) !void {
+    try world.light.relightAround(app_state.gpa, &app_state.world_map, x, z);
+    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
 }
 
 fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
@@ -298,7 +303,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (!world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z))) return;
 
     app_state.world_map.setBlockId(x, y, z, world.block.air);
-    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
+    try markBlockChanged(app_state, x, z);
 
     try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
@@ -331,7 +336,7 @@ fn tickFallingBlocks(app_state: *AppState) !void {
         const support_solid = !world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z));
         if (outcome == .landed and landing_empty and support_solid) {
             app_state.world_map.setBlockId(x, y, z, block.block_id);
-            try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
+            try markBlockChanged(app_state, x, z);
         } else {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = block.block_id, .count = 1 });
         }
@@ -533,7 +538,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     app_state.world_map.setBlockId(px, py, pz, @intCast(stack.id));
     app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
     consumeSelectedStack(app_state);
-    try app_state.chunks.markBlockDirty(app_state.gpa, px, pz);
+    try markBlockChanged(app_state, px, pz);
     try checkFall(app_state, px, py, pz);
 }
 

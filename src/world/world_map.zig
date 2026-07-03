@@ -4,6 +4,7 @@ const constants = @import("constants.zig");
 const block = @import("block.zig");
 const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
+const light = @import("light.zig");
 
 const World = @This();
 
@@ -63,6 +64,7 @@ pub fn ensureDecorated(self: *World, generator: TerrainGenerator, chunk_x: i32, 
 
     generator.decorateChunk(self, chunk_x, chunk_z);
     try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
+    try light.relightChunk(self.allocator, self, chunk_x, chunk_z);
 }
 
 fn floorDiv(value: i32, divisor: i32) i32 {
@@ -83,6 +85,31 @@ pub fn setBlockId(self: *World, x: i32, y: i32, z: i32, id: u8) void {
     if (y < 0 or y >= constants.chunk_height) return;
     const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
     chunk.setBlockId(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), id);
+}
+
+pub fn getSkyLight(self: *const World, x: i32, y: i32, z: i32) u4 {
+    if (y < 0) return 0;
+    if (y >= constants.chunk_height) return 15;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return 0;
+    return chunk.getSkyLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+}
+
+pub fn setSkyLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
+    if (y < 0 or y >= constants.chunk_height) return;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
+    chunk.setSkyLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
+}
+
+pub fn getBlockLight(self: *const World, x: i32, y: i32, z: i32) u4 {
+    if (y < 0 or y >= constants.chunk_height) return 0;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return 0;
+    return chunk.getBlockLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+}
+
+pub fn setBlockLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
+    if (y < 0 or y >= constants.chunk_height) return;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
+    chunk.setBlockLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
 }
 
 pub fn getBlockMetadata(self: *const World, x: i32, y: i32, z: i32) u4 {

@@ -54,6 +54,22 @@ pub fn setHeightValue(self: *Chunk, x: u32, z: u32, value: u8) void {
     self.height_map[heightMapIndex(x, z)] = value;
 }
 
+pub fn getSkyLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
+    return self.sky_light.get(x, y, z);
+}
+
+pub fn setSkyLight(self: *Chunk, x: u32, y: u32, z: u32, value: u4) void {
+    self.sky_light.set(x, y, z, value);
+}
+
+pub fn getBlockLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
+    return self.block_light.get(x, y, z);
+}
+
+pub fn setBlockLight(self: *Chunk, x: u32, y: u32, z: u32, value: u4) void {
+    self.block_light.set(x, y, z, value);
+}
+
 pub fn getTemperature(self: *const Chunk, x: u32, z: u32) f32 {
     return self.temperature[heightMapIndex(x, z)];
 }
