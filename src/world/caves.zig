@@ -108,12 +108,14 @@ fn carveTunnel(
         water_scan: while (bx < x1) : (bx += 1) {
             var bz = z0;
             while (bz < z1) : (bz += 1) {
-                var by = y0 - 1;
-                while (by <= y1 + 1) : (by += 1) {
+                const on_shell = bx == x0 or bx == x1 - 1 or bz == z0 or bz == z1 - 1;
+                var by = y1 + 1;
+                while (by >= y0 - 1) : (by -= 1) {
                     if (chunk.getBlockId(@intCast(bx), @intCast(by), @intCast(bz)) == block.stationary_water) {
                         found_water = true;
                         break :water_scan;
                     }
+                    if (by != y0 - 1 and !on_shell) by = y0;
                 }
             }
         }
