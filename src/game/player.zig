@@ -119,14 +119,13 @@ pub fn eyePosition(self: Player) math.Vec3 {
 
 pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const render_position = self.base.renderPosition(partial_ticks);
-    const eye = [3]f32{
-        @floatCast(render_position.x),
-        @floatCast(render_position.y + eye_height),
-        @floatCast(render_position.z),
-    };
-    const look = self.lookVector();
-    const center = [3]f32{ eye[0] + look[0], eye[1] + look[1], eye[2] + look[2] };
-    return math.Mat4.lookAt(eye, center, .{ 0, 1, 0 });
+    const degrees = std.math.pi / 180.0;
+    const eye_x: f32 = @floatCast(render_position.x);
+    const eye_y: f32 = @floatCast(render_position.y + eye_height);
+    const eye_z: f32 = @floatCast(render_position.z);
+    return math.Mat4.rotationX(self.pitch * degrees)
+        .mul(math.Mat4.rotationY((self.yaw + 180.0) * degrees))
+        .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
 }
 
 pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
@@ -190,6 +189,68 @@ test "positive pitch looks down, negative pitch looks up" {
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), player.lookVector()[1], 1.0e-4);
     player.pitch = -90;
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), player.lookVector()[1], 1.0e-4);
+}
+
+const test_eye_y: f32 = 90.0 + @as(f32, @floatCast(eye_height));
+
+fn project(player: Player, point: [3]f32) [4]f32 {
+    const vp = math.Mat4.perspective(70.0 * std.math.pi / 180.0, 16.0 / 9.0, 0.05, 1000.0).mul(player.viewMatrix(0));
+    const cells: [16]f32 = vp.m;
+    var out: [4]f32 = .{ 0, 0, 0, 0 };
+    const v = [4]f32{ point[0], point[1], point[2], 1 };
+    for (0..4) |col| {
+        for (0..4) |row| out[row] += cells[col * 4 + row] * v[col];
+    }
+    return out;
+}
+
+fn isOnScreen(clip: [4]f32) bool {
+    if (!(clip[3] > 0)) return false;
+    return @abs(clip[0]) <= clip[3] and @abs(clip[1]) <= clip[3] and @abs(clip[2]) <= clip[3];
+}
+
+test "the ground stays visible when looking straight down" {
+    var player = Player.spawn(math.Vec3.init(8, 90, 8));
+    player.pitch = 90;
+    for ([_]f32{ 0, 45, 137, -200 }) |yaw| {
+        player.yaw = yaw;
+        try std.testing.expect(isOnScreen(project(player, .{ 8, 85, 8 })));
+    }
+}
+
+test "the sky side stays visible when looking straight up" {
+    var player = Player.spawn(math.Vec3.init(8, 90, 8));
+    player.pitch = -90;
+    try std.testing.expect(isOnScreen(project(player, .{ 8, 95, 8 })));
+}
+
+test "a block ahead projects to the screen center at yaw 0" {
+    const player = Player.spawn(math.Vec3.init(8, 90, 8));
+    const clip = project(player, .{ 8, test_eye_y, 12 });
+    try std.testing.expect(clip[3] > 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), clip[0] / clip[3], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), clip[1] / clip[3], 1.0e-5);
+}
+
+test "what is behind the camera is not on screen" {
+    const player = Player.spawn(math.Vec3.init(8, 90, 8));
+    try std.testing.expect(!isOnScreen(project(player, .{ 8, test_eye_y, 4 })));
+}
+
+test "turning right moves what is ahead to the left of the screen" {
+    var player = Player.spawn(math.Vec3.init(8, 90, 8));
+    player.turn(100, 0, 0.5, false);
+    const clip = project(player, .{ 8, test_eye_y, 12 });
+    try std.testing.expect(clip[3] > 0);
+    try std.testing.expect(clip[0] / clip[3] < 0);
+}
+
+test "looking down moves what is ahead to the top of the screen" {
+    var player = Player.spawn(math.Vec3.init(8, 90, 8));
+    player.turn(0, 100, 0.5, false);
+    const clip = project(player, .{ 8, test_eye_y, 12 });
+    try std.testing.expect(clip[3] > 0);
+    try std.testing.expect(clip[1] / clip[3] > 0);
 }
 
 test "moveDirection at yaw 0 matches forward/strafe axes" {

@@ -36,40 +36,6 @@ pub fn perspective(fov_y_radians: f32, aspect: f32, near: f32, far: f32) Mat4 {
     return .{ .m = m };
 }
 
-fn sub(a: [3]f32, b: [3]f32) [3]f32 {
-    return .{ a[0] - b[0], a[1] - b[1], a[2] - b[2] };
-}
-
-fn cross(a: [3]f32, b: [3]f32) [3]f32 {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
-}
-
-fn dot(a: [3]f32, b: [3]f32) f32 {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-fn normalize(a: [3]f32) [3]f32 {
-    const len = @sqrt(dot(a, a));
-    return .{ a[0] / len, a[1] / len, a[2] / len };
-}
-
-pub fn lookAt(eye: [3]f32, center: [3]f32, up: [3]f32) Mat4 {
-    const f = normalize(sub(center, eye));
-    const s = normalize(cross(f, up));
-    const u = cross(s, f);
-
-    return .{ .m = .{
-        s[0],         u[0],         -f[0],       0,
-        s[1],         u[1],         -f[1],       0,
-        s[2],         u[2],         -f[2],       0,
-        -dot(s, eye), -dot(u, eye), dot(f, eye), 1,
-    } };
-}
-
 pub fn rotationX(radians: f32) Mat4 {
     const c = @cos(radians);
     const s = @sin(radians);
@@ -78,6 +44,17 @@ pub fn rotationX(radians: f32) Mat4 {
         0, c,  s, 0,
         0, -s, c, 0,
         0, 0,  0, 1,
+    } };
+}
+
+pub fn rotationY(radians: f32) Mat4 {
+    const c = @cos(radians);
+    const s = @sin(radians);
+    return .{ .m = .{
+        c, 0, -s, 0,
+        0, 1, 0,  0,
+        s, 0, c,  0,
+        0, 0, 0,  1,
     } };
 }
 
@@ -116,6 +93,13 @@ test "rotationX turns +y toward +z" {
     try std.testing.expectApproxEqAbs(@as(f32, 1), r[2], 1.0e-6);
 }
 
+test "rotationY turns +z toward +x" {
+    const r = transform(rotationY(std.math.pi / 2.0), .{ 0, 0, 1, 0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 1), r[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[2], 1.0e-6);
+}
+
 test "rotationZ turns +x toward +y" {
     const r = transform(rotationZ(std.math.pi / 2.0), .{ 1, 0, 0, 0 });
     try std.testing.expectApproxEqAbs(@as(f32, 0), r[0], 1.0e-6);
@@ -125,6 +109,7 @@ test "rotationZ turns +x toward +y" {
 
 test "a zero rotation is the identity" {
     try std.testing.expectEqual(identity.m, rotationX(0).m);
+    try std.testing.expectEqual(identity.m, rotationY(0).m);
     try std.testing.expectEqual(identity.m, rotationZ(0).m);
 }
 
@@ -140,14 +125,4 @@ test "perspective's diagonal terms match the standard formula" {
     try std.testing.expectApproxEqAbs(expected_f / 1.5, p.m[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(expected_f, p.m[5], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), p.m[11], 1.0e-6);
-}
-
-test "lookAt produces an orthonormal basis" {
-    const view = lookAt(.{ 0, 0, 5 }, .{ 0, 0, 0 }, .{ 0, 1, 0 });
-    const right: [3]f32 = .{ view.m[0], view.m[1], view.m[2] };
-    const upv: [3]f32 = .{ view.m[4], view.m[5], view.m[6] };
-    const back: [3]f32 = .{ view.m[8], view.m[9], view.m[10] };
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), dot(right, upv), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), dot(right, back), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), dot(back, back), 1.0e-5);
 }
