@@ -94,13 +94,12 @@ pub fn renderPosition(self: ItemEntity, partial_ticks: f32) math.Vec3 {
 
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -115,7 +114,7 @@ test "spawn seeds an upward hop and a small random horizontal drift" {
 test "gravity accelerates a falling item" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var rand = world.JavaRandom.init(0);
     var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = 1, .count = 1 }, &rand);
     item.motion = math.Vec3.init(0, 0, 0);
@@ -147,7 +146,7 @@ test "canPickUp is false until the pickup delay elapses" {
     var rand = world.JavaRandom.init(0);
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = 1, .count = 1 }, &rand);
     try std.testing.expect(!item.canPickUp());
     for (0..10) |_| item.tick(&w);

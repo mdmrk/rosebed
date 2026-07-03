@@ -99,13 +99,12 @@ pub fn renderPosition(self: Pig, partial_ticks: f32) math.Vec3 {
 
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -143,12 +142,11 @@ test "walk distance only accumulates while moving on the ground" {
 test "hitting a wall cuts the current wander leg short" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         chunk.setBlockId(@intCast(x), 0, 0, world.block.stone);
     }
     chunk.setBlockId(9, 1, 0, world.block.stone);
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
 
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 1, 0));

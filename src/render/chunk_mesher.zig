@@ -140,9 +140,8 @@ test "a cross-shaped plant emits two crossing quads instead of a cube" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.tall_grass);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -154,10 +153,9 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
     chunk.setBlockId(1, 0, 0, world.block.tall_grass);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -169,10 +167,9 @@ test "a snow layer renders as a thin partial-height cube" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 1, 0, world.block.stone);
     chunk.setBlockId(0, 2, 0, world.block.snow_layer);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -188,9 +185,8 @@ test "a lone block emits all 6 faces" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -203,10 +199,9 @@ test "adjacent blocks cull their shared face" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try world_map.createChunk(0, 0);
     chunk.setBlockId(0, 0, 0, world.block.stone);
     chunk.setBlockId(1, 0, 0, world.block.stone);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, chunk);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -218,7 +213,7 @@ test "an all-air chunk produces an empty mesh" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try world_map.createChunk(0, 0);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);
@@ -230,12 +225,10 @@ test "a block at a chunk boundary culls its face against a loaded neighbor chunk
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
-    var a = world.Chunk.init(0, 0);
+    const a = try world_map.createChunk(0, 0);
     a.setBlockId(15, 0, 0, world.block.stone);
-    var b = world.Chunk.init(1, 0);
+    const b = try world_map.createChunk(1, 0);
     b.setBlockId(0, 0, 0, world.block.stone);
-    try world_map.chunks.put(gpa, .{ .x = 0, .z = 0 }, a);
-    try world_map.chunks.put(gpa, .{ .x = 1, .z = 0 }, b);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
     defer mesh.deinit(gpa);

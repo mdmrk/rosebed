@@ -251,13 +251,12 @@ test "renderPosition interpolates between the previous and current tick" {
 
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -277,7 +276,7 @@ test "resting on the ground stays grounded" {
 test "gravity accelerates a falling player" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var player: Player = .{ .position = math.Vec3.init(8, 50, 8) };
     player.tick(&w, 0, 0, false);
     try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.motion.y, 1.0e-9);

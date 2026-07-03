@@ -110,7 +110,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
 
 fn testWorldWithChunk() !World {
     var w = World.init(std.testing.allocator);
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
@@ -118,7 +118,6 @@ fn testWorldWithChunk() !World {
             }
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -167,7 +166,7 @@ test "a lava lake seals its shell with stone" {
 test "refuses to carve when surrounded by open air instead of solid ground" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
 
     var rand = JavaRandom.init(1);
     const made = generate(&w, &rand, 8, 64, 8, block.stationary_water);
@@ -177,8 +176,8 @@ test "refuses to carve when surrounded by open air instead of solid ground" {
 test "a lake spills across a chunk boundary into the neighbor chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var a = Chunk.init(0, 0);
-    var b = Chunk.init(1, 0);
+    const a = try w.createChunk(0, 0);
+    const b = try w.createChunk(1, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
@@ -187,8 +186,6 @@ test "a lake spills across a chunk boundary into the neighbor chunk" {
             }
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, a);
-    try w.chunks.put(std.testing.allocator, .{ .x = 1, .z = 0 }, b);
 
     var rand = JavaRandom.init(1);
     const made = generate(&w, &rand, 15, 64, 8, block.stationary_water);

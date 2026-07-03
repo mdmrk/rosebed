@@ -78,20 +78,19 @@ pub fn renderPosition(self: FallingBlock, partial_ticks: f32) math.Vec3 {
 
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
 test "gravity accelerates a falling block" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.block.sand);
     _ = block.tick(&w);
     try std.testing.expectApproxEqAbs(@as(f64, -0.04 * 0.98), block.motion.y, 1.0e-9);
@@ -108,7 +107,7 @@ test "landing on solid ground reports landed" {
 test "still falling after one tick in open air" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.block.sand);
     try std.testing.expectEqual(Outcome.falling, block.tick(&w));
 }
@@ -116,7 +115,7 @@ test "still falling after one tick in open air" {
 test "gives up after falling for more than 100 ticks without landing" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, world.Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
     var block = FallingBlock.spawn(math.Vec3.init(8, 1000, 8), world.block.sand);
     var outcome: Outcome = .falling;
     for (0..101) |_| outcome = block.tick(&w);

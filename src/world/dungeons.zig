@@ -60,7 +60,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
 
 fn testWorldWithChunk() !World {
     var w = World.init(std.testing.allocator);
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
@@ -68,7 +68,6 @@ fn testWorldWithChunk() !World {
             }
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -100,7 +99,7 @@ test "a dungeon carves a room and places a spawner in solid stone" {
 test "a dungeon refuses to carve into open air" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, Chunk.init(0, 0));
+    _ = try w.createChunk(0, 0);
 
     var rand = JavaRandom.init(1);
     const made = generate(&w, &rand, 8, 40, 8);
@@ -110,8 +109,8 @@ test "a dungeon refuses to carve into open air" {
 test "a dungeon spills across a chunk boundary into the neighbor chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var a = Chunk.init(0, 0);
-    var b = Chunk.init(1, 0);
+    const a = try w.createChunk(0, 0);
+    const b = try w.createChunk(1, 0);
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
@@ -120,8 +119,6 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
             }
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, a);
-    try w.chunks.put(std.testing.allocator, .{ .x = 1, .z = 0 }, b);
 
     w.setBlockId(19, 40, 8, block.air);
     w.setBlockId(19, 41, 8, block.air);

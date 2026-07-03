@@ -51,13 +51,12 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
 
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             chunk.setBlockId(@intCast(x), 5, @intCast(z), world.block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -81,9 +80,8 @@ test "looking away from anything solid finds nothing within range" {
 test "approaching a wall from the side hits its facing side face" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     chunk.setBlockId(10, 5, 8, world.block.stone);
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 10), hit.x);
     try std.testing.expectEqual(world.block.west, hit.face);
@@ -99,9 +97,8 @@ test "a target beyond max_distance is not hit" {
 test "a cross-shaped plant is still targetable despite having no collision" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     chunk.setBlockId(8, 5, 8, world.block.tall_grass);
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
 
     const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), hit.y);

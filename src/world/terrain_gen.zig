@@ -140,9 +140,9 @@ fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * de
     }
 }
 
-pub fn generateShape(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
-    var chunk = Chunk.init(chunk_x, chunk_z);
-
+pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
+    const chunk_x = chunk.x;
+    const chunk_z = chunk.z;
     const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
 
     var density: [density_x * density_y * density_z]f64 = undefined;
@@ -198,10 +198,8 @@ pub fn generateShape(self: TerrainGenerator, chunk_x: i32, chunk_z: i32) Chunk {
         }
     }
 
-    dressSurface(&chunk, &climate_sample);
-    caves.carve(&chunk, chunk_x, chunk_z, self.world_seed);
-
-    return chunk;
+    dressSurface(chunk, &climate_sample);
+    caves.carve(chunk, chunk_x, chunk_z, self.world_seed);
 }
 
 pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) void {
@@ -347,7 +345,9 @@ test "generated chunk has bedrock at the bottom and grass somewhere" {
     const gen = try TerrainGenerator.init(gpa, 12345);
     defer gen.deinit(gpa);
 
-    const chunk = gen.generateShape(0, 0);
+    var w = World.init(gpa);
+    defer w.deinit();
+    const chunk = try w.getOrGenerateChunk(gen, 0, 0);
 
     try std.testing.expectEqual(@as(u8, block.bedrock), chunk.getBlockId(8, 0, 8));
 
@@ -371,8 +371,12 @@ test "different seeds produce different terrain" {
     const gen_b = try TerrainGenerator.init(gpa, 2);
     defer gen_b.deinit(gpa);
 
-    const chunk_a = gen_a.generateShape(0, 0);
-    const chunk_b = gen_b.generateShape(0, 0);
+    var w_a = World.init(gpa);
+    defer w_a.deinit();
+    var w_b = World.init(gpa);
+    defer w_b.deinit();
+    const chunk_a = try w_a.getOrGenerateChunk(gen_a, 0, 0);
+    const chunk_b = try w_b.getOrGenerateChunk(gen_b, 0, 0);
 
     var any_different = false;
     for (0..16) |x| {
@@ -392,8 +396,12 @@ test "the same seed and chunk position are deterministic" {
     const gen = try TerrainGenerator.init(gpa, 777);
     defer gen.deinit(gpa);
 
-    const chunk_a = gen.generateShape(3, -2);
-    const chunk_b = gen.generateShape(3, -2);
+    var w_a = World.init(gpa);
+    defer w_a.deinit();
+    var w_b = World.init(gpa);
+    defer w_b.deinit();
+    const chunk_a = try w_a.getOrGenerateChunk(gen, 3, -2);
+    const chunk_b = try w_b.getOrGenerateChunk(gen, 3, -2);
 
     for (0..16) |x| {
         for (0..128) |y| {

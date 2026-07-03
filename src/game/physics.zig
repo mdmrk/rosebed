@@ -65,7 +65,7 @@ pub fn moveEntity(world_map: *const world.World, aabb: math.AABB, dx: f64, dy: f
 
 fn testWorldWithFloor(floor_top_y: u32) !world.World {
     var w = world.World.init(std.testing.allocator);
-    var chunk = world.Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 0;
@@ -74,7 +74,6 @@ fn testWorldWithFloor(floor_top_y: u32) !world.World {
             }
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 

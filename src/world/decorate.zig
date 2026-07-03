@@ -626,13 +626,12 @@ test "ore veins can replace stone underground" {
 
 fn testWorldWithFloor() !World {
     var w = World.init(std.testing.allocator);
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             chunk.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -660,10 +659,9 @@ test "a birch tree stores wood metadata 2 on its log and leaves" {
 test "a tree does not grow without clear space above" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     chunk.setBlockId(8, 0, 8, block.grass);
     chunk.setBlockId(8, 3, 8, block.stone);
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
 
     var rand = JavaRandom.init(1);
     const grew = generateTree(&w, &rand, 8, 1, 8);
@@ -696,10 +694,9 @@ test "a big tree grows a taller trunk with leaf clusters" {
 test "a big tree refuses to grow with an obstruction right above its base" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     chunk.setBlockId(8, 0, 8, block.grass);
     chunk.setBlockId(8, 3, 8, block.stone);
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
 
     var rand = JavaRandom.init(1);
     const grew = generateBigTree(&w, &rand, 8, 1, 8);
@@ -709,13 +706,12 @@ test "a big tree refuses to grow with an obstruction right above its base" {
 test "generateTrees places trees in a forest biome and none in desert" {
     var forest_w = World.init(std.testing.allocator);
     defer forest_w.deinit();
-    var forest_chunk = Chunk.init(0, 0);
+    const forest_chunk = try forest_w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             forest_chunk.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
         }
     }
-    try forest_w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, forest_chunk);
     var forest_rand = JavaRandom.init(1);
     generateTrees(&forest_w, 0, 0, &forest_rand, .forest);
 
@@ -731,13 +727,12 @@ test "generateTrees places trees in a forest biome and none in desert" {
 
     var desert_w = World.init(std.testing.allocator);
     defer desert_w.deinit();
-    var desert_chunk = Chunk.init(0, 0);
+    const desert_chunk = try desert_w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             desert_chunk.setBlockId(@intCast(x), 0, @intCast(z), block.sand);
         }
     }
-    try desert_w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, desert_chunk);
     var desert_rand = JavaRandom.init(1);
     generateTrees(&desert_w, 0, 0, &desert_rand, .desert);
 
@@ -755,16 +750,14 @@ test "generateTrees places trees in a forest biome and none in desert" {
 test "a tree whose rolled position spills into the neighbor chunk still grows there" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var a = Chunk.init(0, 0);
-    var b = Chunk.init(1, 0);
+    const a = try w.createChunk(0, 0);
+    const b = try w.createChunk(1, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             a.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
             b.setBlockId(@intCast(x), 0, @intCast(z), block.grass);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, a);
-    try w.chunks.put(std.testing.allocator, .{ .x = 1, .z = 0 }, b);
 
     var rand = JavaRandom.init(1);
     const grew = generateTree(&w, &rand, 20, 1, 8);
@@ -774,13 +767,12 @@ test "a tree whose rolled position spills into the neighbor chunk still grows th
 
 fn flatGrassWorld() !World {
     var w = World.init(std.testing.allocator);
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             chunk.setBlockId(@intCast(x), 10, @intCast(z), block.grass);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     return w;
 }
 
@@ -802,13 +794,12 @@ test "tall grass patches place blades on grass with air above" {
 test "dead bush only takes root on sand" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             chunk.setBlockId(@intCast(x), 10, @intCast(z), block.sand);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     var rand = JavaRandom.init(1);
     generateDeadBushPatch(&w, &rand, 8, 20, 8);
 
@@ -853,13 +844,12 @@ test "surface plants place dandelions in plains but not in the ocean" {
 test "mushrooms can stay on any opaque block, unlike flowers" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             chunk.setBlockId(@intCast(x), 10, @intCast(z), block.stone);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
     var rand = JavaRandom.init(1);
     generateFlowerPatch(&w, &rand, 8, 11, 8, block.mushroom_brown, block.isOpaque);
 
@@ -875,14 +865,13 @@ test "mushrooms can stay on any opaque block, unlike flowers" {
 test "reeds only take root on grass adjacent to water" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    var chunk = Chunk.init(0, 0);
+    const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             const id: u8 = if (x % 2 == 0) block.stationary_water else block.grass;
             chunk.setBlockId(@intCast(x), 10, @intCast(z), id);
         }
     }
-    try w.chunks.put(std.testing.allocator, .{ .x = 0, .z = 0 }, chunk);
 
     var rand = JavaRandom.init(1);
     generateReedPatch(&w, &rand, 8, 11, 8);
