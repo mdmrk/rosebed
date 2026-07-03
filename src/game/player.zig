@@ -13,6 +13,12 @@ pitch: f32 = 0,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),
 on_ground: bool = false,
 inventory: Inventory = .{},
+distance_walked: f32 = 0,
+prev_distance_walked: f32 = 0,
+camera_yaw: f32 = 0,
+prev_camera_yaw: f32 = 0,
+camera_pitch: f32 = 0,
+prev_camera_pitch: f32 = 0,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -30,6 +36,9 @@ const jump_velocity: f64 = 0.42;
 
 pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: f32, jump: bool) void {
     self.prev_position = self.position;
+    self.prev_distance_walked = self.distance_walked;
+    self.prev_camera_yaw = self.camera_yaw;
+    self.prev_camera_pitch = self.camera_pitch;
 
     if (self.on_ground and jump) {
         self.motion.y = jump_velocity;
@@ -40,6 +49,8 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
     self.motion.x += @as(f64, dir[0]) * speed;
     self.motion.z += @as(f64, dir[2]) * speed;
 
+    const before_x = self.position.x;
+    const before_z = self.position.z;
     const result = physics.moveEntity(world_map, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
 
     self.position = .{
@@ -47,6 +58,10 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
         .y = result.aabb.min_y,
         .z = (result.aabb.min_z + result.aabb.max_z) / 2.0,
     };
+
+    const moved_x = self.position.x - before_x;
+    const moved_z = self.position.z - before_z;
+    self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
 
     self.on_ground = self.motion.y != result.dy and self.motion.y < 0.0;
     if (self.motion.x != result.dx) self.motion.x = 0;
@@ -58,6 +73,14 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
     const friction: f64 = if (self.on_ground) ground_friction else air_friction;
     self.motion.x *= friction;
     self.motion.z *= friction;
+
+    var swing: f32 = @floatCast(@sqrt(self.motion.x * self.motion.x + self.motion.z * self.motion.z));
+    var dip: f32 = @floatCast(std.math.atan(-self.motion.y * 0.2) * 15.0);
+    if (swing > 0.1) swing = 0.1;
+    if (!self.on_ground) swing = 0.0;
+    if (self.on_ground) dip = 0.0;
+    self.camera_yaw += (swing - self.camera_yaw) * 0.4;
+    self.camera_pitch += (dip - self.camera_pitch) * 0.8;
 }
 
 pub fn boundingBox(self: Player) math.AABB {
@@ -131,6 +154,24 @@ pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const look = self.lookVector();
     const center = [3]f32{ eye[0] + look[0], eye[1] + look[1], eye[2] + look[2] };
     return math.Mat4.lookAt(eye, center, .{ 0, 1, 0 });
+}
+
+pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
+    const step = self.distance_walked - self.prev_distance_walked;
+    const walk = -(self.distance_walked + step * partial_ticks);
+    const swing = self.prev_camera_yaw + (self.camera_yaw - self.prev_camera_yaw) * partial_ticks;
+    const dip = self.prev_camera_pitch + (self.camera_pitch - self.prev_camera_pitch) * partial_ticks;
+
+    const phase = walk * std.math.pi;
+    const sway = math.util.sin(phase) * swing;
+    const lift = math.util.abs(math.util.cos(phase) * swing);
+    const tilt = math.util.abs(math.util.cos(phase - 0.2) * swing) * 5.0;
+
+    const degrees = std.math.pi / 180.0;
+    return math.Mat4.translation(sway * 0.5, -lift, 0)
+        .mul(math.Mat4.rotationZ(sway * 3.0 * degrees))
+        .mul(math.Mat4.rotationX(tilt * degrees))
+        .mul(math.Mat4.rotationX(dip * degrees));
 }
 
 test "boundingBox is centered on x/z and rests on the feet position" {
@@ -256,4 +297,43 @@ test "forward input on the ground moves the player each tick" {
     var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
     player.tick(&w, 0, 1, false);
     try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.position.z, 1.0e-9);
+}
+
+test "bobbing is the identity while standing still" {
+    const player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    const bob: [16]f32 = player.bobMatrix(0.5).m;
+    const want: [16]f32 = math.Mat4.identity.m;
+    for (bob, want) |got, expected| {
+        try std.testing.expectApproxEqAbs(expected, got, 1.0e-6);
+    }
+}
+
+test "bobbing sways to both sides and never lifts the camera" {
+    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    player.camera_yaw = 0.1;
+    player.prev_camera_yaw = 0.1;
+
+    var swayed_left = false;
+    var swayed_right = false;
+    var walked: f32 = 0;
+    while (walked < 4.0) : (walked += 0.05) {
+        player.prev_distance_walked = walked;
+        player.distance_walked = walked;
+        const bob: [16]f32 = player.bobMatrix(0).m;
+        if (bob[12] < -1.0e-4) swayed_left = true;
+        if (bob[12] > 1.0e-4) swayed_right = true;
+        try std.testing.expect(bob[13] <= 1.0e-6);
+    }
+
+    try std.testing.expect(swayed_left);
+    try std.testing.expect(swayed_right);
+}
+
+test "a long walk does not overflow MathHelper's sine table index" {
+    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    player.camera_yaw = 0.1;
+    player.prev_camera_yaw = 0.1;
+    player.distance_walked = 1.0e9;
+    player.prev_distance_walked = 1.0e9;
+    _ = player.bobMatrix(0.5);
 }

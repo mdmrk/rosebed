@@ -10,7 +10,7 @@ const sin_table: [65536]f32 = blk: {
 };
 
 fn tableIndex(x: f32) u16 {
-    const raw: i32 = @intFromFloat(x);
+    const raw: i32 = std.math.lossyCast(i32, x);
     return @truncate(@as(u32, @bitCast(raw)));
 }
 

@@ -817,7 +817,12 @@ fn renderWorld(app_state: *AppState) !void {
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
-    const view = app_state.player.viewMatrix(app_state.timer.render_partial_ticks);
+    const partial = app_state.timer.render_partial_ticks;
+    const camera = app_state.player.viewMatrix(partial);
+    const view = if (app_state.settings.view_bobbing)
+        app_state.player.bobMatrix(partial).mul(camera)
+    else
+        camera;
     const view_proj = proj.mul(view);
 
     app_state.shader.use();

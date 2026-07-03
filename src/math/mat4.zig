@@ -70,6 +70,28 @@ pub fn lookAt(eye: [3]f32, center: [3]f32, up: [3]f32) Mat4 {
     } };
 }
 
+pub fn rotationX(radians: f32) Mat4 {
+    const c = @cos(radians);
+    const s = @sin(radians);
+    return .{ .m = .{
+        1, 0,  0, 0,
+        0, c,  s, 0,
+        0, -s, c, 0,
+        0, 0,  0, 1,
+    } };
+}
+
+pub fn rotationZ(radians: f32) Mat4 {
+    const c = @cos(radians);
+    const s = @sin(radians);
+    return .{ .m = .{
+        c,  s, 0, 0,
+        -s, c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1,
+    } };
+}
+
 pub fn translation(x: f32, y: f32, z: f32) Mat4 {
     var m = identity;
     m.m[12] = x;
@@ -78,9 +100,37 @@ pub fn translation(x: f32, y: f32, z: f32) Mat4 {
     return m;
 }
 
+fn transform(m: Mat4, v: [4]f32) [4]f32 {
+    const cells: [16]f32 = m.m;
+    var out: [4]f32 = .{ 0, 0, 0, 0 };
+    inline for (0..4) |col| {
+        inline for (0..4) |row| out[row] += cells[col * 4 + row] * v[col];
+    }
+    return out;
+}
+
+test "rotationX turns +y toward +z" {
+    const r = transform(rotationX(std.math.pi / 2.0), .{ 0, 1, 0, 0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), r[2], 1.0e-6);
+}
+
+test "rotationZ turns +x toward +y" {
+    const r = transform(rotationZ(std.math.pi / 2.0), .{ 1, 0, 0, 0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), r[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), r[2], 1.0e-6);
+}
+
+test "a zero rotation is the identity" {
+    try std.testing.expectEqual(identity.m, rotationX(0).m);
+    try std.testing.expectEqual(identity.m, rotationZ(0).m);
+}
+
 test "identity composed with itself is still identity" {
     const r = identity.mul(identity);
-    try std.testing.expectEqualSlices(f32, &identity.m, &r.m);
+    try std.testing.expectEqual(identity.m, r.m);
 }
 
 test "perspective's diagonal terms match the standard formula" {
