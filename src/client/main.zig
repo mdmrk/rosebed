@@ -7,7 +7,8 @@ const gl = @import("gl");
 const math = @import("math");
 const render = @import("render");
 const sdl3 = @import("sdl3");
-const Timer = @import("core").Timer;
+const core = @import("core");
+const Timer = core.Timer;
 const world = @import("world");
 
 const fps = 60;
@@ -127,49 +128,10 @@ fn starterInventory() game.Inventory {
     return inv;
 }
 
-fn readProcFile(path: [*:0]const u8, buf: []u8) ?[]u8 {
-    const rc = std.os.linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return null;
-    const fd: i32 = @intCast(rc);
-    defer _ = std.os.linux.close(fd);
-    const n = std.os.linux.read(fd, buf.ptr, buf.len);
-    if (@as(isize, @bitCast(n)) < 0) return null;
-    return buf[0..n];
-}
-
-const ProcessMemory = struct { used: u64, allocated: u64, max: u64 };
-
-fn processMemory() ProcessMemory {
-    const page_size: u64 = 4096;
-    const empty: ProcessMemory = .{ .used = 0, .allocated = 0, .max = 1 };
-
-    var statm_buf: [256]u8 = undefined;
-    const statm = readProcFile("/proc/self/statm", &statm_buf) orelse return empty;
-    var fields = std.mem.tokenizeAny(u8, statm, " \n");
-    const size = std.fmt.parseInt(u64, fields.next() orelse return empty, 10) catch return empty;
-    const resident = std.fmt.parseInt(u64, fields.next() orelse return empty, 10) catch return empty;
-
-    var meminfo_buf: [256]u8 = undefined;
-    var max: u64 = 1;
-    if (readProcFile("/proc/meminfo", &meminfo_buf)) |meminfo| {
-        var lines = std.mem.tokenizeScalar(u8, meminfo, '\n');
-        while (lines.next()) |line| {
-            if (!std.mem.startsWith(u8, line, "MemTotal:")) continue;
-            var parts = std.mem.tokenizeAny(u8, line, " \t");
-            _ = parts.next();
-            max = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
-            max *= 1024;
-            break;
-        }
-    }
-
-    return .{ .used = resident * page_size, .allocated = size * page_size, .max = @max(max, 1) };
-}
-
 fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     const loaded: u32 = @intCast(app_state.chunks.loadedCount());
     const entities: u32 = @intCast(app_state.entities.count());
-    const memory = processMemory();
+    const memory = core.process_memory.sample();
     return .{
         .fps = app_state.debug_fps,
         .chunk_updates = app_state.debug_chunk_updates,
