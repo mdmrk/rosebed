@@ -6,30 +6,36 @@ const MeshBuilder = @import("mesh_builder.zig");
 
 const FaceDir = struct {
     side: u3,
+    shade: f32,
     normal: [3]i32,
     corners: [4][3]f32,
 };
 
 const faces = [6]FaceDir{
-    .{ .side = world.block.down, .normal = .{ 0, -1, 0 }, .corners = .{
+    .{ .side = world.block.down, .shade = 0.5, .normal = .{ 0, -1, 0 }, .corners = .{
         .{ 0, 0, 0 }, .{ 0, 0, 1 }, .{ 1, 0, 1 }, .{ 1, 0, 0 },
     } },
-    .{ .side = world.block.up, .normal = .{ 0, 1, 0 }, .corners = .{
+    .{ .side = world.block.up, .shade = 1.0, .normal = .{ 0, 1, 0 }, .corners = .{
         .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 1, 1 },
     } },
-    .{ .side = world.block.north, .normal = .{ 0, 0, -1 }, .corners = .{
+    .{ .side = world.block.north, .shade = 0.8, .normal = .{ 0, 0, -1 }, .corners = .{
         .{ 1, 0, 0 }, .{ 1, 1, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 0 },
     } },
-    .{ .side = world.block.south, .normal = .{ 0, 0, 1 }, .corners = .{
+    .{ .side = world.block.south, .shade = 0.8, .normal = .{ 0, 0, 1 }, .corners = .{
         .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 1, 1, 1 }, .{ 1, 0, 1 },
     } },
-    .{ .side = world.block.west, .normal = .{ -1, 0, 0 }, .corners = .{
+    .{ .side = world.block.west, .shade = 0.6, .normal = .{ -1, 0, 0 }, .corners = .{
         .{ 0, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 1 }, .{ 0, 0, 1 },
     } },
-    .{ .side = world.block.east, .normal = .{ 1, 0, 0 }, .corners = .{
+    .{ .side = world.block.east, .shade = 0.6, .normal = .{ 1, 0, 0 }, .corners = .{
         .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 1, 0, 0 },
     } },
 };
+
+fn shadeColor(shade: f32) [4]u8 {
+    const level: u8 = @intFromFloat(shade * 255.0);
+    return .{ level, level, level, 255 };
+}
 
 fn neighborIsOpaque(world_map: *const world.World, chunk: *const world.Chunk, x: i32, y: i32, z: i32) bool {
     const world_x = chunk.x * world.constants.chunk_width + x;
@@ -54,7 +60,7 @@ pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [
             .{ uv.u1, uv.v0 },
             .{ uv.u1, uv.v1 },
         };
-        try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+        try mesh.quad(gpa, positions, uvs, shadeColor(face.shade));
     }
 }
 
@@ -127,7 +133,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                         .{ uv.u1, uv.v1 },
                     };
 
-                    try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+                    try mesh.quad(gpa, positions, uvs, shadeColor(face.shade));
                 }
             }
         }
@@ -193,6 +199,39 @@ test "a lone block emits all 6 faces" {
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
     try std.testing.expectEqual(@as(usize, 6 * 6), mesh.indices.items.len);
+}
+
+test "each cube face carries its own directional shade" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(0, 0, 0, world.block.stone);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    const expected = [6]u8{ 127, 255, 204, 204, 153, 153 };
+    for (expected, 0..) |level, face| {
+        for (mesh.vertices.items[face * 4 ..][0..4]) |v| {
+            try std.testing.expectEqual([4]u8{ level, level, level, 255 }, v.color);
+        }
+    }
+}
+
+test "a cross-shaped plant is not directionally shaded" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(0, 0, 0, world.block.rose);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?);
+    defer mesh.deinit(gpa);
+
+    for (mesh.vertices.items) |v| {
+        try std.testing.expectEqual([4]u8{ 255, 255, 255, 255 }, v.color);
+    }
 }
 
 test "adjacent blocks cull their shared face" {
