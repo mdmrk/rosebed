@@ -12,6 +12,8 @@ pub const button = @import("button.zig");
 pub const menu = @import("menu.zig");
 pub const title_screen = @import("title_screen.zig");
 pub const options_screen = @import("options_screen.zig");
+pub const video_settings_screen = @import("video_settings_screen.zig");
+pub const debug_overlay = @import("debug_overlay.zig");
 
 test {
     _ = Atlas;
@@ -28,4 +30,6 @@ test {
     _ = menu;
     _ = title_screen;
     _ = options_screen;
+    _ = video_settings_screen;
+    _ = debug_overlay;
 }

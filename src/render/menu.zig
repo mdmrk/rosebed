@@ -8,8 +8,6 @@ const Shader = @import("shader.zig");
 const button = @import("button.zig");
 const hud = @import("hud.zig");
 
-const gui_texture_size: f32 = 256;
-const overlay_color: [4]u8 = .{ 16, 16, 16, 196 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
 pub const Action = enum { resume_game, options, quit_to_title };
@@ -29,8 +27,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     };
 }
 
-pub fn actionAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Action {
-    const res = hud.scaledResolution(screen_width, screen_height);
+pub fn actionAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (entries(res.width, res.height)) |entry| {
@@ -46,10 +43,8 @@ pub fn draw(
     font: Font,
     mouse_x: f32,
     mouse_y: f32,
-    screen_width: f32,
-    screen_height: f32,
+    res: hud.Scaled,
 ) !void {
-    const res = hud.scaledResolution(screen_width, screen_height);
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
@@ -62,8 +57,7 @@ pub fn draw(
     var text: MeshBuilder = .{};
     defer text.deinit(gpa);
 
-    const opaque_texel: Atlas.Uv = .{ .u0 = 2.5 / gui_texture_size, .v0 = 2.5 / gui_texture_size, .u1 = 2.5 / gui_texture_size, .v1 = 2.5 / gui_texture_size };
-    try hud.appendRectColor(&backgrounds, gpa, 0, 0, res.width, res.height, opaque_texel, overlay_color, res);
+    try hud.appendVeil(&backgrounds, gpa, res);
 
     for (entries(res.width, res.height)) |entry| {
         const hovered = button.contains(entry.button, gx, gy);
@@ -82,17 +76,17 @@ pub fn draw(
 }
 
 test "back to game resumes" {
-    try std.testing.expectEqual(@as(?Action, .resume_game), actionAt(320, 168, 640, 480));
+    try std.testing.expectEqual(@as(?Action, .resume_game), actionAt(320, 168, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "save and quit to title returns to the title screen" {
-    try std.testing.expectEqual(@as(?Action, .quit_to_title), actionAt(320, 360, 640, 480));
+    try std.testing.expectEqual(@as(?Action, .quit_to_title), actionAt(320, 360, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking a disabled button does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(200, 200, 640, 480));
+    try std.testing.expectEqual(@as(?Action, null), actionAt(200, 200, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking empty space does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(10, 10, 640, 480));
+    try std.testing.expectEqual(@as(?Action, null), actionAt(10, 10, hud.scaledResolution(640, 480, 1000)));
 }

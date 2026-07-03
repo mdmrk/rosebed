@@ -19,15 +19,15 @@ pub fn deinit(self: *MeshBuilder, gpa: std.mem.Allocator) void {
     self.indices.deinit(gpa);
 }
 
-pub fn quad(
+pub fn quadShaded(
     self: *MeshBuilder,
     gpa: std.mem.Allocator,
     positions: [4][3]f32,
     uvs: [4][2]f32,
-    color: [4]u8,
+    colors: [4][4]u8,
 ) !void {
     const base: u32 = @intCast(self.vertices.items.len);
-    for (positions, uvs) |p, uv| {
+    for (positions, uvs, colors) |p, uv, color| {
         try self.vertices.append(gpa, .{
             .x = p[0],
             .y = p[1],
@@ -41,6 +41,16 @@ pub fn quad(
         base, base + 1, base + 2,
         base, base + 2, base + 3,
     });
+}
+
+pub fn quad(
+    self: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    positions: [4][3]f32,
+    uvs: [4][2]f32,
+    color: [4]u8,
+) !void {
+    try self.quadShaded(gpa, positions, uvs, .{ color, color, color, color });
 }
 
 test "quad appends 4 vertices and 2 triangles" {

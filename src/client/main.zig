@@ -131,6 +131,13 @@ const AppState = struct {
     inventory_open: bool = false,
     paused: bool = false,
     options_open: bool = false,
+    video_open: bool = false,
+    show_debug: bool = false,
+    frames_this_second: u32 = 0,
+    chunk_updates_this_second: u32 = 0,
+    debug_fps: u32 = 0,
+    debug_chunk_updates: u32 = 0,
+    debug_latched_ms: u64 = 0,
     options_parent: OptionsParent = .title,
     dragging_slider: ?render.options_screen.Slider = null,
     settings: game.Settings = .{},
@@ -157,6 +164,68 @@ fn starterInventory() game.Inventory {
     inv.slots[4] = .{ .id = world.block.gravel, .count = 64 };
     inv.slots[5] = .{ .id = world.block.log, .count = 64 };
     return inv;
+}
+
+fn readProcFile(path: [*:0]const u8, buf: []u8) ?[]u8 {
+    const rc = std.os.linux.open(path, .{ .ACCMODE = .RDONLY }, 0);
+    if (@as(isize, @bitCast(rc)) < 0) return null;
+    const fd: i32 = @intCast(rc);
+    defer _ = std.os.linux.close(fd);
+    const n = std.os.linux.read(fd, buf.ptr, buf.len);
+    if (@as(isize, @bitCast(n)) < 0) return null;
+    return buf[0..n];
+}
+
+const ProcessMemory = struct { used: u64, allocated: u64, max: u64 };
+
+fn processMemory() ProcessMemory {
+    const page_size: u64 = 4096;
+    const empty: ProcessMemory = .{ .used = 0, .allocated = 0, .max = 1 };
+
+    var statm_buf: [256]u8 = undefined;
+    const statm = readProcFile("/proc/self/statm", &statm_buf) orelse return empty;
+    var fields = std.mem.tokenizeAny(u8, statm, " \n");
+    const size = std.fmt.parseInt(u64, fields.next() orelse return empty, 10) catch return empty;
+    const resident = std.fmt.parseInt(u64, fields.next() orelse return empty, 10) catch return empty;
+
+    var meminfo_buf: [256]u8 = undefined;
+    var max: u64 = 1;
+    if (readProcFile("/proc/meminfo", &meminfo_buf)) |meminfo| {
+        var lines = std.mem.tokenizeScalar(u8, meminfo, '\n');
+        while (lines.next()) |line| {
+            if (!std.mem.startsWith(u8, line, "MemTotal:")) continue;
+            var parts = std.mem.tokenizeAny(u8, line, " \t");
+            _ = parts.next();
+            max = std.fmt.parseInt(u64, parts.next() orelse "0", 10) catch 0;
+            max *= 1024;
+            break;
+        }
+    }
+
+    return .{ .used = resident * page_size, .allocated = size * page_size, .max = @max(max, 1) };
+}
+
+fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
+    const loaded: u32 = @intCast(app_state.chunk_meshes.count());
+    const entities: u32 = @intCast(app_state.pigs.items.len + app_state.item_entities.items.len + app_state.falling_blocks.items.len);
+    const memory = processMemory();
+    return .{
+        .fps = app_state.debug_fps,
+        .chunk_updates = app_state.debug_chunk_updates,
+        .renderers_rendered = loaded,
+        .renderers_loaded = loaded,
+        .entities_rendered = entities,
+        .entities_total = entities,
+        .particles = 0,
+        .chunk_cache = @intCast(app_state.world_map.chunks.count()),
+        .x = app_state.player.position.x,
+        .y = app_state.player.position.y,
+        .z = app_state.player.position.z,
+        .yaw = app_state.player.yaw,
+        .used_memory = memory.used,
+        .allocated_memory = memory.allocated,
+        .max_memory = memory.max,
+    };
 }
 
 fn buildChunkMesh(world_map: *const world.World, chunk_x: i32, chunk_z: i32) !render.GpuMesh {
@@ -187,6 +256,7 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
             try app_state.world_map.ensureDecorated(app_state.generator, cx, cz);
             const mesh = try buildChunkMesh(&app_state.world_map, cx, cz);
             try app_state.chunk_meshes.put(std.heap.page_allocator, coord, mesh);
+            app_state.chunk_updates_this_second += 1;
         }
     }
 }
@@ -497,7 +567,7 @@ fn resultSlotClick(app_state: *AppState) void {
 
 fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
     const gui = guiSize(app_state);
-    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse {
+    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, gui) orelse {
         try dropHeldStack(app_state, click_type);
         return;
     };
@@ -564,6 +634,7 @@ fn openOptions(app_state: *AppState, parent: OptionsParent) !void {
 
 fn closeOptions(app_state: *AppState) !void {
     app_state.options_open = false;
+    app_state.video_open = false;
     app_state.dragging_slider = null;
     try updateMouseMode(app_state);
 }
@@ -578,7 +649,7 @@ fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f
 
 fn pauseMenuClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse return;
+    const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     switch (action) {
         .resume_game => try togglePause(app_state),
         .options => try openOptions(app_state, .pause),
@@ -588,15 +659,26 @@ fn pauseMenuClick(app_state: *AppState) !void {
 
 fn optionsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const hit = render.options_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h) orelse return;
+    const hit = render.options_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     switch (hit) {
         .slider => |s| {
             app_state.dragging_slider = s;
-            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui.w, gui.h));
+            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui));
         },
         .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
         .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
+        .video => app_state.video_open = true,
         .done => try closeOptions(app_state),
+    }
+}
+
+fn videoClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.video_settings_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    if (hit == .done) {
+        app_state.video_open = false;
+    } else {
+        render.video_settings_screen.cycle(&app_state.settings, hit);
     }
 }
 
@@ -722,9 +804,13 @@ fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } 
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
 }
 
-fn guiSize(app_state: *const AppState) struct { w: f32, h: f32 } {
+fn guiSize(app_state: *const AppState) render.hud.Scaled {
     const px = drawableSize(app_state);
-    return .{ .w = @floatFromInt(px.w), .h = @floatFromInt(px.h) };
+    return render.hud.scaledResolution(
+        @floatFromInt(px.w),
+        @floatFromInt(px.h),
+        app_state.settings.gui_scale.limit(),
+    );
 }
 
 fn renderWorld(app_state: *AppState) !void {
@@ -780,6 +866,16 @@ pub fn iterate(
     const dt = app_state.fps_capper.delay();
     _ = dt;
 
+    app_state.frames_this_second += 1;
+    const now_ms = sdl3.timer.getMillisecondsSinceInit();
+    if (now_ms -% app_state.debug_latched_ms >= 1000) {
+        app_state.debug_fps = app_state.frames_this_second;
+        app_state.debug_chunk_updates = app_state.chunk_updates_this_second;
+        app_state.frames_this_second = 0;
+        app_state.chunk_updates_this_second = 0;
+        app_state.debug_latched_ms = now_ms;
+    }
+
     app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
     if (app_state.screen == .playing and !app_state.paused) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
@@ -793,7 +889,30 @@ pub fn iterate(
 
     if (app_state.screen == .playing) try renderWorld(app_state);
 
-    if (app_state.options_open) {
+    if (app_state.screen == .playing and app_state.show_debug) {
+        try render.debug_overlay.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.font,
+            debugStats(app_state),
+            gui,
+        );
+    }
+
+    if (app_state.video_open) {
+        try render.video_settings_screen.draw(
+            std.heap.page_allocator,
+            app_state.shader,
+            app_state.dirt_texture,
+            app_state.gui_texture,
+            app_state.font,
+            app_state.settings,
+            if (app_state.options_parent == .pause) .veil else .dirt,
+            app_state.mouse_x,
+            app_state.mouse_y,
+            gui,
+        );
+    } else if (app_state.options_open) {
         try render.options_screen.draw(
             std.heap.page_allocator,
             app_state.shader,
@@ -804,8 +923,7 @@ pub fn iterate(
             if (app_state.options_parent == .pause) .veil else .dirt,
             app_state.mouse_x,
             app_state.mouse_y,
-            gui.w,
-            gui.h,
+            gui,
         );
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(
@@ -819,8 +937,7 @@ pub fn iterate(
             sdl3.timer.getMillisecondsSinceInit(),
             app_state.mouse_x,
             app_state.mouse_y,
-            gui.w,
-            gui.h,
+            gui,
         );
     } else if (app_state.paused) {
         try render.menu.draw(
@@ -830,8 +947,7 @@ pub fn iterate(
             app_state.font,
             app_state.mouse_x,
             app_state.mouse_y,
-            gui.w,
-            gui.h,
+            gui,
         );
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
@@ -851,8 +967,7 @@ pub fn iterate(
             app_state.held_stack,
             app_state.mouse_x,
             app_state.mouse_y,
-            gui.w,
-            gui.h,
+            gui,
         );
     } else {
         try render.hud.draw(
@@ -864,8 +979,7 @@ pub fn iterate(
             app_state.items_texture,
             app_state.font,
             app_state.player.inventory,
-            gui.w,
-            gui.h,
+            gui,
         );
     }
 
@@ -908,7 +1022,9 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| if (app_state.options_open) {
+        .key_down => |k| if (app_state.video_open) {
+            if (k.key == .escape) app_state.video_open = false;
+        } else if (app_state.options_open) {
             if (k.key == .escape) try closeOptions(app_state);
         } else if (app_state.screen == .playing) {
             if (k.key == .escape) {
@@ -917,6 +1033,8 @@ pub fn event(
                 } else {
                     try togglePause(app_state);
                 }
+            } else if (k.key == .func3) {
+                app_state.show_debug = !app_state.show_debug;
             } else if (k.key == .e and !app_state.paused) {
                 try toggleInventory(app_state);
             } else {
@@ -930,7 +1048,7 @@ pub fn event(
             app_state.mouse_y = m.y;
             if (app_state.dragging_slider) |s| {
                 const gui = guiSize(app_state);
-                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui.w, gui.h));
+                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui));
             } else if (worldFocused(app_state)) {
                 app_state.player.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
             }
@@ -939,11 +1057,13 @@ pub fn event(
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         },
         .mouse_button_down => |m| switch (m.button) {
-            .left => if (app_state.options_open) {
+            .left => if (app_state.video_open) {
+                try videoClick(app_state);
+            } else if (app_state.options_open) {
                 try optionsClick(app_state);
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
-                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui.w, gui.h)) |action| switch (action) {
+                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
                     .singleplayer => try enterWorld(app_state),
                     .options => try openOptions(app_state, .title),
                     .quit => return .success,
@@ -955,7 +1075,7 @@ pub fn event(
             } else {
                 app_state.mouse_left_down = true;
             },
-            .right => if (app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
+            .right => if (app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);

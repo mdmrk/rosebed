@@ -39,8 +39,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     };
 }
 
-pub fn actionAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Action {
-    const res = hud.scaledResolution(screen_width, screen_height);
+pub fn actionAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (entries(res.width, res.height)) |entry| {
@@ -60,10 +59,8 @@ pub fn draw(
     time_ms: u64,
     mouse_x: f32,
     mouse_y: f32,
-    screen_width: f32,
-    screen_height: f32,
+    res: hud.Scaled,
 ) !void {
-    const res = hud.scaledResolution(screen_width, screen_height);
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
@@ -119,13 +116,13 @@ pub fn draw(
 }
 
 test "singleplayer is clickable and enters the world" {
-    try std.testing.expectEqual(@as(?Action, .singleplayer), actionAt(320, 240, 640, 480));
+    try std.testing.expectEqual(@as(?Action, .singleplayer), actionAt(320, 240, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "quit game is clickable" {
-    try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, 640, 480));
+    try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "multiplayer is disabled offline" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 288, 640, 480));
+    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 288, hud.scaledResolution(640, 480, 1000)));
 }

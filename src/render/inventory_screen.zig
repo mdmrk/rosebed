@@ -14,6 +14,10 @@ pub const height: f32 = 166;
 const slot_pitch: f32 = 18;
 const texture_size: f32 = 256;
 
+const label_color: [4]u8 = .{ 64, 64, 64, 255 };
+const label_x: f32 = 86;
+const label_y: f32 = 16;
+
 const preview_anchor_x: f32 = 51;
 const preview_anchor_y: f32 = 75;
 const preview_pitch_anchor_y: f32 = 50;
@@ -108,8 +112,7 @@ pub fn origin(res: hud.Scaled) [2]f32 {
 }
 
 /// Returns the inventory slot under the given window-pixel mouse position, if any.
-pub fn slotAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Slot {
-    const res = hud.scaledResolution(screen_width, screen_height);
+pub fn slotAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Slot {
     const org = origin(res);
     const gx = mouse_x / res.factor - org[0];
     const gy = mouse_y / res.factor - org[1];
@@ -138,10 +141,8 @@ pub fn draw(
     held: ?game.Inventory.ItemStack,
     mouse_x: f32,
     mouse_y: f32,
-    screen_width: f32,
-    screen_height: f32,
+    res: hud.Scaled,
 ) !void {
-    const res = hud.scaledResolution(screen_width, screen_height);
     const org = origin(res);
 
     gl.Disable(gl.DEPTH_TEST);
@@ -195,6 +196,8 @@ pub fn draw(
         const hy = mouse_y / res.factor - hud.icon_size / 2.0;
         try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, hx, hy, res);
     }
+
+    try hud.appendTextNoShadow(&text, gpa, font, "Crafting", org[0] + label_x, org[1] + label_y, label_color, res);
 
     try hud.drawTexturedMesh(&block_icons, icon_shader, atlas);
     try hud.drawTexturedMesh(&item_icons, icon_shader, items_texture);

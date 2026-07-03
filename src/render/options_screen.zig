@@ -11,14 +11,13 @@ const hud = @import("hud.zig");
 
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;
-const overlay_color: [4]u8 = .{ 16, 16, 16, 196 };
 const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
 pub const Backdrop = enum { dirt, veil };
 pub const Slider = enum { music, sound, sensitivity };
-pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, done };
+pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, done };
 
 const Kind = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, controls, done };
 const Control = struct { x: f32, y: f32, w: f32, kind: Kind, enabled: bool };
@@ -34,7 +33,7 @@ fn controls(scaled_width: f32, scaled_height: f32) [8]Control {
         .{ .x = left, .y = sixth + 24, .w = opt_width, .kind = .toggle_invert, .enabled = true },
         .{ .x = right, .y = sixth + 24, .w = opt_width, .kind = .{ .slider = .sensitivity }, .enabled = true },
         .{ .x = left, .y = sixth + 48, .w = opt_width, .kind = .cycle_difficulty, .enabled = true },
-        .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .kind = .video, .enabled = false },
+        .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .kind = .video, .enabled = true },
         .{ .x = cx - 100, .y = sixth + 120 + 12, .w = 200, .kind = .controls, .enabled = false },
         .{ .x = cx - 100, .y = sixth + 168, .w = 200, .kind = .done, .enabled = true },
     };
@@ -45,13 +44,13 @@ fn kindHit(kind: Kind) ?Hit {
         .slider => |s| .{ .slider = s },
         .toggle_invert => .toggle_invert,
         .cycle_difficulty => .cycle_difficulty,
+        .video => .video,
         .done => .done,
-        .video, .controls => null,
+        .controls => null,
     };
 }
 
-pub fn hitAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Hit {
-    const res = hud.scaledResolution(screen_width, screen_height);
+pub fn hitAt(mouse_x: f32, mouse_y: f32, res: hud.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (controls(res.width, res.height)) |control| {
@@ -72,8 +71,7 @@ fn sliderX(which: Slider, scaled_width: f32) f32 {
     };
 }
 
-pub fn sliderValueAt(which: Slider, mouse_x: f32, screen_width: f32, screen_height: f32) f32 {
-    const res = hud.scaledResolution(screen_width, screen_height);
+pub fn sliderValueAt(which: Slider, mouse_x: f32, res: hud.Scaled) f32 {
     const gx = mouse_x / res.factor;
     const x = sliderX(which, res.width);
     const value = (gx - (x + 4.0)) / (opt_width - 8.0);
@@ -134,10 +132,8 @@ pub fn draw(
     backdrop: Backdrop,
     mouse_x: f32,
     mouse_y: f32,
-    screen_width: f32,
-    screen_height: f32,
+    res: hud.Scaled,
 ) !void {
-    const res = hud.scaledResolution(screen_width, screen_height);
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
@@ -154,8 +150,7 @@ pub fn draw(
             try hud.drawTexturedMesh(&back, icon_shader, dirt_texture);
         },
         .veil => {
-            const opaque_texel: Atlas.Uv = .{ .u0 = 2.5 / gui_texture_size, .v0 = 2.5 / gui_texture_size, .u1 = 2.5 / gui_texture_size, .v1 = 2.5 / gui_texture_size };
-            try hud.appendRectColor(&back, gpa, 0, 0, res.width, res.height, opaque_texel, overlay_color, res);
+            try hud.appendVeil(&back, gpa, res);
             try hud.drawTexturedMesh(&back, icon_shader, gui_texture);
         },
     }
@@ -194,22 +189,24 @@ pub fn draw(
 }
 
 test "clicking Done returns the done hit" {
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, 640, 480));
+    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking the difficulty toggle returns cycle_difficulty" {
-    try std.testing.expectEqual(@as(?Hit, .cycle_difficulty), hitAt(80, 176, 640, 480));
+    try std.testing.expectEqual(@as(?Hit, .cycle_difficulty), hitAt(80, 176, hud.scaledResolution(640, 480, 1000)));
 }
 
 test "clicking a slider returns its id" {
-    try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, 640, 480));
+    try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, hud.scaledResolution(640, 480, 1000)));
 }
 
-test "disabled video/controls buttons are not hit" {
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(320, 296, 640, 480));
+test "video settings opens, controls is still disabled" {
+    const res = hud.scaledResolution(640, 480, 1000);
+    try std.testing.expectEqual(@as(?Hit, .video), hitAt(320, 296, res));
+    try std.testing.expectEqual(@as(?Hit, null), hitAt(320, 344, res));
 }
 
 test "slider value maps click x to 0..1 clamped" {
-    try std.testing.expectEqual(@as(f32, 0.0), sliderValueAt(.music, 0, 640, 480));
-    try std.testing.expect(sliderValueAt(.music, 100000, 640, 480) == 1.0);
+    try std.testing.expectEqual(@as(f32, 0.0), sliderValueAt(.music, 0, hud.scaledResolution(640, 480, 1000)));
+    try std.testing.expect(sliderValueAt(.music, 100000, hud.scaledResolution(640, 480, 1000)) == 1.0);
 }

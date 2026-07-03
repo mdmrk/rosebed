@@ -24,9 +24,9 @@ pub const Scaled = struct {
     height: f32,
 };
 
-pub fn scaledResolution(pixel_width: f32, pixel_height: f32) Scaled {
+pub fn scaledResolution(pixel_width: f32, pixel_height: f32, scale_limit: f32) Scaled {
     var factor: f32 = 1;
-    while (factor < 1000 and
+    while (factor < scale_limit and
         @floor(pixel_width / (factor + 1)) >= 320 and
         @floor(pixel_height / (factor + 1)) >= 240) : (factor += 1)
     {}
@@ -72,6 +72,24 @@ pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w:
     try appendRectColor(mesh, gpa, x, y, w, h, uv, .{ 255, 255, 255, 255 }, res);
 }
 
+pub fn appendGradientRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, top: [4]u8, bottom: [4]u8, res: Scaled) !void {
+    const tl = toNdc(x, y, res);
+    const tr = toNdc(x + w, y, res);
+    const br = toNdc(x + w, y + h, res);
+    const bl = toNdc(x, y + h, res);
+    try mesh.quadShaded(gpa, .{
+        .{ tl[0], tl[1], 0 }, .{ tr[0], tr[1], 0 }, .{ br[0], br[1], 0 }, .{ bl[0], bl[1], 0 },
+    }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, .{ top, top, bottom, bottom });
+}
+
+pub const veil_top: [4]u8 = .{ 16, 16, 16, 192 };
+pub const veil_bottom: [4]u8 = .{ 16, 16, 16, 208 };
+pub const opaque_texel: Atlas.Uv = .{ .u0 = 2.5 / gui_texture_size, .v0 = 2.5 / gui_texture_size, .u1 = 2.5 / gui_texture_size, .v1 = 2.5 / gui_texture_size };
+
+pub fn appendVeil(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled) !void {
+    try appendGradientRect(mesh, gpa, 0, 0, res.width, res.height, opaque_texel, veil_top, veil_bottom, res);
+}
+
 pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }
@@ -104,6 +122,10 @@ test "shadowColor matches renderString's (rgb & 0xFCFCFC) >> 2" {
         try std.testing.expectEqual(case.want, got[0..3].*);
         try std.testing.expectEqual(@as(u8, 255), got[3]);
     }
+}
+
+pub fn appendTextNoShadow(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
+    try appendGlyphs(mesh, gpa, font, text, x, y, color, res);
 }
 
 fn appendGlyphs(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
@@ -312,11 +334,8 @@ pub fn draw(
     items_texture: Atlas,
     font: Font,
     inventory: game.Inventory,
-    screen_width: f32,
-    screen_height: f32,
+    res: Scaled,
 ) !void {
-    const res = scaledResolution(screen_width, screen_height);
-
     const hotbar_x = @floor(res.width / 2.0) - hotbar_width / 2.0;
     const hotbar_y = res.height - hotbar_height;
 
