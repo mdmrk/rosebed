@@ -27,10 +27,7 @@ const preview_pixels_per_meter: f32 = 30;
 fn appendPlayerPreview(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    parts: []const MobModel.Part,
-    head_index: usize,
-    tex_width: f32,
-    tex_height: f32,
+    model: MobModel.Model,
     anchor_x: f32,
     anchor_y: f32,
     dx: f32,
@@ -42,14 +39,14 @@ fn appendPlayerPreview(
     const pitch = -std.math.atan(dy / preview_tracking_divisor) * (20.0 * std.math.pi / 180.0);
 
     const start = mesh.vertices.items.len;
-    for (parts, 0..) |part, i| {
+    for (model.parts, 0..) |part, i| {
         var p = part;
         var yaw = body_yaw;
-        if (i == head_index) {
+        if (i == model.head_index) {
             yaw = head_yaw;
             p.rotate_x = pitch;
         }
-        try MobModel.appendPart(mesh, gpa, p, tex_width, tex_height, .{ 0, 0, 0 }, yaw);
+        try MobModel.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, .{ 0, 0, 0 }, yaw);
     }
 
     for (mesh.vertices.items[start..]) |*v| {
@@ -132,10 +129,7 @@ pub fn draw(
     items_texture: Atlas,
     font: Font,
     player_texture: Atlas,
-    player_parts: []const MobModel.Part,
-    player_head_index: usize,
-    player_tex_width: f32,
-    player_tex_height: f32,
+    player_model: MobModel.Model,
     inventory: game.Inventory,
     crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack,
     held: ?game.Inventory.ItemStack,
@@ -162,10 +156,7 @@ pub fn draw(
     try appendPlayerPreview(
         &preview,
         gpa,
-        player_parts,
-        player_head_index,
-        player_tex_width,
-        player_tex_height,
+        player_model,
         preview_anchor[0],
         preview_anchor[1],
         preview_dx,

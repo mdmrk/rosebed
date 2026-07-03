@@ -33,10 +33,6 @@ const world_seed = 1;
 const reach_distance = 4.5;
 const view_radius = 1;
 const spawn_position = math.Vec3.init(8, 90, 8);
-const pig_texture_width = 64;
-const pig_texture_height = 32;
-const char_texture_width = 64;
-const char_texture_height = 32;
 
 const splashes: []const []const u8 = blk: {
     @setEvalBranchQuota(100_000);
@@ -61,25 +57,6 @@ fn pickSplash(rand: *world.JavaRandom) []const u8 {
     return chosen;
 }
 
-const pig_parts = [6]render.mob_model.Part{
-    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, 12, -6 } },
-    .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, 11, 2 }, .rotate_x = std.math.pi * 0.5 },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, -5 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, -5 } },
-};
-
-const biped_head_index = 5;
-const biped_parts = [6]render.mob_model.Part{
-    .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 2, -12, 0 } },
-    .{ .box = .{ .origin = .{ -3, -2, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 40, .tex_v = 16 }, .pivot = .{ -5, -22, 0 } },
-    .{ .box = .{ .origin = .{ -1, -2, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 40, .tex_v = 16 }, .pivot = .{ 5, -22, 0 } },
-    .{ .box = .{ .origin = .{ -4, -8, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },
-};
-
 comptime {
     _ = sdl3.main_callbacks;
 }
@@ -88,8 +65,6 @@ pub const WinMainCRTStartup = void;
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 var frame_arena: std.heap.ArenaAllocator = undefined;
-
-const ChunkMeshMap = std.AutoHashMapUnmanaged(world.World.ChunkCoord, render.GpuMesh);
 
 const AppState = struct {
     gpa: std.mem.Allocator,
@@ -111,7 +86,7 @@ const AppState = struct {
     shader: render.Shader,
     generator: world.TerrainGenerator,
     world_map: world.World,
-    chunk_meshes: ChunkMeshMap,
+    chunks: render.ChunkRenderer = .{},
     entities: game.Entities = .{},
     timer: Timer,
     tick_count: u64 = 0,
@@ -210,7 +185,7 @@ fn processMemory() ProcessMemory {
 }
 
 fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
-    const loaded: u32 = @intCast(app_state.chunk_meshes.count());
+    const loaded: u32 = @intCast(app_state.chunks.loadedCount());
     const entities: u32 = @intCast(app_state.entities.count());
     const memory = processMemory();
     return .{
@@ -232,13 +207,6 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     };
 }
 
-fn buildChunkMesh(gpa: std.mem.Allocator, world_map: *const world.World, chunk_x: i32, chunk_z: i32) !render.GpuMesh {
-    const chunk = world_map.getChunk(chunk_x, chunk_z).?;
-    var mesh = try render.chunk_mesher.build(gpa, world_map, chunk);
-    defer mesh.deinit(gpa);
-    return render.GpuMesh.upload(&mesh);
-}
-
 fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
     const x: i32 = @intFromFloat(@floor(app_state.player.base.position.x));
     const z: i32 = @intFromFloat(@floor(app_state.player.base.position.z));
@@ -255,12 +223,9 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     while (cx <= center.x + view_radius) : (cx += 1) {
         var cz = center.z - view_radius;
         while (cz <= center.z + view_radius) : (cz += 1) {
-            const coord = world.World.ChunkCoord{ .x = cx, .z = cz };
-            if (app_state.chunk_meshes.contains(coord)) continue;
+            if (app_state.chunks.hasMesh(cx, cz)) continue;
             try app_state.world_map.ensureDecorated(app_state.generator, cx, cz);
-            const mesh = try buildChunkMesh(app_state.gpa, &app_state.world_map, cx, cz);
-            try app_state.chunk_meshes.put(app_state.gpa, coord, mesh);
-            app_state.chunk_updates_this_second += 1;
+            try app_state.chunks.markDirty(app_state.gpa, cx, cz);
         }
     }
 }
@@ -315,7 +280,6 @@ pub fn init(
         .shader = undefined,
         .generator = undefined,
         .world_map = world.World.init(gpa),
-        .chunk_meshes = .{},
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
@@ -365,27 +329,6 @@ pub fn init(
     return .{ app_state, .run };
 }
 
-fn rebuildChunkMesh(app_state: *AppState, chunk_x: i32, chunk_z: i32) !void {
-    if (app_state.world_map.getChunk(chunk_x, chunk_z) == null) return;
-    const mesh = try buildChunkMesh(app_state.gpa, &app_state.world_map, chunk_x, chunk_z);
-    const coord = world.World.ChunkCoord{ .x = chunk_x, .z = chunk_z };
-    if (app_state.chunk_meshes.getPtr(coord)) |old| old.deinit();
-    try app_state.chunk_meshes.put(app_state.gpa, coord, mesh);
-}
-
-fn rebuildMeshesAround(app_state: *AppState, x: i32, z: i32) !void {
-    const chunk_x = @divFloor(x, world.constants.chunk_width);
-    const chunk_z = @divFloor(z, world.constants.chunk_width);
-    const local_x = @mod(x, world.constants.chunk_width);
-    const local_z = @mod(z, world.constants.chunk_width);
-
-    try rebuildChunkMesh(app_state, chunk_x, chunk_z);
-    if (local_x == 0) try rebuildChunkMesh(app_state, chunk_x - 1, chunk_z);
-    if (local_x == world.constants.chunk_width - 1) try rebuildChunkMesh(app_state, chunk_x + 1, chunk_z);
-    if (local_z == 0) try rebuildChunkMesh(app_state, chunk_x, chunk_z - 1);
-    if (local_z == world.constants.chunk_width - 1) try rebuildChunkMesh(app_state, chunk_x, chunk_z + 1);
-}
-
 fn faceOffset(face: u3) [3]i32 {
     return switch (face) {
         world.block.down => .{ 0, -1, 0 },
@@ -417,14 +360,14 @@ fn digStep(app_state: *AppState) !void {
     const ticks_required = world.block.digTicksRequired(block_id) orelse return;
     if (ticks_required <= 0.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try rebuildMeshesAround(app_state, hit.x, hit.z);
+        try app_state.chunks.markBlockDirty(app_state.gpa, hit.x, hit.z);
         return;
     }
 
     app_state.digging.?.progress += 1.0 / ticks_required;
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try rebuildMeshesAround(app_state, hit.x, hit.z);
+        try app_state.chunks.markBlockDirty(app_state.gpa, hit.x, hit.z);
     }
 }
 
@@ -438,7 +381,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (!world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z))) return;
 
     app_state.world_map.setBlockId(x, y, z, world.block.air);
-    try rebuildMeshesAround(app_state, x, z);
+    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
 
     try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
@@ -471,7 +414,7 @@ fn tickFallingBlocks(app_state: *AppState) !void {
         const support_solid = !world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z));
         if (outcome == .landed and landing_empty and support_solid) {
             app_state.world_map.setBlockId(x, y, z, block.block_id);
-            try rebuildMeshesAround(app_state, x, z);
+            try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
         } else {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = block.block_id, .count = 1 });
         }
@@ -673,7 +616,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     app_state.world_map.setBlockId(px, py, pz, @intCast(stack.id));
     app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
     consumeSelectedStack(app_state);
-    try rebuildMeshesAround(app_state, px, pz);
+    try app_state.chunks.markBlockDirty(app_state.gpa, px, pz);
     try checkFall(app_state, px, py, pz);
 }
 
@@ -691,84 +634,6 @@ fn tick(app_state: *AppState) !void {
     try ensureChunksAroundPlayer(app_state);
 }
 
-fn buildItemEntityMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
-    var mesh: render.MeshBuilder = .{};
-    errdefer mesh.deinit(gpa);
-
-    for (app_state.entities.items.items) |item| {
-        if (item.stack.id > 255) continue;
-
-        const pos = item.base.renderPosition(partial_ticks);
-        const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
-        const uv = render.Atlas.tileUv(tile);
-        const uvs = [4][2]f32{
-            .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
-        };
-
-        const half: f32 = @floatCast(game.ItemEntity.width / 2.0);
-        const cx: f32 = @floatCast(pos.x);
-        const cz: f32 = @floatCast(pos.z);
-        const y0: f32 = @floatCast(pos.y);
-        const y1: f32 = @floatCast(pos.y + game.ItemEntity.height);
-        const minx = cx - half;
-        const maxx = cx + half;
-        const minz = cz - half;
-        const maxz = cz + half;
-
-        try mesh.quad(gpa, .{
-            .{ minx, y0, minz }, .{ maxx, y0, maxz }, .{ maxx, y1, maxz }, .{ minx, y1, minz },
-        }, uvs, .{ 255, 255, 255, 255 });
-        try mesh.quad(gpa, .{
-            .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
-        }, uvs, .{ 255, 255, 255, 255 });
-    }
-
-    return mesh;
-}
-
-fn buildFallingBlockMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
-    var mesh: render.MeshBuilder = .{};
-    errdefer mesh.deinit(gpa);
-
-    for (app_state.entities.falling_blocks.items) |block| {
-        const pos = block.base.renderPosition(partial_ticks);
-        const size: f32 = @floatCast(game.FallingBlock.size);
-        const half = size / 2.0;
-        const cx: f32 = @floatCast(pos.x);
-        const cy: f32 = @floatCast(pos.y);
-        const cz: f32 = @floatCast(pos.z);
-        try render.chunk_mesher.buildCube(
-            &mesh,
-            gpa,
-            .{ cx - half, cy, cz - half },
-            .{ cx + half, cy + size, cz + half },
-            world.block.faceTextures(block.block_id),
-        );
-    }
-
-    return mesh;
-}
-
-fn buildPigMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_ticks: f32) !render.MeshBuilder {
-    var mesh: render.MeshBuilder = .{};
-    errdefer mesh.deinit(gpa);
-
-    for (app_state.entities.pigs.items) |pig| {
-        const pos = pig.base.renderPosition(partial_ticks);
-        const entity_pos = [3]f32{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) };
-        const yaw_rad = pig.yaw * std.math.pi / 180.0;
-        const swing = @cos(pig.walk_distance * 0.6662) * 1.4;
-
-        for (pig_parts, 0..) |part, i| {
-            var p = part;
-            if (i >= 2) p.rotate_x = if (i == 2 or i == 5) swing else -swing;
-            try render.mob_model.appendPart(&mesh, gpa, p, pig_texture_width, pig_texture_height, entity_pos, yaw_rad);
-        }
-    }
-
-    return mesh;
-}
-
 fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } {
     const s = app_state.window.getSizeInPixels() catch return .{ .w = screen_width, .h = screen_height };
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
@@ -783,7 +648,16 @@ fn guiSize(app_state: *const AppState) render.hud.Scaled {
     );
 }
 
+fn drawEntityMesh(mesh: *const render.MeshBuilder) void {
+    if (mesh.vertices.items.len == 0) return;
+    var gpu = render.GpuMesh.upload(mesh);
+    defer gpu.deinit();
+    gpu.draw();
+}
+
 fn renderWorld(app_state: *AppState) !void {
+    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map);
+
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
     const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
@@ -800,32 +674,26 @@ fn renderWorld(app_state: *AppState) !void {
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.atlas.bind();
     app_state.shader.setInt("u_atlas", 0);
-    var mesh_it = app_state.chunk_meshes.valueIterator();
-    while (mesh_it.next()) |mesh| mesh.draw();
+    app_state.chunks.draw();
 
-    var item_mesh = try buildItemEntityMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
-    defer item_mesh.deinit(app_state.frame);
-    if (item_mesh.vertices.items.len > 0) {
-        var item_gpu = render.GpuMesh.upload(&item_mesh);
-        defer item_gpu.deinit();
-        item_gpu.draw();
+    var atlas_mesh: render.MeshBuilder = .{};
+    defer atlas_mesh.deinit(app_state.frame);
+    for (app_state.entities.items.items) |item| {
+        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, item, partial);
     }
-
-    var falling_mesh = try buildFallingBlockMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
-    defer falling_mesh.deinit(app_state.frame);
-    if (falling_mesh.vertices.items.len > 0) {
-        var falling_gpu = render.GpuMesh.upload(&falling_mesh);
-        defer falling_gpu.deinit();
-        falling_gpu.draw();
+    for (app_state.entities.falling_blocks.items) |block| {
+        try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, block, partial);
     }
+    drawEntityMesh(&atlas_mesh);
 
-    var pig_mesh = try buildPigMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
+    var pig_mesh: render.MeshBuilder = .{};
     defer pig_mesh.deinit(app_state.frame);
+    for (app_state.entities.pigs.items) |pig| {
+        try render.entity_render.appendPig(&pig_mesh, app_state.frame, pig, partial);
+    }
     if (pig_mesh.vertices.items.len > 0) {
-        var pig_gpu = render.GpuMesh.upload(&pig_mesh);
-        defer pig_gpu.deinit();
         app_state.pig_texture.bind();
-        pig_gpu.draw();
+        drawEntityMesh(&pig_mesh);
         app_state.atlas.bind();
     }
 }
@@ -934,10 +802,7 @@ pub fn iterate(
             app_state.items_texture,
             app_state.font,
             app_state.char_texture,
-            &biped_parts,
-            biped_head_index,
-            char_texture_width,
-            char_texture_height,
+            render.mob_model.biped,
             app_state.player.inventory,
             app_state.crafting_grid,
             app_state.held_stack,
@@ -1078,9 +943,7 @@ pub fn quit(
 
     if (app_state) |state| {
         gl.makeProcTableCurrent(&state.gl_procs);
-        var mesh_it = state.chunk_meshes.valueIterator();
-        while (mesh_it.next()) |mesh| mesh.deinit();
-        state.chunk_meshes.deinit(state.gpa);
+        state.chunks.deinit(state.gpa);
         state.entities.deinit(state.gpa);
         state.world_map.deinit();
         state.generator.deinit(state.gpa);
