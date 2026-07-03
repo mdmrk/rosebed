@@ -1,15 +1,12 @@
 const std = @import("std");
 const math = @import("math");
 const world = @import("world");
-const physics = @import("physics.zig");
+const Entity = @import("entity.zig");
 
 const Pig = @This();
 
-position: math.Vec3,
-prev_position: math.Vec3,
-motion: math.Vec3 = math.Vec3.init(0, 0, 0),
+base: Entity,
 yaw: f32 = 0,
-on_ground: bool = false,
 walk_distance: f32 = 0,
 wander_ticks_left: u16 = 0,
 is_moving: bool = false,
@@ -24,19 +21,7 @@ const ground_friction: f64 = 0.6 * 0.91;
 const walk_speed: f64 = 0.1;
 
 pub fn spawn(position: math.Vec3) Pig {
-    return .{ .position = position, .prev_position = position };
-}
-
-pub fn boundingBox(self: Pig) math.AABB {
-    const half = width / 2.0;
-    return math.AABB.init(
-        self.position.x - half,
-        self.position.y,
-        self.position.z - half,
-        self.position.x + half,
-        self.position.y + height,
-        self.position.z + half,
-    );
+    return .{ .base = Entity.init(position, width, height) };
 }
 
 fn rerollWander(self: *Pig, rand: *world.JavaRandom) void {
@@ -46,7 +31,7 @@ fn rerollWander(self: *Pig, rand: *world.JavaRandom) void {
 }
 
 pub fn tick(self: *Pig, world_map: *const world.World, rand: *world.JavaRandom) void {
-    self.prev_position = self.position;
+    self.base.beginTick();
 
     if (self.wander_ticks_left == 0) {
         self.rerollWander(rand);
@@ -56,69 +41,36 @@ pub fn tick(self: *Pig, world_map: *const world.World, rand: *world.JavaRandom) 
 
     if (self.is_moving) {
         const yaw_rad = self.yaw * std.math.pi / 180.0;
-        self.motion.x += @as(f64, -@sin(yaw_rad)) * walk_speed;
-        self.motion.z += @as(f64, @cos(yaw_rad)) * walk_speed;
+        self.base.motion.x += @as(f64, -@sin(yaw_rad)) * walk_speed;
+        self.base.motion.z += @as(f64, @cos(yaw_rad)) * walk_speed;
     }
 
-    const result = physics.moveEntity(world_map, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
-    self.position = .{
-        .x = (result.aabb.min_x + result.aabb.max_x) / 2.0,
-        .y = result.aabb.min_y,
-        .z = (result.aabb.min_z + result.aabb.max_z) / 2.0,
-    };
+    const moved = self.base.move(world_map);
 
-    self.on_ground = self.motion.y != result.dy and self.motion.y < 0.0;
-    const blocked_horizontally = self.motion.x != result.dx or self.motion.z != result.dz;
-    if (self.motion.x != result.dx) self.motion.x = 0;
-    if (self.motion.y != result.dy) self.motion.y = 0;
-    if (self.motion.z != result.dz) self.motion.z = 0;
+    self.base.motion.y -= gravity;
+    self.base.motion.y *= vertical_drag;
+    const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
+    self.base.motion.x *= friction;
+    self.base.motion.z *= friction;
 
-    self.motion.y -= gravity;
-    self.motion.y *= vertical_drag;
-    const friction: f64 = if (self.on_ground) ground_friction else air_friction;
-    self.motion.x *= friction;
-    self.motion.z *= friction;
+    if (moved.blocked_x or moved.blocked_z) self.wander_ticks_left = 0;
 
-    if (blocked_horizontally) self.wander_ticks_left = 0;
-
-    if (self.is_moving and self.on_ground) {
-        const dx = result.dx;
-        const dz = result.dz;
-        self.walk_distance += @floatCast(@sqrt(dx * dx + dz * dz));
+    if (self.is_moving and self.base.on_ground) {
+        self.walk_distance += @floatCast(@sqrt(moved.dx * moved.dx + moved.dz * moved.dz));
     }
-}
-
-pub fn renderPosition(self: Pig, partial_ticks: f32) math.Vec3 {
-    const t: f64 = partial_ticks;
-    return .{
-        .x = self.prev_position.x + (self.position.x - self.prev_position.x) * t,
-        .y = self.prev_position.y + (self.position.y - self.prev_position.y) * t,
-        .z = self.prev_position.z + (self.position.z - self.prev_position.z) * t,
-    };
-}
-
-fn testWorldWithFloor() !world.World {
-    var w = world.World.init(std.testing.allocator);
-    const chunk = try w.createChunk(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
-        }
-    }
-    return w;
 }
 
 test "gravity pulls a spawned pig down" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 5, 8));
     pig.tick(&w, &rand);
-    try std.testing.expect(pig.position.y <= 5.0);
+    try std.testing.expect(pig.base.position.y <= 5.0);
 }
 
 test "a freshly spawned pig picks a wander state within one tick" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 1, 8));
@@ -128,21 +80,21 @@ test "a freshly spawned pig picks a wander state within one tick" {
 }
 
 test "walk distance only accumulates while moving on the ground" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 1, 8));
     pig.is_moving = false;
     pig.wander_ticks_left = 100;
-    pig.on_ground = true;
+    pig.base.on_ground = true;
     pig.tick(&w, &rand);
     try std.testing.expectEqual(@as(f32, 0), pig.walk_distance);
 }
 
 test "hitting a wall cuts the current wander leg short" {
-    var w = world.World.init(std.testing.allocator);
+    var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    const chunk = try w.createChunk(0, 0);
+    const chunk = w.getChunk(0, 0).?;
     for (0..world.constants.chunk_width) |x| {
         chunk.setBlockId(@intCast(x), 0, 0, world.block.stone);
     }
@@ -153,7 +105,7 @@ test "hitting a wall cuts the current wander leg short" {
     pig.is_moving = true;
     pig.yaw = 270;
     pig.wander_ticks_left = 50;
-    pig.on_ground = true;
+    pig.base.on_ground = true;
     var saw_reset = false;
     for (0..20) |_| {
         pig.tick(&w, &rand);

@@ -1,3 +1,5 @@
+pub const Entity = @import("entity.zig");
+pub const Entities = @import("entities.zig");
 pub const Player = @import("player.zig");
 pub const physics = @import("physics.zig");
 pub const raycast = @import("raycast.zig");
@@ -9,6 +11,8 @@ pub const crafting = @import("crafting.zig");
 pub const Settings = @import("settings.zig");
 
 test {
+    _ = Entity;
+    _ = Entities;
     _ = Player;
     _ = physics;
     _ = raycast;

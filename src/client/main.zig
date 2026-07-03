@@ -32,6 +32,7 @@ const far_plane = 1000.0;
 const world_seed = 1;
 const reach_distance = 4.5;
 const view_radius = 1;
+const spawn_position = math.Vec3.init(8, 90, 8);
 const pig_texture_width = 64;
 const pig_texture_height = 32;
 const char_texture_width = 64;
@@ -111,14 +112,11 @@ const AppState = struct {
     generator: world.TerrainGenerator,
     world_map: world.World,
     chunk_meshes: ChunkMeshMap,
-    item_entities: std.ArrayListUnmanaged(game.ItemEntity) = .empty,
-    falling_blocks: std.ArrayListUnmanaged(game.FallingBlock) = .empty,
-    pigs: std.ArrayListUnmanaged(game.Pig) = .empty,
+    entities: game.Entities = .{},
     timer: Timer,
     tick_count: u64 = 0,
     player: game.Player = .{
-        .position = math.Vec3.init(8, 90, 8),
-        .prev_position = math.Vec3.init(8, 90, 8),
+        .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),
     },
     keys: struct {
@@ -213,7 +211,7 @@ fn processMemory() ProcessMemory {
 
 fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     const loaded: u32 = @intCast(app_state.chunk_meshes.count());
-    const entities: u32 = @intCast(app_state.pigs.items.len + app_state.item_entities.items.len + app_state.falling_blocks.items.len);
+    const entities: u32 = @intCast(app_state.entities.count());
     const memory = processMemory();
     return .{
         .fps = app_state.debug_fps,
@@ -224,9 +222,9 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
         .entities_total = entities,
         .particles = 0,
         .chunk_cache = @intCast(app_state.world_map.chunks.count()),
-        .x = app_state.player.position.x,
-        .y = app_state.player.position.y,
-        .z = app_state.player.position.z,
+        .x = app_state.player.base.position.x,
+        .y = app_state.player.base.position.y,
+        .z = app_state.player.base.position.z,
         .yaw = app_state.player.yaw,
         .used_memory = memory.used,
         .allocated_memory = memory.allocated,
@@ -242,8 +240,8 @@ fn buildChunkMesh(gpa: std.mem.Allocator, world_map: *const world.World, chunk_x
 }
 
 fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
-    const x: i32 = @intFromFloat(@floor(app_state.player.position.x));
-    const z: i32 = @intFromFloat(@floor(app_state.player.position.z));
+    const x: i32 = @intFromFloat(@floor(app_state.player.base.position.x));
+    const z: i32 = @intFromFloat(@floor(app_state.player.base.position.z));
     return .{
         .x = @divFloor(x, world.constants.chunk_width),
         .z = @divFloor(z, world.constants.chunk_width),
@@ -356,7 +354,7 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
-    try app_state.pigs.append(app_state.gpa, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
+    try app_state.entities.spawnPig(app_state.gpa, math.Vec3.init(10, 90, 8));
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
@@ -431,17 +429,7 @@ fn digStep(app_state: *AppState) !void {
 }
 
 fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
-    const rand = &app_state.world_map.rand;
-    const jitter_x = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
-    const jitter_y = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
-    const jitter_z = @as(f64, rand.nextFloat()) * 0.7 + 0.15;
-    const position = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + jitter_x,
-        @as(f64, @floatFromInt(y)) + jitter_y,
-        @as(f64, @floatFromInt(z)) + jitter_z,
-    );
-    const item = game.ItemEntity.spawn(position, stack, rand);
-    try app_state.item_entities.append(app_state.gpa, item);
+    try app_state.entities.dropStack(app_state.gpa, x, y, z, stack, &app_state.world_map.rand);
 }
 
 fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -452,12 +440,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     app_state.world_map.setBlockId(x, y, z, world.block.air);
     try rebuildMeshesAround(app_state, x, z);
 
-    const position = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @floatFromInt(y),
-        @as(f64, @floatFromInt(z)) + 0.5,
-    );
-    try app_state.falling_blocks.append(app_state.gpa, game.FallingBlock.spawn(position, id));
+    try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
@@ -471,8 +454,8 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void 
 
 fn tickFallingBlocks(app_state: *AppState) !void {
     var i: usize = 0;
-    while (i < app_state.falling_blocks.items.len) {
-        const block = &app_state.falling_blocks.items[i];
+    while (i < app_state.entities.falling_blocks.items.len) {
+        const block = &app_state.entities.falling_blocks.items[i];
         const outcome = block.tick(&app_state.world_map);
 
         if (outcome == .falling) {
@@ -480,9 +463,9 @@ fn tickFallingBlocks(app_state: *AppState) !void {
             continue;
         }
 
-        const x: i32 = @intFromFloat(@floor(block.position.x));
-        const y: i32 = @intFromFloat(@floor(block.position.y));
-        const z: i32 = @intFromFloat(@floor(block.position.z));
+        const x: i32 = @intFromFloat(@floor(block.base.position.x));
+        const y: i32 = @intFromFloat(@floor(block.base.position.y));
+        const z: i32 = @intFromFloat(@floor(block.base.position.z));
 
         const landing_empty = !world.block.isOpaque(app_state.world_map.getBlockId(x, y, z));
         const support_solid = !world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z));
@@ -493,31 +476,7 @@ fn tickFallingBlocks(app_state: *AppState) !void {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = block.block_id, .count = 1 });
         }
 
-        _ = app_state.falling_blocks.swapRemove(i);
-    }
-}
-
-fn tickItemEntities(app_state: *AppState) void {
-    var i: usize = 0;
-    while (i < app_state.item_entities.items.len) {
-        const item = &app_state.item_entities.items[i];
-        item.tick(&app_state.world_map);
-
-        var picked_up = false;
-        if (item.canPickUp() and item.boundingBox().intersects(app_state.player.boundingBox())) {
-            const leftover = app_state.player.inventory.addStack(item.stack);
-            if (leftover == 0) {
-                picked_up = true;
-            } else {
-                item.stack.count = leftover;
-            }
-        }
-
-        if (picked_up or item.isExpired()) {
-            _ = app_state.item_entities.swapRemove(i);
-        } else {
-            i += 1;
-        }
+        _ = app_state.entities.falling_blocks.swapRemove(i);
     }
 }
 
@@ -528,9 +487,9 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     const drop_count = if (click_type == .left) held.count else 1;
     try spawnDroppedItem(
         app_state,
-        @intFromFloat(@floor(app_state.player.position.x)),
-        @intFromFloat(@floor(app_state.player.position.y)),
-        @intFromFloat(@floor(app_state.player.position.z)),
+        @intFromFloat(@floor(app_state.player.base.position.x)),
+        @intFromFloat(@floor(app_state.player.base.position.y)),
+        @intFromFloat(@floor(app_state.player.base.position.z)),
         .{ .id = held.id, .count = drop_count, .meta = held.meta },
     );
     const remaining = held.count - drop_count;
@@ -594,9 +553,9 @@ fn dropCraftingGrid(app_state: *AppState) !void {
         const stack = slot.* orelse continue;
         try spawnDroppedItem(
             app_state,
-            @intFromFloat(@floor(app_state.player.position.x)),
-            @intFromFloat(@floor(app_state.player.position.y)),
-            @intFromFloat(@floor(app_state.player.position.z)),
+            @intFromFloat(@floor(app_state.player.base.position.x)),
+            @intFromFloat(@floor(app_state.player.base.position.y)),
+            @intFromFloat(@floor(app_state.player.base.position.z)),
             stack,
         );
         slot.* = null;
@@ -726,9 +685,9 @@ fn tick(app_state: *AppState) !void {
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
     try digStep(app_state);
-    tickItemEntities(app_state);
+    app_state.entities.tickItems(&app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
-    for (app_state.pigs.items) |*pig| pig.tick(&app_state.world_map, &app_state.world_map.rand);
+    app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
     try ensureChunksAroundPlayer(app_state);
 }
 
@@ -736,10 +695,10 @@ fn buildItemEntityMesh(gpa: std.mem.Allocator, app_state: *const AppState, parti
     var mesh: render.MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
 
-    for (app_state.item_entities.items) |item| {
+    for (app_state.entities.items.items) |item| {
         if (item.stack.id > 255) continue;
 
-        const pos = item.renderPosition(partial_ticks);
+        const pos = item.base.renderPosition(partial_ticks);
         const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
         const uv = render.Atlas.tileUv(tile);
         const uvs = [4][2]f32{
@@ -771,8 +730,8 @@ fn buildFallingBlockMesh(gpa: std.mem.Allocator, app_state: *const AppState, par
     var mesh: render.MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
 
-    for (app_state.falling_blocks.items) |block| {
-        const pos = block.renderPosition(partial_ticks);
+    for (app_state.entities.falling_blocks.items) |block| {
+        const pos = block.base.renderPosition(partial_ticks);
         const size: f32 = @floatCast(game.FallingBlock.size);
         const half = size / 2.0;
         const cx: f32 = @floatCast(pos.x);
@@ -794,8 +753,8 @@ fn buildPigMesh(gpa: std.mem.Allocator, app_state: *const AppState, partial_tick
     var mesh: render.MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
 
-    for (app_state.pigs.items) |pig| {
-        const pos = pig.renderPosition(partial_ticks);
+    for (app_state.entities.pigs.items) |pig| {
+        const pos = pig.base.renderPosition(partial_ticks);
         const entity_pos = [3]f32{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) };
         const yaw_rad = pig.yaw * std.math.pi / 180.0;
         const swing = @cos(pig.walk_distance * 0.6662) * 1.4;
@@ -1122,9 +1081,7 @@ pub fn quit(
         var mesh_it = state.chunk_meshes.valueIterator();
         while (mesh_it.next()) |mesh| mesh.deinit();
         state.chunk_meshes.deinit(state.gpa);
-        state.item_entities.deinit(state.gpa);
-        state.falling_blocks.deinit(state.gpa);
-        state.pigs.deinit(state.gpa);
+        state.entities.deinit(state.gpa);
         state.world_map.deinit();
         state.generator.deinit(state.gpa);
         state.shader.deinit();

@@ -17,6 +17,7 @@ pub const lakes = @import("lakes.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
 pub const nbt = @import("nbt.zig");
+pub const testing = @import("testing.zig");
 
 test {
     _ = Chunk;
@@ -37,4 +38,5 @@ test {
     _ = dungeons;
     _ = World;
     _ = nbt;
+    _ = testing;
 }

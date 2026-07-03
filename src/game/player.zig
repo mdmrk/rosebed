@@ -1,17 +1,14 @@
 const std = @import("std");
 const math = @import("math");
 const world = @import("world");
-const physics = @import("physics.zig");
+const Entity = @import("entity.zig");
 const Inventory = @import("inventory.zig");
 
 const Player = @This();
 
-position: math.Vec3,
-prev_position: math.Vec3 = math.Vec3.init(0, 0, 0),
+base: Entity,
 yaw: f32 = 0,
 pitch: f32 = 0,
-motion: math.Vec3 = math.Vec3.init(0, 0, 0),
-on_ground: bool = false,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
@@ -34,65 +31,46 @@ const ground_speed: f64 = 0.1;
 const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
+pub fn spawn(position: math.Vec3) Player {
+    return .{ .base = Entity.init(position, width, height) };
+}
+
 pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: f32, jump: bool) void {
-    self.prev_position = self.position;
+    self.base.beginTick();
     self.prev_distance_walked = self.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
 
-    if (self.on_ground and jump) {
-        self.motion.y = jump_velocity;
+    if (self.base.on_ground and jump) {
+        self.base.motion.y = jump_velocity;
     }
 
-    const speed: f64 = if (self.on_ground) ground_speed else air_speed;
+    const speed: f64 = if (self.base.on_ground) ground_speed else air_speed;
     const dir = self.moveDirection(strafe, forward);
-    self.motion.x += @as(f64, dir[0]) * speed;
-    self.motion.z += @as(f64, dir[2]) * speed;
+    self.base.motion.x += @as(f64, dir[0]) * speed;
+    self.base.motion.z += @as(f64, dir[2]) * speed;
 
-    const before_x = self.position.x;
-    const before_z = self.position.z;
-    const result = physics.moveEntity(world_map, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
+    const before_x = self.base.position.x;
+    const before_z = self.base.position.z;
+    _ = self.base.move(world_map);
 
-    self.position = .{
-        .x = (result.aabb.min_x + result.aabb.max_x) / 2.0,
-        .y = result.aabb.min_y,
-        .z = (result.aabb.min_z + result.aabb.max_z) / 2.0,
-    };
-
-    const moved_x = self.position.x - before_x;
-    const moved_z = self.position.z - before_z;
+    const moved_x = self.base.position.x - before_x;
+    const moved_z = self.base.position.z - before_z;
     self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
 
-    self.on_ground = self.motion.y != result.dy and self.motion.y < 0.0;
-    if (self.motion.x != result.dx) self.motion.x = 0;
-    if (self.motion.y != result.dy) self.motion.y = 0;
-    if (self.motion.z != result.dz) self.motion.z = 0;
+    self.base.motion.y -= gravity;
+    self.base.motion.y *= vertical_drag;
+    const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
+    self.base.motion.x *= friction;
+    self.base.motion.z *= friction;
 
-    self.motion.y -= gravity;
-    self.motion.y *= vertical_drag;
-    const friction: f64 = if (self.on_ground) ground_friction else air_friction;
-    self.motion.x *= friction;
-    self.motion.z *= friction;
-
-    var swing: f32 = @floatCast(@sqrt(self.motion.x * self.motion.x + self.motion.z * self.motion.z));
-    var dip: f32 = @floatCast(std.math.atan(-self.motion.y * 0.2) * 15.0);
+    var swing: f32 = @floatCast(@sqrt(self.base.motion.x * self.base.motion.x + self.base.motion.z * self.base.motion.z));
+    var dip: f32 = @floatCast(std.math.atan(-self.base.motion.y * 0.2) * 15.0);
     if (swing > 0.1) swing = 0.1;
-    if (!self.on_ground) swing = 0.0;
-    if (self.on_ground) dip = 0.0;
+    if (!self.base.on_ground) swing = 0.0;
+    if (self.base.on_ground) dip = 0.0;
     self.camera_yaw += (swing - self.camera_yaw) * 0.4;
     self.camera_pitch += (dip - self.camera_pitch) * 0.8;
-}
-
-pub fn boundingBox(self: Player) math.AABB {
-    const half_width = width / 2.0;
-    return math.AABB.init(
-        self.position.x - half_width,
-        self.position.y,
-        self.position.z - half_width,
-        self.position.x + half_width,
-        self.position.y + height,
-        self.position.z + half_width,
-    );
 }
 
 fn turnFactor(sensitivity: f32) f32 {
@@ -132,20 +110,15 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
 }
 
 pub fn eyePosition(self: Player) math.Vec3 {
-    return .{ .x = self.position.x, .y = self.position.y + eye_height, .z = self.position.z };
-}
-
-pub fn renderPosition(self: Player, partial_ticks: f32) math.Vec3 {
-    const t: f64 = partial_ticks;
     return .{
-        .x = self.prev_position.x + (self.position.x - self.prev_position.x) * t,
-        .y = self.prev_position.y + (self.position.y - self.prev_position.y) * t,
-        .z = self.prev_position.z + (self.position.z - self.prev_position.z) * t,
+        .x = self.base.position.x,
+        .y = self.base.position.y + eye_height,
+        .z = self.base.position.z,
     };
 }
 
 pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
-    const render_position = self.renderPosition(partial_ticks);
+    const render_position = self.base.renderPosition(partial_ticks);
     const eye = [3]f32{
         @floatCast(render_position.x),
         @floatCast(render_position.y + eye_height),
@@ -174,17 +147,8 @@ pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
         .mul(math.Mat4.rotationX(dip * degrees));
 }
 
-test "boundingBox is centered on x/z and rests on the feet position" {
-    const player: Player = .{ .position = math.Vec3.init(2, 5, 3) };
-    const box = player.boundingBox();
-    try std.testing.expectApproxEqAbs(@as(f64, 1.7), box.min_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.3), box.max_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), box.min_y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 6.8), box.max_y, 1.0e-9);
-}
-
 test "eyePosition sits eye_height above the feet position" {
-    const player: Player = .{ .position = math.Vec3.init(2, 5, 3) };
+    const player = Player.spawn(math.Vec3.init(2, 5, 3));
     const eye = player.eyePosition();
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), eye.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 5.0 + eye_height), eye.y, 1.0e-9);
@@ -192,20 +156,20 @@ test "eyePosition sits eye_height above the feet position" {
 }
 
 test "turn at default sensitivity applies the 0.15 deg/pixel scale" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.turn(10, 4, 0.5, false);
     try std.testing.expectApproxEqAbs(@as(f32, 1.5), player.yaw, 1.0e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), player.pitch, 1.0e-4);
 }
 
 test "inverting the mouse flips the pitch delta" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.turn(0, 4, 0.5, true);
     try std.testing.expectApproxEqAbs(@as(f32, -0.6), player.pitch, 1.0e-4);
 }
 
 test "pitch clamps to +/-90 degrees" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.turn(0, 10000, 0.5, false);
     try std.testing.expectApproxEqAbs(@as(f32, 90.0), player.pitch, 1.0e-4);
     player.turn(0, -20000, 0.5, false);
@@ -213,7 +177,7 @@ test "pitch clamps to +/-90 degrees" {
 }
 
 test "lookVector faces +Z at yaw 0, pitch 0" {
-    const player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    const player = Player.spawn(math.Vec3.init(0, 0, 0));
     const look = player.lookVector();
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), look[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), look[1], 1.0e-5);
@@ -221,7 +185,7 @@ test "lookVector faces +Z at yaw 0, pitch 0" {
 }
 
 test "positive pitch looks down, negative pitch looks up" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.pitch = 90;
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), player.lookVector()[1], 1.0e-4);
     player.pitch = -90;
@@ -229,7 +193,7 @@ test "positive pitch looks down, negative pitch looks up" {
 }
 
 test "moveDirection at yaw 0 matches forward/strafe axes" {
-    const player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    const player = Player.spawn(math.Vec3.init(0, 0, 0));
     const forward = player.moveDirection(0, 1);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), forward[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), forward[2], 1.0e-5);
@@ -239,67 +203,45 @@ test "moveDirection at yaw 0 matches forward/strafe axes" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), strafe[2], 1.0e-5);
 }
 
-test "renderPosition interpolates between the previous and current tick" {
-    const player: Player = .{
-        .position = math.Vec3.init(10, 0, 0),
-        .prev_position = math.Vec3.init(0, 0, 0),
-    };
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), player.renderPosition(0.0).x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), player.renderPosition(0.5).x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 10.0), player.renderPosition(1.0).x, 1.0e-9);
-}
-
-fn testWorldWithFloor() !world.World {
-    var w = world.World.init(std.testing.allocator);
-    const chunk = try w.createChunk(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
-        }
-    }
-    return w;
-}
-
 test "resting on the ground stays grounded" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    var player: Player = .{
-        .position = math.Vec3.init(8, 1, 8),
-        .on_ground = true,
-        .motion = math.Vec3.init(0, -0.0784, 0),
-    };
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+    player.base.motion = math.Vec3.init(0, -0.0784, 0);
     player.tick(&w, 0, 0, false);
-    try std.testing.expect(player.on_ground);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.position.y, 1.0e-9);
+    try std.testing.expect(player.base.on_ground);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
 }
 
 test "gravity accelerates a falling player" {
-    var w = world.World.init(std.testing.allocator);
+    var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    _ = try w.createChunk(0, 0);
-    var player: Player = .{ .position = math.Vec3.init(8, 50, 8) };
+    var player = Player.spawn(math.Vec3.init(8, 50, 8));
     player.tick(&w, 0, 0, false);
-    try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.motion.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.base.motion.y, 1.0e-9);
 }
 
 test "jumping from the ground sets the jump velocity" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
     player.tick(&w, 0, 0, true);
-    try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.motion.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.base.motion.y, 1.0e-9);
 }
 
 test "forward input on the ground moves the player each tick" {
-    var w = try testWorldWithFloor();
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    var player: Player = .{ .position = math.Vec3.init(8, 1, 8), .on_ground = true };
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
     player.tick(&w, 0, 1, false);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.position.z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.base.position.z, 1.0e-9);
 }
 
 test "bobbing is the identity while standing still" {
-    const player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    const player = Player.spawn(math.Vec3.init(0, 0, 0));
     const bob: [16]f32 = player.bobMatrix(0.5).m;
     const want: [16]f32 = math.Mat4.identity.m;
     for (bob, want) |got, expected| {
@@ -308,7 +250,7 @@ test "bobbing is the identity while standing still" {
 }
 
 test "bobbing sways to both sides and never lifts the camera" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.camera_yaw = 0.1;
     player.prev_camera_yaw = 0.1;
 
@@ -329,7 +271,7 @@ test "bobbing sways to both sides and never lifts the camera" {
 }
 
 test "a long walk does not overflow MathHelper's sine table index" {
-    var player: Player = .{ .position = math.Vec3.init(0, 0, 0) };
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.camera_yaw = 0.1;
     player.prev_camera_yaw = 0.1;
     player.distance_walked = 1.0e9;
