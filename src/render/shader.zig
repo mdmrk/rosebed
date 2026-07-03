@@ -61,6 +61,16 @@ pub fn setInt(self: Shader, name: [:0]const u8, value: gl.int) void {
     gl.Uniform1i(location, value);
 }
 
+pub fn setFloat(self: Shader, name: [:0]const u8, value: f32) void {
+    const location = gl.GetUniformLocation(self.program, name);
+    gl.Uniform1f(location, value);
+}
+
+pub fn setVec3(self: Shader, name: [:0]const u8, value: [3]f32) void {
+    const location = gl.GetUniformLocation(self.program, name);
+    gl.Uniform3f(location, value[0], value[1], value[2]);
+}
+
 pub fn deinit(self: Shader) void {
     gl.DeleteProgram(self.program);
 }

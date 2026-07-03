@@ -579,7 +579,28 @@ fn drawEntityMesh(mesh: *const render.MeshBuilder) void {
     gpu.draw();
 }
 
-fn renderWorld(app_state: *AppState) !void {
+fn horizonColor(app_state: *const AppState) render.sky.Color {
+    const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
+        math.util.floorDouble(app_state.player.base.position.x),
+        math.util.floorDouble(app_state.player.base.position.z),
+    ));
+    const render_distance = @intFromEnum(app_state.settings.render_distance);
+    return render.sky.blendedFogColor(
+        render.sky.skyColor(temperature, render.sky.noon),
+        render.sky.fogColor(render.sky.noon),
+        render_distance,
+    );
+}
+
+fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
+    const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
+    app_state.shader.setInt("u_fog_enabled", 1);
+    app_state.shader.setVec3("u_fog_color", horizon);
+    app_state.shader.setFloat("u_fog_start", far * 0.25);
+    app_state.shader.setFloat("u_fog_end", far);
+}
+
+fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map);
 
     const px = drawableSize(app_state);
@@ -592,9 +613,16 @@ fn renderWorld(app_state: *AppState) !void {
     else
         camera;
     const view_proj = proj.mul(view);
+    const eye = app_state.player.base.renderPosition(partial);
 
     app_state.shader.use();
     app_state.shader.setMat4("u_view_proj", view_proj.m);
+    app_state.shader.setVec3("u_camera_pos", .{
+        @floatCast(eye.x),
+        @floatCast(eye.y + game.Player.eye_height),
+        @floatCast(eye.z),
+    });
+    setupFog(app_state, horizon);
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.textures.terrain.bind();
     app_state.shader.setInt("u_atlas", 0);
@@ -651,11 +679,12 @@ pub fn iterate(
         }
     }
 
+    const horizon = horizonColor(app_state);
     gl.Enable(gl.DEPTH_TEST);
-    gl.ClearColor(0.502, 0.118, 1.0, 1.0);
+    gl.ClearColor(horizon[0], horizon[1], horizon[2], 1.0);
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    if (app_state.screen == .playing) try renderWorld(app_state);
+    if (app_state.screen == .playing) try renderWorld(app_state, horizon);
 
     const ui = uiContext(app_state, gui);
     const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;

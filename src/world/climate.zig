@@ -38,32 +38,49 @@ pub const Sample = struct {
     }
 };
 
-pub fn sample(self: Climate, x_offset: i32, z_offset: i32) Sample {
-    var result: Sample = undefined;
+fn generate(
+    self: Climate,
+    comptime size: usize,
+    x_offset: i32,
+    z_offset: i32,
+    temperature_out: *[size * size]f64,
+    humidity_out: *[size * size]f64,
+) void {
     const fx: f64 = @floatFromInt(x_offset);
     const fz: f64 = @floatFromInt(z_offset);
 
-    self.temperature_noise.generateDefault(&result.temperature, .{ .x = fx, .y = fz }, .{ .x = grid_size, .y = grid_size }, .{ .x = 0.025, .y = 0.025 }, 0.25);
-    self.humidity_noise.generateDefault(&result.humidity, .{ .x = fx, .y = fz }, .{ .x = grid_size, .y = grid_size }, .{ .x = 0.05, .y = 0.05 }, 1.0 / 3.0);
+    self.temperature_noise.generateDefault(temperature_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.025, .y = 0.025 }, 0.25);
+    self.humidity_noise.generateDefault(humidity_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.05, .y = 0.05 }, 1.0 / 3.0);
 
-    var blend: [grid_size * grid_size]f64 = undefined;
-    self.blend_noise.generateDefault(&blend, .{ .x = fx, .y = fz }, .{ .x = grid_size, .y = grid_size }, .{ .x = 0.25, .y = 0.25 }, 0.5882352941176471);
+    var blend: [size * size]f64 = undefined;
+    self.blend_noise.generateDefault(&blend, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.25, .y = 0.25 }, 0.5882352941176471);
 
-    for (0..grid_size * grid_size) |i| {
+    for (0..size * size) |i| {
         const blended = blend[i] * 1.1 + 0.5;
 
-        var temperature = (result.temperature[i] * 0.15 + 0.7) * 0.99 + blended * 0.01;
+        var temperature = (temperature_out[i] * 0.15 + 0.7) * 0.99 + blended * 0.01;
         temperature = 1.0 - (1.0 - temperature) * (1.0 - temperature);
         temperature = std.math.clamp(temperature, 0.0, 1.0);
 
-        var humidity = (result.humidity[i] * 0.15 + 0.5) * 0.998 + blended * 0.002;
+        var humidity = (humidity_out[i] * 0.15 + 0.5) * 0.998 + blended * 0.002;
         humidity = std.math.clamp(humidity, 0.0, 1.0);
 
-        result.temperature[i] = temperature;
-        result.humidity[i] = humidity;
+        temperature_out[i] = temperature;
+        humidity_out[i] = humidity;
     }
+}
 
+pub fn sample(self: Climate, x_offset: i32, z_offset: i32) Sample {
+    var result: Sample = undefined;
+    self.generate(grid_size, x_offset, z_offset, &result.temperature, &result.humidity);
     return result;
+}
+
+pub fn temperatureAt(self: Climate, x: i32, z: i32) f64 {
+    var temperature: [1]f64 = undefined;
+    var humidity: [1]f64 = undefined;
+    self.generate(1, x, z, &temperature, &humidity);
+    return temperature[0];
 }
 
 test "sample produces climate values in range and varies across a chunk" {
@@ -84,6 +101,15 @@ test "sample produces climate values in range and varies across a chunk" {
         if (s.temperature[i] != s.temperature[0] or s.humidity[i] != s.humidity[0]) any_different = true;
     }
     try std.testing.expect(any_different);
+}
+
+test "temperatureAt matches the same position inside a full grid sample" {
+    const gpa = std.testing.allocator;
+    const climate = try Climate.init(gpa, 1);
+    defer climate.deinit(gpa);
+
+    const s = climate.sample(48, -32);
+    try std.testing.expectEqual(s.temperature[0], climate.temperatureAt(48, -32));
 }
 
 test "different world seeds produce different climate" {
