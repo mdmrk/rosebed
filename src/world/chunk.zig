@@ -15,6 +15,8 @@ metadata: NibbleArray = .{},
 sky_light: NibbleArray = .{},
 block_light: NibbleArray = .{},
 height_map: [width * width]u8 = [_]u8{0} ** (width * width),
+temperature: [width * width]f32 = [_]f32{0.5} ** (width * width),
+humidity: [width * width]f32 = [_]f32{0.5} ** (width * width),
 
 pub fn init(x: i32, z: i32) Chunk {
     return .{ .x = x, .z = z };
@@ -50,6 +52,19 @@ pub fn getHeightValue(self: *const Chunk, x: u32, z: u32) u8 {
 
 pub fn setHeightValue(self: *Chunk, x: u32, z: u32, value: u8) void {
     self.height_map[heightMapIndex(x, z)] = value;
+}
+
+pub fn getTemperature(self: *const Chunk, x: u32, z: u32) f32 {
+    return self.temperature[heightMapIndex(x, z)];
+}
+
+pub fn getHumidity(self: *const Chunk, x: u32, z: u32) f32 {
+    return self.humidity[heightMapIndex(x, z)];
+}
+
+pub fn setClimate(self: *Chunk, x: u32, z: u32, temperature: f32, humidity: f32) void {
+    self.temperature[heightMapIndex(x, z)] = temperature;
+    self.humidity[heightMapIndex(x, z)] = humidity;
 }
 
 test "block id round-trips through the packed index" {

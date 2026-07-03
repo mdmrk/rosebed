@@ -3,6 +3,7 @@ const world = @import("world");
 
 const GpuMesh = @import("gpu_mesh.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
+const Colorizer = @import("colorizer.zig");
 
 const ChunkRenderer = @This();
 
@@ -45,14 +46,14 @@ pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i
     if (local_z == width - 1) try self.markDirty(gpa, chunk_x, chunk_z + 1);
 }
 
-pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World) !u32 {
+pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World, colorizer: Colorizer) !u32 {
     var rebuilt: u32 = 0;
 
     var it = self.dirty.keyIterator();
     while (it.next()) |coord| {
         const chunk = world_map.getChunk(coord.x, coord.z) orelse continue;
 
-        var mesh = try chunk_mesher.build(gpa, world_map, chunk);
+        var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer);
         defer mesh.deinit(gpa);
 
         const entry = try self.meshes.getOrPut(gpa, coord.*);

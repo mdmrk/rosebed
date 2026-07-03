@@ -65,6 +65,7 @@ const AppState = struct {
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
     textures: render.Textures,
+    colorizer: render.Colorizer,
     font: render.Font,
     shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -212,6 +213,7 @@ pub fn init(
         .gl_context = gl_context,
         .gl_procs = undefined,
         .textures = undefined,
+        .colorizer = undefined,
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
@@ -226,6 +228,9 @@ pub fn init(
 
     app_state.textures = try render.Textures.load();
     errdefer app_state.textures.deinit();
+
+    app_state.colorizer = try render.Colorizer.load(gpa);
+    errdefer app_state.colorizer.deinit(gpa);
 
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
@@ -601,7 +606,7 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
 }
 
 fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
-    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map);
+    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer);
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
@@ -836,6 +841,7 @@ pub fn quit(
         state.entities.deinit(state.gpa);
         state.world_map.deinit();
         state.generator.deinit(state.gpa);
+        state.colorizer.deinit(state.gpa);
         state.shader.deinit();
         state.textures.deinit();
         state.font.deinit();

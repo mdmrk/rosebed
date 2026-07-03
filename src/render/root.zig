@@ -10,6 +10,7 @@ pub const sky = @import("sky.zig");
 pub const gui = @import("gui.zig");
 pub const Ui = gui.Ui;
 pub const Textures = @import("textures.zig");
+pub const Colorizer = @import("colorizer.zig");
 pub const hud = @import("hud.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const Font = @import("font.zig");
@@ -33,6 +34,7 @@ test {
     _ = sky;
     _ = gui;
     _ = Textures;
+    _ = Colorizer;
     _ = hud;
     _ = mob_model;
     _ = Font;

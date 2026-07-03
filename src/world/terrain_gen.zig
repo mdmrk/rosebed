@@ -145,6 +145,13 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
     const chunk_z = chunk.z;
     const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
 
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            const i = x * Climate.grid_size + z;
+            chunk.setClimate(@intCast(x), @intCast(z), @floatCast(climate_sample.temperature[i]), @floatCast(climate_sample.humidity[i]));
+        }
+    }
+
     var density: [density_x * density_y * density_z]f64 = undefined;
     self.computeDensityField(&density, chunk_x * horizontal_cells, chunk_z * horizontal_cells, &climate_sample);
 
