@@ -7,6 +7,7 @@ const Atlas = @import("atlas.zig");
 const Font = @This();
 
 pub const glyph_size: f32 = 8;
+pub const glyph_draw_size: f32 = 7.99;
 pub const texture_size: f32 = 128;
 const cols_per_row = 16;
 
@@ -80,8 +81,8 @@ pub fn glyphUv(c: u8) Atlas.Uv {
     return .{
         .u0 = col * glyph_size / texture_size,
         .v0 = row * glyph_size / texture_size,
-        .u1 = (col * glyph_size + glyph_size) / texture_size,
-        .v1 = (row * glyph_size + glyph_size) / texture_size,
+        .u1 = (col * glyph_size + glyph_draw_size) / texture_size,
+        .v1 = (row * glyph_size + glyph_draw_size) / texture_size,
     };
 }
 
@@ -95,6 +96,6 @@ test "glyphUv maps a char code to an 8px cell in the 128x128 grid" {
     const uv = glyphUv('0');
     try std.testing.expectApproxEqAbs(@as(f32, 0.0 / 128.0), uv.u0, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 24.0 / 128.0), uv.v0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 8.0 / 128.0), uv.u1, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 32.0 / 128.0), uv.v1, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.99 / 128.0), uv.u1, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 31.99 / 128.0), uv.v1, 1.0e-6);
 }

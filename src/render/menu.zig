@@ -17,8 +17,8 @@ pub const Action = enum { resume_game, options, quit_to_title };
 const Entry = struct { button: button.Button, action: ?Action };
 
 fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
-    const cx = scaled_width / 2.0;
-    const quarter = scaled_height / 4.0;
+    const cx = @floor(scaled_width / 2.0);
+    const quarter = @floor(scaled_height / 4.0);
     const top = quarter - 16.0;
     return .{
         .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Back to game", .enabled = true }, .action = .resume_game },
@@ -30,11 +30,10 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
 }
 
 pub fn actionAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Action {
-    const gx = mouse_x / hud.gui_scale;
-    const gy = mouse_y / hud.gui_scale;
-    const scaled_width = screen_width / hud.gui_scale;
-    const scaled_height = screen_height / hud.gui_scale;
-    for (entries(scaled_width, scaled_height)) |entry| {
+    const res = hud.scaledResolution(screen_width, screen_height);
+    const gx = mouse_x / res.factor;
+    const gy = mouse_y / res.factor;
+    for (entries(res.width, res.height)) |entry| {
         if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.action;
     }
     return null;
@@ -50,10 +49,9 @@ pub fn draw(
     screen_width: f32,
     screen_height: f32,
 ) !void {
-    const scaled_width = screen_width / hud.gui_scale;
-    const scaled_height = screen_height / hud.gui_scale;
-    const gx = mouse_x / hud.gui_scale;
-    const gy = mouse_y / hud.gui_scale;
+    const res = hud.scaledResolution(screen_width, screen_height);
+    const gx = mouse_x / res.factor;
+    const gy = mouse_y / res.factor;
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
@@ -65,16 +63,16 @@ pub fn draw(
     defer text.deinit(gpa);
 
     const opaque_texel: Atlas.Uv = .{ .u0 = 2.5 / gui_texture_size, .v0 = 2.5 / gui_texture_size, .u1 = 2.5 / gui_texture_size, .v1 = 2.5 / gui_texture_size };
-    try hud.appendRectColor(&backgrounds, gpa, 0, 0, scaled_width, scaled_height, opaque_texel, overlay_color, scaled_width, scaled_height);
+    try hud.appendRectColor(&backgrounds, gpa, 0, 0, res.width, res.height, opaque_texel, overlay_color, res);
 
-    for (entries(scaled_width, scaled_height)) |entry| {
+    for (entries(res.width, res.height)) |entry| {
         const hovered = button.contains(entry.button, gx, gy);
-        try button.append(&backgrounds, &text, gpa, font, entry.button, hovered, scaled_width, scaled_height);
+        try button.append(&backgrounds, &text, gpa, font, entry.button, hovered, res);
     }
 
     const title = "Game menu";
     const title_width: f32 = @floatFromInt(font.stringWidth(title));
-    try hud.appendTextColor(&text, gpa, font, title, scaled_width / 2.0 - title_width / 2.0, 40, title_color, scaled_width, scaled_height);
+    try hud.appendTextColor(&text, gpa, font, title, @floor(res.width / 2.0) - @floor(title_width / 2.0), 40, title_color, res);
 
     try hud.drawTexturedMesh(&backgrounds, icon_shader, gui_texture);
     try hud.drawTexturedMesh(&text, icon_shader, font);

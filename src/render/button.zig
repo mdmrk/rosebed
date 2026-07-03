@@ -32,13 +32,12 @@ pub fn appendBackground(
     y: f32,
     w: f32,
     state: f32,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: hud.Scaled,
 ) !void {
     const row = tex_row + state * height;
     const half = w / 2.0;
-    try hud.appendRect(bg, gpa, x, y, half, height, hud.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
-    try hud.appendRect(bg, gpa, x + half, y, half, height, hud.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+    try hud.appendRect(bg, gpa, x, y, half, height, hud.pixelUv(0, row, half, height, gui_texture_size, gui_texture_size), res);
+    try hud.appendRect(bg, gpa, x + half, y, half, height, hud.pixelUv(200 - half, row, half, height, gui_texture_size, gui_texture_size), res);
 }
 
 pub fn appendLabel(
@@ -50,13 +49,12 @@ pub fn appendLabel(
     w: f32,
     label: []const u8,
     color: [4]u8,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: hud.Scaled,
 ) !void {
     const label_width: f32 = @floatFromInt(font.stringWidth(label));
-    const text_x = x + w / 2.0 - label_width / 2.0;
+    const text_x = x + @floor(w / 2.0) - @floor(label_width / 2.0);
     const text_y = y + (height - Font.glyph_size) / 2.0;
-    try hud.appendTextColor(text, gpa, font, label, text_x, text_y, color, scaled_width, scaled_height);
+    try hud.appendTextColor(text, gpa, font, label, text_x, text_y, color, res);
 }
 
 pub fn append(
@@ -66,12 +64,11 @@ pub fn append(
     font: Font,
     button: Button,
     hovered: bool,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: hud.Scaled,
 ) !void {
-    try appendBackground(bg, gpa, button.x, button.y, button.w, hoverState(button, hovered), scaled_width, scaled_height);
+    try appendBackground(bg, gpa, button.x, button.y, button.w, hoverState(button, hovered), res);
     const color = if (!button.enabled) text_disabled else if (hovered) text_hover else text_normal;
-    try appendLabel(text, gpa, font, button.x, button.y, button.w, button.label, color, scaled_width, scaled_height);
+    try appendLabel(text, gpa, font, button.x, button.y, button.w, button.label, color, res);
 }
 
 test "contains hits inside the button rect and misses outside" {

@@ -16,7 +16,31 @@ const identity: [16]f32 = .{
     0, 0, 0, 1,
 };
 
-pub const gui_scale: f32 = 2.0;
+pub const Scaled = struct {
+    factor: f32,
+    ortho_width: f32,
+    ortho_height: f32,
+    width: f32,
+    height: f32,
+};
+
+pub fn scaledResolution(pixel_width: f32, pixel_height: f32) Scaled {
+    var factor: f32 = 1;
+    while (factor < 1000 and
+        @floor(pixel_width / (factor + 1)) >= 320 and
+        @floor(pixel_height / (factor + 1)) >= 240) : (factor += 1)
+    {}
+
+    const ortho_width = pixel_width / factor;
+    const ortho_height = pixel_height / factor;
+    return .{
+        .factor = factor,
+        .ortho_width = ortho_width,
+        .ortho_height = ortho_height,
+        .width = @ceil(ortho_width),
+        .height = @ceil(ortho_height),
+    };
+}
 
 const hotbar_width: f32 = 182;
 const hotbar_height: f32 = 22;
@@ -27,41 +51,41 @@ pub const icon_size: f32 = 16;
 const crosshair_size: f32 = 16;
 const gui_texture_size: f32 = 256;
 
-pub fn toNdc(x: f32, y: f32, scaled_width: f32, scaled_height: f32) [2]f32 {
+pub fn toNdc(x: f32, y: f32, res: Scaled) [2]f32 {
     return .{
-        (x / scaled_width) * 2.0 - 1.0,
-        1.0 - (y / scaled_height) * 2.0,
+        (x / res.ortho_width) * 2.0 - 1.0,
+        1.0 - (y / res.ortho_height) * 2.0,
     };
 }
 
-pub fn appendRectColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, color: [4]u8, scaled_width: f32, scaled_height: f32) !void {
-    const tl = toNdc(x, y, scaled_width, scaled_height);
-    const tr = toNdc(x + w, y, scaled_width, scaled_height);
-    const br = toNdc(x + w, y + h, scaled_width, scaled_height);
-    const bl = toNdc(x, y + h, scaled_width, scaled_height);
+pub fn appendRectColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, color: [4]u8, res: Scaled) !void {
+    const tl = toNdc(x, y, res);
+    const tr = toNdc(x + w, y, res);
+    const br = toNdc(x + w, y + h, res);
+    const bl = toNdc(x, y + h, res);
     try mesh.quad(gpa, .{
         .{ tl[0], tl[1], 0 }, .{ tr[0], tr[1], 0 }, .{ br[0], br[1], 0 }, .{ bl[0], bl[1], 0 },
     }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, color);
 }
 
-pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, scaled_width: f32, scaled_height: f32) !void {
-    try appendRectColor(mesh, gpa, x, y, w, h, uv, .{ 255, 255, 255, 255 }, scaled_width, scaled_height);
+pub fn appendRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y: f32, w: f32, h: f32, uv: Atlas.Uv, res: Scaled) !void {
+    try appendRectColor(mesh, gpa, x, y, w, h, uv, .{ 255, 255, 255, 255 }, res);
 }
 
 pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }
 
-pub fn appendTextColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, scaled_width: f32, scaled_height: f32) !void {
+pub fn appendTextColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
     var cursor = x;
     for (text) |c| {
-        try appendRectColor(mesh, gpa, cursor, y, Font.glyph_size, Font.glyph_size, Font.glyphUv(c), color, scaled_width, scaled_height);
+        try appendRectColor(mesh, gpa, cursor, y, Font.glyph_draw_size, Font.glyph_draw_size, Font.glyphUv(c), color, res);
         cursor += @floatFromInt(font.char_width[c]);
     }
 }
 
-pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, scaled_width: f32, scaled_height: f32) !void {
-    try appendTextColor(mesh, gpa, font, text, x, y, .{ 255, 255, 255, 255 }, scaled_width, scaled_height);
+pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, res: Scaled) !void {
+    try appendTextColor(mesh, gpa, font, text, x, y, .{ 255, 255, 255, 255 }, res);
 }
 
 pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
@@ -119,15 +143,14 @@ fn appendIsoFace(
     brightness: f32,
     x: f32,
     y: f32,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: Scaled,
 ) !void {
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
     var positions: [4][3]f32 = undefined;
     for (corners, 0..) |c, i| {
         const offset = isoOffset(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5);
-        const ndc = toNdc(x + 8.0 + offset[0], y + 8.0 + offset[1], scaled_width, scaled_height);
+        const ndc = toNdc(x + 8.0 + offset[0], y + 8.0 + offset[1], res);
         positions[i] = .{ ndc[0], ndc[1], 0 };
     }
     const shade: u8 = @intFromFloat(@round(brightness * 255.0));
@@ -141,8 +164,7 @@ pub fn appendBlockIcon3d(
     meta: u4,
     x: f32,
     y: f32,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: Scaled,
 ) !void {
     var textures = world.block.faceTextures(id);
     if (id == world.block.log) {
@@ -150,9 +172,9 @@ pub fn appendBlockIcon3d(
         textures[world.block.south] = side_tile;
         textures[world.block.east] = side_tile;
     }
-    try appendIsoFace(mesh, gpa, iso_up_corners, textures[world.block.up], iso_brightness_up, x, y, scaled_width, scaled_height);
-    try appendIsoFace(mesh, gpa, iso_south_corners, textures[world.block.south], iso_brightness_south, x, y, scaled_width, scaled_height);
-    try appendIsoFace(mesh, gpa, iso_east_corners, textures[world.block.east], iso_brightness_east, x, y, scaled_width, scaled_height);
+    try appendIsoFace(mesh, gpa, iso_up_corners, textures[world.block.up], iso_brightness_up, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_south_corners, textures[world.block.south], iso_brightness_south, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_east_corners, textures[world.block.east], iso_brightness_east, x, y, res);
 }
 
 pub fn appendStackIcon(
@@ -164,26 +186,25 @@ pub fn appendStackIcon(
     stack: game.Inventory.ItemStack,
     x: f32,
     y: f32,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: Scaled,
 ) !void {
     if (stack.id <= 255) {
         const id: u8 = @intCast(stack.id);
         if (world.block.isCross(id)) {
             const tile = world.block.crossTile(id, stack.meta);
-            try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+            try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
         } else {
-            try appendBlockIcon3d(block_mesh, gpa, id, stack.meta, x, y, scaled_width, scaled_height);
+            try appendBlockIcon3d(block_mesh, gpa, id, stack.meta, x, y, res);
         }
     } else if (world.item.iconTile(stack.id)) |tile| {
-        try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), scaled_width, scaled_height);
+        try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
     }
 
     if (stack.count > 1) {
         var buf: [3]u8 = undefined;
         const label = std.fmt.bufPrint(&buf, "{d}", .{stack.count}) catch return;
         const label_width: f32 = @floatFromInt(font.stringWidth(label));
-        try appendText(text_mesh, gpa, font, label, x + 17.0 - label_width, y + 9.0, scaled_width, scaled_height);
+        try appendText(text_mesh, gpa, font, label, x + 17.0 - label_width, y + 9.0, res);
     }
 }
 
@@ -199,11 +220,10 @@ pub fn draw(
     screen_width: f32,
     screen_height: f32,
 ) !void {
-    const scaled_width = screen_width / gui_scale;
-    const scaled_height = screen_height / gui_scale;
+    const res = scaledResolution(screen_width, screen_height);
 
-    const hotbar_x = scaled_width / 2.0 - hotbar_width / 2.0;
-    const hotbar_y = scaled_height - hotbar_height;
+    const hotbar_x = @floor(res.width / 2.0) - hotbar_width / 2.0;
+    const hotbar_y = res.height - hotbar_height;
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
@@ -211,16 +231,16 @@ pub fn draw(
 
     var chrome: MeshBuilder = .{};
     defer chrome.deinit(gpa);
-    try appendRect(&chrome, gpa, hotbar_x, hotbar_y, hotbar_width, hotbar_height, pixelUv(0, 0, hotbar_width, hotbar_height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+    try appendRect(&chrome, gpa, hotbar_x, hotbar_y, hotbar_width, hotbar_height, pixelUv(0, 0, hotbar_width, hotbar_height, gui_texture_size, gui_texture_size), res);
     const highlight_x = hotbar_x - 1.0 + @as(f32, @floatFromInt(inventory.selected)) * slot_pitch;
-    try appendRect(&chrome, gpa, highlight_x, hotbar_y - 1.0, highlight_width, highlight_height, pixelUv(0, 22, highlight_width, highlight_height, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+    try appendRect(&chrome, gpa, highlight_x, hotbar_y - 1.0, highlight_width, highlight_height, pixelUv(0, 22, highlight_width, highlight_height, gui_texture_size, gui_texture_size), res);
     try drawTexturedMesh(&chrome, icon_shader, gui_texture);
 
     var crosshair: MeshBuilder = .{};
     defer crosshair.deinit(gpa);
-    const crosshair_x = scaled_width / 2.0 - 7.0;
-    const crosshair_y = scaled_height / 2.0 - 7.0;
-    try appendRect(&crosshair, gpa, crosshair_x, crosshair_y, crosshair_size, crosshair_size, pixelUv(0, 0, crosshair_size, crosshair_size, gui_texture_size, gui_texture_size), scaled_width, scaled_height);
+    const crosshair_x = @floor(res.width / 2.0) - 7.0;
+    const crosshair_y = @floor(res.height / 2.0) - 7.0;
+    try appendRect(&crosshair, gpa, crosshair_x, crosshair_y, crosshair_size, crosshair_size, pixelUv(0, 0, crosshair_size, crosshair_size, gui_texture_size, gui_texture_size), res);
     gl.BlendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE_MINUS_SRC_COLOR);
     try drawTexturedMesh(&crosshair, icon_shader, icons_texture);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -236,7 +256,7 @@ pub fn draw(
         const stack = inventory.slots[i] orelse continue;
         const slot_x = hotbar_x + 2.0 + @as(f32, @floatFromInt(i)) * slot_pitch;
         const slot_y = hotbar_y + 3.0;
-        try appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, slot_x, slot_y, scaled_width, scaled_height);
+        try appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, slot_x, slot_y, res);
     }
 
     try drawTexturedMesh(&block_icons, icon_shader, atlas);

@@ -31,8 +31,7 @@ fn appendPlayerPreview(
     anchor_y: f32,
     dx: f32,
     dy: f32,
-    scaled_width: f32,
-    scaled_height: f32,
+    res: hud.Scaled,
 ) !void {
     const body_yaw = std.math.atan(dx / preview_tracking_divisor) * (20.0 * std.math.pi / 180.0);
     const head_yaw = std.math.atan(dx / preview_tracking_divisor) * (40.0 * std.math.pi / 180.0);
@@ -52,7 +51,7 @@ fn appendPlayerPreview(
     for (mesh.vertices.items[start..]) |*v| {
         const screen_x = anchor_x + v.x * preview_pixels_per_meter;
         const screen_y = anchor_y - v.y * preview_pixels_per_meter;
-        const ndc = hud.toNdc(screen_x, screen_y, scaled_width, scaled_height);
+        const ndc = hud.toNdc(screen_x, screen_y, res);
         v.x = ndc[0];
         v.y = ndc[1];
         v.z = 0;
@@ -104,17 +103,16 @@ pub fn slots() [41]Slot {
     return result;
 }
 
-pub fn origin(screen_width: f32, screen_height: f32) [2]f32 {
-    const scaled_width = screen_width / hud.gui_scale;
-    const scaled_height = screen_height / hud.gui_scale;
-    return .{ scaled_width / 2.0 - width / 2.0, scaled_height / 2.0 - height / 2.0 };
+pub fn origin(res: hud.Scaled) [2]f32 {
+    return .{ @floor((res.width - width) / 2.0), @floor((res.height - height) / 2.0) };
 }
 
 /// Returns the inventory slot under the given window-pixel mouse position, if any.
 pub fn slotAt(mouse_x: f32, mouse_y: f32, screen_width: f32, screen_height: f32) ?Slot {
-    const org = origin(screen_width, screen_height);
-    const gx = mouse_x / hud.gui_scale - org[0];
-    const gy = mouse_y / hud.gui_scale - org[1];
+    const res = hud.scaledResolution(screen_width, screen_height);
+    const org = origin(res);
+    const gx = mouse_x / res.factor - org[0];
+    const gy = mouse_y / res.factor - org[1];
     for (slots()) |slot| {
         if (gx >= slot.x and gx < slot.x + hud.icon_size and gy >= slot.y and gy < slot.y + hud.icon_size) {
             return slot;
@@ -143,9 +141,8 @@ pub fn draw(
     screen_width: f32,
     screen_height: f32,
 ) !void {
-    const scaled_width = screen_width / hud.gui_scale;
-    const scaled_height = screen_height / hud.gui_scale;
-    const org = origin(screen_width, screen_height);
+    const res = hud.scaledResolution(screen_width, screen_height);
+    const org = origin(res);
 
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
@@ -153,14 +150,14 @@ pub fn draw(
 
     var background: MeshBuilder = .{};
     defer background.deinit(gpa);
-    try hud.appendRect(&background, gpa, org[0], org[1], width, height, hud.pixelUv(0, 0, width, height, texture_size, texture_size), scaled_width, scaled_height);
+    try hud.appendRect(&background, gpa, org[0], org[1], width, height, hud.pixelUv(0, 0, width, height, texture_size, texture_size), res);
     try hud.drawTexturedMesh(&background, icon_shader, background_texture);
 
     var preview: MeshBuilder = .{};
     defer preview.deinit(gpa);
     const preview_anchor = .{ org[0] + preview_anchor_x, org[1] + preview_anchor_y };
-    const preview_dx = preview_anchor[0] - mouse_x / hud.gui_scale;
-    const preview_dy = (preview_anchor[1] - preview_pitch_anchor_y) - mouse_y / hud.gui_scale;
+    const preview_dx = preview_anchor[0] - mouse_x / res.factor;
+    const preview_dy = (preview_anchor[1] - preview_pitch_anchor_y) - mouse_y / res.factor;
     try appendPlayerPreview(
         &preview,
         gpa,
@@ -172,8 +169,7 @@ pub fn draw(
         preview_anchor[1],
         preview_dx,
         preview_dy,
-        scaled_width,
-        scaled_height,
+        res,
     );
     try hud.drawTexturedMesh(&preview, icon_shader, player_texture);
 
@@ -191,13 +187,13 @@ pub fn draw(
             .craft_input => crafting_grid[slot.index],
             .craft_result => craft_result,
         } orelse continue;
-        try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, org[0] + slot.x, org[1] + slot.y, scaled_width, scaled_height);
+        try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, org[0] + slot.x, org[1] + slot.y, res);
     }
 
     if (held) |stack| {
-        const hx = mouse_x / hud.gui_scale - hud.icon_size / 2.0;
-        const hy = mouse_y / hud.gui_scale - hud.icon_size / 2.0;
-        try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, hx, hy, scaled_width, scaled_height);
+        const hx = mouse_x / res.factor - hud.icon_size / 2.0;
+        const hy = mouse_y / res.factor - hud.icon_size / 2.0;
+        try hud.appendStackIcon(&block_icons, &item_icons, &text, gpa, font, stack, hx, hy, res);
     }
 
     try hud.drawTexturedMesh(&block_icons, icon_shader, atlas);

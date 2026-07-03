@@ -12,8 +12,8 @@ const world = @import("world");
 
 const fps = 60;
 const ticks_per_second = 20.0;
-const screen_width = 640;
-const screen_height = 480;
+const screen_width = 1280;
+const screen_height = 720;
 const init_flags = sdl3.InitFlags{ .video = true };
 const terrain_png = assets.terrain_png;
 const pig_png = assets.mob.pig_png;
@@ -257,8 +257,6 @@ pub fn init(
 
     app_state.generator = try world.TerrainGenerator.init(std.heap.page_allocator, world_seed);
     errdefer app_state.generator.deinit(std.heap.page_allocator);
-
-    try ensureChunksAroundPlayer(&app_state);
 
     return .{ app_state, .run };
 }
@@ -568,7 +566,7 @@ fn optionsClick(app_state: *AppState) !void {
     switch (hit) {
         .slider => |s| {
             app_state.dragging_slider = s;
-            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui.w));
+            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui.w, gui.h));
         },
         .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
         .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
@@ -698,9 +696,11 @@ fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } 
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
 }
 
+/// The GUI is scaled off the same drawable size the viewport uses, so one GUI
+/// pixel stays an exact whole number of device pixels.
 fn guiSize(app_state: *const AppState) struct { w: f32, h: f32 } {
-    const s = app_state.window.getSize() catch return .{ .w = screen_width, .h = screen_height };
-    return .{ .w = @floatFromInt(@max(s[0], 1)), .h = @floatFromInt(@max(s[1], 1)) };
+    const px = drawableSize(app_state);
+    return .{ .w = @floatFromInt(px.w), .h = @floatFromInt(px.h) };
 }
 
 fn renderWorld(app_state: *AppState) !void {
@@ -904,7 +904,7 @@ pub fn event(
             app_state.mouse_y = m.y;
             if (app_state.dragging_slider) |s| {
                 const gui = guiSize(app_state);
-                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui.w));
+                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui.w, gui.h));
             } else if (worldFocused(app_state)) {
                 app_state.player.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
             }
