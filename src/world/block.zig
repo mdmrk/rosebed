@@ -52,6 +52,25 @@ pub fn isLiquid(id: u8) bool {
     return id == stationary_water or id == flowing_lava;
 }
 
+pub const Bounds = struct { min: [3]f32, max: [3]f32 };
+
+fn plantBounds(half_width: f32, height: f32) Bounds {
+    return .{
+        .min = .{ 0.5 - half_width, 0.0, 0.5 - half_width },
+        .max = .{ 0.5 + half_width, height, 0.5 + half_width },
+    };
+}
+
+pub fn selectionBounds(id: u8) Bounds {
+    return switch (id) {
+        tall_grass, dead_bush => plantBounds(0.4, 0.8),
+        dandelion, rose => plantBounds(0.2, 0.6),
+        mushroom_brown, mushroom_red => plantBounds(0.2, 0.4),
+        reed => plantBounds(6.0 / 16.0, 1.0),
+        else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, heightScale(id), 1 } },
+    };
+}
+
 pub fn isOpaqueCube(id: u8) bool {
     return isOpaque(id) and !isLiquid(id);
 }

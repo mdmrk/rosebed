@@ -8,6 +8,13 @@ vao: gl.uint,
 vbo: gl.uint,
 ebo: gl.uint,
 index_count: gl.sizei,
+mode: gl.@"enum" = gl.TRIANGLES,
+
+pub fn uploadLines(mesh: *const MeshBuilder) GpuMesh {
+    var uploaded = upload(mesh);
+    uploaded.mode = gl.LINES;
+    return uploaded;
+}
 
 pub fn upload(mesh: *const MeshBuilder) GpuMesh {
     var vao: gl.uint = 0;
@@ -50,7 +57,7 @@ pub fn upload(mesh: *const MeshBuilder) GpuMesh {
 
 pub fn draw(self: GpuMesh) void {
     gl.BindVertexArray(self.vao);
-    gl.DrawElements(gl.TRIANGLES, self.index_count, gl.UNSIGNED_INT, 0);
+    gl.DrawElements(self.mode, self.index_count, gl.UNSIGNED_INT, 0);
 }
 
 pub fn deinit(self: GpuMesh) void {

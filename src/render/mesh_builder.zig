@@ -43,6 +43,20 @@ pub fn quadShaded(
     });
 }
 
+pub fn line(
+    self: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    from: [3]f32,
+    to: [3]f32,
+    color: [4]u8,
+) !void {
+    const base: u32 = @intCast(self.vertices.items.len);
+    for ([2][3]f32{ from, to }) |p| {
+        try self.vertices.append(gpa, .{ .x = p[0], .y = p[1], .z = p[2], .u = 0, .v = 0, .color = color });
+    }
+    try self.indices.appendSlice(gpa, &.{ base, base + 1 });
+}
+
 pub fn quad(
     self: *MeshBuilder,
     gpa: std.mem.Allocator,

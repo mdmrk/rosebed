@@ -637,6 +637,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.textures.terrain.bind();
     app_state.shader.setInt("u_atlas", 0);
     app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt("u_textured", 1);
     app_state.chunks.drawSolid();
 
     var atlas_mesh: render.MeshBuilder = .{};
@@ -660,11 +661,44 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    try drawSelectionOutline(app_state);
+
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     app_state.shader.setInt("u_alpha_test", 0);
     try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
+    gl.Disable(gl.BLEND);
+}
+
+fn drawSelectionOutline(app_state: *AppState) !void {
+    const hit = game.raycast.cast(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+    const id = app_state.world_map.getBlockId(hit.x, hit.y, hit.z);
+    try render.selection.appendOutline(&mesh, app_state.frame, id, hit.x, hit.y, hit.z);
+
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.DepthMask(gl.FALSE);
+    gl.LineWidth(2.0);
+    app_state.shader.setInt("u_textured", 0);
+    app_state.shader.setInt("u_alpha_test", 0);
+
+    var gpu = render.GpuMesh.uploadLines(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt("u_textured", 1);
+    gl.LineWidth(1.0);
+    gl.DepthMask(gl.TRUE);
     gl.Disable(gl.BLEND);
 }
 
