@@ -19,7 +19,6 @@ const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const version_color: [4]u8 = .{ 80, 80, 80, 255 };
 const copyright_color: [4]u8 = .{ 255, 255, 255, 255 };
 const splash_color: [4]u8 = .{ 255, 255, 0, 255 };
-const splash_shadow_color: [4]u8 = .{ 63, 63, 0, 255 };
 const splash_offset_x: f32 = 90;
 const splash_y: f32 = 70;
 const splash_rotation: f32 = -20.0 * std.math.pi / 180.0;
@@ -34,7 +33,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     return .{
         .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer },
         .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = false }, .action = null },
-        .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = false }, .action = null },
+        .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = true }, .action = null },
         .{ .button = .{ .x = cx - 100, .y = top + 84, .w = 98, .label = "Options...", .enabled = true }, .action = .options },
         .{ .button = .{ .x = cx + 2, .y = top + 84, .w = 98, .label = "Quit Game", .enabled = true }, .action = .quit },
     };
@@ -105,7 +104,6 @@ pub fn draw(
         .rotation = splash_rotation,
     };
     const splash_x = -@floor(splash_width / 2.0);
-    try hud.appendTextTransformed(&text, gpa, font, splash, splash_x + 1, -8 + 1, splash_shadow_color, splash_transform, res);
     try hud.appendTextTransformed(&text, gpa, font, splash, splash_x, -8, splash_color, splash_transform, res);
 
     try hud.appendTextColor(&text, gpa, font, "Minecraft Beta 1.7.3", 2, 2, version_color, res);

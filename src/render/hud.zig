@@ -76,12 +76,47 @@ pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv 
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }
 
-pub fn appendTextColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
+pub fn shadowColor(color: [4]u8) [4]u8 {
+    return .{ (color[0] & 0xFC) >> 2, (color[1] & 0xFC) >> 2, (color[2] & 0xFC) >> 2, color[3] };
+}
+
+test "shadowColor matches renderString's (rgb & 0xFCFCFC) >> 2" {
+    const cases = [_]struct { rgb: u32, want: [3]u8 }{
+        .{ .rgb = 16776960, .want = .{ 63, 63, 0 } },
+        .{ .rgb = 16777215, .want = .{ 63, 63, 63 } },
+        .{ .rgb = 14737632, .want = .{ 56, 56, 56 } },
+        .{ .rgb = 16777120, .want = .{ 63, 63, 40 } },
+        .{ .rgb = 10526880, .want = .{ 40, 40, 40 } },
+        .{ .rgb = 5263440, .want = .{ 20, 20, 20 } },
+    };
+    for (cases) |case| {
+        const packed_shadow = (case.rgb & 16579836) >> 2;
+        const rgb: [4]u8 = .{
+            @truncate(case.rgb >> 16),
+            @truncate(case.rgb >> 8),
+            @truncate(case.rgb),
+            255,
+        };
+        const got = shadowColor(rgb);
+        try std.testing.expectEqual(@as(u8, @truncate(packed_shadow >> 16)), got[0]);
+        try std.testing.expectEqual(@as(u8, @truncate(packed_shadow >> 8)), got[1]);
+        try std.testing.expectEqual(@as(u8, @truncate(packed_shadow)), got[2]);
+        try std.testing.expectEqual(case.want, got[0..3].*);
+        try std.testing.expectEqual(@as(u8, 255), got[3]);
+    }
+}
+
+fn appendGlyphs(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
     var cursor = x;
     for (text) |c| {
         try appendRectColor(mesh, gpa, cursor, y, Font.glyph_draw_size, Font.glyph_draw_size, Font.glyphUv(c), color, res);
         cursor += @floatFromInt(font.char_width[c]);
     }
+}
+
+pub fn appendTextColor(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, color: [4]u8, res: Scaled) !void {
+    try appendGlyphs(mesh, gpa, font, text, x + 1, y + 1, shadowColor(color), res);
+    try appendGlyphs(mesh, gpa, font, text, x, y, color, res);
 }
 
 pub fn appendText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text: []const u8, x: f32, y: f32, res: Scaled) !void {
@@ -103,7 +138,7 @@ pub const Transform = struct {
     }
 };
 
-pub fn appendTextTransformed(
+fn appendGlyphsTransformed(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     font: Font,
@@ -131,6 +166,21 @@ pub fn appendTextTransformed(
         }, .{ .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 } }, color);
         cursor += @floatFromInt(font.char_width[c]);
     }
+}
+
+pub fn appendTextTransformed(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    font: Font,
+    text: []const u8,
+    x: f32,
+    y: f32,
+    color: [4]u8,
+    transform: Transform,
+    res: Scaled,
+) !void {
+    try appendGlyphsTransformed(mesh, gpa, font, text, x + 1, y + 1, shadowColor(color), transform, res);
+    try appendGlyphsTransformed(mesh, gpa, font, text, x, y, color, transform, res);
 }
 
 pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !void {
