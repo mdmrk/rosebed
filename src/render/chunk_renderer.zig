@@ -8,7 +8,17 @@ const Colorizer = @import("colorizer.zig");
 const ChunkRenderer = @This();
 
 const CoordSet = std.AutoHashMapUnmanaged(world.World.ChunkCoord, void);
-const MeshMap = std.AutoHashMapUnmanaged(world.World.ChunkCoord, GpuMesh);
+const MeshMap = std.AutoHashMapUnmanaged(world.World.ChunkCoord, ChunkMeshes);
+
+const ChunkMeshes = struct {
+    solid: GpuMesh,
+    translucent: GpuMesh,
+
+    fn deinit(self: ChunkMeshes) void {
+        self.solid.deinit();
+        self.translucent.deinit();
+    }
+};
 
 meshes: MeshMap = .{},
 dirty: CoordSet = .{},
@@ -58,7 +68,10 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
 
         const entry = try self.meshes.getOrPut(gpa, coord.*);
         if (entry.found_existing) entry.value_ptr.deinit();
-        entry.value_ptr.* = GpuMesh.upload(&mesh);
+        entry.value_ptr.* = .{
+            .solid = GpuMesh.upload(&mesh.solid),
+            .translucent = GpuMesh.upload(&mesh.translucent),
+        };
         rebuilt += 1;
     }
     self.dirty.clearRetainingCapacity();
@@ -66,9 +79,37 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
     return rebuilt;
 }
 
-pub fn draw(self: *const ChunkRenderer) void {
+pub fn drawSolid(self: *const ChunkRenderer) void {
     var it = self.meshes.valueIterator();
-    while (it.next()) |mesh| mesh.draw();
+    while (it.next()) |mesh| mesh.solid.draw();
+}
+
+pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, eye_x: f64, eye_z: f64) !void {
+    const Ordered = struct {
+        distance: f64,
+        mesh: GpuMesh,
+
+        fn farthestFirst(_: void, a: @This(), b: @This()) bool {
+            return a.distance > b.distance;
+        }
+    };
+
+    var ordered: std.ArrayList(Ordered) = .empty;
+    defer ordered.deinit(gpa);
+
+    const width: f64 = @floatFromInt(world.constants.chunk_width);
+    var it = self.meshes.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.translucent.index_count == 0) continue;
+        const center_x = (@as(f64, @floatFromInt(entry.key_ptr.x)) + 0.5) * width;
+        const center_z = (@as(f64, @floatFromInt(entry.key_ptr.z)) + 0.5) * width;
+        const dx = center_x - eye_x;
+        const dz = center_z - eye_z;
+        try ordered.append(gpa, .{ .distance = dx * dx + dz * dz, .mesh = entry.value_ptr.translucent });
+    }
+
+    std.mem.sort(Ordered, ordered.items, {}, Ordered.farthestFirst);
+    for (ordered.items) |entry| entry.mesh.draw();
 }
 
 test "a block on a chunk seam dirties both sides" {

@@ -636,7 +636,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.textures.terrain.bind();
     app_state.shader.setInt("u_atlas", 0);
-    app_state.chunks.draw();
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.chunks.drawSolid();
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
@@ -658,6 +659,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         drawEntityMesh(&pig_mesh);
         app_state.textures.terrain.bind();
     }
+
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    app_state.shader.setInt("u_alpha_test", 0);
+    try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
+    app_state.shader.setInt("u_alpha_test", 1);
+    gl.Disable(gl.BLEND);
 }
 
 pub fn iterate(

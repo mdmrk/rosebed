@@ -52,6 +52,22 @@ pub fn isLiquid(id: u8) bool {
     return id == stationary_water or id == flowing_lava;
 }
 
+pub fn isOpaqueCube(id: u8) bool {
+    return isOpaque(id) and !isLiquid(id);
+}
+
+pub fn isTranslucent(id: u8) bool {
+    return id == stationary_water;
+}
+
+pub fn shouldRenderFace(id: u8, neighbor: u8, side: u3) bool {
+    if (isLiquid(id)) {
+        if (neighbor == id) return false;
+        if (side == up) return true;
+    }
+    return !isOpaqueCube(neighbor);
+}
+
 pub fn isFalling(id: u8) bool {
     return id == sand or id == gravel;
 }
@@ -95,8 +111,8 @@ pub fn faceTextures(id: u8) [6]u8 {
         dirt => .{ 2, 2, 2, 2, 2, 2 },
         planks => .{ 4, 4, 4, 4, 4, 4 },
         bedrock => .{ 17, 17, 17, 17, 17, 17 },
-        stationary_water => .{ 205, 205, 205, 205, 205, 205 },
-        flowing_lava => .{ 237, 237, 237, 237, 237, 237 },
+        stationary_water => .{ 205, 205, 206, 206, 206, 206 },
+        flowing_lava => .{ 237, 237, 238, 238, 238, 238 },
         sand => .{ 18, 18, 18, 18, 18, 18 },
         gravel => .{ 19, 19, 19, 19, 19, 19 },
         ore_gold => .{ 32, 32, 32, 32, 32, 32 },

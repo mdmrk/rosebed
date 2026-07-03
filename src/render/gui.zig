@@ -219,6 +219,7 @@ pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !v
     texture.bind();
     shader.setInt("u_atlas", 0);
     shader.setInt("u_fog_enabled", 0);
+    shader.setInt("u_alpha_test", 1);
     shader.setMat4("u_view_proj", identity);
     gpu.draw();
 }
