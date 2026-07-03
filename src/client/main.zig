@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const assets = @import("assets");
@@ -84,9 +85,14 @@ comptime {
 pub const _start = void;
 pub const WinMainCRTStartup = void;
 
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+var frame_arena: std.heap.ArenaAllocator = undefined;
+
 const ChunkMeshMap = std.AutoHashMapUnmanaged(world.World.ChunkCoord, render.GpuMesh);
 
 const AppState = struct {
+    gpa: std.mem.Allocator,
+    frame: std.mem.Allocator,
     fps_capper: sdl3.extras.FramerateCapper(f32),
     window: sdl3.video.Window,
     gl_context: sdl3.video.gl.Context,
@@ -228,10 +234,10 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     };
 }
 
-fn buildChunkMesh(world_map: *const world.World, chunk_x: i32, chunk_z: i32) !render.GpuMesh {
+fn buildChunkMesh(gpa: std.mem.Allocator, world_map: *const world.World, chunk_x: i32, chunk_z: i32) !render.GpuMesh {
     const chunk = world_map.getChunk(chunk_x, chunk_z).?;
-    var mesh = try render.chunk_mesher.build(std.heap.page_allocator, world_map, chunk);
-    defer mesh.deinit(std.heap.page_allocator);
+    var mesh = try render.chunk_mesher.build(gpa, world_map, chunk);
+    defer mesh.deinit(gpa);
     return render.GpuMesh.upload(&mesh);
 }
 
@@ -254,8 +260,8 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
             const coord = world.World.ChunkCoord{ .x = cx, .z = cz };
             if (app_state.chunk_meshes.contains(coord)) continue;
             try app_state.world_map.ensureDecorated(app_state.generator, cx, cz);
-            const mesh = try buildChunkMesh(&app_state.world_map, cx, cz);
-            try app_state.chunk_meshes.put(std.heap.page_allocator, coord, mesh);
+            const mesh = try buildChunkMesh(app_state.gpa, &app_state.world_map, cx, cz);
+            try app_state.chunk_meshes.put(app_state.gpa, coord, mesh);
             app_state.chunk_updates_this_second += 1;
         }
     }
@@ -288,7 +294,12 @@ pub fn init(
 
     try sdl3.mouse.setWindowRelativeMode(window, false);
 
+    const gpa = if (builtin.mode == .Debug) debug_allocator.allocator() else std.heap.smp_allocator;
+    frame_arena = .init(gpa);
+
     var app_state: AppState = .{
+        .gpa = gpa,
+        .frame = frame_arena.allocator(),
         .fps_capper = .{ .mode = .{ .limited = fps } },
         .window = window,
         .gl_context = gl_context,
@@ -305,7 +316,7 @@ pub fn init(
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
-        .world_map = world.World.init(std.heap.page_allocator),
+        .world_map = world.World.init(gpa),
         .chunk_meshes = .{},
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
     };
@@ -345,23 +356,23 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
-    try app_state.pigs.append(std.heap.page_allocator, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
+    try app_state.pigs.append(app_state.gpa, game.Pig.spawn(math.Vec3.init(10, 90, 8)));
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
-    app_state.generator = try world.TerrainGenerator.init(std.heap.page_allocator, world_seed);
-    errdefer app_state.generator.deinit(std.heap.page_allocator);
+    app_state.generator = try world.TerrainGenerator.init(gpa, world_seed);
+    errdefer app_state.generator.deinit(gpa);
 
     return .{ app_state, .run };
 }
 
 fn rebuildChunkMesh(app_state: *AppState, chunk_x: i32, chunk_z: i32) !void {
     if (app_state.world_map.getChunk(chunk_x, chunk_z) == null) return;
-    const mesh = try buildChunkMesh(&app_state.world_map, chunk_x, chunk_z);
+    const mesh = try buildChunkMesh(app_state.gpa, &app_state.world_map, chunk_x, chunk_z);
     const coord = world.World.ChunkCoord{ .x = chunk_x, .z = chunk_z };
     if (app_state.chunk_meshes.getPtr(coord)) |old| old.deinit();
-    try app_state.chunk_meshes.put(std.heap.page_allocator, coord, mesh);
+    try app_state.chunk_meshes.put(app_state.gpa, coord, mesh);
 }
 
 fn rebuildMeshesAround(app_state: *AppState, x: i32, z: i32) !void {
@@ -430,7 +441,7 @@ fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.In
         @as(f64, @floatFromInt(z)) + jitter_z,
     );
     const item = game.ItemEntity.spawn(position, stack, rand);
-    try app_state.item_entities.append(std.heap.page_allocator, item);
+    try app_state.item_entities.append(app_state.gpa, item);
 }
 
 fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -446,7 +457,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
         @floatFromInt(y),
         @as(f64, @floatFromInt(z)) + 0.5,
     );
-    try app_state.falling_blocks.append(std.heap.page_allocator, game.FallingBlock.spawn(position, id));
+    try app_state.falling_blocks.append(app_state.gpa, game.FallingBlock.spawn(position, id));
 }
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
@@ -833,24 +844,24 @@ fn renderWorld(app_state: *AppState) !void {
     var mesh_it = app_state.chunk_meshes.valueIterator();
     while (mesh_it.next()) |mesh| mesh.draw();
 
-    var item_mesh = try buildItemEntityMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
-    defer item_mesh.deinit(std.heap.page_allocator);
+    var item_mesh = try buildItemEntityMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
+    defer item_mesh.deinit(app_state.frame);
     if (item_mesh.vertices.items.len > 0) {
         var item_gpu = render.GpuMesh.upload(&item_mesh);
         defer item_gpu.deinit();
         item_gpu.draw();
     }
 
-    var falling_mesh = try buildFallingBlockMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
-    defer falling_mesh.deinit(std.heap.page_allocator);
+    var falling_mesh = try buildFallingBlockMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
+    defer falling_mesh.deinit(app_state.frame);
     if (falling_mesh.vertices.items.len > 0) {
         var falling_gpu = render.GpuMesh.upload(&falling_mesh);
         defer falling_gpu.deinit();
         falling_gpu.draw();
     }
 
-    var pig_mesh = try buildPigMesh(std.heap.page_allocator, app_state, app_state.timer.render_partial_ticks);
-    defer pig_mesh.deinit(std.heap.page_allocator);
+    var pig_mesh = try buildPigMesh(app_state.frame, app_state, app_state.timer.render_partial_ticks);
+    defer pig_mesh.deinit(app_state.frame);
     if (pig_mesh.vertices.items.len > 0) {
         var pig_gpu = render.GpuMesh.upload(&pig_mesh);
         defer pig_gpu.deinit();
@@ -864,6 +875,7 @@ pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
+    _ = frame_arena.reset(.retain_capacity);
     const px = drawableSize(app_state);
     gl.Viewport(0, 0, px.w, px.h);
     const gui = guiSize(app_state);
@@ -896,7 +908,7 @@ pub fn iterate(
 
     if (app_state.screen == .playing and app_state.show_debug) {
         try render.debug_overlay.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.font,
             debugStats(app_state),
@@ -906,7 +918,7 @@ pub fn iterate(
 
     if (app_state.video_open) {
         try render.video_settings_screen.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.dirt_texture,
             app_state.gui_texture,
@@ -919,7 +931,7 @@ pub fn iterate(
         );
     } else if (app_state.options_open) {
         try render.options_screen.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.dirt_texture,
             app_state.gui_texture,
@@ -932,7 +944,7 @@ pub fn iterate(
         );
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.dirt_texture,
             app_state.logo_texture,
@@ -946,7 +958,7 @@ pub fn iterate(
         );
     } else if (app_state.paused) {
         try render.menu.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.gui_texture,
             app_state.font,
@@ -956,7 +968,7 @@ pub fn iterate(
         );
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.inventory_texture,
             app_state.atlas,
@@ -976,7 +988,7 @@ pub fn iterate(
         );
     } else {
         try render.hud.draw(
-            std.heap.page_allocator,
+            app_state.frame,
             app_state.shader,
             app_state.atlas,
             app_state.gui_texture,
@@ -1109,12 +1121,12 @@ pub fn quit(
         gl.makeProcTableCurrent(&state.gl_procs);
         var mesh_it = state.chunk_meshes.valueIterator();
         while (mesh_it.next()) |mesh| mesh.deinit();
-        state.chunk_meshes.deinit(std.heap.page_allocator);
-        state.item_entities.deinit(std.heap.page_allocator);
-        state.falling_blocks.deinit(std.heap.page_allocator);
-        state.pigs.deinit(std.heap.page_allocator);
+        state.chunk_meshes.deinit(state.gpa);
+        state.item_entities.deinit(state.gpa);
+        state.falling_blocks.deinit(state.gpa);
+        state.pigs.deinit(state.gpa);
         state.world_map.deinit();
-        state.generator.deinit(std.heap.page_allocator);
+        state.generator.deinit(state.gpa);
         state.shader.deinit();
         state.atlas.deinit();
         state.pig_texture.deinit();
@@ -1128,7 +1140,9 @@ pub fn quit(
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();
+        frame_arena.deinit();
     }
     sdl3.quit(init_flags);
     sdl3.shutdown();
+    if (builtin.mode == .Debug) _ = debug_allocator.deinit();
 }
