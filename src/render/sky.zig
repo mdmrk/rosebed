@@ -158,6 +158,66 @@ pub fn appendSunriseGlow(mesh: *MeshBuilder, gpa: std.mem.Allocator, sunrise: Su
     }
 }
 
+pub const cloud_height: f32 = 108.0;
+pub const cloud_alpha: u8 = 204;
+pub const cloud_scroll_per_tick: f64 = 0.03;
+
+const cloud_cell: i32 = 32;
+const cloud_reach: i32 = cloud_cell * (256 / cloud_cell);
+const cloud_uv_scale: f64 = 0.5 / 1024.0;
+const cloud_wrap: f64 = 2048.0;
+
+pub fn cloudColor(celestial_angle: f32) Color {
+    const factor = dayFactor(celestial_angle);
+    return .{
+        factor * 0.9 + 0.1,
+        factor * 0.9 + 0.1,
+        factor * 0.85 + 0.15,
+    };
+}
+
+fn wrapCloud(value: f64) f64 {
+    return value - @as(f64, @floatFromInt(math.util.floorDouble(value / cloud_wrap))) * cloud_wrap;
+}
+
+pub fn appendClouds(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    eye: [3]f64,
+    scroll: f64,
+    color: Color,
+) !void {
+    const anchor_x = wrapCloud(eye[0] + scroll);
+    const anchor_z = wrapCloud(eye[2]);
+    const height: f32 = @floatCast(cloud_height - eye[1] + 0.33);
+    const offset_u: f64 = anchor_x * cloud_uv_scale;
+    const offset_v: f64 = anchor_z * cloud_uv_scale;
+
+    const tint: [4]u8 = .{ level(color[0]), level(color[1]), level(color[2]), cloud_alpha };
+
+    var x: i32 = -cloud_reach;
+    while (x < cloud_reach) : (x += cloud_cell) {
+        var z: i32 = -cloud_reach;
+        while (z < cloud_reach) : (z += cloud_cell) {
+            const x0: f32 = @floatFromInt(x);
+            const x1: f32 = @floatFromInt(x + cloud_cell);
+            const z0: f32 = @floatFromInt(z);
+            const z1: f32 = @floatFromInt(z + cloud_cell);
+            const left: f32 = @floatCast(@as(f64, x0) * cloud_uv_scale + offset_u);
+            const right: f32 = @floatCast(@as(f64, x1) * cloud_uv_scale + offset_u);
+            const near: f32 = @floatCast(@as(f64, z0) * cloud_uv_scale + offset_v);
+            const far: f32 = @floatCast(@as(f64, z1) * cloud_uv_scale + offset_v);
+
+            try mesh.quad(
+                gpa,
+                .{ .{ x0, height, z1 }, .{ x1, height, z1 }, .{ x1, height, z0 }, .{ x0, height, z0 } },
+                .{ .{ left, far }, .{ right, far }, .{ right, near }, .{ left, near } },
+                tint,
+            );
+        }
+    }
+}
+
 pub fn starBrightness(celestial_angle: f32) f32 {
     const visibility = std.math.clamp(1.0 - (math.util.cos(celestial_angle * std.math.pi * 2.0) * 2.0 + 12.0 / 16.0), 0.0, 1.0);
     return visibility * visibility * 0.5;
@@ -310,4 +370,41 @@ test "stars are invisible by day and brightest at midnight" {
     try std.testing.expectEqual(@as(f32, 0.0), starBrightness(0.0));
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), starBrightness(0.5), 1.0e-4);
     try std.testing.expect(starBrightness(0.25) < 0.5);
+}
+
+test "the cloud layer tiles the original's grid and sits above the camera" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+
+    const cells = 2 * cloud_reach / cloud_cell;
+    try std.testing.expectEqual(@as(usize, @intCast(cells * cells * 4)), mesh.vertices.items.len);
+    for (mesh.vertices.items) |v| {
+        try std.testing.expectApproxEqAbs(cloud_height - 64.0 + 0.33, v.y, 1.0e-4);
+        try std.testing.expectEqual(cloud_alpha, v.color[3]);
+    }
+}
+
+test "clouds stay anchored to the world as the camera moves" {
+    const gpa = std.testing.allocator;
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    var moved: MeshBuilder = .{};
+    defer moved.deinit(gpa);
+
+    try appendClouds(&still, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendClouds(&moved, gpa, .{ 512, 64, 0 }, 0, .{ 1, 1, 1 });
+
+    try std.testing.expectEqual(still.vertices.items[0].x, moved.vertices.items[0].x);
+    try std.testing.expect(still.vertices.items[0].u != moved.vertices.items[0].u);
+}
+
+test "clouds dim at night the way the cloud colour curve says" {
+    const noon = cloudColor(0.0);
+    const midnight = cloudColor(0.5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), noon[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), midnight[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.15), midnight[2], 1.0e-6);
 }

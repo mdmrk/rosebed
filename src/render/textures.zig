@@ -15,6 +15,7 @@ pig: Atlas,
 char: Atlas,
 sun: Atlas,
 moon: Atlas,
+clouds: Atlas,
 
 pub fn load() !Textures {
     return .{
@@ -29,6 +30,7 @@ pub fn load() !Textures {
         .char = try Atlas.load(assets.mob.char_png),
         .sun = try Atlas.load(assets.terrain.sun_png),
         .moon = try Atlas.load(assets.terrain.moon_png),
+        .clouds = try Atlas.loadRepeat(assets.environment.clouds_png),
     };
 }
 

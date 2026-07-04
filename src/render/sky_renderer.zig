@@ -164,6 +164,44 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
     gl.DepthMask(gl.TRUE);
 }
 
+pub const Clouds = struct {
+    shader: Shader,
+    textures: Textures,
+    gpa: std.mem.Allocator,
+    view_proj: math.Mat4,
+    eye: [3]f64,
+    scroll: f64,
+    color: sky.Color,
+};
+
+pub fn drawClouds(frame: Clouds) !void {
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(frame.gpa);
+    try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+
+    gl.Disable(gl.CULL_FACE);
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    frame.shader.setMat4("u_view_proj", frame.view_proj.m);
+    frame.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
+    frame.shader.setInt("u_alpha_test", 0);
+    frame.shader.setInt("u_textured", 1);
+    frame.shader.setVec4("u_tint", opaque_white);
+    gl.ActiveTexture(gl.TEXTURE0);
+    frame.shader.setInt("u_atlas", 0);
+    frame.textures.clouds.bind();
+
+    var gpu = GpuMesh.upload(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+
+    frame.shader.setInt("u_alpha_test", 1);
+    frame.textures.terrain.bind();
+    gl.Disable(gl.BLEND);
+    gl.Enable(gl.CULL_FACE);
+}
+
 test "the sky is only drawn at the two longest render distances" {
     try std.testing.expect(visibleAt(0));
     try std.testing.expect(visibleAt(1));

@@ -75,6 +75,7 @@ const AppState = struct {
     entities: game.Entities = .{},
     timer: Timer,
     tick_count: u64 = 0,
+    cloud_offset: u64 = 0,
     player: game.Player = .{
         .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),
@@ -594,6 +595,7 @@ fn tick(app_state: *AppState) !void {
 
 fn advanceWorldTime(app_state: *AppState) !void {
     app_state.world_map.time += 1;
+    app_state.cloud_offset += 1;
 
     const subtracted = app_state.world_map.calculateSkylightSubtracted(1.0);
     if (subtracted != app_state.world_map.skylight_subtracted) {
@@ -720,6 +722,28 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
     gl.Disable(gl.BLEND);
+
+    try drawClouds(app_state, proj, partial);
+}
+
+fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
+    const angle = app_state.world_map.celestialAngle(partial);
+    const eye = app_state.player.base.renderPosition(partial);
+    const rotation = if (app_state.settings.view_bobbing)
+        app_state.player.bobMatrix(partial).mul(app_state.player.viewRotation())
+    else
+        app_state.player.viewRotation();
+
+    const ticks: f64 = @floatFromInt(app_state.cloud_offset);
+    try render.SkyRenderer.drawClouds(.{
+        .shader = app_state.shader,
+        .textures = app_state.textures,
+        .gpa = app_state.frame,
+        .view_proj = proj.mul(rotation),
+        .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
+        .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
+        .color = render.sky.cloudColor(angle),
+    });
 }
 
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
