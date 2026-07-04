@@ -757,7 +757,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 }
 
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
-    const id = render.held_item.renderable(app_state.equip.shown) orelse return;
+    const shape = render.held_item.heldShape(app_state.equip.shown) orelse return;
 
     const feet = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
@@ -770,7 +770,6 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness);
 
     const bob = if (app_state.settings.view_bobbing)
         app_state.player.bobMatrix(partial)
@@ -780,9 +779,18 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         app_state.player.swingProgress(partial),
         app_state.equip.interpolated(partial),
     );
+    var transform = proj.mul(bob).mul(hand);
+
+    switch (shape) {
+        .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness),
+        .sprite => |sprite| {
+            try render.held_item.appendSprite(&mesh, app_state.frame, sprite.tile, brightness);
+            transform = transform.mul(render.held_item.spriteMatrix());
+        },
+    }
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
-    app_state.shader.setMat4("u_view_proj", proj.mul(bob).mul(hand).m);
+    app_state.shader.setMat4("u_view_proj", transform.m);
     app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
     app_state.shader.setInt("u_fog_enabled", 0);
     app_state.shader.setInt("u_alpha_test", 1);
@@ -790,11 +798,18 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.shader.setInt("u_atlas", 0);
-    app_state.textures.terrain.bind();
+    switch (shape) {
+        .cube => app_state.textures.terrain.bind(),
+        .sprite => |sprite| switch (sprite.atlas) {
+            .terrain => app_state.textures.terrain.bind(),
+            .items => app_state.textures.items.bind(),
+        },
+    }
 
     var gpu = render.GpuMesh.upload(&mesh);
     defer gpu.deinit();
     gpu.draw();
+    app_state.textures.terrain.bind();
 }
 
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
