@@ -695,17 +695,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
     for (app_state.entities.items.items) |item| {
-        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, item, partial);
+        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.world_map, item, partial);
     }
     for (app_state.entities.falling_blocks.items) |block| {
-        try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, block, partial);
+        try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
     }
     drawEntityMesh(&atlas_mesh);
 
     var pig_mesh: render.MeshBuilder = .{};
     defer pig_mesh.deinit(app_state.frame);
     for (app_state.entities.pigs.items) |pig| {
-        try render.entity_render.appendPig(&pig_mesh, app_state.frame, pig, partial);
+        try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig, partial);
     }
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();

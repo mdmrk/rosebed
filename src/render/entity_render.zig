@@ -9,8 +9,23 @@ const mob_model = @import("mob_model.zig");
 
 const white = [4]u8{ 255, 255, 255, 255 };
 
-pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, item: game.ItemEntity, partial_ticks: f32) !void {
+fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
+    const sample = base.lightSamplePosition();
+    return world.light.brightnessAt(world_map, sample[0], sample[1], sample[2], 0);
+}
+
+fn litSince(mesh: *MeshBuilder, first_vertex: usize, brightness: f32) void {
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        for (0..3) |channel| {
+            vertex.color[channel] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[channel])) * brightness);
+        }
+    }
+}
+
+pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
     if (item.stack.id > 255) return;
+
+    const first_vertex = mesh.vertices.items.len;
 
     const pos = item.base.renderPosition(partial_ticks);
     const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
@@ -35,9 +50,12 @@ pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, item: game.ItemEnt
     try mesh.quad(gpa, .{
         .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
     }, uvs, white);
+
+    litSince(mesh, first_vertex, brightnessOf(world_map, item.base));
 }
 
-pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, block: game.FallingBlock, partial_ticks: f32) !void {
+pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, block: game.FallingBlock, partial_ticks: f32) !void {
+    const first_vertex = mesh.vertices.items.len;
     const pos = block.base.renderPosition(partial_ticks);
     const size: f32 = @floatCast(game.FallingBlock.size);
     const half = size / 2.0;
@@ -51,9 +69,12 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, block: gam
         .{ cx + half, cy + size, cz + half },
         world.block.faceTextures(block.block_id),
     );
+
+    litSince(mesh, first_vertex, brightnessOf(world_map, block.base));
 }
 
-pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, pig: game.Pig, partial_ticks: f32) !void {
+pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
+    const first_vertex = mesh.vertices.items.len;
     const pos = pig.base.renderPosition(partial_ticks);
     const entity_pos = [3]f32{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) };
     const yaw_rad = pig.yaw * std.math.pi / 180.0;
@@ -64,16 +85,20 @@ pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, pig: game.Pig, part
         if (i >= 2) p.rotate_x = if (i == 2 or i == 5) swing else -swing;
         try mob_model.appendPart(mesh, gpa, p, mob_model.pig.texture_width, mob_model.pig.texture_height, entity_pos, yaw_rad);
     }
+
+    litSince(mesh, first_vertex, brightnessOf(world_map, pig.base));
 }
 
 test "a block item renders as two crossing quads" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
     const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
-    try appendItem(&mesh, gpa, item, 0);
+    try appendItem(&mesh, gpa, &world_map, item, 0);
 
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
 }
@@ -82,10 +107,12 @@ test "a true item stack has no world geometry yet" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
     const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
-    try appendItem(&mesh, gpa, item, 0);
+    try appendItem(&mesh, gpa, &world_map, item, 0);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
@@ -94,9 +121,11 @@ test "a falling block renders as a full cube" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
 
     const block = game.FallingBlock.spawn(.{ .x = 0, .y = 0, .z = 0 }, world.block.sand);
-    try appendFallingBlock(&mesh, gpa, block, 0);
+    try appendFallingBlock(&mesh, gpa, &world_map, block, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
 }
@@ -105,9 +134,46 @@ test "a pig renders all six body parts" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
 
     const pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
-    try appendPig(&mesh, gpa, pig, 0);
+    try appendPig(&mesh, gpa, &world_map, pig, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
+}
+
+test "an entity in the open is lit brighter than one sealed in the dark" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
+            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
+            if (x >= 8) chunk.setBlockId(@intCast(x), 4, @intCast(z), world.block.stone);
+        }
+    }
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var lit: MeshBuilder = .{};
+    defer lit.deinit(gpa);
+    var dark: MeshBuilder = .{};
+    defer dark.deinit(gpa);
+
+    try appendPig(&lit, gpa, &world_map, game.Pig.spawn(.{ .x = 2, .y = 1, .z = 8 }), 0);
+    try appendPig(&dark, gpa, &world_map, game.Pig.spawn(.{ .x = 14, .y = 1, .z = 8 }), 0);
+
+    try std.testing.expectEqual(@as(u8, 255), lit.vertices.items[0].color[0]);
+    try std.testing.expect(dark.vertices.items[0].color[0] < 255);
+}
+
+test "an entity samples light two thirds of the way up its own box" {
+    const pig = game.Pig.spawn(.{ .x = 3.7, .y = 64.0, .z = -2.2 });
+    const sample = pig.base.lightSamplePosition();
+    try std.testing.expectEqual(@as(i32, 3), sample[0]);
+    try std.testing.expectEqual(@as(i32, -3), sample[2]);
+    try std.testing.expectEqual(@as(i32, 64), sample[1]);
+    try std.testing.expect(pig.base.height * 0.66 < 1.0);
 }

@@ -42,6 +42,14 @@ pub fn boundingBox(self: Entity) math.AABB {
     );
 }
 
+pub fn lightSamplePosition(self: Entity) [3]i32 {
+    return .{
+        math.util.floorDouble(self.position.x),
+        math.util.floorDouble(self.position.y + self.height * 0.66),
+        math.util.floorDouble(self.position.z),
+    };
+}
+
 pub fn beginTick(self: *Entity) void {
     self.prev_position = self.position;
 }
