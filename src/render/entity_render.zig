@@ -262,9 +262,9 @@ pub fn appendParticle(
 
     const brightness = brightnessOf(world_map, particle.base);
     const shade: [4]u8 = .{
-        @intFromFloat(particle.color[0] * brightness * 255.0),
-        @intFromFloat(particle.color[1] * brightness * 255.0),
-        @intFromFloat(particle.color[2] * brightness * 255.0),
+        @intFromFloat(particle.color[0] * @as(f32, @floatFromInt(particle.tint[0])) / 255.0 * brightness * 255.0),
+        @intFromFloat(particle.color[1] * @as(f32, @floatFromInt(particle.tint[1])) / 255.0 * brightness * 255.0),
+        @intFromFloat(particle.color[2] * @as(f32, @floatFromInt(particle.tint[2])) / 255.0 * brightness * 255.0),
         255,
     };
     try mesh.quad(gpa, positions, uvs, shade);

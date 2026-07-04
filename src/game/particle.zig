@@ -13,6 +13,7 @@ jitter_u: f32,
 jitter_v: f32,
 tile: u8,
 color: [3]f32,
+tint: [3]u8 = .{ 255, 255, 255 },
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;

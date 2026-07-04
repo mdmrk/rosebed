@@ -62,6 +62,7 @@ pub fn spawnBlockDestroyParticles(
     y: i32,
     z: i32,
     tile: u8,
+    tint: [3]u8,
     rand: *world.JavaRandom,
 ) !void {
     const step = 1.0 / @as(f64, destroy_grid);
@@ -74,7 +75,7 @@ pub fn spawnBlockDestroyParticles(
                 const px = @as(f64, @floatFromInt(x)) + (@as(f64, @floatFromInt(ix)) + 0.5) * step;
                 const py = @as(f64, @floatFromInt(y)) + (@as(f64, @floatFromInt(iy)) + 0.5) * step;
                 const pz = @as(f64, @floatFromInt(z)) + (@as(f64, @floatFromInt(iz)) + 0.5) * step;
-                try self.particles.append(gpa, Particle.spawn(
+                var shard = Particle.spawn(
                     math.Vec3.init(px, py, pz),
                     math.Vec3.init(
                         px - @as(f64, @floatFromInt(x)) - 0.5,
@@ -83,7 +84,9 @@ pub fn spawnBlockDestroyParticles(
                     ),
                     tile,
                     rand,
-                ));
+                );
+                shard.tint = tint;
+                try self.particles.append(gpa, shard);
             }
         }
     }
@@ -101,6 +104,7 @@ pub fn spawnBlockHitParticle(
     z: i32,
     side: u3,
     tile: u8,
+    tint: [3]u8,
     rand: *world.JavaRandom,
 ) !void {
     const span = 1.0 - hit_inset * 2.0;
@@ -118,7 +122,8 @@ pub fn spawnBlockHitParticle(
         else => {},
     }
 
-    const shard = Particle.spawn(math.Vec3.init(px, py, pz), math.Vec3.init(0, 0, 0), tile, rand);
+    var shard = Particle.spawn(math.Vec3.init(px, py, pz), math.Vec3.init(0, 0, 0), tile, rand);
+    shard.tint = tint;
     try self.particles.append(gpa, shard.slowedBy(hit_slowdown).scaledBy(hit_shrink));
 }
 
@@ -249,8 +254,8 @@ test "a hit particle lands on the face being mined" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.up, 1, &rand);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.west, 1, &rand);
+    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.up, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.west, 1, .{ 255, 255, 255 }, &rand);
 
     const on_top = entities.particles.items[0];
     try std.testing.expectApproxEqAbs(@as(f64, 10.0 + hit_inset), on_top.base.position.y, 1.0e-9);
@@ -266,7 +271,7 @@ test "a hit particle is smaller and slower than a destroy shard" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.block.up, 1, &rand);
+    try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.block.up, 1, .{ 255, 255, 255 }, &rand);
     const hit = entities.particles.items[0];
 
     var same_rand = world.JavaRandom.init(4);

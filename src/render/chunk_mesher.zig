@@ -42,7 +42,7 @@ fn shadeColor(shade: f32, tint: [3]u8) [4]u8 {
     return color;
 }
 
-fn blockTint(colorizer: Colorizer, id: u8, metadata: u4, side: u3, temperature: f64, humidity: f64) [3]u8 {
+pub fn blockTint(colorizer: Colorizer, id: u8, metadata: u4, side: u3, temperature: f64, humidity: f64) [3]u8 {
     return switch (id) {
         world.block.grass => if (side == world.block.up)
             colorizer.grassColor(temperature, humidity)

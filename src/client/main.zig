@@ -327,12 +327,29 @@ fn digStep(app_state: *AppState) !void {
         hit.z,
         hit.face,
         world.block.faceTextures(block_id)[world.block.down],
+        particleTint(app_state, block_id, hit.x, hit.y, hit.z),
         &app_state.world_map.rand,
     );
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try markBlockChanged(app_state, hit.x, hit.z);
     }
+}
+
+fn particleTint(app_state: *const AppState, id: u8, x: i32, y: i32, z: i32) [3]u8 {
+    if (id == world.block.grass) return .{ 255, 255, 255 };
+    const width = world.constants.chunk_width;
+    const chunk = app_state.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
+    const lx: u32 = @intCast(@mod(x, width));
+    const lz: u32 = @intCast(@mod(z, width));
+    return render.chunk_mesher.blockTint(
+        app_state.colorizer,
+        id,
+        app_state.world_map.getBlockMetadata(x, y, z),
+        world.block.up,
+        chunk.getTemperature(lx, lz),
+        chunk.getHumidity(lx, lz),
+    );
 }
 
 fn markBlockChanged(app_state: *AppState, x: i32, z: i32) !void {
@@ -363,6 +380,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void 
         y,
         z,
         world.block.faceTextures(block_id)[world.block.down],
+        particleTint(app_state, block_id, x, y, z),
         &app_state.world_map.rand,
     );
     const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
