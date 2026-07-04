@@ -57,6 +57,22 @@ pub fn spawn(
     };
 }
 
+pub fn slowedBy(self: Particle, factor: f32) Particle {
+    var slowed = self;
+    slowed.base.motion.x *= factor;
+    slowed.base.motion.y = (slowed.base.motion.y - 0.1) * factor + 0.1;
+    slowed.base.motion.z *= factor;
+    return slowed;
+}
+
+pub fn scaledBy(self: Particle, factor: f32) Particle {
+    var smaller = self;
+    smaller.base.width = size * factor;
+    smaller.base.height = size * factor;
+    smaller.scale *= factor;
+    return smaller;
+}
+
 pub fn tick(self: *Particle, world_map: *const world.World) void {
     self.base.beginTick();
     self.age += 1;

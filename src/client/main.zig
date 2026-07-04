@@ -320,6 +320,15 @@ fn digStep(app_state: *AppState) !void {
     }
 
     app_state.digging.?.progress += 1.0 / ticks_required;
+    try app_state.entities.spawnBlockHitParticle(
+        app_state.gpa,
+        hit.x,
+        hit.y,
+        hit.z,
+        hit.face,
+        world.block.faceTextures(block_id)[world.block.down],
+        &app_state.world_map.rand,
+    );
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try markBlockChanged(app_state, hit.x, hit.z);
