@@ -38,6 +38,11 @@ pub fn hasMesh(self: *const ChunkRenderer, chunk_x: i32, chunk_z: i32) bool {
     return self.meshes.contains(.{ .x = chunk_x, .z = chunk_z });
 }
 
+pub fn markAllDirty(self: *ChunkRenderer, gpa: std.mem.Allocator) !void {
+    var it = self.meshes.keyIterator();
+    while (it.next()) |coord| try self.dirty.put(gpa, coord.*, {});
+}
+
 pub fn markDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, chunk_x: i32, chunk_z: i32) !void {
     try self.dirty.put(gpa, .{ .x = chunk_x, .z = chunk_z }, {});
 }

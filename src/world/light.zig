@@ -34,7 +34,8 @@ pub const brightness_table: [16]f32 = blk: {
 };
 
 pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
-    return @max(world_map.getSkyLight(x, y, z), world_map.getBlockLight(x, y, z));
+    const sky = world_map.getSkyLight(x, y, z) -| world_map.skylight_subtracted;
+    return @max(sky, world_map.getBlockLight(x, y, z));
 }
 
 pub fn brightnessAt(world_map: *const World, x: i32, y: i32, z: i32, minimum: u4) f32 {

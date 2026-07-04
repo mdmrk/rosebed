@@ -5,6 +5,7 @@ const block = @import("block.zig");
 const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
+const math = @import("math");
 
 const World = @This();
 
@@ -14,6 +15,27 @@ allocator: std.mem.Allocator,
 chunks: std.AutoHashMapUnmanaged(ChunkCoord, *Chunk) = .{},
 decorated: std.AutoHashMapUnmanaged(ChunkCoord, void) = .{},
 rand: JavaRandom = JavaRandom.init(0),
+time: i64 = 0,
+skylight_subtracted: u4 = 0,
+
+pub const ticks_per_day: i64 = 24000;
+
+pub fn celestialAngle(self: *const World, partial_ticks: f32) f32 {
+    const day_time: f32 = @floatFromInt(@mod(self.time, ticks_per_day));
+    var fraction = (day_time + partial_ticks) / @as(f32, ticks_per_day) - 0.25;
+    if (fraction < 0.0) fraction += 1.0;
+    if (fraction > 1.0) fraction -= 1.0;
+
+    const linear = fraction;
+    const eased: f32 = 1.0 - @as(f32, @floatCast((@cos(@as(f64, linear) * std.math.pi) + 1.0) / 2.0));
+    return linear + (eased - linear) / 3.0;
+}
+
+pub fn calculateSkylightSubtracted(self: *const World, partial_ticks: f32) u4 {
+    const angle = self.celestialAngle(partial_ticks);
+    const darkness = std.math.clamp(1.0 - (math.util.cos(angle * std.math.pi * 2.0) * 2.0 + 0.5), 0.0, 1.0);
+    return @intFromFloat(darkness * 11.0);
+}
 
 pub fn init(allocator: std.mem.Allocator) World {
     return .{ .allocator = allocator };
@@ -209,4 +231,52 @@ test "ensureDecorated only decorates a chunk once" {
             }
         }
     }
+}
+
+test "celestialAngle matches WorldProvider across the day" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+
+    const cases = [_]struct { time: i64, angle: f32 }{
+        .{ .time = 0, .angle = 0.784517825 },
+        .{ .time = 1000, .angle = 0.826669991 },
+        .{ .time = 6000, .angle = 0.0 },
+        .{ .time = 12000, .angle = 0.215482190 },
+        .{ .time = 18000, .angle = 0.5 },
+        .{ .time = 22000, .angle = 0.694444478 },
+    };
+    for (cases) |case| {
+        world_map.time = case.time;
+        try std.testing.expectApproxEqAbs(case.angle, world_map.celestialAngle(0.0), 1.0e-6);
+    }
+}
+
+test "skylight is only subtracted between dusk and dawn" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+
+    const cases = [_]struct { time: i64, subtracted: u4 }{
+        .{ .time = 0, .subtracted = 0 },
+        .{ .time = 6000, .subtracted = 0 },
+        .{ .time = 12000, .subtracted = 0 },
+        .{ .time = 13000, .subtracted = 6 },
+        .{ .time = 15000, .subtracted = 11 },
+        .{ .time = 18000, .subtracted = 11 },
+        .{ .time = 22000, .subtracted = 11 },
+        .{ .time = 23999, .subtracted = 0 },
+    };
+    for (cases) |case| {
+        world_map.time = case.time;
+        try std.testing.expectEqual(case.subtracted, world_map.calculateSkylightSubtracted(0.0));
+    }
+}
+
+test "a day wraps around without discontinuity" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+
+    world_map.time = 24000;
+    const wrapped = world_map.celestialAngle(0.0);
+    world_map.time = 0;
+    try std.testing.expectEqual(world_map.celestialAngle(0.0), wrapped);
 }

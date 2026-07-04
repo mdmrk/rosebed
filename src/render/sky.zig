@@ -3,8 +3,6 @@ const math = @import("math");
 
 pub const Color = [3]f32;
 
-pub const noon: f32 = 0.0;
-
 fn dayFactor(celestial_angle: f32) f32 {
     return std.math.clamp(math.util.cos(celestial_angle * std.math.pi * 2.0) * 2.0 + 0.5, 0.0, 1.0);
 }
@@ -84,7 +82,7 @@ test "skyColorByTemp matches java.awt.Color.getHSBColor for the vanilla temperat
 }
 
 test "fogColor at noon matches WorldProvider's daylight value" {
-    const fog = fogColor(noon);
+    const fog = fogColor(0.0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.752941191), fog[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.847058833), fog[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), fog[2], 1.0e-6);

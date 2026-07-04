@@ -554,6 +554,17 @@ fn tick(app_state: *AppState) !void {
     try tickFallingBlocks(app_state);
     app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
     try ensureChunksAroundPlayer(app_state);
+    try advanceWorldTime(app_state);
+}
+
+fn advanceWorldTime(app_state: *AppState) !void {
+    app_state.world_map.time += 1;
+
+    const subtracted = app_state.world_map.calculateSkylightSubtracted(1.0);
+    if (subtracted != app_state.world_map.skylight_subtracted) {
+        app_state.world_map.skylight_subtracted = subtracted;
+        try app_state.chunks.markAllDirty(app_state.gpa);
+    }
 }
 
 fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } {
@@ -595,9 +606,10 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
         math.util.floorDouble(app_state.player.base.position.z),
     ));
     const render_distance = @intFromEnum(app_state.settings.render_distance);
+    const angle = app_state.world_map.celestialAngle(app_state.timer.render_partial_ticks);
     return render.sky.blendedFogColor(
-        render.sky.skyColor(temperature, render.sky.noon),
-        render.sky.fogColor(render.sky.noon),
+        render.sky.skyColor(temperature, angle),
+        render.sky.fogColor(angle),
         render_distance,
     );
 }
