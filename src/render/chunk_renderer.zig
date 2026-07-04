@@ -61,11 +61,24 @@ pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i
     if (local_z == width - 1) try self.markDirty(gpa, chunk_x, chunk_z + 1);
 }
 
+pub const max_rebuilds_per_flush = 8;
+
+pub fn radiusFor(render_distance: u5) i32 {
+    const diameter = @min(@as(i32, 64) << (3 - render_distance), 400);
+    return @divTrunc(diameter, 2 * world.constants.chunk_width);
+}
+
 pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World, colorizer: Colorizer) !u32 {
     var rebuilt: u32 = 0;
+    var done: [max_rebuilds_per_flush]world.World.ChunkCoord = undefined;
+    var done_count: usize = 0;
 
     var it = self.dirty.keyIterator();
     while (it.next()) |coord| {
+        if (done_count == max_rebuilds_per_flush) break;
+        done[done_count] = coord.*;
+        done_count += 1;
+
         const chunk = world_map.getChunk(coord.x, coord.z) orelse continue;
 
         var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer);
@@ -79,7 +92,8 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
         };
         rebuilt += 1;
     }
-    self.dirty.clearRetainingCapacity();
+
+    for (done[0..done_count]) |coord| _ = self.dirty.remove(coord);
 
     return rebuilt;
 }
@@ -158,4 +172,32 @@ test "repeated edits to the same chunk collapse into one rebuild" {
     try renderer.markBlockDirty(gpa, 5, 5);
     try renderer.markDirty(gpa, 0, 0);
     try std.testing.expectEqual(@as(usize, 1), renderer.dirty.count());
+}
+
+test "the view radius follows the original's render distance widths" {
+    try std.testing.expectEqual(@as(i32, 12), radiusFor(0));
+    try std.testing.expectEqual(@as(i32, 8), radiusFor(1));
+    try std.testing.expectEqual(@as(i32, 4), radiusFor(2));
+    try std.testing.expectEqual(@as(i32, 2), radiusFor(3));
+}
+
+test "a flush consumes at most its budget and leaves the rest dirty" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    var coord: i32 = 0;
+    while (coord < max_rebuilds_per_flush + 5) : (coord += 1) {
+        try renderer.markDirty(gpa, coord, 0);
+    }
+    try std.testing.expectEqual(@as(usize, max_rebuilds_per_flush + 5), renderer.dirty.count());
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted);
+    try std.testing.expectEqual(@as(usize, 5), renderer.dirty.count());
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted);
+    try std.testing.expectEqual(@as(usize, 0), renderer.dirty.count());
 }

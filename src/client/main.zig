@@ -22,7 +22,7 @@ const near_plane = 0.05;
 const far_plane = 1000.0;
 const world_seed = 1;
 const reach_distance = 4.5;
-const view_radius = 1;
+const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
 
 const splashes: []const []const u8 = blk: {
@@ -161,17 +161,47 @@ fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
     };
 }
 
+fn viewRadius(app_state: *const AppState) i32 {
+    return render.ChunkRenderer.radiusFor(@intFromEnum(app_state.settings.render_distance));
+}
+
+const Pending = struct {
+    coord: world.World.ChunkCoord,
+    distance: i64,
+
+    fn nearestFirst(_: void, a: Pending, b: Pending) bool {
+        return a.distance < b.distance;
+    }
+};
+
 fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     const center = playerChunkCoord(app_state);
+    const radius = viewRadius(app_state);
 
-    var cx = center.x - view_radius;
-    while (cx <= center.x + view_radius) : (cx += 1) {
-        var cz = center.z - view_radius;
-        while (cz <= center.z + view_radius) : (cz += 1) {
+    var pending: std.ArrayList(Pending) = .empty;
+    defer pending.deinit(app_state.frame);
+
+    var cx = center.x - radius;
+    while (cx <= center.x + radius) : (cx += 1) {
+        var cz = center.z - radius;
+        while (cz <= center.z + radius) : (cz += 1) {
             if (app_state.chunks.hasMesh(cx, cz)) continue;
-            try app_state.world_map.ensureDecorated(app_state.generator, cx, cz);
-            try app_state.chunks.markDirty(app_state.gpa, cx, cz);
+            const dx: i64 = cx - center.x;
+            const dz: i64 = cz - center.z;
+            try pending.append(app_state.frame, .{
+                .coord = .{ .x = cx, .z = cz },
+                .distance = dx * dx + dz * dz,
+            });
         }
+    }
+
+    std.mem.sort(Pending, pending.items, {}, Pending.nearestFirst);
+
+    const started = sdl3.timer.getNanosecondsSinceInit();
+    for (pending.items) |entry| {
+        try app_state.world_map.ensureDecorated(app_state.generator, entry.coord.x, entry.coord.z);
+        try app_state.chunks.markDirty(app_state.gpa, entry.coord.x, entry.coord.z);
+        if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) break;
     }
 }
 
