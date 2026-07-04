@@ -117,14 +117,18 @@ pub fn eyePosition(self: Player) math.Vec3 {
     };
 }
 
+pub fn viewRotation(self: Player) math.Mat4 {
+    const degrees = std.math.pi / 180.0;
+    return math.Mat4.rotationX(self.pitch * degrees)
+        .mul(math.Mat4.rotationY((self.yaw + 180.0) * degrees));
+}
+
 pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const render_position = self.base.renderPosition(partial_ticks);
-    const degrees = std.math.pi / 180.0;
     const eye_x: f32 = @floatCast(render_position.x);
     const eye_y: f32 = @floatCast(render_position.y + eye_height);
     const eye_z: f32 = @floatCast(render_position.z);
-    return math.Mat4.rotationX(self.pitch * degrees)
-        .mul(math.Mat4.rotationY((self.yaw + 180.0) * degrees))
+    return self.viewRotation()
         .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
 }
 

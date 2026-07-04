@@ -66,6 +66,7 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     textures: render.Textures,
     colorizer: render.Colorizer,
+    sky: render.SkyRenderer,
     font: render.Font,
     shader: render.Shader,
     generator: world.TerrainGenerator,
@@ -244,6 +245,7 @@ pub fn init(
         .gl_procs = undefined,
         .textures = undefined,
         .colorizer = undefined,
+        .sky = undefined,
         .font = undefined,
         .shader = undefined,
         .generator = undefined,
@@ -269,6 +271,9 @@ pub fn init(
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
+
+    app_state.sky = try render.SkyRenderer.init(gpa);
+    errdefer app_state.sky.deinit();
 
     app_state.generator = try world.TerrainGenerator.init(gpa, world_seed);
     errdefer app_state.generator.deinit(gpa);
@@ -668,6 +673,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const eye = app_state.player.base.renderPosition(partial);
 
     app_state.shader.use();
+    try drawSky(app_state, proj, partial);
+
     app_state.shader.setMat4("u_view_proj", view_proj.m);
     app_state.shader.setVec3("u_camera_pos", .{
         @floatCast(eye.x),
@@ -680,6 +687,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setInt("u_atlas", 0);
     app_state.shader.setInt("u_alpha_test", 1);
     app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     app_state.chunks.drawSolid();
 
     var atlas_mesh: render.MeshBuilder = .{};
@@ -712,6 +720,33 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
     gl.Disable(gl.BLEND);
+}
+
+fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
+    const render_distance = @intFromEnum(app_state.settings.render_distance);
+    if (!render.SkyRenderer.visibleAt(render_distance)) return;
+
+    const angle = app_state.world_map.celestialAngle(partial);
+    const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
+        math.util.floorDouble(app_state.player.base.position.x),
+        math.util.floorDouble(app_state.player.base.position.z),
+    ));
+    const rotation = if (app_state.settings.view_bobbing)
+        app_state.player.bobMatrix(partial).mul(app_state.player.viewRotation())
+    else
+        app_state.player.viewRotation();
+
+    try app_state.sky.draw(.{
+        .shader = app_state.shader,
+        .textures = app_state.textures,
+        .gpa = app_state.frame,
+        .projection = proj,
+        .view_rotation = rotation,
+        .celestial_angle = angle,
+        .sky_color = render.sky.skyColor(temperature, angle),
+        .fog_color = render.sky.fogColor(angle),
+        .far_plane_distance = render.sky.farPlaneDistance(render_distance),
+    });
 }
 
 fn drawBreakingCrack(app_state: *AppState) !void {
@@ -956,6 +991,7 @@ pub fn quit(
         state.entities.deinit(state.gpa);
         state.world_map.deinit();
         state.generator.deinit(state.gpa);
+        state.sky.deinit();
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();
         state.textures.deinit();

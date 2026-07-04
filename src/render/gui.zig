@@ -221,6 +221,7 @@ pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !v
     shader.setInt("u_fog_enabled", 0);
     shader.setInt("u_alpha_test", 1);
     shader.setInt("u_textured", 1);
+    shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     shader.setMat4("u_view_proj", identity);
     gpu.draw();
 }

@@ -13,6 +13,8 @@ dirt: Atlas,
 logo: Atlas,
 pig: Atlas,
 char: Atlas,
+sun: Atlas,
+moon: Atlas,
 
 pub fn load() !Textures {
     return .{
@@ -25,6 +27,8 @@ pub fn load() !Textures {
         .logo = try Atlas.load(assets.title.mclogo_png),
         .pig = try Atlas.load(assets.mob.pig_png),
         .char = try Atlas.load(assets.mob.char_png),
+        .sun = try Atlas.load(assets.terrain.sun_png),
+        .moon = try Atlas.load(assets.terrain.moon_png),
     };
 }
 

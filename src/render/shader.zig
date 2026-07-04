@@ -71,6 +71,11 @@ pub fn setVec3(self: Shader, name: [:0]const u8, value: [3]f32) void {
     gl.Uniform3f(location, value[0], value[1], value[2]);
 }
 
+pub fn setVec4(self: Shader, name: [:0]const u8, value: [4]f32) void {
+    const location = gl.GetUniformLocation(self.program, name);
+    gl.Uniform4f(location, value[0], value[1], value[2], value[3]);
+}
+
 pub fn deinit(self: Shader) void {
     gl.DeleteProgram(self.program);
 }
