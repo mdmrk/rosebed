@@ -13,6 +13,10 @@ inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
 camera_yaw: f32 = 0,
+swing_progress: f32 = 0,
+prev_swing_progress: f32 = 0,
+swing_ticks: i32 = 0,
+is_swinging: bool = false,
 prev_camera_yaw: f32 = 0,
 camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
@@ -115,6 +119,33 @@ pub fn eyePosition(self: Player) math.Vec3 {
         .y = self.base.position.y + eye_height,
         .z = self.base.position.z,
     };
+}
+
+pub const swing_duration: i32 = 8;
+
+pub fn swingItem(self: *Player) void {
+    self.swing_ticks = -1;
+    self.is_swinging = true;
+}
+
+pub fn tickSwing(self: *Player) void {
+    self.prev_swing_progress = self.swing_progress;
+    if (self.is_swinging) {
+        self.swing_ticks += 1;
+        if (self.swing_ticks >= swing_duration) {
+            self.swing_ticks = 0;
+            self.is_swinging = false;
+        }
+    } else {
+        self.swing_ticks = 0;
+    }
+    self.swing_progress = @as(f32, @floatFromInt(self.swing_ticks)) / @as(f32, swing_duration);
+}
+
+pub fn swingProgress(self: Player, partial_ticks: f32) f32 {
+    var delta = self.swing_progress - self.prev_swing_progress;
+    if (delta < 0.0) delta += 1.0;
+    return self.prev_swing_progress + delta * partial_ticks;
 }
 
 pub fn viewRotation(self: Player) math.Mat4 {

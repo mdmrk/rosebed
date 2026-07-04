@@ -9,6 +9,7 @@ pub const terrain_shader = @import("terrain_shader.zig");
 pub const sky = @import("sky.zig");
 pub const selection = @import("selection.zig");
 pub const SkyRenderer = @import("sky_renderer.zig");
+pub const held_item = @import("held_item.zig");
 pub const gui = @import("gui.zig");
 pub const Ui = gui.Ui;
 pub const Textures = @import("textures.zig");
@@ -36,6 +37,7 @@ test {
     _ = sky;
     _ = selection;
     _ = SkyRenderer;
+    _ = held_item;
     _ = gui;
     _ = Textures;
     _ = Colorizer;

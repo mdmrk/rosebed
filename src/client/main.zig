@@ -77,6 +77,7 @@ const AppState = struct {
     tick_count: u64 = 0,
     cloud_offset: u64 = 0,
     chunks_drawn: u32 = 0,
+    equip: render.held_item.Equip = .{},
     player: game.Player = .{
         .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),
@@ -586,6 +587,8 @@ fn tick(app_state: *AppState) !void {
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
+    app_state.player.tickSwing();
+    app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
     app_state.entities.tickItems(&app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
@@ -726,6 +729,48 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.Disable(gl.BLEND);
 
     try drawClouds(app_state, proj, partial);
+    try drawHeldItem(app_state, proj, partial);
+}
+
+fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
+    const id = render.held_item.renderable(app_state.equip.shown) orelse return;
+
+    const feet = app_state.player.base.position;
+    const brightness = world.light.brightnessAt(
+        &app_state.world_map,
+        math.util.floorDouble(feet.x),
+        math.util.floorDouble(feet.y),
+        math.util.floorDouble(feet.z),
+        0,
+    );
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+    try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness);
+
+    const bob = if (app_state.settings.view_bobbing)
+        app_state.player.bobMatrix(partial)
+    else
+        math.Mat4.identity;
+    const hand = render.held_item.handMatrix(
+        app_state.player.swingProgress(partial),
+        app_state.equip.interpolated(partial),
+    );
+
+    gl.Clear(gl.DEPTH_BUFFER_BIT);
+    app_state.shader.setMat4("u_view_proj", proj.mul(bob).mul(hand).m);
+    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
+    app_state.shader.setInt("u_fog_enabled", 0);
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    gl.ActiveTexture(gl.TEXTURE0);
+    app_state.shader.setInt("u_atlas", 0);
+    app_state.textures.terrain.bind();
+
+    var gpu = render.GpuMesh.upload(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
 }
 
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
@@ -985,11 +1030,13 @@ pub fn event(
                 try inventoryClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
+                app_state.player.swingItem();
             },
             .right => if (app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);
+                app_state.player.swingItem();
             },
             else => {},
         },

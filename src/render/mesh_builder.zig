@@ -43,6 +43,14 @@ pub fn quadShaded(
     });
 }
 
+pub fn scaleColors(self: *MeshBuilder, first_vertex: usize, factor: f32) void {
+    for (self.vertices.items[first_vertex..]) |*vertex| {
+        for (0..3) |channel| {
+            vertex.color[channel] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[channel])) * factor);
+        }
+    }
+}
+
 pub fn line(
     self: *MeshBuilder,
     gpa: std.mem.Allocator,

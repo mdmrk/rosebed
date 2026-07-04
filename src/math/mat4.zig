@@ -69,6 +69,15 @@ pub fn rotationZ(radians: f32) Mat4 {
     } };
 }
 
+pub fn scale(x: f32, y: f32, z: f32) Mat4 {
+    return .{ .m = .{
+        x, 0, 0, 0,
+        0, y, 0, 0,
+        0, 0, z, 0,
+        0, 0, 0, 1,
+    } };
+}
+
 pub fn translation(x: f32, y: f32, z: f32) Mat4 {
     var m = identity;
     m.m[12] = x;

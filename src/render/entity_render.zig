@@ -14,13 +14,6 @@ fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
     return world.light.brightnessAt(world_map, sample[0], sample[1], sample[2], 0);
 }
 
-fn litSince(mesh: *MeshBuilder, first_vertex: usize, brightness: f32) void {
-    for (mesh.vertices.items[first_vertex..]) |*vertex| {
-        for (0..3) |channel| {
-            vertex.color[channel] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[channel])) * brightness);
-        }
-    }
-}
 
 pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
     if (item.stack.id > 255) return;
@@ -51,7 +44,7 @@ pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const 
         .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
     }, uvs, white);
 
-    litSince(mesh, first_vertex, brightnessOf(world_map, item.base));
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, item.base));
 }
 
 pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, block: game.FallingBlock, partial_ticks: f32) !void {
@@ -70,7 +63,7 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
         world.block.faceTextures(block.block_id),
     );
 
-    litSince(mesh, first_vertex, brightnessOf(world_map, block.base));
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
 }
 
 pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
@@ -86,7 +79,7 @@ pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const w
         try mob_model.appendPart(mesh, gpa, p, mob_model.pig.texture_width, mob_model.pig.texture_height, entity_pos, yaw_rad);
     }
 
-    litSince(mesh, first_vertex, brightnessOf(world_map, pig.base));
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, pig.base));
 }
 
 test "a block item renders as two crossing quads" {
