@@ -757,8 +757,6 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 }
 
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
-    const shape = render.held_item.heldShape(app_state.equip.shown) orelse return;
-
     const feet = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
         &app_state.world_map,
@@ -775,18 +773,23 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         app_state.player.bobMatrix(partial)
     else
         math.Mat4.identity;
-    const hand = render.held_item.handMatrix(
-        app_state.player.swingProgress(partial),
-        app_state.equip.interpolated(partial),
-    );
-    var transform = proj.mul(bob).mul(hand);
+    const swing = app_state.player.swingProgress(partial);
+    const equipped = app_state.equip.interpolated(partial);
+    const shape = render.held_item.heldShape(app_state.equip.shown);
 
-    switch (shape) {
-        .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness),
-        .sprite => |sprite| {
-            try render.held_item.appendSprite(&mesh, app_state.frame, sprite.tile, brightness);
-            transform = transform.mul(render.held_item.spriteMatrix());
-        },
+    var transform = proj.mul(bob);
+    if (shape) |held| {
+        transform = transform.mul(render.held_item.handMatrix(swing, equipped));
+        switch (held) {
+            .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness),
+            .sprite => |sprite| {
+                try render.held_item.appendSprite(&mesh, app_state.frame, sprite.tile, brightness);
+                transform = transform.mul(render.held_item.spriteMatrix());
+            },
+        }
+    } else {
+        transform = transform.mul(render.held_item.armMatrix(swing, equipped));
+        try render.held_item.appendArm(&mesh, app_state.frame, brightness);
     }
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
@@ -798,12 +801,14 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.shader.setInt("u_atlas", 0);
-    switch (shape) {
+    if (shape) |held| switch (held) {
         .cube => app_state.textures.terrain.bind(),
         .sprite => |sprite| switch (sprite.atlas) {
             .terrain => app_state.textures.terrain.bind(),
             .items => app_state.textures.items.bind(),
         },
+    } else {
+        app_state.textures.char.bind();
     }
 
     var gpu = render.GpuMesh.upload(&mesh);

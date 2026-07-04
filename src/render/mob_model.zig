@@ -97,6 +97,34 @@ fn faceSpecs(box: Box) [6]FaceSpec {
     };
 }
 
+pub fn appendBox(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    box: Box,
+    pivot: [3]f32,
+    scale: f32,
+    tex_width: f32,
+    tex_height: f32,
+) !void {
+    for (faceSpecs(box)) |face| {
+        var positions: [4][3]f32 = undefined;
+        for (face.corners, 0..) |c, i| {
+            positions[i] = .{
+                (c[0] + pivot[0]) * scale,
+                (c[1] + pivot[1]) * scale,
+                (c[2] + pivot[2]) * scale,
+            };
+        }
+        const uvs = [4][2]f32{
+            .{ face.rect[2] / tex_width, face.rect[1] / tex_height },
+            .{ face.rect[0] / tex_width, face.rect[1] / tex_height },
+            .{ face.rect[0] / tex_width, face.rect[3] / tex_height },
+            .{ face.rect[2] / tex_width, face.rect[3] / tex_height },
+        };
+        try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+    }
+}
+
 pub fn appendPart(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,

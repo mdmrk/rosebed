@@ -5,6 +5,7 @@ const world = @import("world");
 
 const MeshBuilder = @import("mesh_builder.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
+const mob_model = @import("mob_model.zig");
 
 const degrees = std.math.pi / 180.0;
 
@@ -133,6 +134,47 @@ pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bright
     mesh.scaleColors(first_vertex, brightness);
 }
 
+pub const arm_box: mob_model.Box = .{
+    .origin = .{ -3, -2, -2 },
+    .size = .{ 4, 12, 4 },
+    .tex_u = 40,
+    .tex_v = 16,
+};
+pub const arm_pivot: [3]f32 = .{ -5, 2, 0 };
+pub const arm_scale: f32 = 1.0 / 16.0;
+
+pub fn armMatrix(swing: f32, equipped: f32) math.Mat4 {
+    const scale: f32 = 0.8;
+    const bob = math.util.sin(@sqrt(swing) * std.math.pi);
+    const dip = math.util.sin(swing * std.math.pi);
+
+    var transform = math.Mat4.translation(
+        -bob * 0.3,
+        math.util.sin(@sqrt(swing) * std.math.pi * 2.0) * 0.4,
+        -dip * 0.4,
+    );
+    transform = transform.mul(math.Mat4.translation(
+        0.8 * scale,
+        -(12.0 / 16.0) * scale - (1.0 - equipped) * 0.6,
+        -0.9 * scale,
+    ));
+    transform = transform.mul(math.Mat4.rotationY(45.0 * degrees));
+    transform = transform.mul(math.Mat4.rotationY(bob * 70.0 * degrees));
+    transform = transform.mul(math.Mat4.rotationZ(-math.util.sin(swing * swing * std.math.pi) * 20.0 * degrees));
+
+    transform = transform.mul(math.Mat4.translation(-1, 3.6, 3.5));
+    transform = transform.mul(math.Mat4.rotationZ(120.0 * degrees));
+    transform = transform.mul(math.Mat4.rotationX(200.0 * degrees));
+    transform = transform.mul(math.Mat4.rotationY(-135.0 * degrees));
+    return transform.mul(math.Mat4.translation(5.6, 0, 0));
+}
+
+pub fn appendArm(mesh: *MeshBuilder, gpa: std.mem.Allocator, brightness: f32) !void {
+    const first_vertex = mesh.vertices.items.len;
+    try mob_model.appendBox(mesh, gpa, arm_box, arm_pivot, arm_scale, mob_model.biped.texture_width, mob_model.biped.texture_height);
+    mesh.scaleColors(first_vertex, brightness);
+}
+
 pub const Held = union(enum) {
     cube: u8,
     sprite: struct { tile: u8, atlas: enum { terrain, items } },
@@ -252,4 +294,40 @@ test "each held stack picks the shape and atlas the original gives it" {
     try std.testing.expectEqual(.items, coal.sprite.atlas);
 
     try std.testing.expect(heldShape(null) == null);
+}
+
+test "the arm is one box of ModelBiped's right arm dimensions" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendArm(&mesh, gpa, 1.0);
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
+
+    var lowest: [3]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };
+    var highest: [3]f32 = .{ -std.math.floatMax(f32), -std.math.floatMax(f32), -std.math.floatMax(f32) };
+    for (mesh.vertices.items) |v| {
+        const p = [3]f32{ v.x, v.y, v.z };
+        for (0..3) |axis| {
+            lowest[axis] = @min(lowest[axis], p[axis]);
+            highest[axis] = @max(highest[axis], p[axis]);
+        }
+    }
+    for (0..3) |axis| {
+        const span = (highest[axis] - lowest[axis]) * 16.0;
+        try std.testing.expectApproxEqAbs(arm_box.size[axis], span, 1.0e-4);
+    }
+    try std.testing.expectApproxEqAbs((arm_box.origin[0] + arm_pivot[0]) / 16.0, lowest[0], 1.0e-6);
+}
+
+test "the empty hand and the held item start from different offsets" {
+    const arm: [16]f32 = armMatrix(0.0, 1.0).m;
+    const item: [16]f32 = handMatrix(0.0, 1.0).m;
+    try std.testing.expect(arm[12] != item[12]);
+    try std.testing.expect(arm[13] != item[13]);
+}
+
+test "an empty slot falls through to the arm" {
+    try std.testing.expect(heldShape(null) == null);
+    try std.testing.expect(heldShape(.{ .id = world.block.air, .count = 0 }) == null);
 }
