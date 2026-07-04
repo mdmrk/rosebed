@@ -179,7 +179,6 @@ pub fn drawClouds(frame: Clouds) !void {
     defer mesh.deinit(frame.gpa);
     try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
 
-    gl.Disable(gl.CULL_FACE);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -199,7 +198,6 @@ pub fn drawClouds(frame: Clouds) !void {
     frame.shader.setInt("u_alpha_test", 1);
     frame.textures.terrain.bind();
     gl.Disable(gl.BLEND);
-    gl.Enable(gl.CULL_FACE);
 }
 
 test "the sky is only drawn at the two longest render distances" {
