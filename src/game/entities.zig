@@ -3,6 +3,7 @@ const math = @import("math");
 const world = @import("world");
 
 const FallingBlock = @import("falling_block.zig");
+const Particle = @import("particle.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
 const Pig = @import("pig.zig");
@@ -13,10 +14,12 @@ const Entities = @This();
 items: std.ArrayList(ItemEntity) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
 pigs: std.ArrayList(Pig) = .empty,
+particles: std.ArrayList(Particle) = .empty,
 
 pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
+    self.particles.deinit(gpa);
     self.pigs.deinit(gpa);
 }
 
@@ -48,6 +51,55 @@ pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32
         @as(f64, @floatFromInt(z)) + 0.5,
     );
     try self.falling_blocks.append(gpa, FallingBlock.spawn(position, block_id));
+}
+
+pub const destroy_grid: i32 = 4;
+
+pub fn spawnBlockDestroyParticles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    tile: u8,
+    rand: *world.JavaRandom,
+) !void {
+    const step = 1.0 / @as(f64, destroy_grid);
+    var ix: i32 = 0;
+    while (ix < destroy_grid) : (ix += 1) {
+        var iy: i32 = 0;
+        while (iy < destroy_grid) : (iy += 1) {
+            var iz: i32 = 0;
+            while (iz < destroy_grid) : (iz += 1) {
+                const px = @as(f64, @floatFromInt(x)) + (@as(f64, @floatFromInt(ix)) + 0.5) * step;
+                const py = @as(f64, @floatFromInt(y)) + (@as(f64, @floatFromInt(iy)) + 0.5) * step;
+                const pz = @as(f64, @floatFromInt(z)) + (@as(f64, @floatFromInt(iz)) + 0.5) * step;
+                try self.particles.append(gpa, Particle.spawn(
+                    math.Vec3.init(px, py, pz),
+                    math.Vec3.init(
+                        px - @as(f64, @floatFromInt(x)) - 0.5,
+                        py - @as(f64, @floatFromInt(y)) - 0.5,
+                        pz - @as(f64, @floatFromInt(z)) - 0.5,
+                    ),
+                    tile,
+                    rand,
+                ));
+            }
+        }
+    }
+}
+
+pub fn tickParticles(self: *Entities, world_map: *const world.World) void {
+    var i: usize = 0;
+    while (i < self.particles.items.len) {
+        const particle = &self.particles.items[i];
+        particle.tick(world_map);
+        if (particle.isExpired()) {
+            _ = self.particles.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
 }
 
 pub fn spawnPig(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {

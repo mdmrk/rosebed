@@ -1,5 +1,6 @@
 const std = @import("std");
 const game = @import("game");
+const math = @import("math");
 const world = @import("world");
 
 const Atlas = @import("atlas.zig");
@@ -80,6 +81,119 @@ pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const w
     }
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, pig.base));
+}
+
+pub const CameraBasis = struct {
+    right_x: f32,
+    up_y: f32,
+    right_z: f32,
+    tilt_x: f32,
+    tilt_z: f32,
+
+    pub fn fromLook(yaw_degrees: f32, pitch_degrees: f32) CameraBasis {
+        const degrees = std.math.pi / 180.0;
+        const cos_yaw = math.util.cos(yaw_degrees * degrees);
+        const sin_yaw = math.util.sin(yaw_degrees * degrees);
+        const sin_pitch = math.util.sin(pitch_degrees * degrees);
+        return .{
+            .right_x = cos_yaw,
+            .up_y = math.util.cos(pitch_degrees * degrees),
+            .right_z = sin_yaw,
+            .tilt_x = -sin_yaw * sin_pitch,
+            .tilt_z = cos_yaw * sin_pitch,
+        };
+    }
+};
+
+pub fn appendParticle(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    particle: game.Particle,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    const pos = particle.base.renderPosition(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+    const half = particle.halfSize();
+
+    const tile_size: f32 = 1.0 / 16.0;
+    const quarter: f32 = 0.999 / 64.0;
+    const left = (@as(f32, @floatFromInt(particle.tile % 16)) + particle.jitter_u / 4.0) * tile_size;
+    const top = (@as(f32, @floatFromInt(particle.tile / 16)) + particle.jitter_v / 4.0) * tile_size;
+    const right = left + quarter;
+    const bottom = top + quarter;
+
+    const positions = [4][3]f32{
+        .{ cx - basis.right_x * half - basis.tilt_x * half, cy - basis.up_y * half, cz - basis.right_z * half - basis.tilt_z * half },
+        .{ cx - basis.right_x * half + basis.tilt_x * half, cy + basis.up_y * half, cz - basis.right_z * half + basis.tilt_z * half },
+        .{ cx + basis.right_x * half + basis.tilt_x * half, cy + basis.up_y * half, cz + basis.right_z * half + basis.tilt_z * half },
+        .{ cx + basis.right_x * half - basis.tilt_x * half, cy - basis.up_y * half, cz + basis.right_z * half - basis.tilt_z * half },
+    };
+    const uvs = [4][2]f32{ .{ left, bottom }, .{ left, top }, .{ right, top }, .{ right, bottom } };
+
+    const brightness = brightnessOf(world_map, particle.base);
+    const shade: [4]u8 = .{
+        @intFromFloat(particle.color[0] * brightness * 255.0),
+        @intFromFloat(particle.color[1] * brightness * 255.0),
+        @intFromFloat(particle.color[2] * brightness * 255.0),
+        255,
+    };
+    try mesh.quad(gpa, positions, uvs, shade);
+}
+
+test "a particle renders as one camera-facing quad" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const particle = game.Particle.spawn(.{ .x = 8, .y = 40, .z = 8 }, .{ .x = 0, .y = 0, .z = 0 }, 1, &rand);
+    try appendParticle(&mesh, gpa, &world_map, particle, CameraBasis.fromLook(0, 0), 0);
+
+    try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
+}
+
+test "a particle quad turns to follow the camera" {
+    const gpa = std.testing.allocator;
+    var facing: MeshBuilder = .{};
+    defer facing.deinit(gpa);
+    var turned: MeshBuilder = .{};
+    defer turned.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const particle = game.Particle.spawn(.{ .x = 8, .y = 40, .z = 8 }, .{ .x = 0, .y = 0, .z = 0 }, 1, &rand);
+    try appendParticle(&facing, gpa, &world_map, particle, CameraBasis.fromLook(0, 0), 0);
+    try appendParticle(&turned, gpa, &world_map, particle, CameraBasis.fromLook(90, 0), 0);
+
+    try std.testing.expect(facing.vertices.items[0].x != turned.vertices.items[0].x);
+    try std.testing.expect(facing.vertices.items[0].z != turned.vertices.items[0].z);
+}
+
+test "a particle samples only a quarter of its block's tile" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const particle = game.Particle.spawn(.{ .x = 8, .y = 40, .z = 8 }, .{ .x = 0, .y = 0, .z = 0 }, 1, &rand);
+    try appendParticle(&mesh, gpa, &world_map, particle, CameraBasis.fromLook(0, 0), 0);
+
+    var lowest_u: f32 = std.math.floatMax(f32);
+    var highest_u: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |v| {
+        lowest_u = @min(lowest_u, v.u);
+        highest_u = @max(highest_u, v.u);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 0.999 / 64.0), highest_u - lowest_u, 1.0e-6);
 }
 
 test "a block item renders as two crossing quads" {

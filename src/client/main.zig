@@ -144,7 +144,7 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
         .renderers_loaded = loaded,
         .entities_rendered = entities,
         .entities_total = entities,
-        .particles = 0,
+        .particles = @intCast(app_state.entities.particles.items.len),
         .chunk_cache = @intCast(app_state.world_map.chunks.count()),
         .x = app_state.player.base.position.x,
         .y = app_state.player.base.position.y,
@@ -348,6 +348,14 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
+    try app_state.entities.spawnBlockDestroyParticles(
+        app_state.gpa,
+        x,
+        y,
+        z,
+        world.block.faceTextures(block_id)[world.block.down],
+        &app_state.world_map.rand,
+    );
     const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
     app_state.world_map.setBlockId(x, y, z, world.block.air);
     app_state.digging = null;
@@ -593,6 +601,7 @@ fn tick(app_state: *AppState) !void {
     app_state.entities.tickItems(&app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
     app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
+    app_state.entities.tickParticles(&app_state.world_map);
     try ensureChunksAroundPlayer(app_state);
     try advanceWorldTime(app_state);
 }
@@ -704,6 +713,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
     for (app_state.entities.falling_blocks.items) |block| {
         try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
+    }
+    const basis = render.entity_render.CameraBasis.fromLook(app_state.player.yaw, app_state.player.pitch);
+    for (app_state.entities.particles.items) |particle| {
+        try render.entity_render.appendParticle(&atlas_mesh, app_state.frame, &app_state.world_map, particle, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
 
