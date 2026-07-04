@@ -1,4 +1,5 @@
 const std = @import("std");
+const sdl3 = @import("sdl3");
 const world = @import("world");
 
 const GpuMesh = @import("gpu_mesh.zig");
@@ -61,7 +62,8 @@ pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i
     if (local_z == width - 1) try self.markDirty(gpa, chunk_x, chunk_z + 1);
 }
 
-pub const max_rebuilds_per_flush = 8;
+pub const rebuild_budget_ns = 8 * std.time.ns_per_ms;
+const max_rebuilds_per_flush = 64;
 
 pub fn radiusFor(render_distance: u5) i32 {
     const diameter = @min(@as(i32, 64) << (3 - render_distance), 400);
@@ -72,10 +74,12 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
     var rebuilt: u32 = 0;
     var done: [max_rebuilds_per_flush]world.World.ChunkCoord = undefined;
     var done_count: usize = 0;
+    const started = sdl3.timer.getNanosecondsSinceInit();
 
     var it = self.dirty.keyIterator();
     while (it.next()) |coord| {
         if (done_count == max_rebuilds_per_flush) break;
+        if (done_count > 0 and sdl3.timer.getNanosecondsSinceInit() -% started >= rebuild_budget_ns) break;
         done[done_count] = coord.*;
         done_count += 1;
 
@@ -181,7 +185,7 @@ test "the view radius follows the original's render distance widths" {
     try std.testing.expectEqual(@as(i32, 2), radiusFor(3));
 }
 
-test "a flush consumes at most its budget and leaves the rest dirty" {
+test "a flush consumes at most its cap and leaves the rest dirty" {
     const gpa = std.testing.allocator;
     var renderer: ChunkRenderer = .{};
     defer renderer.deinit(gpa);
@@ -196,8 +200,6 @@ test "a flush consumes at most its budget and leaves the rest dirty" {
     defer world_map.deinit();
 
     _ = try renderer.flush(gpa, &world_map, Colorizer.untinted);
-    try std.testing.expectEqual(@as(usize, 5), renderer.dirty.count());
-
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted);
-    try std.testing.expectEqual(@as(usize, 0), renderer.dirty.count());
+    try std.testing.expect(renderer.dirty.count() >= 5);
+    try std.testing.expect(renderer.dirty.count() < max_rebuilds_per_flush + 5);
 }

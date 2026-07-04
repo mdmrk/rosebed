@@ -134,8 +134,10 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     const origin_z: f32 = @floatFromInt(chunk.z * world.constants.chunk_width);
 
     for (0..world.constants.chunk_width) |lx| {
-        for (0..world.constants.chunk_height) |ly| {
-            for (0..world.constants.chunk_width) |lz| {
+        for (0..world.constants.chunk_width) |lz| {
+            const column_temperature = chunk.getTemperature(@intCast(lx), @intCast(lz));
+            const column_humidity = chunk.getHumidity(@intCast(lx), @intCast(lz));
+            for (0..world.constants.chunk_height) |ly| {
                 const id = chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz));
                 if (id == world.block.air) continue;
 
@@ -143,8 +145,6 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 const by: f32 = @floatFromInt(ly);
                 const bz = origin_z + @as(f32, @floatFromInt(lz));
 
-                const column_temperature = chunk.getTemperature(@intCast(lx), @intCast(lz));
-                const column_humidity = chunk.getHumidity(@intCast(lx), @intCast(lz));
                 const metadata = chunk.getBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz));
 
                 const world_x: i32 = @intFromFloat(bx);

@@ -121,6 +121,16 @@ const Propagation = struct {
     }
 };
 
+fn skyCanSpread(chunk: *const Chunk, lx: usize, ly: usize, lz: usize, sky_floor: u8) bool {
+    if (ly == sky_floor) return true;
+    const last = Chunk.width - 1;
+    if (lx > 0 and chunk.getHeightValue(@intCast(lx - 1), @intCast(lz)) > ly) return true;
+    if (lx < last and chunk.getHeightValue(@intCast(lx + 1), @intCast(lz)) > ly) return true;
+    if (lz > 0 and chunk.getHeightValue(@intCast(lx), @intCast(lz - 1)) > ly) return true;
+    if (lz < last and chunk.getHeightValue(@intCast(lx), @intCast(lz + 1)) > ly) return true;
+    return false;
+}
+
 pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chunk_z: i32) !void {
     const chunk = world_map.getChunk(chunk_x, chunk_z) orelse return;
     generateHeightMap(chunk);
@@ -146,7 +156,7 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
                 const y: i32 = @intCast(ly);
                 if (ly >= sky_floor) {
                     chunk.setSkyLight(@intCast(lx), @intCast(ly), @intCast(lz), max_level);
-                    try sky.seed(gpa, x, y, z);
+                    if (skyCanSpread(chunk, lx, ly, lz, sky_floor)) try sky.seed(gpa, x, y, z);
                 }
                 const emitted = emission(chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz)));
                 if (emitted > 0) {
@@ -157,8 +167,8 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
         }
     }
 
-    try seedBorder(gpa, &sky, min_x, min_z);
-    try seedBorder(gpa, &lamps, min_x, min_z);
+    try seedBorder(gpa, &sky, chunk_x, chunk_z);
+    try seedBorder(gpa, &lamps, chunk_x, chunk_z);
 
     try sky.run(gpa);
     try lamps.run(gpa);
@@ -178,21 +188,32 @@ pub fn relightAround(gpa: std.mem.Allocator, world_map: *World, x: i32, z: i32) 
     if (local_z == width - 1) try relightChunk(gpa, world_map, chunk_x, chunk_z + 1);
 }
 
-fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, min_x: i32, min_z: i32) !void {
-    const width = constants.chunk_width;
-    for (0..constants.chunk_height) |ly| {
-        const y: i32 = @intCast(ly);
-        for (0..width) |i| {
-            const along = @as(i32, @intCast(i));
-            const outside = [4]Node{
-                .{ .x = min_x - 1, .y = y, .z = min_z + along },
-                .{ .x = min_x + width, .y = y, .z = min_z + along },
-                .{ .x = min_x + along, .y = y, .z = min_z - 1 },
-                .{ .x = min_x + along, .y = y, .z = min_z + width },
-            };
-            for (outside) |node| {
-                if (propagation.get(node.x, node.y, node.z) > 1) {
-                    try propagation.seed(gpa, node.x, node.y, node.z);
+const Side = struct { chunk_x: i32, chunk_z: i32, local_x: ?u32, local_z: ?u32 };
+
+fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, chunk_x: i32, chunk_z: i32) !void {
+    const last = constants.chunk_width - 1;
+    const sides = [4]Side{
+        .{ .chunk_x = chunk_x - 1, .chunk_z = chunk_z, .local_x = last, .local_z = null },
+        .{ .chunk_x = chunk_x + 1, .chunk_z = chunk_z, .local_x = 0, .local_z = null },
+        .{ .chunk_x = chunk_x, .chunk_z = chunk_z - 1, .local_x = null, .local_z = last },
+        .{ .chunk_x = chunk_x, .chunk_z = chunk_z + 1, .local_x = null, .local_z = 0 },
+    };
+
+    for (sides) |side| {
+        const neighbor = propagation.world_map.getChunk(side.chunk_x, side.chunk_z) orelse continue;
+        const origin_x = side.chunk_x * constants.chunk_width;
+        const origin_z = side.chunk_z * constants.chunk_width;
+
+        for (0..constants.chunk_width) |along| {
+            const lx = side.local_x orelse @as(u32, @intCast(along));
+            const lz = side.local_z orelse @as(u32, @intCast(along));
+            for (0..constants.chunk_height) |ly| {
+                const level = switch (propagation.kind) {
+                    .sky => neighbor.getSkyLight(lx, @intCast(ly), lz),
+                    .block => neighbor.getBlockLight(lx, @intCast(ly), lz),
+                };
+                if (level > 1) {
+                    try propagation.seed(gpa, origin_x + @as(i32, @intCast(lx)), @intCast(ly), origin_z + @as(i32, @intCast(lz)));
                 }
             }
         }
