@@ -725,6 +725,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     for (app_state.entities.pigs.items) |pig| {
         try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig, partial);
     }
+    var icon_mesh: render.MeshBuilder = .{};
+    defer icon_mesh.deinit(app_state.frame);
+    for (app_state.entities.items.items) |item| {
+        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, item, partial);
+    }
+    if (icon_mesh.vertices.items.len > 0) {
+        app_state.textures.items.bind();
+        drawEntityMesh(&icon_mesh);
+        app_state.textures.terrain.bind();
+    }
+
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
         drawEntityMesh(&pig_mesh);

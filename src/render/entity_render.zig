@@ -16,13 +16,17 @@ fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
 }
 
 
-pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
-    if (item.stack.id > 255) return;
-
+fn appendItemQuads(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    item: game.ItemEntity,
+    tile: u8,
+    partial_ticks: f32,
+) !void {
     const first_vertex = mesh.vertices.items.len;
 
     const pos = item.base.renderPosition(partial_ticks);
-    const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{
         .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
@@ -46,6 +50,18 @@ pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const 
     }, uvs, white);
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, item.base));
+}
+
+pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
+    if (item.stack.id > 255) return;
+    const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
+    try appendItemQuads(mesh, gpa, world_map, item, tile, partial_ticks);
+}
+
+pub fn appendItemIcon(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
+    if (item.stack.id <= 255) return;
+    const tile = world.item.iconTile(item.stack.id) orelse return;
+    try appendItemQuads(mesh, gpa, world_map, item, tile, partial_ticks);
 }
 
 pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, block: game.FallingBlock, partial_ticks: f32) !void {
@@ -283,4 +299,38 @@ test "an entity samples light two thirds of the way up its own box" {
     try std.testing.expectEqual(@as(i32, -3), sample[2]);
     try std.testing.expectEqual(@as(i32, 64), sample[1]);
     try std.testing.expect(pig.base.height * 0.66 < 1.0);
+}
+
+test "a true item stack renders from the items atlas" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
+    try appendItemIcon(&mesh, gpa, &world_map, coal, 0);
+
+    try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
+
+    const expected = Atlas.tileUv(world.item.iconTile(world.item.coal).?);
+    try std.testing.expectApproxEqAbs(expected.u0, mesh.vertices.items[0].u, 1.0e-6);
+}
+
+test "the two item paths never both claim the same stack" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const stone = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
+    try appendItemIcon(&mesh, gpa, &world_map, stone, 0);
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+
+    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
+    try appendItem(&mesh, gpa, &world_map, coal, 0);
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
