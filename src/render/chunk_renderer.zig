@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = @import("math");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
@@ -102,12 +103,31 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
     return rebuilt;
 }
 
-pub fn drawSolid(self: *const ChunkRenderer) void {
-    var it = self.meshes.valueIterator();
-    while (it.next()) |mesh| mesh.solid.draw();
+fn chunkBounds(coord: world.World.ChunkCoord) struct { min: [3]f32, max: [3]f32 } {
+    const width: f32 = @floatFromInt(world.constants.chunk_width);
+    const height: f32 = @floatFromInt(world.constants.chunk_height);
+    const min_x = @as(f32, @floatFromInt(coord.x)) * width;
+    const min_z = @as(f32, @floatFromInt(coord.z)) * width;
+    return .{
+        .min = .{ min_x, 0, min_z },
+        .max = .{ min_x + width, height, min_z + width },
+    };
 }
 
-pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, eye_x: f64, eye_z: f64) !void {
+pub fn drawSolid(self: *const ChunkRenderer, frustum: math.Frustum) u32 {
+    var drawn: u32 = 0;
+    var it = self.meshes.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.solid.index_count == 0) continue;
+        const bounds = chunkBounds(entry.key_ptr.*);
+        if (!frustum.containsBox(bounds.min, bounds.max)) continue;
+        entry.value_ptr.solid.draw();
+        drawn += 1;
+    }
+    return drawn;
+}
+
+pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, frustum: math.Frustum, eye_x: f64, eye_z: f64) !void {
     const Ordered = struct {
         distance: f64,
         mesh: GpuMesh,
@@ -124,6 +144,8 @@ pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, eye_x
     var it = self.meshes.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.translucent.index_count == 0) continue;
+        const bounds = chunkBounds(entry.key_ptr.*);
+        if (!frustum.containsBox(bounds.min, bounds.max)) continue;
         const center_x = (@as(f64, @floatFromInt(entry.key_ptr.x)) + 0.5) * width;
         const center_z = (@as(f64, @floatFromInt(entry.key_ptr.z)) + 0.5) * width;
         const dx = center_x - eye_x;

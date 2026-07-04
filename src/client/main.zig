@@ -76,6 +76,7 @@ const AppState = struct {
     timer: Timer,
     tick_count: u64 = 0,
     cloud_offset: u64 = 0,
+    chunks_drawn: u32 = 0,
     player: game.Player = .{
         .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),
@@ -138,7 +139,7 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     return .{
         .fps = app_state.debug_fps,
         .chunk_updates = app_state.debug_chunk_updates,
-        .renderers_rendered = loaded,
+        .renderers_rendered = app_state.chunks_drawn,
         .renderers_loaded = loaded,
         .entities_rendered = entities,
         .entities_total = entities,
@@ -690,7 +691,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setInt("u_alpha_test", 1);
     app_state.shader.setInt("u_textured", 1);
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
-    app_state.chunks.drawSolid();
+    const frustum = math.Frustum.fromViewProjection(view_proj);
+    app_state.chunks_drawn = app_state.chunks.drawSolid(frustum);
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
@@ -719,7 +721,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     app_state.shader.setInt("u_alpha_test", 0);
-    try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
+    try app_state.chunks.drawTranslucent(app_state.frame, frustum, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
     gl.Disable(gl.BLEND);
 
