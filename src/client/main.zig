@@ -728,7 +728,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     var icon_mesh: render.MeshBuilder = .{};
     defer icon_mesh.deinit(app_state.frame);
     for (app_state.entities.items.items) |item| {
-        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, item, partial);
+        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, item, app_state.player.yaw, partial);
     }
     if (icon_mesh.vertices.items.len > 0) {
         app_state.textures.items.bind();

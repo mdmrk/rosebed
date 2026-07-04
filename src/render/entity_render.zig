@@ -16,52 +16,162 @@ fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
 }
 
 
-fn appendItemQuads(
+pub const stack_copy_seed: i64 = 187;
+pub const block_scale: f32 = 0.25;
+pub const flat_scale: f32 = 0.5;
+
+pub fn copiesFor(count: u8) u8 {
+    if (count > 20) return 4;
+    if (count > 5) return 3;
+    if (count > 1) return 2;
+    return 1;
+}
+
+pub fn bobHeight(age: u32, hover: f32, partial_ticks: f32) f32 {
+    return math.util.sin((@as(f32, @floatFromInt(age)) + partial_ticks) / 10.0 + hover) * 0.1 + 0.1;
+}
+
+pub fn spinRadians(age: u32, hover: f32, partial_ticks: f32) f32 {
+    return (@as(f32, @floatFromInt(age)) + partial_ticks) / 20.0 + hover;
+}
+
+fn placeSince(mesh: *MeshBuilder, first_vertex: usize, yaw: f32, origin: [3]f32) void {
+    const cos = @cos(yaw);
+    const sin = @sin(yaw);
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        const x = vertex.x * cos + vertex.z * sin;
+        const z = -vertex.x * sin + vertex.z * cos;
+        vertex.x = x + origin[0];
+        vertex.y += origin[1];
+        vertex.z = z + origin[2];
+    }
+}
+
+fn itemOrigin(item: game.ItemEntity, partial_ticks: f32) [3]f32 {
+    const pos = item.base.renderPosition(partial_ticks);
+    return .{
+        @floatCast(pos.x),
+        @as(f32, @floatCast(pos.y + game.ItemEntity.height / 2.0)) + bobHeight(item.age, item.hover, partial_ticks),
+        @floatCast(pos.z),
+    };
+}
+
+fn appendCopies(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
     item: game.ItemEntity,
-    tile: u8,
+    yaw: f32,
+    spread: f32,
     partial_ticks: f32,
+    build: *const fn (*MeshBuilder, std.mem.Allocator) anyerror!void,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
+    const origin = itemOrigin(item, partial_ticks);
+    var rand = world.JavaRandom.init(stack_copy_seed);
 
-    const pos = item.base.renderPosition(partial_ticks);
-    const uv = Atlas.tileUv(tile);
-    const uvs = [4][2]f32{
-        .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
-    };
-
-    const half: f32 = @floatCast(game.ItemEntity.width / 2.0);
-    const cx: f32 = @floatCast(pos.x);
-    const cz: f32 = @floatCast(pos.z);
-    const y0: f32 = @floatCast(pos.y);
-    const y1: f32 = @floatCast(pos.y + game.ItemEntity.height);
-    const minx = cx - half;
-    const maxx = cx + half;
-    const minz = cz - half;
-    const maxz = cz + half;
-
-    try mesh.quad(gpa, .{
-        .{ minx, y0, minz }, .{ maxx, y0, maxz }, .{ maxx, y1, maxz }, .{ minx, y1, minz },
-    }, uvs, white);
-    try mesh.quad(gpa, .{
-        .{ maxx, y0, minz }, .{ minx, y0, maxz }, .{ minx, y1, maxz }, .{ maxx, y1, minz },
-    }, uvs, white);
+    for (0..copiesFor(item.stack.count)) |copy| {
+        const copy_start = mesh.vertices.items.len;
+        try build(mesh, gpa);
+        var offset = origin;
+        if (copy > 0) {
+            offset[0] += (rand.nextFloat() * 2.0 - 1.0) * spread;
+            offset[1] += (rand.nextFloat() * 2.0 - 1.0) * spread;
+            offset[2] += (rand.nextFloat() * 2.0 - 1.0) * spread;
+        }
+        placeSince(mesh, copy_start, yaw, offset);
+    }
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, item.base));
 }
 
-pub fn appendItem(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
+pub fn appendItem(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    item: game.ItemEntity,
+    partial_ticks: f32,
+) !void {
     if (item.stack.id > 255) return;
-    const tile = world.block.faceTextures(@intCast(item.stack.id))[world.block.up];
-    try appendItemQuads(mesh, gpa, world_map, item, tile, partial_ticks);
+    const id: u8 = @intCast(item.stack.id);
+
+    if (world.block.isCross(id)) {
+        const tile = world.block.crossTile(id, item.stack.meta);
+        const Cross = struct {
+            var shape_tile: u8 = 0;
+            fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
+                try appendCrossSprite(target, gpa_inner, shape_tile, flat_scale);
+            }
+        };
+        Cross.shape_tile = tile;
+        return appendCopies(mesh, gpa, world_map, item, 0, 0.2, partial_ticks, Cross.build);
+    }
+
+    const Cube = struct {
+        var faces: [6]u8 = undefined;
+        fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
+            const half = block_scale / 2.0;
+            try chunk_mesher.buildCube(target, gpa_inner, .{ -half, -half, -half }, .{ half, half, half }, faces);
+        }
+    };
+    Cube.faces = world.block.faceTextures(id);
+    try appendCopies(
+        mesh,
+        gpa,
+        world_map,
+        item,
+        spinRadians(item.age, item.hover, partial_ticks),
+        0.2,
+        partial_ticks,
+        Cube.build,
+    );
 }
 
-pub fn appendItemIcon(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, item: game.ItemEntity, partial_ticks: f32) !void {
+fn appendCrossSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, scale: f32) !void {
+    const uv = Atlas.tileUv(tile);
+    const uvs = [4][2]f32{
+        .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
+    };
+    const half = scale / 2.0;
+    try mesh.quad(gpa, .{
+        .{ -half, -half, -half }, .{ half, -half, half }, .{ half, half, half }, .{ -half, half, -half },
+    }, uvs, white);
+    try mesh.quad(gpa, .{
+        .{ half, -half, -half }, .{ -half, -half, half }, .{ -half, half, half }, .{ half, half, -half },
+    }, uvs, white);
+}
+
+pub fn appendItemIcon(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    item: game.ItemEntity,
+    view_yaw: f32,
+    partial_ticks: f32,
+) !void {
     if (item.stack.id <= 255) return;
     const tile = world.item.iconTile(item.stack.id) orelse return;
-    try appendItemQuads(mesh, gpa, world_map, item, tile, partial_ticks);
+
+    const Billboard = struct {
+        var icon: u8 = 0;
+        fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
+            const uv = Atlas.tileUv(icon);
+            const uvs = [4][2]f32{
+                .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
+            };
+            const left = -flat_scale / 2.0;
+            const right = flat_scale / 2.0;
+            const bottom = -flat_scale / 4.0;
+            const top = bottom + flat_scale;
+            try target.quad(gpa_inner, .{
+                .{ left, bottom, 0 }, .{ right, bottom, 0 }, .{ right, top, 0 }, .{ left, top, 0 },
+            }, uvs, white);
+        }
+    };
+    Billboard.icon = tile;
+
+    const degrees = std.math.pi / 180.0;
+    try appendCopies(mesh, gpa, world_map, item, (180.0 - view_yaw) * degrees, 0.3, partial_ticks, Billboard.build);
 }
 
 pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, block: game.FallingBlock, partial_ticks: f32) !void {
@@ -212,7 +322,7 @@ test "a particle samples only a quarter of its block's tile" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.999 / 64.0), highest_u - lowest_u, 1.0e-6);
 }
 
-test "a block item renders as two crossing quads" {
+test "a dropped block renders as a small cube, not a flat cross" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
@@ -223,7 +333,66 @@ test "a block item renders as two crossing quads" {
     const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, item, 0);
 
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
+}
+
+test "a dropped plant keeps the crossing-sprite shape the original gives it" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const rose = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.rose, .count = 1 }, &rand);
+    try appendItem(&mesh, gpa, &world_map, rose, 0);
+
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
+}
+
+test "a bigger stack piles up more copies" {
+    try std.testing.expectEqual(@as(u8, 1), copiesFor(1));
+    try std.testing.expectEqual(@as(u8, 2), copiesFor(2));
+    try std.testing.expectEqual(@as(u8, 2), copiesFor(5));
+    try std.testing.expectEqual(@as(u8, 3), copiesFor(6));
+    try std.testing.expectEqual(@as(u8, 3), copiesFor(20));
+    try std.testing.expectEqual(@as(u8, 4), copiesFor(21));
+}
+
+test "a stack of twenty one draws four cubes" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const pile = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 21 }, &rand);
+    try appendItem(&mesh, gpa, &world_map, pile, 0);
+
+    try std.testing.expectEqual(@as(usize, 4 * 6 * 4), mesh.vertices.items.len);
+}
+
+test "a dropped item bobs and a dropped block also spins" {
+    try std.testing.expect(bobHeight(0, 0, 0) != bobHeight(10, 0, 0));
+    try std.testing.expect(spinRadians(0, 0, 0) != spinRadians(10, 0, 0));
+
+    const gpa = std.testing.allocator;
+    var early: MeshBuilder = .{};
+    defer early.deinit(gpa);
+    var later: MeshBuilder = .{};
+    defer later.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
+    try appendItem(&early, gpa, &world_map, item, 0);
+    item.age = 10;
+    try appendItem(&later, gpa, &world_map, item, 0);
+
+    try std.testing.expect(early.vertices.items[0].y != later.vertices.items[0].y);
+    try std.testing.expect(early.vertices.items[0].x != later.vertices.items[0].x);
 }
 
 test "a true item stack has no world geometry yet" {
@@ -310,9 +479,9 @@ test "a true item stack renders from the items atlas" {
 
     var rand = world.JavaRandom.init(0);
     const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
-    try appendItemIcon(&mesh, gpa, &world_map, coal, 0);
+    try appendItemIcon(&mesh, gpa, &world_map, coal, 0, 0);
 
-    try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
 
     const expected = Atlas.tileUv(world.item.iconTile(world.item.coal).?);
     try std.testing.expectApproxEqAbs(expected.u0, mesh.vertices.items[0].u, 1.0e-6);
@@ -327,7 +496,7 @@ test "the two item paths never both claim the same stack" {
 
     var rand = world.JavaRandom.init(0);
     const stone = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
-    try appendItemIcon(&mesh, gpa, &world_map, stone, 0);
+    try appendItemIcon(&mesh, gpa, &world_map, stone, 0, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 
     const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);

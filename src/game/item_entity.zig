@@ -10,6 +10,7 @@ base: Entity,
 stack: Inventory.ItemStack,
 age: u32 = 0,
 pickup_delay: u16 = 10,
+hover: f32 = 0,
 
 pub const width: f64 = 0.25;
 pub const height: f64 = 0.25;
@@ -27,7 +28,11 @@ pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaR
         .y = 0.2,
         .z = @as(f64, rand.nextFloat()) * 0.2 - 0.1,
     };
-    return .{ .base = base, .stack = stack };
+    return .{
+        .base = base,
+        .stack = stack,
+        .hover = @floatCast(rand.nextDouble() * std.math.pi * 2.0),
+    };
 }
 
 pub fn tick(self: *ItemEntity, world_map: *const world.World) void {
