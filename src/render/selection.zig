@@ -31,6 +31,37 @@ pub fn appendOutline(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: u8, x: i32,
     }
 }
 
+pub const first_crack_tile: u8 = 240;
+pub const crack_stages: u8 = 10;
+
+pub fn crackTile(progress: f32) u8 {
+    const stage: u8 = @intFromFloat(std.math.clamp(progress, 0.0, 1.0) * @as(f32, crack_stages));
+    return first_crack_tile + @min(stage, crack_stages - 1);
+}
+
+pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: u8, x: i32, y: i32, z: i32, progress: f32) !void {
+    const bounds = world.block.selectionBounds(id);
+    const tile = crackTile(progress);
+    const min = [3]f32{
+        @as(f32, @floatFromInt(x)) + bounds.min[0],
+        @as(f32, @floatFromInt(y)) + bounds.min[1],
+        @as(f32, @floatFromInt(z)) + bounds.min[2],
+    };
+    const max = [3]f32{
+        @as(f32, @floatFromInt(x)) + bounds.max[0],
+        @as(f32, @floatFromInt(y)) + bounds.max[1],
+        @as(f32, @floatFromInt(z)) + bounds.max[2],
+    };
+    try @import("chunk_mesher.zig").buildCubeColored(mesh, gpa, min, max, @splat(tile), .{ 255, 255, 255, 255 });
+}
+
+test "the crack texture walks the ten destroy stages" {
+    try std.testing.expectEqual(first_crack_tile, crackTile(0.0));
+    try std.testing.expectEqual(first_crack_tile + 4, crackTile(0.45));
+    try std.testing.expectEqual(first_crack_tile + 9, crackTile(0.95));
+    try std.testing.expectEqual(first_crack_tile + 9, crackTile(1.0));
+}
+
 test "an outline is twelve edges expanded past the block's own bounds" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};

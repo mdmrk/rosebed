@@ -79,6 +79,17 @@ pub const Mesh = struct {
 };
 
 pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [3]f32, face_textures: [6]u8) !void {
+    try buildCubeColored(mesh, gpa, min, max, face_textures, null);
+}
+
+pub fn buildCubeColored(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    min: [3]f32,
+    max: [3]f32,
+    face_textures: [6]u8,
+    color: ?[4]u8,
+) !void {
     for (faces) |face| {
         const uv = Atlas.tileUv(face_textures[face.side]);
         var positions: [4][3]f32 = undefined;
@@ -95,7 +106,7 @@ pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [
             .{ uv.u1, uv.v0 },
             .{ uv.u1, uv.v1 },
         };
-        try mesh.quad(gpa, positions, uvs, shadeColor(face.shade, Colorizer.white));
+        try mesh.quad(gpa, positions, uvs, color orelse shadeColor(face.shade, Colorizer.white));
     }
 }
 

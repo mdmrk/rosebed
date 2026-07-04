@@ -662,12 +662,38 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
 
     try drawSelectionOutline(app_state);
+    try drawBreakingCrack(app_state);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     app_state.shader.setInt("u_alpha_test", 0);
     try app_state.chunks.drawTranslucent(app_state.frame, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
+    gl.Disable(gl.BLEND);
+}
+
+fn drawBreakingCrack(app_state: *AppState) !void {
+    const digging = app_state.digging orelse return;
+    if (digging.progress <= 0.0) return;
+
+    const id = app_state.world_map.getBlockId(digging.x, digging.y, digging.z);
+    if (id == world.block.air) return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+    try render.selection.appendCrack(&mesh, app_state.frame, id, digging.x, digging.y, digging.z, digging.progress);
+
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.DST_COLOR, gl.SRC_COLOR);
+    gl.PolygonOffset(-3.0, -3.0);
+    gl.Enable(gl.POLYGON_OFFSET_FILL);
+
+    var gpu = render.GpuMesh.upload(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+
+    gl.Disable(gl.POLYGON_OFFSET_FILL);
+    gl.PolygonOffset(0.0, 0.0);
     gl.Disable(gl.BLEND);
 }
 
