@@ -861,7 +861,7 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
         .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
         .color = render.sky.cloudColor(angle),
-    });
+    }, app_state.settings.fancy_graphics);
 }
 
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {

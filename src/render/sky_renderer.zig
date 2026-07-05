@@ -174,10 +174,14 @@ pub const Clouds = struct {
     color: sky.Color,
 };
 
-pub fn drawClouds(frame: Clouds) !void {
+pub fn drawClouds(frame: Clouds, fancy: bool) !void {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(frame.gpa);
-    try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+    if (fancy) {
+        try sky.appendFancyClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+    } else {
+        try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+    }
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -193,7 +197,17 @@ pub fn drawClouds(frame: Clouds) !void {
 
     var gpu = GpuMesh.upload(&mesh);
     defer gpu.deinit();
-    gpu.draw();
+
+    if (fancy) {
+        gl.ColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.FALSE);
+        gpu.draw();
+        gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
+        gl.DepthFunc(gl.LEQUAL);
+        gpu.draw();
+        gl.DepthFunc(gl.LESS);
+    } else {
+        gpu.draw();
+    }
 
     frame.shader.setInt("u_alpha_test", 1);
     frame.textures.terrain.bind();

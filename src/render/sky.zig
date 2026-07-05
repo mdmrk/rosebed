@@ -218,6 +218,141 @@ pub fn appendClouds(
     }
 }
 
+pub const fancy_cell: f32 = 12.0;
+pub const fancy_thickness: f32 = 4.0;
+pub const fancy_patch: i32 = 8;
+pub const fancy_radius: i32 = 3;
+const fancy_uv_scale: f64 = 1.0 / 256.0;
+const fancy_inset: f32 = 1.0 / 1024.0;
+
+fn cloudShade(color: Color, factor: f32) [4]u8 {
+    return .{
+        level(color[0] * factor),
+        level(color[1] * factor),
+        level(color[2] * factor),
+        cloud_alpha,
+    };
+}
+
+pub fn appendFancyClouds(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    eye: [3]f64,
+    scroll: f64,
+    color: Color,
+) !void {
+    const anchor_x = wrapCloud((eye[0] + scroll) / fancy_cell);
+    const anchor_z = wrapCloud(eye[2] / fancy_cell + 0.33);
+    const height: f32 = @floatCast(cloud_height - eye[1] + 0.33);
+
+    const base_u = @floor(anchor_x) * fancy_uv_scale;
+    const base_v = @floor(anchor_z) * fancy_uv_scale;
+    const frac_x: f32 = @floatCast(anchor_x - @floor(anchor_x));
+    const frac_z: f32 = @floatCast(anchor_z - @floor(anchor_z));
+
+    const patch: f32 = @floatFromInt(fancy_patch);
+    const top = cloudShade(color, 1.0);
+    const bottom = cloudShade(color, 0.7);
+    const along_x = cloudShade(color, 0.9);
+    const along_z = cloudShade(color, 0.8);
+
+    var px: i32 = -fancy_radius + 1;
+    while (px <= fancy_radius) : (px += 1) {
+        var pz: i32 = -fancy_radius + 1;
+        while (pz <= fancy_radius) : (pz += 1) {
+            const tile_x: f32 = @floatFromInt(px * fancy_patch);
+            const tile_z: f32 = @floatFromInt(pz * fancy_patch);
+            const ox = tile_x - frac_x;
+            const oz = tile_z - frac_z;
+
+            const u = struct {
+                fn at(a: f32, origin: f64) f32 {
+                    return @floatCast(@as(f64, a) * fancy_uv_scale + origin);
+                }
+            }.at;
+
+            if (height > -fancy_thickness - 1.0) {
+                try mesh.quad(gpa, .{
+                    .{ ox * fancy_cell, height, (oz + patch) * fancy_cell },
+                    .{ (ox + patch) * fancy_cell, height, (oz + patch) * fancy_cell },
+                    .{ (ox + patch) * fancy_cell, height, oz * fancy_cell },
+                    .{ ox * fancy_cell, height, oz * fancy_cell },
+                }, .{
+                    .{ u(tile_x, base_u), u(tile_z + patch, base_v) },
+                    .{ u(tile_x + patch, base_u), u(tile_z + patch, base_v) },
+                    .{ u(tile_x + patch, base_u), u(tile_z, base_v) },
+                    .{ u(tile_x, base_u), u(tile_z, base_v) },
+                }, bottom);
+            }
+
+            if (height <= fancy_thickness + 1.0) {
+                const y = height + fancy_thickness - fancy_inset;
+                try mesh.quad(gpa, .{
+                    .{ ox * fancy_cell, y, (oz + patch) * fancy_cell },
+                    .{ (ox + patch) * fancy_cell, y, (oz + patch) * fancy_cell },
+                    .{ (ox + patch) * fancy_cell, y, oz * fancy_cell },
+                    .{ ox * fancy_cell, y, oz * fancy_cell },
+                }, .{
+                    .{ u(tile_x, base_u), u(tile_z + patch, base_v) },
+                    .{ u(tile_x + patch, base_u), u(tile_z + patch, base_v) },
+                    .{ u(tile_x + patch, base_u), u(tile_z, base_v) },
+                    .{ u(tile_x, base_u), u(tile_z, base_v) },
+                }, top);
+            }
+
+            var slice: i32 = 0;
+            while (slice < fancy_patch) : (slice += 1) {
+                const step: f32 = @floatFromInt(slice);
+                const seam = u(tile_x + step + 0.5, base_u);
+                const near_v = u(tile_z, base_v);
+                const far_v = u(tile_z + patch, base_v);
+
+                if (px > -1) {
+                    const x = (ox + step) * fancy_cell;
+                    try mesh.quad(gpa, .{
+                        .{ x, height, (oz + patch) * fancy_cell },
+                        .{ x, height + fancy_thickness, (oz + patch) * fancy_cell },
+                        .{ x, height + fancy_thickness, oz * fancy_cell },
+                        .{ x, height, oz * fancy_cell },
+                    }, .{ .{ seam, far_v }, .{ seam, far_v }, .{ seam, near_v }, .{ seam, near_v } }, along_x);
+                }
+                if (px <= 1) {
+                    const x = (ox + step + 1.0 - fancy_inset) * fancy_cell;
+                    try mesh.quad(gpa, .{
+                        .{ x, height, (oz + patch) * fancy_cell },
+                        .{ x, height + fancy_thickness, (oz + patch) * fancy_cell },
+                        .{ x, height + fancy_thickness, oz * fancy_cell },
+                        .{ x, height, oz * fancy_cell },
+                    }, .{ .{ seam, far_v }, .{ seam, far_v }, .{ seam, near_v }, .{ seam, near_v } }, along_x);
+                }
+
+                const rung = u(tile_z + step + 0.5, base_v);
+                const left_u = u(tile_x, base_u);
+                const right_u = u(tile_x + patch, base_u);
+
+                if (pz > -1) {
+                    const z = (oz + step) * fancy_cell;
+                    try mesh.quad(gpa, .{
+                        .{ ox * fancy_cell, height + fancy_thickness, z },
+                        .{ (ox + patch) * fancy_cell, height + fancy_thickness, z },
+                        .{ (ox + patch) * fancy_cell, height, z },
+                        .{ ox * fancy_cell, height, z },
+                    }, .{ .{ left_u, rung }, .{ right_u, rung }, .{ right_u, rung }, .{ left_u, rung } }, along_z);
+                }
+                if (pz <= 1) {
+                    const z = (oz + step + 1.0 - fancy_inset) * fancy_cell;
+                    try mesh.quad(gpa, .{
+                        .{ ox * fancy_cell, height + fancy_thickness, z },
+                        .{ (ox + patch) * fancy_cell, height + fancy_thickness, z },
+                        .{ (ox + patch) * fancy_cell, height, z },
+                        .{ ox * fancy_cell, height, z },
+                    }, .{ .{ left_u, rung }, .{ right_u, rung }, .{ right_u, rung }, .{ left_u, rung } }, along_z);
+                }
+            }
+        }
+    }
+}
+
 pub fn starBrightness(celestial_angle: f32) f32 {
     const visibility = std.math.clamp(1.0 - (math.util.cos(celestial_angle * std.math.pi * 2.0) * 2.0 + 12.0 / 16.0), 0.0, 1.0);
     return visibility * visibility * 0.5;
@@ -407,4 +542,71 @@ test "clouds dim at night the way the cloud colour curve says" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), noon[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), midnight[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.15), midnight[2], 1.0e-6);
+}
+
+fn cloudFaceColors(mesh: MeshBuilder) [4]bool {
+    var seen: [4]bool = .{ false, false, false, false };
+    for (mesh.vertices.items) |v| {
+        if (v.color[0] == level(1.0)) seen[0] = true;
+        if (v.color[0] == level(0.7)) seen[1] = true;
+        if (v.color[0] == level(0.9)) seen[2] = true;
+        if (v.color[0] == level(0.8)) seen[3] = true;
+    }
+    return seen;
+}
+
+test "from below a fancy cloud shows its underside and sides but no top" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendFancyClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+
+    const seen = cloudFaceColors(mesh);
+    try std.testing.expect(!seen[0]);
+    try std.testing.expect(seen[1]);
+    try std.testing.expect(seen[2]);
+    try std.testing.expect(seen[3]);
+}
+
+test "from above a fancy cloud shows its top but no underside" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendFancyClouds(&mesh, gpa, .{ 0, 400, 0 }, 0, .{ 1, 1, 1 });
+
+    const seen = cloudFaceColors(mesh);
+    try std.testing.expect(seen[0]);
+    try std.testing.expect(!seen[1]);
+}
+
+test "a fancy cloud is a box four units thick" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendFancyClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |v| {
+        lowest = @min(lowest, v.y);
+        highest = @max(highest, v.y);
+    }
+    try std.testing.expectApproxEqAbs(fancy_thickness, highest - lowest, 1.0e-3);
+}
+
+test "fancy clouds are far thicker geometry than the flat layer" {
+    const gpa = std.testing.allocator;
+    var flat: MeshBuilder = .{};
+    defer flat.deinit(gpa);
+    var fancy: MeshBuilder = .{};
+    defer fancy.deinit(gpa);
+
+    try appendClouds(&flat, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendFancyClouds(&fancy, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+
+    try std.testing.expect(fancy.vertices.items.len > flat.vertices.items.len);
+    for (fancy.vertices.items) |v| try std.testing.expectEqual(cloud_alpha, v.color[3]);
 }
