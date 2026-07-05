@@ -96,6 +96,7 @@ const AppState = struct {
     screen: Screen = .title,
     splash: []const u8 = splashes[0],
     inventory_open: bool = false,
+    workbench_open: bool = false,
     paused: bool = false,
     options_open: bool = false,
     video_open: bool = false,
@@ -111,7 +112,8 @@ const AppState = struct {
     dragging_slider: ?render.options_screen.Slider = null,
     settings: game.Settings = .{},
     held_stack: ?game.Inventory.ItemStack = null,
-    crafting_grid: [game.crafting.grid_size * game.crafting.grid_size]?game.Inventory.ItemStack = @splat(null),
+    crafting_grid: [game.crafting.player_grid_size * game.crafting.player_grid_size]?game.Inventory.ItemStack = @splat(null),
+    workbench_grid: [game.crafting.workbench_grid_size * game.crafting.workbench_grid_size]?game.Inventory.ItemStack = @splat(null),
 };
 
 const Screen = enum { title, playing };
@@ -487,8 +489,8 @@ fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type:
     }
 }
 
-fn resultSlotClick(app_state: *AppState) void {
-    const result = game.crafting.findMatch(app_state.crafting_grid) orelse return;
+fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size: u8) void {
+    const result = game.crafting.findMatch(grid, size) orelse return;
     if (app_state.held_stack) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return;
         if (@as(u16, held.count) + result.count > game.Inventory.max_stack_size) return;
@@ -496,26 +498,43 @@ fn resultSlotClick(app_state: *AppState) void {
     } else {
         app_state.held_stack = result;
     }
-    game.crafting.consume(&app_state.crafting_grid);
+    game.crafting.consume(grid);
 }
 
-fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
+fn containerClickAt(
+    app_state: *AppState,
+    slots: []const render.container_screen.Slot,
+    grid: []?game.Inventory.ItemStack,
+    size: u8,
+    click_type: ClickType,
+) !void {
     const gui = guiSize(app_state);
-    const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, gui) orelse {
-        if (render.inventory_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui)) {
+    const index = render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui) orelse {
+        if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui)) {
             try dropHeldStack(app_state, click_type);
         }
         return;
     };
+    const slot = slots[index];
     switch (slot.kind) {
         .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type),
-        .craft_input => slotClick(app_state, &app_state.crafting_grid[slot.index], click_type),
-        .craft_result => resultSlotClick(app_state),
+        .craft_input => slotClick(app_state, &grid[slot.index], click_type),
+        .craft_result => resultSlotClick(app_state, grid, size),
     }
 }
 
-fn dropCraftingGrid(app_state: *AppState) !void {
-    for (&app_state.crafting_grid) |*slot| {
+fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
+    if (app_state.workbench_open) {
+        const layout = render.crafting_screen.slots();
+        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type);
+    } else {
+        const layout = render.inventory_screen.slots();
+        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type);
+    }
+}
+
+fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
+    for (grid) |*slot| {
         const stack = slot.* orelse continue;
         try spawnDroppedItem(
             app_state,
@@ -528,21 +547,39 @@ fn dropCraftingGrid(app_state: *AppState) !void {
     }
 }
 
+fn containerOpen(app_state: *const AppState) bool {
+    return app_state.inventory_open or app_state.workbench_open;
+}
+
 fn worldFocused(app_state: *const AppState) bool {
-    return app_state.screen == .playing and !app_state.inventory_open and !app_state.paused and !app_state.options_open;
+    return app_state.screen == .playing and !containerOpen(app_state) and !app_state.paused and !app_state.options_open;
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
     try sdl3.mouse.setWindowRelativeMode(app_state.window, worldFocused(app_state));
 }
 
-fn toggleInventory(app_state: *AppState) !void {
-    app_state.inventory_open = !app_state.inventory_open;
+fn closeContainer(app_state: *AppState) !void {
+    app_state.inventory_open = false;
+    app_state.workbench_open = false;
     try updateMouseMode(app_state);
-    if (!app_state.inventory_open) {
-        try dropHeldStack(app_state, .left);
-        try dropCraftingGrid(app_state);
+    try dropHeldStack(app_state, .left);
+    try dropGrid(app_state, &app_state.crafting_grid);
+    try dropGrid(app_state, &app_state.workbench_grid);
+}
+
+fn openWorkbench(app_state: *AppState) !void {
+    app_state.workbench_open = true;
+    try updateMouseMode(app_state);
+}
+
+fn toggleInventory(app_state: *AppState) !void {
+    if (containerOpen(app_state)) {
+        try closeContainer(app_state);
+        return;
     }
+    app_state.inventory_open = true;
+    try updateMouseMode(app_state);
 }
 
 fn togglePause(app_state: *AppState) !void {
@@ -645,6 +682,17 @@ fn consumeSelectedStack(app_state: *AppState) void {
     }
 }
 
+fn useBlockOrPlace(app_state: *AppState) !void {
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+        return placeBlockAtTarget(app_state);
+    };
+    if (app_state.world_map.getBlock(hit.x, hit.y, hit.z) == .workbench) {
+        try openWorkbench(app_state);
+        return;
+    }
+    try placeBlockAtTarget(app_state);
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !void {
     const stack = app_state.player.inventory.selectedStack() orelse return;
     const placed = switch (stack.id) {
@@ -668,7 +716,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
 fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
 
-    const moving_allowed = !app_state.inventory_open;
+    const moving_allowed = !containerOpen(app_state);
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
@@ -1054,6 +1102,13 @@ pub fn iterate(
         try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.paused) {
         try render.menu.draw(ui);
+    } else if (app_state.workbench_open) {
+        try render.crafting_screen.draw(
+            ui,
+            app_state.player.inventory,
+            app_state.workbench_grid,
+            app_state.held_stack,
+        );
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
             ui,
@@ -1119,8 +1174,8 @@ pub fn event(
             if (k.key == .escape) try closeOptions(app_state);
         } else if (app_state.screen == .playing) {
             if (k.key == .escape) {
-                if (app_state.inventory_open) {
-                    try toggleInventory(app_state);
+                if (containerOpen(app_state)) {
+                    try closeContainer(app_state);
                 } else {
                     try togglePause(app_state);
                 }
@@ -1163,16 +1218,16 @@ pub fn event(
                 };
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
-            } else if (app_state.inventory_open) {
-                try inventoryClickAt(app_state, .left);
+            } else if (containerOpen(app_state)) {
+                try openContainerClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
                 app_state.player.swingItem();
             },
-            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
-                try inventoryClickAt(app_state, .right);
+            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
+                try openContainerClickAt(app_state, .right);
             } else {
-                try placeBlockAtTarget(app_state);
+                try useBlockOrPlace(app_state);
                 app_state.player.swingItem();
             },
             else => {},
