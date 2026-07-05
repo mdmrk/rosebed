@@ -99,6 +99,8 @@ const AppState = struct {
     paused: bool = false,
     options_open: bool = false,
     video_open: bool = false,
+    controls_open: bool = false,
+    rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
     frames_this_second: u32 = 0,
     chunk_updates_this_second: u32 = 0,
@@ -543,6 +545,8 @@ fn openOptions(app_state: *AppState, parent: OptionsParent) !void {
 fn closeOptions(app_state: *AppState) !void {
     app_state.options_open = false;
     app_state.video_open = false;
+    app_state.controls_open = false;
+    app_state.rebinding = null;
     app_state.dragging_slider = null;
     try updateMouseMode(app_state);
 }
@@ -576,6 +580,7 @@ fn optionsClick(app_state: *AppState) !void {
         .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
         .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
         .video => app_state.video_open = true,
+        .controls => app_state.controls_open = true,
         .done => try closeOptions(app_state),
     }
 }
@@ -587,6 +592,18 @@ fn videoClick(app_state: *AppState) !void {
         app_state.video_open = false;
     } else {
         render.video_settings_screen.cycle(&app_state.settings, hit);
+    }
+}
+
+fn controlsClick(app_state: *AppState) void {
+    const gui = guiSize(app_state);
+    const hit = render.controls_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    switch (hit) {
+        .binding => |binding| app_state.rebinding = binding,
+        .done => {
+            app_state.controls_open = false;
+            app_state.rebinding = null;
+        },
     }
 }
 
@@ -990,7 +1007,9 @@ pub fn iterate(
         try render.debug_overlay.draw(ui, debugStats(app_state));
     }
 
-    if (app_state.video_open) {
+    if (app_state.controls_open) {
+        try render.controls_screen.draw(ui, app_state.settings, backdrop, app_state.rebinding);
+    } else if (app_state.video_open) {
         try render.video_settings_screen.draw(ui, app_state.settings, backdrop);
     } else if (app_state.options_open) {
         try render.options_screen.draw(ui, app_state.settings, backdrop);
@@ -1015,15 +1034,16 @@ pub fn iterate(
     return .run;
 }
 
+fn boundTo(app_state: *const AppState, binding: game.Settings.Binding, key: ?sdl3.keycode.Keycode) bool {
+    return app_state.settings.keys.get(binding) == @intFromEnum(key orelse return false);
+}
+
 fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) void {
-    switch (key orelse return) {
-        .w => app_state.keys.forward = down,
-        .s => app_state.keys.back = down,
-        .a => app_state.keys.left = down,
-        .d => app_state.keys.right = down,
-        .space => app_state.keys.jump = down,
-        else => {},
-    }
+    if (boundTo(app_state, .forward, key)) app_state.keys.forward = down;
+    if (boundTo(app_state, .back, key)) app_state.keys.back = down;
+    if (boundTo(app_state, .left, key)) app_state.keys.left = down;
+    if (boundTo(app_state, .right, key)) app_state.keys.right = down;
+    if (boundTo(app_state, .jump, key)) app_state.keys.jump = down;
 }
 
 fn selectHotbarFromKey(app_state: *AppState, key: ?sdl3.keycode.Keycode) void {
@@ -1049,7 +1069,16 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| if (app_state.video_open) {
+        .key_down => |k| if (app_state.controls_open) {
+            if (app_state.rebinding) |binding| {
+                if (k.key) |key| {
+                    app_state.settings.keys.set(binding, @intFromEnum(key));
+                    app_state.rebinding = null;
+                }
+            } else if (k.key == .escape) {
+                app_state.controls_open = false;
+            }
+        } else if (app_state.video_open) {
             if (k.key == .escape) app_state.video_open = false;
         } else if (app_state.options_open) {
             if (k.key == .escape) try closeOptions(app_state);
@@ -1062,7 +1091,7 @@ pub fn event(
                 }
             } else if (k.key == .func3) {
                 app_state.show_debug = !app_state.show_debug;
-            } else if (k.key == .e and !app_state.paused) {
+            } else if (boundTo(app_state, .inventory, k.key) and !app_state.paused) {
                 try toggleInventory(app_state);
             } else {
                 setKeyState(app_state, k.key, true);
@@ -1084,7 +1113,9 @@ pub fn event(
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         },
         .mouse_button_down => |m| switch (m.button) {
-            .left => if (app_state.video_open) {
+            .left => if (app_state.controls_open) {
+                controlsClick(app_state);
+            } else if (app_state.video_open) {
                 try videoClick(app_state);
             } else if (app_state.options_open) {
                 try optionsClick(app_state);
@@ -1103,7 +1134,7 @@ pub fn event(
                 app_state.mouse_left_down = true;
                 app_state.player.swingItem();
             },
-            .right => if (app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
+            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (app_state.inventory_open) {
                 try inventoryClickAt(app_state, .right);
             } else {
                 try placeBlockAtTarget(app_state);

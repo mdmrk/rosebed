@@ -17,10 +17,9 @@ const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
 pub const Backdrop = enum { dirt, veil };
 pub const Slider = enum { music, sound, sensitivity };
-pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, done };
+pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, controls, done };
 
-const Kind = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, controls, done };
-const Control = struct { x: f32, y: f32, w: f32, kind: Kind, enabled: bool };
+const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
 
 fn controls(scaled_width: f32, scaled_height: f32) [8]Control {
     const cx = @floor(scaled_width / 2.0);
@@ -28,25 +27,14 @@ fn controls(scaled_width: f32, scaled_height: f32) [8]Control {
     const left = cx - 155.0;
     const right = cx - 155.0 + 160.0;
     return .{
-        .{ .x = left, .y = sixth, .w = opt_width, .kind = .{ .slider = .music }, .enabled = true },
-        .{ .x = right, .y = sixth, .w = opt_width, .kind = .{ .slider = .sound }, .enabled = true },
-        .{ .x = left, .y = sixth + 24, .w = opt_width, .kind = .toggle_invert, .enabled = true },
-        .{ .x = right, .y = sixth + 24, .w = opt_width, .kind = .{ .slider = .sensitivity }, .enabled = true },
-        .{ .x = left, .y = sixth + 48, .w = opt_width, .kind = .cycle_difficulty, .enabled = true },
-        .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .kind = .video, .enabled = true },
-        .{ .x = cx - 100, .y = sixth + 120 + 12, .w = 200, .kind = .controls, .enabled = false },
-        .{ .x = cx - 100, .y = sixth + 168, .w = 200, .kind = .done, .enabled = true },
-    };
-}
-
-fn kindHit(kind: Kind) ?Hit {
-    return switch (kind) {
-        .slider => |s| .{ .slider = s },
-        .toggle_invert => .toggle_invert,
-        .cycle_difficulty => .cycle_difficulty,
-        .video => .video,
-        .done => .done,
-        .controls => null,
+        .{ .x = left, .y = sixth, .w = opt_width, .hit = .{ .slider = .music } },
+        .{ .x = right, .y = sixth, .w = opt_width, .hit = .{ .slider = .sound } },
+        .{ .x = left, .y = sixth + 24, .w = opt_width, .hit = .toggle_invert },
+        .{ .x = right, .y = sixth + 24, .w = opt_width, .hit = .{ .slider = .sensitivity } },
+        .{ .x = left, .y = sixth + 48, .w = opt_width, .hit = .cycle_difficulty },
+        .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .hit = .video },
+        .{ .x = cx - 100, .y = sixth + 120 + 12, .w = 200, .hit = .controls },
+        .{ .x = cx - 100, .y = sixth + 168, .w = 200, .hit = .done },
     };
 }
 
@@ -54,9 +42,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (controls(res.width, res.height)) |control| {
-        if (!control.enabled) continue;
         if (gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height) {
-            return kindHit(control.kind);
+            return control.hit;
         }
     }
     return null;
@@ -83,8 +70,8 @@ fn percentLabel(buf: []u8, prefix: []const u8, value: f32, scale: f32) []const u
     return std.fmt.bufPrint(buf, "{s}{d}%", .{ prefix, @as(u32, @intFromFloat(value * scale)) }) catch prefix;
 }
 
-fn controlLabel(kind: Kind, settings: game.Settings, buf: []u8) []const u8 {
-    return switch (kind) {
+fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
+    return switch (hit) {
         .slider => |s| switch (s) {
             .music => percentLabel(buf, "Music: ", settings.music_volume, 100),
             .sound => percentLabel(buf, "Sound: ", settings.sound_volume, 100),
@@ -154,10 +141,10 @@ pub fn draw(
     defer text.deinit(ui.gpa);
 
     for (controls(ui.res.width, ui.res.height)) |control| {
-        const hovered = control.enabled and gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height;
+        const hovered = gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height;
         var buf: [64]u8 = undefined;
-        const label = controlLabel(control.kind, settings, &buf);
-        switch (control.kind) {
+        const label = controlLabel(control.hit, settings, &buf);
+        switch (control.hit) {
             .slider => |s| {
                 const value = switch (s) {
                     .music => settings.music_volume,
@@ -166,7 +153,7 @@ pub fn draw(
                 };
                 try appendSlider(&backgrounds, &text, ui.gpa, ui.font, control, value, label, hovered, ui.res);
             },
-            else => try button.append(&backgrounds, &text, ui.gpa, ui.font, .{ .x = control.x, .y = control.y, .w = control.w, .label = label, .enabled = control.enabled }, hovered, ui.res),
+            else => try button.append(&backgrounds, &text, ui.gpa, ui.font, .{ .x = control.x, .y = control.y, .w = control.w, .label = label, .enabled = true }, hovered, ui.res),
         }
     }
 
@@ -193,10 +180,10 @@ test "clicking a slider returns its id" {
     try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, gui.scaledResolution(640, 480, 1000)));
 }
 
-test "video settings opens, controls is still disabled" {
+test "video settings and controls both open" {
     const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?Hit, .video), hitAt(320, 296, res));
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(320, 344, res));
+    try std.testing.expectEqual(@as(?Hit, .controls), hitAt(320, 344, res));
 }
 
 test "slider value maps click x to 0..1 clamped" {

@@ -86,6 +86,39 @@ pub const GuiScale = enum(u2) {
     }
 };
 
+pub const Binding = enum {
+    forward,
+    left,
+    back,
+    right,
+    jump,
+    sneak,
+    drop,
+    inventory,
+    chat,
+    fog,
+
+    pub fn label(self: Binding) []const u8 {
+        return switch (self) {
+            .forward => "Forward",
+            .left => "Left",
+            .back => "Back",
+            .right => "Right",
+            .jump => "Jump",
+            .sneak => "Sneak",
+            .drop => "Drop",
+            .inventory => "Inventory",
+            .chat => "Chat",
+            .fog => "Toggle Fog",
+        };
+    }
+};
+
+pub const KeyBindings = std.EnumArray(Binding, u32);
+
+const scancode_mask: u32 = 1 << 30;
+const left_shift: u32 = scancode_mask | 225;
+
 const Settings = @This();
 
 music_volume: f32 = 1.0,
@@ -101,9 +134,36 @@ anaglyph: bool = false,
 view_bobbing: bool = true,
 gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
+keys: KeyBindings = .init(.{
+    .forward = 'w',
+    .left = 'a',
+    .back = 's',
+    .right = 'd',
+    .jump = ' ',
+    .sneak = left_shift,
+    .drop = 'q',
+    .inventory = 'e',
+    .chat = 't',
+    .fog = 'f',
+}),
 
 test "difficulty cycles through all four and wraps" {
     try std.testing.expectEqual(Difficulty.easy, Difficulty.peaceful.next());
     try std.testing.expectEqual(Difficulty.hard, Difficulty.normal.next());
     try std.testing.expectEqual(Difficulty.peaceful, Difficulty.hard.next());
+}
+
+test "bindings default to the vanilla layout" {
+    const settings: Settings = .{};
+    try std.testing.expectEqual(@as(u32, 'w'), settings.keys.get(.forward));
+    try std.testing.expectEqual(@as(u32, 'a'), settings.keys.get(.left));
+    try std.testing.expectEqual(@as(u32, ' '), settings.keys.get(.jump));
+    try std.testing.expectEqual(@as(u32, 'e'), settings.keys.get(.inventory));
+}
+
+test "rebinding a key replaces the old one" {
+    var settings: Settings = .{};
+    settings.keys.set(.forward, 'z');
+    try std.testing.expectEqual(@as(u32, 'z'), settings.keys.get(.forward));
+    try std.testing.expectEqual(@as(u32, 'a'), settings.keys.get(.left));
 }
