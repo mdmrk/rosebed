@@ -84,6 +84,13 @@ pub const Stack = struct {
     id: Id,
     count: u8,
     meta: u4 = 0,
+
+    pub fn displayName(self: Stack) []const u8 {
+        return switch (self.id) {
+            .block => |id| id.displayName(),
+            .item => |id| id.displayName(self.meta),
+        };
+    }
 };
 
 pub const Id = union(enum) {
@@ -288,6 +295,40 @@ pub const Block = enum(u8) {
         if (h < 0.0) return null;
         const divisor: f32 = if (self.isHarvestableByHand()) 30.0 else 100.0;
         return h * divisor;
+    }
+
+    pub fn displayName(self: Block) []const u8 {
+        return switch (self) {
+            .stone => "Stone",
+            .grass => "Grass",
+            .dirt => "Dirt",
+            .cobblestone => "Cobblestone",
+            .planks => "Wooden Planks",
+            .sapling => "Sapling",
+            .bedrock => "Bedrock",
+            .stationary_water => "Water",
+            .flowing_lava => "Lava",
+            .sand => "Sand",
+            .gravel => "Gravel",
+            .ore_gold => "Gold Ore",
+            .ore_iron => "Iron Ore",
+            .ore_coal => "Coal Ore",
+            .log => "Wood",
+            .leaves => "Leaves",
+            .ore_lapis => "Lapis Lazuli Ore",
+            .dandelion => "Flower",
+            .rose => "Rose",
+            .mushroom_brown, .mushroom_red => "Mushroom",
+            .cobblestone_mossy => "Moss Stone",
+            .mob_spawner => "Monster Spawner",
+            .ore_diamond => "Diamond Ore",
+            .ore_redstone => "Redstone Ore",
+            .snow_layer => "Snow",
+            .clay => "Clay",
+            .reed => "Sugar cane",
+            .pumpkin => "Pumpkin",
+            else => "",
+        };
     }
 
     pub fn drop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
@@ -549,4 +590,24 @@ test "a falling block can fall into air or liquid, not solid ground" {
     try std.testing.expect(Block.stationary_water.canFallInto());
     try std.testing.expect(Block.flowing_lava.canFallInto());
     try std.testing.expect(!Block.stone.canFallInto());
+}
+
+test "display names come from the real en_US lang keys, not the enum names" {
+    try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName());
+    try std.testing.expectEqualStrings("Wooden Planks", Block.planks.displayName());
+    try std.testing.expectEqualStrings("Wood", Block.log.displayName());
+    try std.testing.expectEqualStrings("Flower", Block.dandelion.displayName());
+    try std.testing.expectEqualStrings("Moss Stone", Block.cobblestone_mossy.displayName());
+}
+
+test "blocks with no lang entry have no display name" {
+    try std.testing.expectEqualStrings("", Block.tall_grass.displayName());
+    try std.testing.expectEqualStrings("", Block.dead_bush.displayName());
+}
+
+test "log wood types all share one display name" {
+    for (0..4) |meta| {
+        const stack: Stack = .{ .id = .{ .block = .log }, .count = 1, .meta = @intCast(meta) };
+        try std.testing.expectEqualStrings("Wood", stack.displayName());
+    }
 }

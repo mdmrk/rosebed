@@ -226,6 +226,19 @@ pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !v
     gpu.draw();
 }
 
+pub fn drawColorMesh(mesh: *MeshBuilder, shader: Shader) !void {
+    if (mesh.vertices.items.len == 0) return;
+    var gpu = GpuMesh.upload(mesh);
+    defer gpu.deinit();
+    shader.use();
+    shader.setInt("u_fog_enabled", 0);
+    shader.setInt("u_alpha_test", 0);
+    shader.setInt("u_textured", 0);
+    shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    shader.setMat4("u_view_proj", identity);
+    gpu.draw();
+}
+
 const iso_light_ambient: f32 = 0.4;
 const iso_light_diffuse: f32 = 0.6;
 

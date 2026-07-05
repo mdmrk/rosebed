@@ -502,7 +502,9 @@ fn resultSlotClick(app_state: *AppState) void {
 fn inventoryClickAt(app_state: *AppState, click_type: ClickType) !void {
     const gui = guiSize(app_state);
     const slot = render.inventory_screen.slotAt(app_state.mouse_x, app_state.mouse_y, gui) orelse {
-        try dropHeldStack(app_state, click_type);
+        if (render.inventory_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui)) {
+            try dropHeldStack(app_state, click_type);
+        }
         return;
     };
     switch (slot.kind) {
