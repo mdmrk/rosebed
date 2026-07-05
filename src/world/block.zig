@@ -72,18 +72,19 @@ pub fn selectionBounds(id: u8) Bounds {
 }
 
 pub fn isOpaqueCube(id: u8) bool {
-    return isOpaque(id) and !isLiquid(id);
+    return isOpaque(id) and !isLiquid(id) and id != leaves;
 }
 
 pub fn isTranslucent(id: u8) bool {
     return id == stationary_water;
 }
 
-pub fn shouldRenderFace(id: u8, neighbor: u8, side: u3) bool {
+pub fn shouldRenderFace(id: u8, neighbor: u8, side: u3, fancy: bool) bool {
     if (isLiquid(id)) {
         if (neighbor == id) return false;
         if (side == up) return true;
     }
+    if (id == leaves and !fancy and neighbor == leaves) return false;
     return !isOpaqueCube(neighbor);
 }
 
@@ -93,6 +94,33 @@ pub fn isFalling(id: u8) bool {
 
 pub fn canFallInto(id: u8) bool {
     return id == air or isLiquid(id);
+}
+
+pub fn leafTile(metadata: u4, fancy: bool) u8 {
+    const base: u8 = if (fancy) 52 else 53;
+    return if (metadata & 3 == 1) base + 80 else base;
+}
+
+test "leaf tiles follow the graphics level, and pine has its own" {
+    try std.testing.expectEqual(@as(u8, 52), leafTile(0, true));
+    try std.testing.expectEqual(@as(u8, 53), leafTile(0, false));
+    try std.testing.expectEqual(@as(u8, 132), leafTile(1, true));
+    try std.testing.expectEqual(@as(u8, 133), leafTile(1, false));
+    try std.testing.expectEqual(@as(u8, 52), leafTile(2, true));
+    try std.testing.expectEqual(@as(u8, 52), leafTile(8, true));
+}
+
+test "leaves are not an opaque cube, so they never cull a neighbour" {
+    try std.testing.expect(!isOpaqueCube(leaves));
+    try std.testing.expect(isOpaque(leaves));
+    try std.testing.expect(shouldRenderFace(stone, leaves, up, true));
+    try std.testing.expect(shouldRenderFace(stone, leaves, up, false));
+}
+
+test "only fast graphics culls the face between two leaf blocks" {
+    try std.testing.expect(shouldRenderFace(leaves, leaves, up, true));
+    try std.testing.expect(!shouldRenderFace(leaves, leaves, up, false));
+    try std.testing.expect(!shouldRenderFace(leaves, stone, up, true));
 }
 
 pub fn logSideTile(metadata: u4) u8 {

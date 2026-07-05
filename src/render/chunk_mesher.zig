@@ -116,6 +116,11 @@ fn neighborId(world_map: *const world.World, chunk: *const world.Chunk, x: i32, 
     return world_map.getBlockId(world_x, y, world_z);
 }
 
+pub const Options = struct {
+    smooth: bool = false,
+    fancy: bool = false,
+};
+
 pub const Mesh = struct {
     solid: MeshBuilder = .{},
     translucent: MeshBuilder = .{},
@@ -174,7 +179,7 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     }, uvs, shadeColor(brightness, tint));
 }
 
-pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, smooth: bool) !Mesh {
+pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !Mesh {
     var mesh: Mesh = .{};
     errdefer mesh.deinit(gpa);
 
@@ -216,6 +221,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures[world.block.south] = side_tile;
                     textures[world.block.west] = side_tile;
                     textures[world.block.east] = side_tile;
+                } else if (id == world.block.leaves) {
+                    textures = @splat(world.block.leafTile(metadata, options.fancy));
                 }
 
                 const height_scale = world.block.heightScale(id);
@@ -224,7 +231,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];
                     const ny: i32 = @as(i32, @intCast(ly)) + face.normal[1];
                     const nz: i32 = @as(i32, @intCast(lz)) + face.normal[2];
-                    if (!world.block.shouldRenderFace(id, neighborId(world_map, chunk, nx, ny, nz), face.side)) continue;
+                    if (!world.block.shouldRenderFace(id, neighborId(world_map, chunk, nx, ny, nz), face.side, options.fancy)) continue;
 
                     const uv = Atlas.tileUv(textures[face.side]);
                     var positions: [4][3]f32 = undefined;
@@ -240,7 +247,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 
                     const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
 
-                    if (smooth) {
+                    if (options.smooth) {
                         const corner_brightness = smoothBrightness(world_map, face, world_x, world_y, world_z, emitted);
                         var colors: [4][4]u8 = undefined;
                         for (corner_brightness, 0..) |brightness, i| {
@@ -273,7 +280,7 @@ test "a cross-shaped plant emits two crossing quads instead of a cube" {
     chunk.setBlockId(0, 0, 0, world.block.tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.solid.vertices.items.len);
@@ -288,7 +295,7 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     chunk.setBlockId(1, 0, 0, world.block.tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4 + 2 * 4), mesh.solid.vertices.items.len);
@@ -303,7 +310,7 @@ test "a snow layer renders as a thin partial-height cube" {
     chunk.setBlockId(0, 2, 0, world.block.snow_layer);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     var max_y: f32 = 0;
@@ -321,7 +328,7 @@ test "a lone block emits all 6 faces" {
     chunk.setBlockId(0, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
@@ -336,7 +343,7 @@ test "each cube face carries its own directional shade" {
     chunk.setBlockId(8, 0, 8, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     const expected = [6]u8{ 6, 255, 204, 204, 153, 153 };
@@ -355,7 +362,7 @@ test "a cross-shaped plant is not directionally shaded" {
     chunk.setBlockId(0, 0, 0, world.block.rose);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     for (mesh.solid.vertices.items) |v| {
@@ -372,7 +379,7 @@ test "adjacent blocks cull their shared face" {
     chunk.setBlockId(1, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 10 * 4), mesh.solid.vertices.items.len);
@@ -385,7 +392,7 @@ test "an all-air chunk produces an empty mesh" {
     _ = try world_map.createChunk(0, 0);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.solid.vertices.items.len);
@@ -401,7 +408,7 @@ test "a block at a chunk boundary culls its face against a loaded neighbor chunk
     b.setBlockId(0, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 5 * 4), mesh.solid.vertices.items.len);
@@ -420,7 +427,7 @@ test "only the grass block's top face takes the biome tint" {
     chunk.setBlockId(8, 0, 8, world.block.grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual([4]u8{ 100, 200, 50, 255 }, mesh.solid.vertices.items[1 * 4].color);
@@ -442,7 +449,7 @@ test "birch leaves take the fixed foliage color instead of the biome lookup" {
     chunk.setBlockId(11, 0, 11, world.block.leaves);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
     defer mesh.deinit(gpa);
 
     const birch_top = mesh.solid.vertices.items[1 * 4].color;
@@ -459,7 +466,7 @@ test "water builds into the translucent pass, not the solid one" {
     chunk.setBlockId(8, 0, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.solid.vertices.items.len);
@@ -475,7 +482,7 @@ test "touching water faces are culled but the surface between water and air is n
     chunk.setBlockId(8, 1, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 10 * 4), mesh.translucent.vertices.items.len);
@@ -490,10 +497,43 @@ test "a solid block keeps the face it shares with water" {
     chunk.setBlockId(8, 1, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
+}
+
+test "fancy leaves keep the face two leaf blocks share, fast leaves cull it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.leaves);
+    chunk.setBlockId(9, 0, 8, world.block.leaves);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var fast = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer fast.deinit(gpa);
+    var fancy = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{ .fancy = true });
+    defer fancy.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 10 * 4), fast.solid.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 12 * 4), fancy.solid.vertices.items.len);
+}
+
+test "leaves never cull a neighbouring block's face" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+    chunk.setBlockId(9, 0, 8, world.block.leaves);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{ .fancy = true });
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 11 * 4), mesh.solid.vertices.items.len);
 }
 
 test "an unobstructed face lights all four corners the same" {
@@ -598,9 +638,9 @@ test "smooth lighting varies a face's vertex colors, flat lighting does not" {
     chunk.setBlockId(9, 1, 8, world.block.stone);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
-    var flat = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    var flat = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer flat.deinit(gpa);
-    var smooth = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, true);
+    var smooth = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{ .smooth = true });
     defer smooth.deinit(gpa);
 
     try std.testing.expectEqual(flat.solid.vertices.items.len, smooth.solid.vertices.items.len);

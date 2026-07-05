@@ -617,7 +617,10 @@ fn videoClick(app_state: *AppState) !void {
         app_state.video_open = false;
     } else {
         render.video_settings_screen.cycle(&app_state.settings, hit);
-        if (hit == .ambient_occlusion) try app_state.chunks.markAllDirty(app_state.gpa);
+        switch (hit) {
+            .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
+            else => {},
+        }
     }
 }
 
@@ -743,7 +746,10 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
 }
 
 fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
-    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer, app_state.settings.ambient_occlusion);
+    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer, .{
+        .smooth = app_state.settings.ambient_occlusion,
+        .fancy = app_state.settings.fancy_graphics,
+    });
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
