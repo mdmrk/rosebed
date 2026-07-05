@@ -13,9 +13,22 @@ const highlight_height: f32 = 22;
 const slot_pitch: f32 = 20;
 const crosshair_size: f32 = 16;
 
+const heart_count: usize = 10;
+const heart_size: f32 = 9;
+const heart_pitch: f32 = 8;
+const heart_row_offset: f32 = 32;
+const heart_container_u: f32 = 16;
+const heart_full_u: f32 = 52;
+const heart_half_u: f32 = 61;
+
+fn appendIcon(mesh: *MeshBuilder, ui: gui.Ui, u: f32, x: f32, y: f32) !void {
+    try gui.appendRect(mesh, ui.gpa, x, y, heart_size, heart_size, gui.pixelUv(u, 0, heart_size, heart_size, gui.gui_texture_size, gui.gui_texture_size), ui.res);
+}
+
 pub fn draw(
     ui: gui.Ui,
     inventory: game.Inventory,
+    health: i32,
 ) !void {
     const hotbar_x = @floor(ui.res.width / 2.0) - hotbar_width / 2.0;
     const hotbar_y = ui.res.height - hotbar_height;
@@ -39,6 +52,18 @@ pub fn draw(
     gl.BlendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE_MINUS_SRC_COLOR);
     try gui.drawTexturedMesh(&crosshair, ui.shader, ui.textures.icons);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    var hearts: MeshBuilder = .{};
+    defer hearts.deinit(ui.gpa);
+    const heart_y = ui.res.height - heart_row_offset;
+    for (0..heart_count) |i| {
+        const heart_x = hotbar_x + @as(f32, @floatFromInt(i)) * heart_pitch;
+        try appendIcon(&hearts, ui, heart_container_u, heart_x, heart_y);
+        const filled: i32 = @intCast(i * 2 + 1);
+        const u: f32 = if (filled < health) heart_full_u else if (filled == health) heart_half_u else continue;
+        try appendIcon(&hearts, ui, u, heart_x, heart_y);
+    }
+    try gui.drawTexturedMesh(&hearts, ui.shader, ui.textures.icons);
 
     var block_icons: MeshBuilder = .{};
     defer block_icons.deinit(ui.gpa);

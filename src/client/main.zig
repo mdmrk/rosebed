@@ -1039,8 +1039,9 @@ pub fn iterate(
     const ui = uiContext(app_state, gui);
     const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
 
-    if (app_state.screen == .playing and app_state.show_debug) {
-        try render.debug_overlay.draw(ui, debugStats(app_state));
+    if (app_state.screen == .playing) {
+        try render.hud.draw(ui, app_state.player.inventory, app_state.player.health);
+        if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
     }
 
     if (app_state.controls_open) {
@@ -1061,8 +1062,6 @@ pub fn iterate(
             app_state.crafting_grid,
             app_state.held_stack,
         );
-    } else {
-        try render.hud.draw(ui, app_state.player.inventory);
     }
 
     try sdl3.video.gl.swapWindow(app_state.window);

@@ -9,6 +9,7 @@ const Player = @This();
 base: Entity,
 yaw: f32 = 0,
 pitch: f32 = 0,
+health: i32 = 20,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
