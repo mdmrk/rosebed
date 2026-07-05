@@ -310,6 +310,8 @@ pub fn appendBlockIcon3d(
         const side_tile = world.block.logSideTile(meta);
         textures.set(.south, side_tile);
         textures.set(.east, side_tile);
+    } else if (id == .wool) {
+        textures = world.block.FaceTextures.initFill(world.block.woolTile(meta));
     }
     try appendIsoFace(mesh, gpa, iso_up_corners, textures.get(.up), iso_brightness_up, x, y, res);
     try appendIsoFace(mesh, gpa, iso_south_corners, textures.get(.south), iso_brightness_south, x, y, res);

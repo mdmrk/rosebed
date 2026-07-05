@@ -223,6 +223,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures.set(.east, side_tile);
                 } else if (id == .leaves) {
                     textures = world.block.FaceTextures.initFill(world.block.leafTile(metadata, options.fancy));
+                } else if (id == .wool) {
+                    textures = world.block.FaceTextures.initFill(world.block.woolTile(metadata));
                 }
 
                 const height_scale = id.heightScale();

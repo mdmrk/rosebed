@@ -42,7 +42,29 @@ const recipes = [_]Recipe{
         .output_id = .{ .block = .clay },
         .output_count = 1,
     },
+    filledGrid(.{ .block = .planks }, .{ .block = .workbench }),
+    filledGrid(.{ .item = .snowball }, .{ .block = .snow_block }),
+    filledGrid(.{ .item = .brick }, .{ .block = .brick }),
+    filledGrid(.{ .item = .string }, .{ .block = .wool }),
+    filledGrid(.{ .item = .glowstone_dust }, .{ .block = .glowstone }),
+    .{
+        .width = 1,
+        .height = 1,
+        .pattern = .{ .{ .id = .{ .item = .reed } }, null, null, null },
+        .output_id = .{ .item = .sugar },
+        .output_count = 1,
+    },
 };
+
+fn filledGrid(ingredient: world.Id, output: world.Id) Recipe {
+    return .{
+        .width = 2,
+        .height = 2,
+        .pattern = @splat(.{ .id = ingredient }),
+        .output_id = output,
+        .output_count = 1,
+    };
+}
 
 fn matchesAt(grid: [grid_size * grid_size]?Inventory.ItemStack, recipe: Recipe, offset_x: u8, offset_y: u8) bool {
     for (0..grid_size) |y| {
@@ -143,4 +165,40 @@ test "consume removes one item from every filled grid slot" {
     consume(&grid);
     try std.testing.expect(grid[0] == null);
     try std.testing.expectEqual(@as(u8, 1), grid[2].?.count);
+}
+
+test "a filled grid of planks crafts a workbench" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    for (&grid) |*slot| slot.* = .{ .id = .{ .block = .planks }, .count = 1 };
+    const result = findMatch(grid).?;
+    try std.testing.expectEqual(world.Id{ .block = .workbench }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the other filled-grid recipes each craft their block" {
+    const cases = [_]struct { ingredient: world.Id, output: world.Id }{
+        .{ .ingredient = .{ .item = .snowball }, .output = .{ .block = .snow_block } },
+        .{ .ingredient = .{ .item = .brick }, .output = .{ .block = .brick } },
+        .{ .ingredient = .{ .item = .string }, .output = .{ .block = .wool } },
+        .{ .ingredient = .{ .item = .glowstone_dust }, .output = .{ .block = .glowstone } },
+    };
+    for (cases) |case| {
+        var grid: [4]?Inventory.ItemStack = @splat(null);
+        for (&grid) |*slot| slot.* = .{ .id = case.ingredient, .count = 1 };
+        try std.testing.expectEqual(case.output, findMatch(grid).?.id);
+    }
+}
+
+test "wool crafted from string comes out white" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    for (&grid) |*slot| slot.* = .{ .id = .{ .item = .string }, .count = 1 };
+    try std.testing.expectEqual(@as(u4, 0), findMatch(grid).?.meta);
+}
+
+test "a single sugar cane crafts sugar in any grid cell" {
+    for (0..4) |cell| {
+        var grid: [4]?Inventory.ItemStack = @splat(null);
+        grid[cell] = .{ .id = .{ .item = .reed }, .count = 1 };
+        try std.testing.expectEqual(world.Id{ .item = .sugar }, findMatch(grid).?.id);
+    }
 }

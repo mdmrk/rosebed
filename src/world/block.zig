@@ -15,14 +15,21 @@ pub const Side = enum(u3) {
 pub const Material = enum {
     air,
     rock,
+    iron,
     ground,
     sand,
     wood,
     leaves,
     plants,
+    sponge,
+    cloth,
+    glass,
+    tnt,
     water,
     lava,
     snow,
+    built_snow,
+    ice,
     clay,
     pumpkin,
 
@@ -123,21 +130,42 @@ pub const Block = enum(u8) {
     ore_coal = 16,
     log = 17,
     leaves = 18,
+    sponge = 19,
+    glass = 20,
     ore_lapis = 21,
+    block_lapis = 22,
+    sandstone = 24,
+    note_block = 25,
     tall_grass = 31,
     dead_bush = 32,
+    wool = 35,
     dandelion = 37,
     rose = 38,
     mushroom_brown = 39,
     mushroom_red = 40,
+    block_gold = 41,
+    block_iron = 42,
+    brick = 45,
+    tnt = 46,
+    bookshelf = 47,
     cobblestone_mossy = 48,
+    obsidian = 49,
     mob_spawner = 52,
     ore_diamond = 56,
+    block_diamond = 57,
+    workbench = 58,
     ore_redstone = 73,
     snow_layer = 78,
+    ice = 79,
+    snow_block = 80,
     clay = 82,
     reed = 83,
+    jukebox = 84,
     pumpkin = 86,
+    netherrack = 87,
+    soul_sand = 88,
+    glowstone = 89,
+    jack_o_lantern = 91,
     _,
 
     pub fn material(self: Block) Material {
@@ -145,16 +173,24 @@ pub const Block = enum(u8) {
             .air => .air,
             .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner => .rock,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
+            .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
+            .block_gold, .block_iron, .block_diamond => .iron,
             .grass, .dirt => .ground,
-            .sand, .gravel => .sand,
-            .planks, .log => .wood,
+            .sand, .gravel, .soul_sand => .sand,
+            .planks, .log, .note_block, .bookshelf, .workbench, .jukebox => .wood,
             .leaves => .leaves,
+            .sponge => .sponge,
+            .wool => .cloth,
+            .glass => .glass,
+            .tnt => .tnt,
+            .ice => .ice,
+            .snow_block => .built_snow,
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .plants,
             .stationary_water => .water,
             .flowing_lava => .lava,
             .snow_layer => .snow,
             .clay => .clay,
-            .pumpkin => .pumpkin,
+            .pumpkin, .jack_o_lantern => .pumpkin,
             else => .rock,
         };
     }
@@ -184,11 +220,18 @@ pub const Block = enum(u8) {
     }
 
     pub fn isOpaqueCube(self: Block) bool {
-        return self.isOpaque() and !self.isLiquid() and self != .leaves;
+        return switch (self) {
+            .leaves, .glass, .ice => false,
+            else => self.isOpaque() and !self.isLiquid(),
+        };
+    }
+
+    pub fn isBreakable(self: Block) bool {
+        return self == .glass or self == .ice;
     }
 
     pub fn isTranslucent(self: Block) bool {
-        return self == .stationary_water;
+        return self == .stationary_water or self == .ice;
     }
 
     pub fn isFalling(self: Block) bool {
@@ -215,6 +258,7 @@ pub const Block = enum(u8) {
             if (side == .up) return true;
         }
         if (self == .leaves and !fancy and neighbor == .leaves) return false;
+        if (self.isBreakable() and neighbor == self) return false;
         return !neighbor.isOpaqueCube();
     }
 
@@ -243,6 +287,41 @@ pub const Block = enum(u8) {
             .cobblestone => uniform(16),
             .cobblestone_mossy => uniform(36),
             .mob_spawner => uniform(65),
+            .sponge => uniform(48),
+            .glass => uniform(49),
+            .block_lapis => uniform(144),
+            .sandstone => topAndSide(176, 208, 192),
+            .note_block => uniform(74),
+            .wool => uniform(woolTile(0)),
+            .block_gold => uniform(23),
+            .block_iron => uniform(22),
+            .brick => uniform(7),
+            .tnt => topAndSide(9, 10, 8),
+            .bookshelf => topAndSide(4, 4, 35),
+            .obsidian => uniform(37),
+            .block_diamond => uniform(24),
+            .workbench => FaceTextures.init(.{
+                .down = 4,
+                .up = 43,
+                .north = 60,
+                .south = 59,
+                .west = 60,
+                .east = 59,
+            }),
+            .ice => uniform(67),
+            .snow_block => uniform(66),
+            .jukebox => topAndSide(75, 74, 74),
+            .netherrack => uniform(103),
+            .soul_sand => uniform(104),
+            .glowstone => uniform(105),
+            .jack_o_lantern => FaceTextures.init(.{
+                .down = 102,
+                .up = 102,
+                .north = 118,
+                .south = 120,
+                .west = 118,
+                .east = 118,
+            }),
             else => uniform(0),
         };
     }
@@ -279,13 +358,34 @@ pub const Block = enum(u8) {
             .snow_layer => 0.1,
             .cobblestone, .cobblestone_mossy => 2.0,
             .mob_spawner => 5.0,
+            .sponge => 0.6,
+            .glass => 0.3,
+            .block_lapis => 3.0,
+            .sandstone => 0.8,
+            .note_block => 0.8,
+            .wool => 0.8,
+            .block_gold => 3.0,
+            .block_iron => 5.0,
+            .brick => 2.0,
+            .tnt => 0.0,
+            .bookshelf => 1.5,
+            .obsidian => 10.0,
+            .block_diamond => 5.0,
+            .workbench => 2.5,
+            .ice => 0.5,
+            .snow_block => 0.2,
+            .jukebox => 2.0,
+            .netherrack => 0.4,
+            .soul_sand => 0.5,
+            .glowstone => 0.3,
+            .jack_o_lantern => 1.0,
             else => 0.0,
         };
     }
 
     fn isHarvestableByHand(self: Block) bool {
-        return switch (self) {
-            .stone, .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone, .cobblestone, .cobblestone_mossy, .mob_spawner => false,
+        return switch (self.material()) {
+            .rock, .iron => false,
             else => true,
         };
     }
@@ -327,6 +427,27 @@ pub const Block = enum(u8) {
             .clay => "Clay",
             .reed => "Sugar cane",
             .pumpkin => "Pumpkin",
+            .sponge => "Sponge",
+            .glass => "Glass",
+            .block_lapis => "Lapis Lazuli Block",
+            .sandstone => "Sandstone",
+            .note_block => "Note Block",
+            .wool => "Wool",
+            .block_gold => "Block of Gold",
+            .block_iron => "Block of Iron",
+            .brick => "Bricks",
+            .tnt => "TNT",
+            .bookshelf => "Bookshelf",
+            .obsidian => "Obsidian",
+            .block_diamond => "Block of Diamond",
+            .workbench => "Crafting Table",
+            .ice => "Ice",
+            .snow_block => "Snow",
+            .jukebox => "Jukebox",
+            .netherrack => "Netherrack",
+            .soul_sand => "Soul Sand",
+            .glowstone => "Glowstone",
+            .jack_o_lantern => "Jack 'o' Lantern",
             else => "",
         };
     }
@@ -350,6 +471,10 @@ pub const Block = enum(u8) {
             .dead_bush => null,
             .reed => .{ .id = .{ .item = .reed }, .count = 1 },
             .snow_layer => .{ .id = .{ .item = .snowball }, .count = 1 },
+            .snow_block => .{ .id = .{ .item = .snowball }, .count = 4 },
+            .glowstone => .{ .id = .{ .item = .glowstone_dust }, .count = @intCast(2 + rand.nextIntBound(3)) },
+            .wool => .{ .id = .{ .block = .wool }, .count = 1, .meta = meta },
+            .glass, .bookshelf, .ice => null,
             .mob_spawner => null,
             .stationary_water, .flowing_lava => null,
             else => .{ .id = .{ .block = self }, .count = 1 },
@@ -360,6 +485,12 @@ pub const Block = enum(u8) {
 pub fn leafTile(metadata: u4, fancy: bool) u8 {
     const base: u8 = if (fancy) 52 else 53;
     return if (metadata & 3 == 1) base + 80 else base;
+}
+
+pub fn woolTile(metadata: u4) u8 {
+    if (metadata == 0) return 64;
+    const inverted: u8 = ~metadata;
+    return 113 + ((inverted & 8) >> 3) + (inverted & 7) * 16;
 }
 
 pub fn logSideTile(metadata: u4) u8 {
@@ -610,4 +741,49 @@ test "log wood types all share one display name" {
         const stack: Stack = .{ .id = .{ .block = .log }, .count = 1, .meta = @intCast(meta) };
         try std.testing.expectEqualStrings("Wood", stack.displayName());
     }
+}
+
+test "woolTile matches BlockCloth's inverted-metadata tile formula" {
+    const want = [16]u8{ 64, 210, 194, 178, 162, 146, 130, 114, 225, 209, 193, 177, 161, 145, 129, 113 };
+    for (want, 0..) |tile, meta| {
+        try std.testing.expectEqual(tile, woolTile(@intCast(meta)));
+    }
+}
+
+test "breakable blocks hide only the face they share with their own kind" {
+    for ([_]Block{ .glass, .ice }) |id| {
+        try std.testing.expect(!id.shouldRenderFace(id, .up, true));
+        try std.testing.expect(id.shouldRenderFace(.air, .up, true));
+        try std.testing.expect(!id.isOpaqueCube());
+    }
+    try std.testing.expect(Block.glass.shouldRenderFace(.ice, .up, true));
+    try std.testing.expect(Block.stone.shouldRenderFace(.glass, .up, true));
+}
+
+test "glass, bookshelves and ice drop nothing when broken" {
+    var rand = JavaRandom.init(0);
+    for ([_]Block{ .glass, .bookshelf, .ice }) |id| {
+        try std.testing.expectEqual(@as(?Stack, null), id.drop(0, &rand));
+    }
+}
+
+test "snow blocks and glowstone drop their item form, wool keeps its colour" {
+    var rand = JavaRandom.init(0);
+    const snow = Block.snow_block.drop(0, &rand).?;
+    try std.testing.expectEqual(Id{ .item = .snowball }, snow.id);
+    try std.testing.expectEqual(@as(u8, 4), snow.count);
+
+    const dust = Block.glowstone.drop(0, &rand).?;
+    try std.testing.expectEqual(Id{ .item = .glowstone_dust }, dust.id);
+    try std.testing.expect(dust.count >= 2 and dust.count <= 4);
+
+    const wool = Block.wool.drop(9, &rand).?;
+    try std.testing.expectEqual(Id{ .block = .wool }, wool.id);
+    try std.testing.expectEqual(@as(u4, 9), wool.meta);
+}
+
+test "rock and iron blocks need a tool, other new blocks do not" {
+    try std.testing.expectApproxEqAbs(@as(f32, 200.0), Block.brick.digTicksRequired().?, 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 500.0), Block.block_iron.digTicksRequired().?, 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 24.0), Block.wool.digTicksRequired().?, 1.0e-4);
 }
