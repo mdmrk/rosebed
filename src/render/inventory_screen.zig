@@ -31,6 +31,7 @@ const preview_anchor_y: f32 = 75;
 const preview_pitch_anchor_y: f32 = 50;
 const preview_tracking_divisor: f32 = 40;
 const preview_pixels_per_meter: f32 = 30;
+const preview_depth_scale: f32 = 0.5;
 
 fn appendPlayerPreview(
     mesh: *MeshBuilder,
@@ -63,7 +64,7 @@ fn appendPlayerPreview(
         const ndc = gui.toNdc(screen_x, screen_y, res);
         v.x = ndc[0];
         v.y = ndc[1];
-        v.z = 0;
+        v.z = -v.z * preview_depth_scale;
     }
 }
 
@@ -176,7 +177,10 @@ pub fn draw(
         preview_dy,
         ui.res,
     );
+    gl.Clear(gl.DEPTH_BUFFER_BIT);
+    gl.Enable(gl.DEPTH_TEST);
     try gui.drawTexturedMesh(&preview, ui.shader, ui.textures.char);
+    gl.Disable(gl.DEPTH_TEST);
 
     var block_icons: MeshBuilder = .{};
     defer block_icons.deinit(ui.gpa);
