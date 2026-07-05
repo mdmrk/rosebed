@@ -188,7 +188,7 @@ pub fn drawClouds(frame: Clouds, fancy: bool) !void {
 
     frame.shader.setMat4("u_view_proj", frame.view_proj.m);
     frame.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
-    frame.shader.setInt("u_alpha_test", 0);
+    frame.shader.setInt("u_alpha_test", 1);
     frame.shader.setInt("u_textured", 1);
     frame.shader.setVec4("u_tint", opaque_white);
     gl.ActiveTexture(gl.TEXTURE0);
@@ -209,7 +209,6 @@ pub fn drawClouds(frame: Clouds, fancy: bool) !void {
         gpu.draw();
     }
 
-    frame.shader.setInt("u_alpha_test", 1);
     frame.textures.terrain.bind();
     gl.Disable(gl.BLEND);
 }
