@@ -3,6 +3,7 @@ const math = @import("math");
 const world = @import("world");
 const Entity = @import("entity.zig");
 const Inventory = @import("inventory.zig");
+const game_physics = @import("physics.zig");
 
 const Player = @This();
 
@@ -10,6 +11,7 @@ base: Entity,
 yaw: f32 = 0,
 pitch: f32 = 0,
 health: i32 = 20,
+air: i32 = max_air,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
@@ -36,6 +38,15 @@ const ground_speed: f64 = 0.1;
 const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
+const water_speed: f64 = 0.02;
+const water_drag: f64 = 0.8;
+const water_gravity: f64 = 0.02;
+const water_jump: f64 = 0.04;
+const water_climb_out: f64 = 0.3;
+
+pub const max_air: i32 = 300;
+const drown_damage: i32 = 2;
+
 pub fn spawn(position: math.Vec3) Player {
     return .{ .base = Entity.init(position, width, height) };
 }
@@ -46,28 +57,52 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
 
-    if (self.base.on_ground and jump) {
+    self.base.updateWaterState(world_map);
+    self.updateAir(world_map);
+
+    if (self.base.in_water) {
+        if (jump) self.base.motion.y += water_jump;
+    } else if (self.base.on_ground and jump) {
         self.base.motion.y = jump_velocity;
     }
 
-    const speed: f64 = if (self.base.on_ground) ground_speed else air_speed;
+    const speed: f64 = if (self.base.in_water)
+        water_speed
+    else if (self.base.on_ground)
+        ground_speed
+    else
+        air_speed;
     const dir = self.moveDirection(strafe, forward);
     self.base.motion.x += @as(f64, dir[0]) * speed;
     self.base.motion.z += @as(f64, dir[2]) * speed;
 
     const before_x = self.base.position.x;
+    const before_y = self.base.position.y;
     const before_z = self.base.position.z;
-    _ = self.base.move(world_map);
+    const moved = self.base.move(world_map);
 
     const moved_x = self.base.position.x - before_x;
     const moved_z = self.base.position.z - before_z;
     self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
 
-    self.base.motion.y -= gravity;
-    self.base.motion.y *= vertical_drag;
-    const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
-    self.base.motion.x *= friction;
-    self.base.motion.z *= friction;
+    if (self.base.in_water) {
+        self.base.motion.x *= water_drag;
+        self.base.motion.y *= water_drag;
+        self.base.motion.z *= water_drag;
+        self.base.motion.y -= water_gravity;
+
+        const blocked_horizontally = moved.blocked_x or moved.blocked_z;
+        const step_up = self.base.motion.y + 0.6 - self.base.position.y + before_y;
+        if (blocked_horizontally and self.base.isOffsetPositionInLiquid(world_map, self.base.motion.x, step_up, self.base.motion.z)) {
+            self.base.motion.y = water_climb_out;
+        }
+    } else {
+        self.base.motion.y -= gravity;
+        self.base.motion.y *= vertical_drag;
+        const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
+        self.base.motion.x *= friction;
+        self.base.motion.z *= friction;
+    }
 
     var swing: f32 = @floatCast(@sqrt(self.base.motion.x * self.base.motion.x + self.base.motion.z * self.base.motion.z));
     var dip: f32 = @floatCast(std.math.atan(-self.base.motion.y * 0.2) * 15.0);
@@ -76,6 +111,23 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
     if (self.base.on_ground) dip = 0.0;
     self.camera_yaw += (swing - self.camera_yaw) * 0.4;
     self.camera_pitch += (dip - self.camera_pitch) * 0.8;
+}
+
+pub fn isSubmerged(self: Player, world_map: *const world.World) bool {
+    const eye = self.eyePosition();
+    return game_physics.isInsideWater(world_map, eye.x, eye.y, eye.z);
+}
+
+fn updateAir(self: *Player, world_map: *const world.World) void {
+    if (self.health > 0 and self.isSubmerged(world_map)) {
+        self.air -= 1;
+        if (self.air == -20) {
+            self.air = 0;
+            self.health = @max(0, self.health - drown_damage);
+        }
+        return;
+    }
+    self.air = max_air;
 }
 
 fn turnFactor(sensitivity: f32) f32 {
@@ -374,4 +426,91 @@ test "a long walk does not overflow MathHelper's sine table index" {
     player.distance_walked = 1.0e9;
     player.prev_distance_walked = 1.0e9;
     _ = player.bobMatrix(0.5);
+}
+
+fn floodedWorld(surface_y: u32) !world.World {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    errdefer w.deinit();
+    const chunk = w.getChunk(0, 0).?;
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            var y: u32 = 1;
+            while (y < surface_y) : (y += 1) {
+                chunk.setBlock(@intCast(x), y, @intCast(z), world.Block.stationary_water);
+            }
+        }
+    }
+    return w;
+}
+
+test "a player in water sinks far more slowly than one falling through air" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
+    swimmer.tick(&w, 0, 0, false);
+    try std.testing.expect(swimmer.base.in_water);
+    try std.testing.expectApproxEqAbs(@as(f64, -water_gravity), swimmer.base.motion.y, 1.0e-9);
+
+    var faller = Player.spawn(math.Vec3.init(8, 40, 8));
+    faller.tick(&w, 0, 0, false);
+    try std.testing.expect(!faller.base.in_water);
+    try std.testing.expect(faller.base.motion.y < swimmer.base.motion.y);
+}
+
+test "holding jump underwater swims upward instead of doing nothing" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    for (0..10) |_| player.tick(&w, 0, 0, true);
+    try std.testing.expect(player.base.motion.y > 0.0);
+    try std.testing.expect(player.base.position.y > 10.0);
+}
+
+test "swimming forward is slower than walking the same input on land" {
+    var dry = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer dry.deinit();
+    var walker = Player.spawn(math.Vec3.init(8, 1, 8));
+    walker.base.on_ground = true;
+    walker.tick(&dry, 0, 1, false);
+
+    var flooded = try floodedWorld(20);
+    defer flooded.deinit();
+    var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
+    swimmer.tick(&flooded, 0, 1, false);
+
+    try std.testing.expect(swimmer.base.position.z - 8.0 < walker.base.position.z - 8.0);
+}
+
+test "air holds for 300 ticks underwater and then drowning starts" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    player.base.motion = math.Vec3.init(0, 0, 0);
+
+    for (0..max_air) |_| {
+        player.updateAir(&w);
+        player.base.position.y = 10;
+    }
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+    try std.testing.expectEqual(@as(i32, 0), player.air);
+
+    for (0..20) |_| player.updateAir(&w);
+    try std.testing.expectEqual(@as(i32, 18), player.health);
+    try std.testing.expectEqual(@as(i32, 0), player.air);
+}
+
+test "surfacing refills the air supply immediately" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    for (0..50) |_| player.updateAir(&w);
+    try std.testing.expect(player.air < max_air);
+
+    player.base.position.y = 40;
+    player.updateAir(&w);
+    try std.testing.expectEqual(max_air, player.air);
 }

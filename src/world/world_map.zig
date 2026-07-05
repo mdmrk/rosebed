@@ -6,20 +6,50 @@ const Block = block.Block;
 const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
+const fluid = @import("fluid.zig");
 const math = @import("math");
 
 const World = @This();
 
 pub const ChunkCoord = struct { x: i32, z: i32 };
 
+pub const BlockPos = struct { x: i32, y: i32, z: i32 };
+
+pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
+
+pub const ScheduledTick = struct {
+    pos: BlockPos,
+    id: Block,
+    time: i64,
+
+    fn key(self: ScheduledTick) Key {
+        return .{ .pos = self.pos, .id = self.id };
+    }
+
+    fn soonestFirst(_: void, a: ScheduledTick, b: ScheduledTick) bool {
+        return a.time < b.time;
+    }
+
+    pub const Key = struct { pos: BlockPos, id: Block };
+};
+
 allocator: std.mem.Allocator,
 chunks: std.AutoHashMapUnmanaged(ChunkCoord, *Chunk) = .{},
 decorated: std.AutoHashMapUnmanaged(ChunkCoord, void) = .{},
+scheduled: std.ArrayList(ScheduledTick) = .empty,
+scheduled_keys: std.AutoHashMapUnmanaged(ScheduledTick.Key, void) = .{},
+due: std.ArrayList(ScheduledTick) = .empty,
+changed: std.ArrayList(BlockPos) = .empty,
+dropped: std.ArrayList(DroppedBlock) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 time: i64 = 0,
 skylight_subtracted: u4 = 0,
 
 pub const ticks_per_day: i64 = 24000;
+
+pub const max_ticks_per_update: usize = 1000;
+
+const load_radius: i32 = 8;
 
 pub fn celestialAngle(self: *const World, partial_ticks: f32) f32 {
     const day_time: f32 = @floatFromInt(@mod(self.time, ticks_per_day));
@@ -47,6 +77,11 @@ pub fn deinit(self: *World) void {
     while (it.next()) |chunk| self.allocator.destroy(chunk.*);
     self.chunks.deinit(self.allocator);
     self.decorated.deinit(self.allocator);
+    self.scheduled.deinit(self.allocator);
+    self.due.deinit(self.allocator);
+    self.scheduled_keys.deinit(self.allocator);
+    self.changed.deinit(self.allocator);
+    self.dropped.deinit(self.allocator);
 }
 
 pub fn getChunk(self: *const World, chunk_x: i32, chunk_z: i32) ?*Chunk {
@@ -149,6 +184,107 @@ pub fn setBlockMetadata(self: *World, x: i32, y: i32, z: i32, value: u4) void {
     if (y < 0 or y >= constants.chunk_height) return;
     const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
     chunk.setBlockMetadata(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
+}
+
+pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x: i32, max_y: i32, max_z: i32) bool {
+    if (max_y < 0 or min_y >= constants.chunk_height) return false;
+    const width = constants.chunk_width;
+    var chunk_x = floorDiv(min_x, width);
+    while (chunk_x <= floorDiv(max_x, width)) : (chunk_x += 1) {
+        var chunk_z = floorDiv(min_z, width);
+        while (chunk_z <= floorDiv(max_z, width)) : (chunk_z += 1) {
+            if (self.getChunk(chunk_x, chunk_z) == null) return false;
+        }
+    }
+    return true;
+}
+
+pub fn markChanged(self: *World, x: i32, y: i32, z: i32) !void {
+    try self.changed.append(self.allocator, .{ .x = x, .y = y, .z = z });
+}
+
+pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
+    try self.setBlockAndMetadataWithNotify(x, y, z, id, 0);
+}
+
+pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block, meta: u4) !void {
+    if (y < 0 or y >= constants.chunk_height) return;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
+    const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
+    const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
+    chunk.setBlock(local_x, @intCast(y), local_z, id);
+    chunk.setBlockMetadata(local_x, @intCast(y), local_z, meta);
+    try self.onBlockAdded(x, y, z, id);
+    try self.notifyBlockChange(x, y, z);
+}
+
+pub fn setBlockMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, meta: u4) !void {
+    if (y < 0 or y >= constants.chunk_height) return;
+    if (self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) == null) return;
+    self.setBlockMetadata(x, y, z, meta);
+    try self.notifyBlockChange(x, y, z);
+}
+
+pub fn notifyBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
+    try self.markChanged(x, y, z);
+    try self.notifyBlocksOfNeighborChange(x, y, z);
+}
+
+pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32) !void {
+    try self.onNeighborBlockChange(x - 1, y, z);
+    try self.onNeighborBlockChange(x + 1, y, z);
+    try self.onNeighborBlockChange(x, y - 1, z);
+    try self.onNeighborBlockChange(x, y + 1, z);
+    try self.onNeighborBlockChange(x, y, z - 1);
+    try self.onNeighborBlockChange(x, y, z + 1);
+}
+
+fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
+    if (id == .flowing_water) try fluid.onBlockAdded(self, x, y, z);
+}
+
+fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
+    if (self.getBlock(x, y, z) == .stationary_water) try fluid.onNeighborChange(self, x, y, z);
+}
+
+pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) !void {
+    const radius = load_radius;
+    if (!self.chunksExist(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius)) return;
+
+    const entry: ScheduledTick = .{
+        .pos = .{ .x = x, .y = y, .z = z },
+        .id = id,
+        .time = self.time + delay,
+    };
+    const slot = try self.scheduled_keys.getOrPut(self.allocator, entry.key());
+    if (slot.found_existing) return;
+    self.scheduled.append(self.allocator, entry) catch |err| {
+        _ = self.scheduled_keys.remove(entry.key());
+        return err;
+    };
+}
+
+pub fn tickUpdates(self: *World) !void {
+    std.mem.sort(ScheduledTick, self.scheduled.items, {}, ScheduledTick.soonestFirst);
+
+    var count: usize = 0;
+    while (count < self.scheduled.items.len and count < max_ticks_per_update) : (count += 1) {
+        if (self.scheduled.items[count].time > self.time) break;
+    }
+    if (count == 0) return;
+
+    self.due.clearRetainingCapacity();
+    try self.due.appendSlice(self.allocator, self.scheduled.items[0..count]);
+    self.scheduled.replaceRangeAssumeCapacity(0, count, &[_]ScheduledTick{});
+    for (self.due.items) |entry| _ = self.scheduled_keys.remove(entry.key());
+
+    const radius = load_radius;
+    for (self.due.items) |entry| {
+        const pos = entry.pos;
+        if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) continue;
+        if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
+        if (entry.id == .flowing_water) try fluid.tick(self, pos.x, pos.y, pos.z);
+    }
 }
 
 test "block access spans chunk boundaries using world coordinates" {

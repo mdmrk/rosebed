@@ -9,6 +9,7 @@ position: math.Vec3,
 prev_position: math.Vec3,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),
 on_ground: bool = false,
+in_water: bool = false,
 width: f64,
 height: f64,
 
@@ -52,6 +53,19 @@ pub fn lightSamplePosition(self: Entity) [3]i32 {
 
 pub fn beginTick(self: *Entity) void {
     self.prev_position = self.position;
+}
+
+pub fn updateWaterState(self: *Entity, world_map: *const world.World) void {
+    const push = physics.handleWaterMovement(world_map, self.boundingBox()) orelse {
+        self.in_water = false;
+        return;
+    };
+    self.motion = self.motion.add(push);
+    self.in_water = true;
+}
+
+pub fn isOffsetPositionInLiquid(self: Entity, world_map: *const world.World, dx: f64, dy: f64, dz: f64) bool {
+    return physics.isOffsetPositionInLiquid(world_map, self.boundingBox(), dx, dy, dz);
 }
 
 pub fn move(self: *Entity, world_map: *const world.World) Moved {

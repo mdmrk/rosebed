@@ -27,6 +27,7 @@ pub const options_screen = @import("options_screen.zig");
 pub const video_settings_screen = @import("video_settings_screen.zig");
 pub const controls_screen = @import("controls_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
+pub const underwater = @import("underwater.zig");
 
 test {
     _ = Atlas;

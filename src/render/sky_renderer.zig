@@ -100,6 +100,7 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
     frame.shader.setInt("u_alpha_test", 0);
 
     frame.shader.setInt("u_fog_enabled", 1);
+    frame.shader.setInt("u_fog_exponential", 0);
     frame.shader.setVec3("u_fog_color", frame.fog_color);
     frame.shader.setFloat("u_fog_start", 0.0);
     frame.shader.setFloat("u_fog_end", frame.far_plane_distance * 0.8);

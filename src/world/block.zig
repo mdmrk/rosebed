@@ -46,6 +46,10 @@ pub const Material = enum {
             else => false,
         };
     }
+
+    pub fn isSolid(self: Material) bool {
+        return self.blocksGrass() and !self.isLiquid();
+    }
 };
 
 pub const Shape = union(enum) {
@@ -121,6 +125,7 @@ pub const Block = enum(u8) {
     planks = 5,
     sapling = 6,
     bedrock = 7,
+    flowing_water = 8,
     stationary_water = 9,
     flowing_lava = 10,
     sand = 12,
@@ -186,7 +191,7 @@ pub const Block = enum(u8) {
             .ice => .ice,
             .snow_block => .built_snow,
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .plants,
-            .stationary_water => .water,
+            .flowing_water, .stationary_water => .water,
             .flowing_lava => .lava,
             .snow_layer => .snow,
             .clay => .clay,
@@ -219,6 +224,18 @@ pub const Block = enum(u8) {
         return self.material().isLiquid();
     }
 
+    pub fn isSolid(self: Block) bool {
+        return self.material().isSolid();
+    }
+
+    pub fn tickRate(self: Block) u32 {
+        return switch (self.material()) {
+            .water => 5,
+            .lava => 30,
+            else => 0,
+        };
+    }
+
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice => false,
@@ -231,7 +248,7 @@ pub const Block = enum(u8) {
     }
 
     pub fn isTranslucent(self: Block) bool {
-        return self == .stationary_water or self == .ice;
+        return self.material() == .water or self == .ice;
     }
 
     pub fn isFalling(self: Block) bool {
@@ -254,7 +271,8 @@ pub const Block = enum(u8) {
 
     pub fn shouldRenderFace(self: Block, neighbor: Block, side: Side, fancy: bool) bool {
         if (self.isLiquid()) {
-            if (neighbor == self) return false;
+            if (neighbor.material() == self.material()) return false;
+            if (neighbor.material() == .ice) return false;
             if (side == .up) return true;
         }
         if (self == .leaves and !fancy and neighbor == .leaves) return false;
@@ -269,7 +287,7 @@ pub const Block = enum(u8) {
             .dirt => uniform(2),
             .planks => uniform(4),
             .bedrock => uniform(17),
-            .stationary_water => topAndSide(205, 205, 206),
+            .flowing_water, .stationary_water => topAndSide(205, 205, 206),
             .flowing_lava => topAndSide(237, 237, 238),
             .sand => uniform(18),
             .gravel => uniform(19),
@@ -346,7 +364,7 @@ pub const Block = enum(u8) {
             .dirt => 0.5,
             .planks => 2.0,
             .bedrock => -1.0,
-            .stationary_water => 100.0,
+            .flowing_water, .stationary_water => 100.0,
             .flowing_lava => 0.0,
             .sand => 0.5,
             .gravel => 0.6,
@@ -406,7 +424,7 @@ pub const Block = enum(u8) {
             .planks => "Wooden Planks",
             .sapling => "Sapling",
             .bedrock => "Bedrock",
-            .stationary_water => "Water",
+            .flowing_water, .stationary_water => "Water",
             .flowing_lava => "Lava",
             .sand => "Sand",
             .gravel => "Gravel",
@@ -476,7 +494,7 @@ pub const Block = enum(u8) {
             .wool => .{ .id = .{ .block = .wool }, .count = 1, .meta = meta },
             .glass, .bookshelf, .ice => null,
             .mob_spawner => null,
-            .stationary_water, .flowing_lava => null,
+            .flowing_water, .stationary_water, .flowing_lava => null,
             else => .{ .id = .{ .block = self }, .count = 1 },
         };
     }
@@ -786,4 +804,37 @@ test "rock and iron blocks need a tool, other new blocks do not" {
     try std.testing.expectApproxEqAbs(@as(f32, 200.0), Block.brick.digTicksRequired().?, 1.0e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 500.0), Block.block_iron.digTicksRequired().?, 1.0e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 24.0), Block.wool.digTicksRequired().?, 1.0e-4);
+}
+
+test "liquids and plants are not solid, so nothing collides with them" {
+    try std.testing.expect(!Block.stationary_water.isSolid());
+    try std.testing.expect(!Block.flowing_water.isSolid());
+    try std.testing.expect(!Block.flowing_lava.isSolid());
+    try std.testing.expect(!Block.air.isSolid());
+    try std.testing.expect(!Block.rose.isSolid());
+    try std.testing.expect(!Block.snow_layer.isSolid());
+    try std.testing.expect(Block.stone.isSolid());
+    try std.testing.expect(Block.leaves.isSolid());
+}
+
+test "both water blocks share one material, texture and tick rate" {
+    try std.testing.expectEqual(Material.water, Block.flowing_water.material());
+    try std.testing.expectEqual(Material.water, Block.stationary_water.material());
+    try std.testing.expectEqual(Block.stationary_water.faceTextures(), Block.flowing_water.faceTextures());
+    try std.testing.expectEqual(@as(u32, 5), Block.flowing_water.tickRate());
+    try std.testing.expectEqual(@as(u32, 30), Block.flowing_lava.tickRate());
+    try std.testing.expect(Block.flowing_water.isTranslucent());
+}
+
+test "a liquid culls the face it shares with its own material or with ice" {
+    try std.testing.expect(!Block.flowing_water.shouldRenderFace(.stationary_water, .north, true));
+    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.flowing_water, .north, true));
+    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.ice, .north, true));
+    try std.testing.expect(Block.stationary_water.shouldRenderFace(.flowing_lava, .north, true));
+    try std.testing.expect(Block.stationary_water.shouldRenderFace(.air, .north, true));
+}
+
+test "a liquid always draws its top face unless the same liquid sits above it" {
+    try std.testing.expect(Block.stationary_water.shouldRenderFace(.stone, .up, true));
+    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.stationary_water, .up, true));
 }

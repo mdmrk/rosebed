@@ -20,7 +20,7 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
             var z = min_z;
             while (z <= max_z) : (z += 1) {
                 const id = world_map.getBlock(x, y, z);
-                if (id.isOpaque() and count < max_colliding_boxes) {
+                if (id.isSolid() and count < max_colliding_boxes) {
                     const fx: f64 = @floatFromInt(x);
                     const fy: f64 = @floatFromInt(y);
                     const fz: f64 = @floatFromInt(z);
@@ -61,6 +61,92 @@ pub fn moveEntity(world_map: *const world.World, aabb: math.AABB, dx: f64, dy: f
     result = result.offset(0, 0, moved_z);
 
     return .{ .aabb = result, .dx = moved_x, .dy = moved_y, .dz = moved_z };
+}
+
+const flow_acceleration: f64 = 0.014;
+
+pub fn fluidSurface(world_map: *const world.World, x: i32, y: i32, z: i32) f64 {
+    const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z));
+    return @as(f64, @floatFromInt(y + 1)) - @as(f64, air);
+}
+
+pub fn handleWaterMovement(world_map: *const world.World, box: math.AABB) ?math.Vec3 {
+    const query = box.expand(0, -0.4, 0).contract(0.001, 0.001, 0.001);
+    const min_x = math.util.floorDouble(query.min_x);
+    const max_x = math.util.floorDouble(query.max_x + 1.0);
+    const min_y = math.util.floorDouble(query.min_y);
+    const max_y = math.util.floorDouble(query.max_y + 1.0);
+    const min_z = math.util.floorDouble(query.min_z);
+    const max_z = math.util.floorDouble(query.max_z + 1.0);
+
+    if (!world_map.chunksExist(min_x, min_y, min_z, max_x, max_y, max_z)) return null;
+
+    var touching = false;
+    var flow = math.Vec3.init(0, 0, 0);
+
+    var x = min_x;
+    while (x < max_x) : (x += 1) {
+        var y = min_y;
+        while (y < max_y) : (y += 1) {
+            var z = min_z;
+            while (z < max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z).material() != .water) continue;
+                if (@as(f64, @floatFromInt(max_y)) < fluidSurface(world_map, x, y, z)) continue;
+                touching = true;
+                flow = flow.add(world.fluid.flowVector(world_map, x, y, z));
+            }
+        }
+    }
+
+    if (!touching) return null;
+    if (flow.length() <= 0.0) return math.Vec3.init(0, 0, 0);
+    return flow.normalize().scale(flow_acceleration);
+}
+
+fn isAnyLiquid(world_map: *const world.World, box: math.AABB) bool {
+    var min_x = math.util.floorDouble(box.min_x);
+    var min_y = math.util.floorDouble(box.min_y);
+    var min_z = math.util.floorDouble(box.min_z);
+    const max_x = math.util.floorDouble(box.max_x + 1.0);
+    const max_y = math.util.floorDouble(box.max_y + 1.0);
+    const max_z = math.util.floorDouble(box.max_z + 1.0);
+
+    if (box.min_x < 0.0) min_x -= 1;
+    if (box.min_y < 0.0) min_y -= 1;
+    if (box.min_z < 0.0) min_z -= 1;
+
+    var x = min_x;
+    while (x < max_x) : (x += 1) {
+        var y = min_y;
+        while (y < max_y) : (y += 1) {
+            var z = min_z;
+            while (z < max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z).isLiquid()) return true;
+            }
+        }
+    }
+    return false;
+}
+
+pub fn isOffsetPositionInLiquid(world_map: *const world.World, box: math.AABB, dx: f64, dy: f64, dz: f64) bool {
+    var box_buf: [max_colliding_boxes]math.AABB = undefined;
+    const offset = box.offset(dx, dy, dz);
+    const count = collidingBoxes(world_map, offset, &box_buf);
+    for (box_buf[0..count]) |candidate| {
+        if (candidate.intersects(offset)) return false;
+    }
+    return !isAnyLiquid(world_map, offset);
+}
+
+pub fn isInsideWater(world_map: *const world.World, eye_x: f64, eye_y: f64, eye_z: f64) bool {
+    const x = math.util.floorDouble(eye_x);
+    const y = math.util.floorDouble(eye_y);
+    const z = math.util.floorDouble(eye_z);
+    if (world_map.getBlock(x, y, z).material() != .water) return false;
+
+    const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z)) - 1.0 / 9.0;
+    const surface: f32 = @as(f32, @floatFromInt(y + 1)) - air;
+    return eye_y < @as(f64, surface);
 }
 
 fn testWorldWithFloor(floor_top_y: u32) !world.World {
@@ -104,4 +190,64 @@ test "open air applies the full requested movement" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.dy, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dz, 1.0e-9);
+}
+
+fn waterWorld() !world.World {
+    var w = try testWorldWithFloor(1);
+    errdefer w.deinit();
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            var y: u32 = 1;
+            while (y < 5) : (y += 1) {
+                w.getChunk(0, 0).?.setBlock(@intCast(x), y, @intCast(z), world.Block.stationary_water);
+            }
+        }
+    }
+    return w;
+}
+
+test "water has no collision box, so an entity sinks straight through it" {
+    var w = try waterWorld();
+    defer w.deinit();
+    const aabb = math.AABB.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
+    const result = moveEntity(&w, aabb, 0, -2.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, -2.0), result.dy, 1.0e-9);
+}
+
+test "a box inside still water reports contact but no push" {
+    var w = try waterWorld();
+    defer w.deinit();
+    const push = handleWaterMovement(&w, math.AABB.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3)).?;
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), push.length(), 1.0e-9);
+}
+
+test "a box in open air is not in water at all" {
+    var w = try waterWorld();
+    defer w.deinit();
+    try std.testing.expect(handleWaterMovement(&w, math.AABB.init(7.7, 20.0, 7.7, 8.3, 21.8, 8.3)) == null);
+}
+
+test "a source block counts as submerged right up to the top of its block" {
+    var w = try waterWorld();
+    defer w.deinit();
+    try std.testing.expect(isInsideWater(&w, 8.5, 3.5, 8.5));
+    try std.testing.expect(isInsideWater(&w, 8.5, 4.95, 8.5));
+    try std.testing.expect(!isInsideWater(&w, 8.5, 5.01, 8.5));
+}
+
+test "a shallow flowing block leaves an air gap the camera can see out of" {
+    var w = try waterWorld();
+    defer w.deinit();
+    w.setBlock(8, 4, 8, world.Block.flowing_water);
+    w.setBlockMetadata(8, 4, 8, 4);
+    try std.testing.expect(!isInsideWater(&w, 8.5, 4.9, 8.5));
+    try std.testing.expect(isInsideWater(&w, 8.5, 4.4, 8.5));
+}
+
+test "stepping out of water needs a free, dry space to move into" {
+    var w = try waterWorld();
+    defer w.deinit();
+    const box = math.AABB.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3);
+    try std.testing.expect(!isOffsetPositionInLiquid(&w, box, 0, 0, 0));
+    try std.testing.expect(isOffsetPositionInLiquid(&w, box, 0, 4.0, 0));
 }

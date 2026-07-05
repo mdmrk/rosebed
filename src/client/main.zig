@@ -343,7 +343,7 @@ fn digStep(app_state: *AppState) !void {
     const ticks_required = block_id.digTicksRequired() orelse return;
     if (ticks_required <= 0.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try markBlockChanged(app_state, hit.x, hit.z);
+        try applyBlockChanges(app_state);
         return;
     }
 
@@ -360,7 +360,7 @@ fn digStep(app_state: *AppState) !void {
     );
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
-        try markBlockChanged(app_state, hit.x, hit.z);
+        try applyBlockChanges(app_state);
     }
 }
 
@@ -380,9 +380,38 @@ fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: 
     );
 }
 
-fn markBlockChanged(app_state: *AppState, x: i32, z: i32) !void {
-    try world.light.relightAround(app_state.gpa, &app_state.world_map, x, z);
-    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
+fn applyBlockChanges(app_state: *AppState) !void {
+    const width = world.constants.chunk_width;
+    var columns: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{};
+    defer columns.deinit(app_state.frame);
+
+    for (app_state.world_map.changed.items) |pos| {
+        const chunk_x = @divFloor(pos.x, width);
+        const chunk_z = @divFloor(pos.z, width);
+        const local_x = @mod(pos.x, width);
+        const local_z = @mod(pos.z, width);
+
+        try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z }, {});
+        if (local_x == 0) try columns.put(app_state.frame, .{ .x = chunk_x - 1, .z = chunk_z }, {});
+        if (local_x == width - 1) try columns.put(app_state.frame, .{ .x = chunk_x + 1, .z = chunk_z }, {});
+        if (local_z == 0) try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z - 1 }, {});
+        if (local_z == width - 1) try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z + 1 }, {});
+
+        try app_state.chunks.markBlockDirty(app_state.gpa, pos.x, pos.z);
+    }
+    app_state.world_map.changed.clearRetainingCapacity();
+
+    var it = columns.keyIterator();
+    while (it.next()) |coord| try world.light.relightChunk(app_state.gpa, &app_state.world_map, coord.x, coord.z);
+
+    for (app_state.world_map.dropped.items) |drop| {
+        try spawnDroppedItem(app_state, drop.pos.x, drop.pos.y, drop.pos.z, .{
+            .id = drop.stack.id,
+            .count = drop.stack.count,
+            .meta = drop.stack.meta,
+        });
+    }
+    app_state.world_map.dropped.clearRetainingCapacity();
 }
 
 fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
@@ -394,9 +423,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (!id.isFalling()) return;
     if (!app_state.world_map.getBlock(x, y - 1, z).canFallInto()) return;
 
-    app_state.world_map.setBlock(x, y, z, world.Block.air);
-    try markBlockChanged(app_state, x, z);
-
+    try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
     try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
 
@@ -412,7 +439,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         &app_state.world_map.rand,
     );
     const dropped = block_id.drop(meta, &app_state.world_map.rand);
-    app_state.world_map.setBlock(x, y, z, world.Block.air);
+    try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
     app_state.digging = null;
     if (dropped) |d| try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
     try checkFall(app_state, x, y + 1, z);
@@ -433,11 +460,10 @@ fn tickFallingBlocks(app_state: *AppState) !void {
         const y: i32 = @intFromFloat(@floor(block.base.position.y));
         const z: i32 = @intFromFloat(@floor(block.base.position.z));
 
-        const landing_empty = !app_state.world_map.getBlock(x, y, z).isOpaque();
+        const landing_empty = !app_state.world_map.getBlock(x, y, z).isSolid();
         const support_solid = !app_state.world_map.getBlock(x, y - 1, z).canFallInto();
         if (outcome == .landed and landing_empty and support_solid) {
-            app_state.world_map.setBlock(x, y, z, block.block_id);
-            try markBlockChanged(app_state, x, z);
+            try app_state.world_map.setBlockWithNotify(x, y, z, block.block_id);
         } else {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = .{ .block = block.block_id }, .count = 1 });
         }
@@ -705,12 +731,11 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const py = hit.y + offset[1];
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
-    if (app_state.world_map.getBlock(px, py, pz).isOpaque()) return;
-    app_state.world_map.setBlock(px, py, pz, placed);
-    app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
+    if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
+    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.meta);
     consumeSelectedStack(app_state);
-    try markBlockChanged(app_state, px, pz);
     try checkFall(app_state, px, py, pz);
+    try applyBlockChanges(app_state);
 }
 
 fn tick(app_state: *AppState) !void {
@@ -725,6 +750,8 @@ fn tick(app_state: *AppState) !void {
     try digStep(app_state);
     app_state.entities.tickItems(&app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
+    try app_state.world_map.tickUpdates();
+    try applyBlockChanges(app_state);
     app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
     app_state.entities.tickParticles(&app_state.world_map);
     try ensureChunksAroundPlayer(app_state);
@@ -775,7 +802,16 @@ fn drawEntityMesh(mesh: *const render.MeshBuilder) void {
     gpu.draw();
 }
 
+const underwater_fog_color = render.sky.Color{ 0.02, 0.02, 0.2 };
+const underwater_fog_density: f32 = 0.1;
+const underwater_fov_degrees: f32 = 60.0;
+
+fn cameraSubmerged(app_state: *const AppState) bool {
+    return app_state.player.isSubmerged(&app_state.world_map);
+}
+
 fn horizonColor(app_state: *const AppState) render.sky.Color {
+    if (cameraSubmerged(app_state)) return underwater_fog_color;
     const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
         math.util.floorDouble(app_state.player.base.position.x),
         math.util.floorDouble(app_state.player.base.position.z),
@@ -790,9 +826,17 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
 }
 
 fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
-    const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
     app_state.shader.setInt("u_fog_enabled", 1);
     app_state.shader.setVec3("u_fog_color", horizon);
+
+    if (cameraSubmerged(app_state)) {
+        app_state.shader.setInt("u_fog_exponential", 1);
+        app_state.shader.setFloat("u_fog_density", underwater_fog_density);
+        return;
+    }
+
+    const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
+    app_state.shader.setInt("u_fog_exponential", 0);
     app_state.shader.setFloat("u_fog_start", far * 0.25);
     app_state.shader.setFloat("u_fog_end", far);
 }
@@ -805,7 +849,11 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
-    const proj = math.Mat4.perspective(fov_y_radians, aspect, near_plane, far_plane);
+    const fov = if (cameraSubmerged(app_state))
+        underwater_fov_degrees * std.math.pi / 180.0
+    else
+        fov_y_radians;
+    const proj = math.Mat4.perspective(fov, aspect, near_plane, far_plane);
     const partial = app_state.timer.render_partial_ticks;
     const camera = app_state.player.viewMatrix(partial);
     const view = if (app_state.settings.view_bobbing)
@@ -1088,6 +1136,17 @@ pub fn iterate(
     const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
 
     if (app_state.screen == .playing) {
+        if (cameraSubmerged(app_state)) {
+            const sample = app_state.player.base.lightSamplePosition();
+            try render.underwater.draw(
+                app_state.frame,
+                app_state.shader,
+                app_state.textures.water,
+                app_state.player.yaw,
+                app_state.player.pitch,
+                world.light.brightnessAt(&app_state.world_map, sample[0], sample[1], sample[2], 0),
+            );
+        }
         try render.hud.draw(ui, app_state.player.inventory, app_state.player.health);
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
     }

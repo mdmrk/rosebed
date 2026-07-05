@@ -9,9 +9,11 @@ uniform int u_textured;
 uniform vec4 u_tint;
 uniform int u_alpha_test;
 uniform int u_fog_enabled;
+uniform int u_fog_exponential;
 uniform vec3 u_fog_color;
 uniform float u_fog_start;
 uniform float u_fog_end;
+uniform float u_fog_density;
 
 out vec4 frag_color;
 
@@ -20,7 +22,9 @@ void main() {
     if (u_alpha_test != 0 && frag_color.a < 0.5) discard;
 
     if (u_fog_enabled != 0) {
-        float visibility = clamp((u_fog_end - v_eye_distance) / (u_fog_end - u_fog_start), 0.0, 1.0);
-        frag_color.rgb = mix(u_fog_color, frag_color.rgb, visibility);
+        float visibility = u_fog_exponential != 0
+            ? exp(-u_fog_density * v_eye_distance)
+            : (u_fog_end - v_eye_distance) / (u_fog_end - u_fog_start);
+        frag_color.rgb = mix(u_fog_color, frag_color.rgb, clamp(visibility, 0.0, 1.0));
     }
 }

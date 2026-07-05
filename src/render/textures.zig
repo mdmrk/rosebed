@@ -17,6 +17,7 @@ char: Atlas,
 sun: Atlas,
 moon: Atlas,
 clouds: Atlas,
+water: Atlas,
 
 pub fn load() !Textures {
     return .{
@@ -33,6 +34,7 @@ pub fn load() !Textures {
         .sun = try Atlas.load(assets.terrain.sun_png),
         .moon = try Atlas.load(assets.terrain.moon_png),
         .clouds = try Atlas.loadRepeat(assets.environment.clouds_png),
+        .water = try Atlas.loadRepeat(assets.misc.water_png),
     };
 }
 

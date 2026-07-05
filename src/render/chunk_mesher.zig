@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = @import("math");
 const world = @import("world");
 
 const Atlas = @import("atlas.zig");
@@ -179,6 +180,162 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     }, uvs, shadeColor(brightness, tint));
 }
 
+fn fluidBrightness(world_map: *const world.World, x: i32, y: i32, z: i32, minimum: u4) f32 {
+    return @max(
+        world.light.brightnessAt(world_map, x, y, z, minimum),
+        world.light.brightnessAt(world_map, x, y + 1, z, minimum),
+    );
+}
+
+fn fluidCornerHeight(world_map: *const world.World, x: i32, y: i32, z: i32, material: world.Material) f32 {
+    var count: u32 = 0;
+    var submerged: f32 = 0;
+
+    for (0..4) |corner| {
+        const nx = x - @as(i32, @intCast(corner & 1));
+        const nz = z - @as(i32, @intCast((corner >> 1) & 1));
+        if (world_map.getBlock(nx, y + 1, nz).material() == material) return 1.0;
+
+        const neighbor = world_map.getBlock(nx, y, nz).material();
+        if (neighbor != material) {
+            if (!neighbor.isSolid()) {
+                submerged += 1.0;
+                count += 1;
+            }
+            continue;
+        }
+
+        const metadata = world_map.getBlockMetadata(nx, y, nz);
+        if (metadata >= 8 or metadata == 0) {
+            submerged += world.fluid.percentAir(metadata) * 10.0;
+            count += 10;
+        }
+        submerged += world.fluid.percentAir(metadata);
+        count += 1;
+    }
+
+    return 1.0 - submerged / @as(f32, @floatFromInt(count));
+}
+
+const fluid_sides = [4]struct {
+    side: world.Side,
+    normal: [2]i32,
+    left: u2,
+    right: u2,
+    left_offset: [2]f32,
+    right_offset: [2]f32,
+}{
+    .{ .side = .north, .normal = .{ 0, -1 }, .left = 0, .right = 3, .left_offset = .{ 0, 0 }, .right_offset = .{ 1, 0 } },
+    .{ .side = .south, .normal = .{ 0, 1 }, .left = 2, .right = 1, .left_offset = .{ 1, 1 }, .right_offset = .{ 0, 1 } },
+    .{ .side = .west, .normal = .{ -1, 0 }, .left = 1, .right = 0, .left_offset = .{ 0, 1 }, .right_offset = .{ 0, 0 } },
+    .{ .side = .east, .normal = .{ 1, 0 }, .left = 3, .right = 2, .left_offset = .{ 1, 0 }, .right_offset = .{ 1, 1 } },
+};
+
+fn buildFluid(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const material = id.material();
+    const emitted = world.light.emission(id);
+    const textures = id.faceTextures();
+
+    const heights = [4]f32{
+        fluidCornerHeight(world_map, x, y, z, material),
+        fluidCornerHeight(world_map, x, y, z + 1, material),
+        fluidCornerHeight(world_map, x + 1, y, z + 1, material),
+        fluidCornerHeight(world_map, x + 1, y, z, material),
+    };
+
+    if (id.shouldRenderFace(world_map.getBlock(x, y + 1, z), .up, options.fancy)) {
+        const angle = world.fluid.flowAngle(world_map, x, y, z);
+        const tile = if (angle == null) textures.get(.up) else textures.get(.north);
+        const uv = Atlas.tileUv(tile);
+        const half: f32 = 8.0 / 256.0;
+        const center_offset: f32 = if (angle == null) half else 2.0 * half;
+        const center_u = uv.u0 + center_offset;
+        const center_v = uv.v0 + center_offset;
+        const rotation = angle orelse 0.0;
+        const du = math.util.sin(rotation) * half;
+        const dv = math.util.cos(rotation) * half;
+
+        const brightness = fluidBrightness(world_map, x, y, z, emitted);
+        const color = shadeColor(1.0 * brightness, Colorizer.white);
+        try mesh.quad(gpa, .{
+            .{ origin[0], origin[1] + heights[0], origin[2] },
+            .{ origin[0], origin[1] + heights[1], origin[2] + 1 },
+            .{ origin[0] + 1, origin[1] + heights[2], origin[2] + 1 },
+            .{ origin[0] + 1, origin[1] + heights[3], origin[2] },
+        }, .{
+            .{ center_u - dv - du, center_v - dv + du },
+            .{ center_u - dv + du, center_v + dv + du },
+            .{ center_u + dv + du, center_v + dv - du },
+            .{ center_u + dv - du, center_v - dv - du },
+        }, color);
+    }
+
+    if (id.shouldRenderFace(world_map.getBlock(x, y - 1, z), .down, options.fancy)) {
+        const uv = Atlas.tileUv(textures.get(.down));
+        const brightness = fluidBrightness(world_map, x, y - 1, z, emitted);
+        const color = shadeColor(0.5 * brightness, Colorizer.white);
+        try mesh.quad(gpa, .{
+            .{ origin[0], origin[1], origin[2] },
+            .{ origin[0], origin[1], origin[2] + 1 },
+            .{ origin[0] + 1, origin[1], origin[2] + 1 },
+            .{ origin[0] + 1, origin[1], origin[2] },
+        }, .{
+            .{ uv.u0, uv.v0 },
+            .{ uv.u0, uv.v1 },
+            .{ uv.u1, uv.v1 },
+            .{ uv.u1, uv.v0 },
+        }, color);
+    }
+
+    for (fluid_sides) |face| {
+        const nx = x + face.normal[0];
+        const nz = z + face.normal[1];
+        if (!id.shouldRenderFace(world_map.getBlock(nx, y, nz), face.side, options.fancy)) continue;
+
+        const left_height = heights[face.left];
+        const right_height = heights[face.right];
+        const tile = textures.get(face.side);
+        const tile_u: f32 = @floatFromInt((@as(u32, tile) & 15) * 16);
+        const tile_v: f32 = @floatFromInt(@as(u32, tile) & 240);
+        const u_left = tile_u / 256.0;
+        const u_right = (tile_u + 16.0 - 0.01) / 256.0;
+        const v_left = (tile_v + (1.0 - left_height) * 16.0) / 256.0;
+        const v_right = (tile_v + (1.0 - right_height) * 16.0) / 256.0;
+        const v_bottom = (tile_v + 16.0 - 0.01) / 256.0;
+
+        const shade: f32 = if (face.normal[1] != 0) 0.8 else 0.6;
+        const brightness = fluidBrightness(world_map, nx, y, nz, emitted);
+        const color = shadeColor(shade * brightness, Colorizer.white);
+
+        const left_x = origin[0] + face.left_offset[0];
+        const left_z = origin[2] + face.left_offset[1];
+        const right_x = origin[0] + face.right_offset[0];
+        const right_z = origin[2] + face.right_offset[1];
+
+        try mesh.quad(gpa, .{
+            .{ left_x, origin[1] + left_height, left_z },
+            .{ right_x, origin[1] + right_height, right_z },
+            .{ right_x, origin[1], right_z },
+            .{ left_x, origin[1], left_z },
+        }, .{
+            .{ u_left, v_left },
+            .{ u_right, v_right },
+            .{ u_right, v_bottom },
+            .{ u_left, v_bottom },
+        }, color);
+    }
+}
+
 pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !Mesh {
     var mesh: Mesh = .{};
     errdefer mesh.deinit(gpa);
@@ -211,6 +368,11 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 if (id.isCross()) {
                     const tint = blockTint(colorizer, id, metadata, world.Side.up, column_temperature, column_humidity);
                     try buildCross(target, gpa, id.crossTile(metadata), tint, own_brightness, bx, by, bz);
+                    continue;
+                }
+
+                if (id.isLiquid()) {
+                    try buildFluid(target, gpa, world_map, id, world_x, world_y, world_z, .{ bx, by, bz }, options);
                     continue;
                 }
 
@@ -659,4 +821,70 @@ fn uniformQuads(mesh: MeshBuilder) bool {
         }
     }
     return true;
+}
+
+test "a water surface surrounded by sources sits one ninth below the block top" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (7..10) |x| {
+        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stationary_water);
+    }
+
+    const height = fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0 / 9.0), height, 1.0e-6);
+}
+
+test "water under more water fills its block completely" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.stationary_water);
+    chunk.setBlock(8, 1, 8, world.Block.stationary_water);
+
+    try std.testing.expectEqual(@as(f32, 1.0), fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water));
+}
+
+test "a shallower flowing block pulls the surface corner it shares down" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (7..10) |x| {
+        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stationary_water);
+    }
+    chunk.setBlockMetadata(9, 0, 9, 6);
+
+    const shared = fluidCornerHeight(&world_map, 9, 0, 9, world.Material.water);
+    const away = fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water);
+    try std.testing.expect(shared < away);
+}
+
+test "a flowing surface slopes across the block, a level one does not" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(7, 1, 8, world.Block.stone);
+    for (8..12) |x| {
+        chunk.setBlock(@intCast(x), 0, 8, world.Block.stone);
+        chunk.setBlock(@intCast(x), 1, 8, world.Block.stationary_water);
+        chunk.setBlockMetadata(@intCast(x), 1, 8, @intCast(x - 8));
+    }
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    var lowest: f32 = 100;
+    var highest: f32 = -100;
+    for (mesh.translucent.vertices.items) |vertex| {
+        if (vertex.y <= 1.0) continue;
+        lowest = @min(lowest, vertex.y);
+        highest = @max(highest, vertex.y);
+    }
+    try std.testing.expect(highest - lowest > 0.05);
+    try std.testing.expect(highest < 2.0);
 }

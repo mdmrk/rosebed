@@ -32,7 +32,7 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
         }
 
         const id = world_map.getBlock(bx, by, bz);
-        if (id == world.Block.air) continue;
+        if (id == world.Block.air or id.isLiquid()) continue;
 
         var face: world.Side = .down;
         if (bx != prev_bx) {

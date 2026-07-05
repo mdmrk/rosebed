@@ -23,6 +23,7 @@ pub const chunk_nbt = @import("chunk_nbt.zig");
 pub const caves = @import("caves.zig");
 pub const decorate = @import("decorate.zig");
 pub const lakes = @import("lakes.zig");
+pub const fluid = @import("fluid.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
 pub const nbt = @import("nbt.zig");
@@ -46,6 +47,7 @@ test {
     _ = caves;
     _ = decorate;
     _ = lakes;
+    _ = fluid;
     _ = dungeons;
     _ = World;
     _ = nbt;
