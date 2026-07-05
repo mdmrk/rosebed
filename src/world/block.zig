@@ -1,58 +1,77 @@
 const std = @import("std");
 const JavaRandom = @import("java_random.zig");
 const item = @import("item.zig");
+const Item = item.Item;
 
-pub const air: u8 = 0;
-pub const stone: u8 = 1;
-pub const grass: u8 = 2;
-pub const dirt: u8 = 3;
-pub const planks: u8 = 5;
-pub const sapling: u8 = 6;
-pub const bedrock: u8 = 7;
-pub const stationary_water: u8 = 9;
-pub const flowing_lava: u8 = 10;
-pub const sand: u8 = 12;
-pub const gravel: u8 = 13;
-pub const ore_gold: u8 = 14;
-pub const ore_iron: u8 = 15;
-pub const ore_coal: u8 = 16;
-pub const log: u8 = 17;
-pub const leaves: u8 = 18;
-pub const ore_lapis: u8 = 21;
-pub const ore_diamond: u8 = 56;
-pub const ore_redstone: u8 = 73;
-pub const clay: u8 = 82;
-pub const tall_grass: u8 = 31;
-pub const dead_bush: u8 = 32;
-pub const dandelion: u8 = 37;
-pub const rose: u8 = 38;
-pub const mushroom_brown: u8 = 39;
-pub const mushroom_red: u8 = 40;
-pub const pumpkin: u8 = 86;
-pub const reed: u8 = 83;
-pub const snow_layer: u8 = 78;
-pub const cobblestone: u8 = 4;
-pub const cobblestone_mossy: u8 = 48;
-pub const mob_spawner: u8 = 52;
+pub const Side = enum(u3) {
+    down,
+    up,
+    north,
+    south,
+    west,
+    east,
+};
 
-pub fn isCross(id: u8) bool {
-    return id == tall_grass or id == dead_bush or id == dandelion or id == rose or
-        id == mushroom_brown or id == mushroom_red or id == reed;
-}
+pub const Material = enum {
+    air,
+    rock,
+    ground,
+    sand,
+    wood,
+    leaves,
+    plants,
+    water,
+    lava,
+    snow,
+    clay,
+    pumpkin,
 
-pub fn heightScale(id: u8) f32 {
-    return if (id == snow_layer) 0.125 else 1.0;
-}
+    pub fn blocksGrass(self: Material) bool {
+        return switch (self) {
+            .air, .plants, .snow => false,
+            else => true,
+        };
+    }
 
-pub fn isOpaque(id: u8) bool {
-    return id != air and !isCross(id) and id != snow_layer;
-}
+    pub fn isLiquid(self: Material) bool {
+        return switch (self) {
+            .water, .lava => true,
+            else => false,
+        };
+    }
+};
 
-pub fn isLiquid(id: u8) bool {
-    return id == stationary_water or id == flowing_lava;
-}
+pub const Shape = union(enum) {
+    cube,
+    cross,
+    partial: f32,
+
+    pub fn heightScale(self: Shape) f32 {
+        return switch (self) {
+            .partial => |height| height,
+            else => 1.0,
+        };
+    }
+};
 
 pub const Bounds = struct { min: [3]f32, max: [3]f32 };
+
+pub const FaceTextures = std.EnumArray(Side, u8);
+
+fn uniform(tile: u8) FaceTextures {
+    return FaceTextures.initFill(tile);
+}
+
+fn topAndSide(top: u8, bottom: u8, side: u8) FaceTextures {
+    return FaceTextures.init(.{
+        .down = bottom,
+        .up = top,
+        .north = side,
+        .south = side,
+        .west = side,
+        .east = side,
+    });
+}
 
 fn plantBounds(half_width: f32, height: f32) Bounds {
     return .{
@@ -61,44 +80,253 @@ fn plantBounds(half_width: f32, height: f32) Bounds {
     };
 }
 
-pub fn selectionBounds(id: u8) Bounds {
-    return switch (id) {
-        tall_grass, dead_bush => plantBounds(0.4, 0.8),
-        dandelion, rose => plantBounds(0.2, 0.6),
-        mushroom_brown, mushroom_red => plantBounds(0.2, 0.4),
-        reed => plantBounds(6.0 / 16.0, 1.0),
-        else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, heightScale(id), 1 } },
-    };
-}
+pub const Stack = struct {
+    id: Id,
+    count: u8,
+    meta: u4 = 0,
+};
 
-pub fn isOpaqueCube(id: u8) bool {
-    return isOpaque(id) and !isLiquid(id) and id != leaves;
-}
+pub const Id = union(enum) {
+    block: Block,
+    item: Item,
 
-pub fn isTranslucent(id: u8) bool {
-    return id == stationary_water;
-}
-
-pub fn shouldRenderFace(id: u8, neighbor: u8, side: u3, fancy: bool) bool {
-    if (isLiquid(id)) {
-        if (neighbor == id) return false;
-        if (side == up) return true;
+    pub fn eql(self: Id, other: Id) bool {
+        return switch (self) {
+            .block => |b| other == .block and other.block == b,
+            .item => |i| other == .item and other.item == i,
+        };
     }
-    if (id == leaves and !fancy and neighbor == leaves) return false;
-    return !isOpaqueCube(neighbor);
-}
+};
 
-pub fn isFalling(id: u8) bool {
-    return id == sand or id == gravel;
-}
+pub const Block = enum(u8) {
+    air = 0,
+    stone = 1,
+    grass = 2,
+    dirt = 3,
+    cobblestone = 4,
+    planks = 5,
+    sapling = 6,
+    bedrock = 7,
+    stationary_water = 9,
+    flowing_lava = 10,
+    sand = 12,
+    gravel = 13,
+    ore_gold = 14,
+    ore_iron = 15,
+    ore_coal = 16,
+    log = 17,
+    leaves = 18,
+    ore_lapis = 21,
+    tall_grass = 31,
+    dead_bush = 32,
+    dandelion = 37,
+    rose = 38,
+    mushroom_brown = 39,
+    mushroom_red = 40,
+    cobblestone_mossy = 48,
+    mob_spawner = 52,
+    ore_diamond = 56,
+    ore_redstone = 73,
+    snow_layer = 78,
+    clay = 82,
+    reed = 83,
+    pumpkin = 86,
+    _,
 
-pub fn canFallInto(id: u8) bool {
-    return id == air or isLiquid(id);
-}
+    pub fn material(self: Block) Material {
+        return switch (self) {
+            .air => .air,
+            .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner => .rock,
+            .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
+            .grass, .dirt => .ground,
+            .sand, .gravel => .sand,
+            .planks, .log => .wood,
+            .leaves => .leaves,
+            .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .plants,
+            .stationary_water => .water,
+            .flowing_lava => .lava,
+            .snow_layer => .snow,
+            .clay => .clay,
+            .pumpkin => .pumpkin,
+            else => .rock,
+        };
+    }
+
+    pub fn shape(self: Block) Shape {
+        return switch (self) {
+            .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
+            .snow_layer => .{ .partial = 0.125 },
+            else => .cube,
+        };
+    }
+
+    pub fn isCross(self: Block) bool {
+        return self.shape() == .cross;
+    }
+
+    pub fn heightScale(self: Block) f32 {
+        return self.shape().heightScale();
+    }
+
+    pub fn isOpaque(self: Block) bool {
+        return self.material().blocksGrass();
+    }
+
+    pub fn isLiquid(self: Block) bool {
+        return self.material().isLiquid();
+    }
+
+    pub fn isOpaqueCube(self: Block) bool {
+        return self.isOpaque() and !self.isLiquid() and self != .leaves;
+    }
+
+    pub fn isTranslucent(self: Block) bool {
+        return self == .stationary_water;
+    }
+
+    pub fn isFalling(self: Block) bool {
+        return self == .sand or self == .gravel;
+    }
+
+    pub fn canFallInto(self: Block) bool {
+        return self == .air or self.isLiquid();
+    }
+
+    pub fn selectionBounds(self: Block) Bounds {
+        return switch (self) {
+            .tall_grass, .dead_bush => plantBounds(0.4, 0.8),
+            .dandelion, .rose => plantBounds(0.2, 0.6),
+            .mushroom_brown, .mushroom_red => plantBounds(0.2, 0.4),
+            .reed => plantBounds(6.0 / 16.0, 1.0),
+            else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
+        };
+    }
+
+    pub fn shouldRenderFace(self: Block, neighbor: Block, side: Side, fancy: bool) bool {
+        if (self.isLiquid()) {
+            if (neighbor == self) return false;
+            if (side == .up) return true;
+        }
+        if (self == .leaves and !fancy and neighbor == .leaves) return false;
+        return !neighbor.isOpaqueCube();
+    }
+
+    pub fn faceTextures(self: Block) FaceTextures {
+        return switch (self) {
+            .stone => uniform(1),
+            .grass => topAndSide(0, 2, 3),
+            .dirt => uniform(2),
+            .planks => uniform(4),
+            .bedrock => uniform(17),
+            .stationary_water => topAndSide(205, 205, 206),
+            .flowing_lava => topAndSide(237, 237, 238),
+            .sand => uniform(18),
+            .gravel => uniform(19),
+            .ore_gold => uniform(32),
+            .ore_iron => uniform(33),
+            .ore_coal => uniform(34),
+            .log => topAndSide(21, 21, 20),
+            .leaves => uniform(52),
+            .ore_lapis => uniform(160),
+            .ore_diamond => uniform(50),
+            .ore_redstone => uniform(51),
+            .clay => uniform(72),
+            .pumpkin => topAndSide(102, 102, 118),
+            .snow_layer => uniform(66),
+            .cobblestone => uniform(16),
+            .cobblestone_mossy => uniform(36),
+            .mob_spawner => uniform(65),
+            else => uniform(0),
+        };
+    }
+
+    pub fn crossTile(self: Block, metadata: u4) u8 {
+        return switch (self) {
+            .tall_grass => if (metadata == 2) 56 else 39,
+            .dead_bush => 55,
+            .dandelion => 13,
+            .rose => 12,
+            .mushroom_brown => 29,
+            .mushroom_red => 28,
+            .reed => 73,
+            else => 0,
+        };
+    }
+
+    fn hardness(self: Block) f32 {
+        return switch (self) {
+            .stone => 1.5,
+            .grass => 0.6,
+            .dirt => 0.5,
+            .planks => 2.0,
+            .bedrock => -1.0,
+            .stationary_water => 100.0,
+            .flowing_lava => 0.0,
+            .sand => 0.5,
+            .gravel => 0.6,
+            .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => 3.0,
+            .log => 2.0,
+            .leaves => 0.2,
+            .clay => 0.6,
+            .pumpkin => 1.0,
+            .snow_layer => 0.1,
+            .cobblestone, .cobblestone_mossy => 2.0,
+            .mob_spawner => 5.0,
+            else => 0.0,
+        };
+    }
+
+    fn isHarvestableByHand(self: Block) bool {
+        return switch (self) {
+            .stone, .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone, .cobblestone, .cobblestone_mossy, .mob_spawner => false,
+            else => true,
+        };
+    }
+
+    pub fn digTicksRequired(self: Block) ?f32 {
+        const h = self.hardness();
+        if (h < 0.0) return null;
+        const divisor: f32 = if (self.isHarvestableByHand()) 30.0 else 100.0;
+        return h * divisor;
+    }
+
+    pub fn drop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
+        return switch (self) {
+            .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
+            .grass => .{ .id = .{ .block = .dirt }, .count = 1 },
+            .gravel => if (rand.nextIntBound(10) == 0)
+                .{ .id = .{ .item = .flint }, .count = 1 }
+            else
+                .{ .id = .{ .block = .gravel }, .count = 1 },
+            .ore_coal => .{ .id = .{ .item = .coal }, .count = 1 },
+            .ore_diamond => .{ .id = .{ .item = .diamond }, .count = 1 },
+            .ore_redstone => .{ .id = .{ .item = .redstone }, .count = @intCast(4 + rand.nextIntBound(2)) },
+            .ore_lapis => .{ .id = .{ .item = .dye }, .count = @intCast(4 + rand.nextIntBound(5)), .meta = item.dye_meta_lapis },
+            .log => .{ .id = .{ .block = .log }, .count = 1, .meta = meta },
+            .leaves => if (rand.nextIntBound(20) == 0) .{ .id = .{ .block = .sapling }, .count = 1, .meta = meta & 3 } else null,
+            .clay => .{ .id = .{ .item = .clay_ball }, .count = 4 },
+            .tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = .{ .item = .seeds }, .count = 1 } else null,
+            .dead_bush => null,
+            .reed => .{ .id = .{ .item = .reed }, .count = 1 },
+            .snow_layer => .{ .id = .{ .item = .snowball }, .count = 1 },
+            .mob_spawner => null,
+            .stationary_water, .flowing_lava => null,
+            else => .{ .id = .{ .block = self }, .count = 1 },
+        };
+    }
+};
 
 pub fn leafTile(metadata: u4, fancy: bool) u8 {
     const base: u8 = if (fancy) 52 else 53;
     return if (metadata & 3 == 1) base + 80 else base;
+}
+
+pub fn logSideTile(metadata: u4) u8 {
+    return switch (metadata) {
+        1 => 116,
+        2 => 117,
+        else => 20,
+    };
 }
 
 test "leaf tiles follow the graphics level, and pine has its own" {
@@ -111,177 +339,73 @@ test "leaf tiles follow the graphics level, and pine has its own" {
 }
 
 test "leaves are not an opaque cube, so they never cull a neighbour" {
-    try std.testing.expect(!isOpaqueCube(leaves));
-    try std.testing.expect(isOpaque(leaves));
-    try std.testing.expect(shouldRenderFace(stone, leaves, up, true));
-    try std.testing.expect(shouldRenderFace(stone, leaves, up, false));
+    try std.testing.expect(!Block.leaves.isOpaqueCube());
+    try std.testing.expect(Block.leaves.isOpaque());
+    try std.testing.expect(Block.stone.shouldRenderFace(.leaves, .up, true));
+    try std.testing.expect(Block.stone.shouldRenderFace(.leaves, .up, false));
 }
 
 test "only fast graphics culls the face between two leaf blocks" {
-    try std.testing.expect(shouldRenderFace(leaves, leaves, up, true));
-    try std.testing.expect(!shouldRenderFace(leaves, leaves, up, false));
-    try std.testing.expect(!shouldRenderFace(leaves, stone, up, true));
+    try std.testing.expect(Block.leaves.shouldRenderFace(.leaves, .up, true));
+    try std.testing.expect(!Block.leaves.shouldRenderFace(.leaves, .up, false));
+    try std.testing.expect(!Block.leaves.shouldRenderFace(.stone, .up, true));
 }
 
-pub fn logSideTile(metadata: u4) u8 {
-    return switch (metadata) {
-        1 => 116,
-        2 => 117,
-        else => 20,
-    };
+test "a material decides whether its blocks are opaque and liquid" {
+    try std.testing.expect(!Material.air.blocksGrass());
+    try std.testing.expect(!Material.plants.blocksGrass());
+    try std.testing.expect(!Material.snow.blocksGrass());
+    try std.testing.expect(Material.rock.blocksGrass());
+    try std.testing.expect(Material.water.blocksGrass());
+    try std.testing.expect(Material.water.isLiquid());
+    try std.testing.expect(!Material.rock.isLiquid());
 }
 
-pub fn crossTile(id: u8, metadata: u4) u8 {
-    return switch (id) {
-        tall_grass => if (metadata == 2) 56 else 39,
-        dead_bush => 55,
-        dandelion => 13,
-        rose => 12,
-        mushroom_brown => 29,
-        mushroom_red => 28,
-        reed => 73,
-        else => 0,
-    };
-}
-
-pub const down = 0;
-pub const up = 1;
-pub const north = 2;
-pub const south = 3;
-pub const west = 4;
-pub const east = 5;
-
-pub fn faceTextures(id: u8) [6]u8 {
-    return switch (id) {
-        stone => .{ 1, 1, 1, 1, 1, 1 },
-        grass => .{ 2, 0, 3, 3, 3, 3 },
-        dirt => .{ 2, 2, 2, 2, 2, 2 },
-        planks => .{ 4, 4, 4, 4, 4, 4 },
-        bedrock => .{ 17, 17, 17, 17, 17, 17 },
-        stationary_water => .{ 205, 205, 206, 206, 206, 206 },
-        flowing_lava => .{ 237, 237, 238, 238, 238, 238 },
-        sand => .{ 18, 18, 18, 18, 18, 18 },
-        gravel => .{ 19, 19, 19, 19, 19, 19 },
-        ore_gold => .{ 32, 32, 32, 32, 32, 32 },
-        ore_iron => .{ 33, 33, 33, 33, 33, 33 },
-        ore_coal => .{ 34, 34, 34, 34, 34, 34 },
-        log => .{ 21, 21, 20, 20, 20, 20 },
-        leaves => .{ 52, 52, 52, 52, 52, 52 },
-        ore_lapis => .{ 160, 160, 160, 160, 160, 160 },
-        ore_diamond => .{ 50, 50, 50, 50, 50, 50 },
-        ore_redstone => .{ 51, 51, 51, 51, 51, 51 },
-        clay => .{ 72, 72, 72, 72, 72, 72 },
-        pumpkin => .{ 102, 102, 118, 118, 118, 118 },
-        snow_layer => .{ 66, 66, 66, 66, 66, 66 },
-        cobblestone => .{ 16, 16, 16, 16, 16, 16 },
-        cobblestone_mossy => .{ 36, 36, 36, 36, 36, 36 },
-        mob_spawner => .{ 65, 65, 65, 65, 65, 65 },
-        else => .{ 0, 0, 0, 0, 0, 0 },
-    };
-}
-
-fn hardness(id: u8) f32 {
-    return switch (id) {
-        stone => 1.5,
-        grass => 0.6,
-        dirt => 0.5,
-        planks => 2.0,
-        bedrock => -1.0,
-        stationary_water => 100.0,
-        flowing_lava => 0.0,
-        sand => 0.5,
-        gravel => 0.6,
-        ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone => 3.0,
-        log => 2.0,
-        leaves => 0.2,
-        clay => 0.6,
-        pumpkin => 1.0,
-        snow_layer => 0.1,
-        cobblestone, cobblestone_mossy => 2.0,
-        mob_spawner => 5.0,
-        else => 0.0,
-    };
-}
-
-fn isHarvestableByHand(id: u8) bool {
-    return switch (id) {
-        stone, ore_gold, ore_iron, ore_coal, ore_lapis, ore_diamond, ore_redstone, cobblestone, cobblestone_mossy, mob_spawner => false,
-        else => true,
-    };
-}
-
-pub fn digTicksRequired(id: u8) ?f32 {
-    const h = hardness(id);
-    if (h < 0.0) return null;
-    const divisor: f32 = if (isHarvestableByHand(id)) 30.0 else 100.0;
-    return h * divisor;
-}
-
-pub const Drop = struct { id: u16, count: u8, meta: u4 = 0 };
-
-pub fn drop(id: u8, meta: u4, rand: *JavaRandom) ?Drop {
-    return switch (id) {
-        stone => .{ .id = cobblestone, .count = 1 },
-        grass => .{ .id = dirt, .count = 1 },
-        gravel => if (rand.nextIntBound(10) == 0)
-            .{ .id = item.flint, .count = 1 }
-        else
-            .{ .id = gravel, .count = 1 },
-        ore_coal => .{ .id = item.coal, .count = 1 },
-        ore_diamond => .{ .id = item.diamond, .count = 1 },
-        ore_redstone => .{ .id = item.redstone, .count = @intCast(4 + rand.nextIntBound(2)) },
-        ore_lapis => .{ .id = item.dye, .count = @intCast(4 + rand.nextIntBound(5)), .meta = item.dye_meta_lapis },
-        log => .{ .id = log, .count = 1, .meta = meta },
-        leaves => if (rand.nextIntBound(20) == 0) .{ .id = sapling, .count = 1, .meta = meta & 3 } else null,
-        clay => .{ .id = item.clay_ball, .count = 4 },
-        tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = item.seeds, .count = 1 } else null,
-        dead_bush => null,
-        reed => .{ .id = item.reed, .count = 1 },
-        snow_layer => .{ .id = item.snowball, .count = 1 },
-        mob_spawner => null,
-        stationary_water, flowing_lava => null,
-        else => .{ .id = id, .count = 1 },
-    };
+test "shape carries the partial height instead of a separate lookup" {
+    try std.testing.expectEqual(Shape.cube, Block.stone.shape());
+    try std.testing.expectEqual(Shape.cross, Block.tall_grass.shape());
+    try std.testing.expectEqual(@as(f32, 0.125), Block.snow_layer.shape().heightScale());
+    try std.testing.expectEqual(@as(f32, 1.0), Block.stone.heightScale());
 }
 
 test "digTicksRequired matches hardness*30 for hand-harvestable blocks" {
-    try std.testing.expectApproxEqAbs(@as(f32, 15.0), digTicksRequired(dirt).?, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 60.0), digTicksRequired(log).?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 15.0), Block.dirt.digTicksRequired().?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 60.0), Block.log.digTicksRequired().?, 1.0e-6);
 }
 
 test "digTicksRequired matches hardness*100 for blocks needing a tool" {
-    try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicksRequired(stone).?, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 300.0), digTicksRequired(ore_diamond).?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), Block.stone.digTicksRequired().?, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 300.0), Block.ore_diamond.digTicksRequired().?, 1.0e-6);
 }
 
 test "bedrock is unbreakable" {
-    try std.testing.expect(digTicksRequired(bedrock) == null);
+    try std.testing.expect(Block.bedrock.digTicksRequired() == null);
 }
 
 test "snow layers are thin and non-opaque, unlike regular blocks" {
-    try std.testing.expectEqual(@as(f32, 0.125), heightScale(snow_layer));
-    try std.testing.expectEqual(@as(f32, 1.0), heightScale(stone));
-    try std.testing.expect(!isOpaque(snow_layer));
+    try std.testing.expectEqual(@as(f32, 0.125), Block.snow_layer.heightScale());
+    try std.testing.expectEqual(@as(f32, 1.0), Block.stone.heightScale());
+    try std.testing.expect(!Block.snow_layer.isOpaque());
 }
 
 test "grass has a distinct top, bottom and side texture" {
-    const textures = faceTextures(grass);
-    try std.testing.expectEqual(@as(u8, 0), textures[up]);
-    try std.testing.expectEqual(@as(u8, 2), textures[down]);
-    try std.testing.expectEqual(@as(u8, 3), textures[north]);
-    try std.testing.expectEqual(@as(u8, 3), textures[east]);
+    const textures = Block.grass.faceTextures();
+    try std.testing.expectEqual(@as(u8, 0), textures.get(.up));
+    try std.testing.expectEqual(@as(u8, 2), textures.get(.down));
+    try std.testing.expectEqual(@as(u8, 3), textures.get(.north));
+    try std.testing.expectEqual(@as(u8, 3), textures.get(.east));
 }
 
 test "air and cross-shaped plants are the only non-opaque blocks" {
-    try std.testing.expect(!isOpaque(air));
-    try std.testing.expect(!isOpaque(tall_grass));
-    try std.testing.expect(isOpaque(stone));
-    try std.testing.expect(isOpaque(bedrock));
+    try std.testing.expect(!Block.air.isOpaque());
+    try std.testing.expect(!Block.tall_grass.isOpaque());
+    try std.testing.expect(Block.stone.isOpaque());
+    try std.testing.expect(Block.bedrock.isOpaque());
 }
 
 test "tall grass picks the fern tile only at metadata 2" {
-    try std.testing.expectEqual(@as(u8, 39), crossTile(tall_grass, 1));
-    try std.testing.expectEqual(@as(u8, 56), crossTile(tall_grass, 2));
+    try std.testing.expectEqual(@as(u8, 39), Block.tall_grass.crossTile(1));
+    try std.testing.expectEqual(@as(u8, 56), Block.tall_grass.crossTile(2));
 }
 
 test "log side texture varies by wood type metadata" {
@@ -292,34 +416,33 @@ test "log side texture varies by wood type metadata" {
 
 test "stone drops cobblestone, not itself" {
     var rand = JavaRandom.init(0);
-    const dropped = drop(stone, 0, &rand).?;
-    try std.testing.expectEqual(@as(u16, cobblestone), dropped.id);
+    const dropped = Block.stone.drop(0, &rand).?;
+    try std.testing.expectEqual(Id{ .block = .cobblestone }, dropped.id);
     try std.testing.expectEqual(@as(u8, 1), dropped.count);
 }
 
 test "grass drops dirt" {
     var rand = JavaRandom.init(0);
-    const dropped = drop(grass, 0, &rand).?;
-    try std.testing.expectEqual(@as(u16, dirt), dropped.id);
+    try std.testing.expectEqual(Id{ .block = .dirt }, Block.grass.drop(0, &rand).?.id);
 }
 
-test "ore ids drop their raw item form" {
+test "ore blocks drop their raw item form" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(@as(u16, item.coal), drop(ore_coal, 0, &rand).?.id);
-    try std.testing.expectEqual(@as(u16, item.diamond), drop(ore_diamond, 0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .coal }, Block.ore_coal.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .diamond }, Block.ore_diamond.drop(0, &rand).?.id);
 }
 
 test "gold and iron ore self-drop, unlike coal/diamond/lapis/redstone" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(@as(u16, ore_gold), drop(ore_gold, 0, &rand).?.id);
-    try std.testing.expectEqual(@as(u16, ore_iron), drop(ore_iron, 0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .ore_gold }, Block.ore_gold.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .ore_iron }, Block.ore_iron.drop(0, &rand).?.id);
 }
 
 test "lapis ore drops 4-8 lapis dye" {
     var rand = JavaRandom.init(0);
     for (0..50) |_| {
-        const dropped = drop(ore_lapis, 0, &rand).?;
-        try std.testing.expectEqual(@as(u16, item.dye), dropped.id);
+        const dropped = Block.ore_lapis.drop(0, &rand).?;
+        try std.testing.expectEqual(Id{ .item = .dye }, dropped.id);
         try std.testing.expectEqual(item.dye_meta_lapis, dropped.meta);
         try std.testing.expect(dropped.count >= 4 and dropped.count <= 8);
     }
@@ -328,15 +451,15 @@ test "lapis ore drops 4-8 lapis dye" {
 test "redstone ore drops 4-5 redstone" {
     var rand = JavaRandom.init(0);
     for (0..50) |_| {
-        const dropped = drop(ore_redstone, 0, &rand).?;
-        try std.testing.expectEqual(@as(u16, item.redstone), dropped.id);
+        const dropped = Block.ore_redstone.drop(0, &rand).?;
+        try std.testing.expectEqual(Id{ .item = .redstone }, dropped.id);
         try std.testing.expect(dropped.count >= 4 and dropped.count <= 5);
     }
 }
 
 test "log preserves its wood-type metadata when dropped" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(@as(u4, 1), drop(log, 1, &rand).?.meta);
+    try std.testing.expectEqual(@as(u4, 1), Block.log.drop(1, &rand).?.meta);
 }
 
 test "gravel occasionally drops flint instead of itself" {
@@ -344,10 +467,10 @@ test "gravel occasionally drops flint instead of itself" {
     var saw_flint = false;
     var saw_gravel = false;
     for (0..200) |_| {
-        const dropped = drop(gravel, 0, &rand).?;
+        const dropped = Block.gravel.drop(0, &rand).?;
         try std.testing.expectEqual(@as(u8, 1), dropped.count);
-        if (dropped.id == item.flint) saw_flint = true;
-        if (dropped.id == gravel) saw_gravel = true;
+        if (dropped.id.eql(.{ .item = .flint })) saw_flint = true;
+        if (dropped.id.eql(.{ .block = .gravel })) saw_gravel = true;
     }
     try std.testing.expect(saw_flint);
     try std.testing.expect(saw_gravel);
@@ -358,8 +481,8 @@ test "leaves rarely drop a sapling, preserving wood type in its metadata" {
     var saw_sapling = false;
     var saw_nothing = false;
     for (0..200) |_| {
-        if (drop(leaves, 1, &rand)) |dropped| {
-            try std.testing.expectEqual(@as(u16, sapling), dropped.id);
+        if (Block.leaves.drop(1, &rand)) |dropped| {
+            try std.testing.expectEqual(Id{ .block = .sapling }, dropped.id);
             try std.testing.expectEqual(@as(u4, 1), dropped.meta);
             saw_sapling = true;
         } else {
@@ -375,8 +498,8 @@ test "tall grass rarely drops seeds, otherwise nothing" {
     var saw_seeds = false;
     var saw_nothing = false;
     for (0..200) |_| {
-        if (drop(tall_grass, 0, &rand)) |dropped| {
-            try std.testing.expectEqual(@as(u16, item.seeds), dropped.id);
+        if (Block.tall_grass.drop(0, &rand)) |dropped| {
+            try std.testing.expectEqual(Id{ .item = .seeds }, dropped.id);
             saw_seeds = true;
         } else {
             saw_nothing = true;
@@ -388,42 +511,42 @@ test "tall grass rarely drops seeds, otherwise nothing" {
 
 test "dead bush, the mob spawner and liquids never drop anything" {
     var rand = JavaRandom.init(0);
-    try std.testing.expect(drop(dead_bush, 0, &rand) == null);
-    try std.testing.expect(drop(mob_spawner, 0, &rand) == null);
-    try std.testing.expect(drop(stationary_water, 0, &rand) == null);
-    try std.testing.expect(drop(flowing_lava, 0, &rand) == null);
+    try std.testing.expect(Block.dead_bush.drop(0, &rand) == null);
+    try std.testing.expect(Block.mob_spawner.drop(0, &rand) == null);
+    try std.testing.expect(Block.stationary_water.drop(0, &rand) == null);
+    try std.testing.expect(Block.flowing_lava.drop(0, &rand) == null);
 }
 
 test "clay always drops 4 clay balls" {
     var rand = JavaRandom.init(0);
-    const dropped = drop(clay, 0, &rand).?;
-    try std.testing.expectEqual(@as(u16, item.clay_ball), dropped.id);
+    const dropped = Block.clay.drop(0, &rand).?;
+    try std.testing.expectEqual(Id{ .item = .clay_ball }, dropped.id);
     try std.testing.expectEqual(@as(u8, 4), dropped.count);
 }
 
 test "reed drops its item form and snow drops a snowball" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(@as(u16, item.reed), drop(reed, 0, &rand).?.id);
-    try std.testing.expectEqual(@as(u16, item.snowball), drop(snow_layer, 0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .reed }, Block.reed.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .snowball }, Block.snow_layer.drop(0, &rand).?.id);
 }
 
 test "blocks without a special drop rule self-drop with metadata reset to 0" {
     var rand = JavaRandom.init(0);
-    const dropped = drop(pumpkin, 3, &rand).?;
-    try std.testing.expectEqual(@as(u16, pumpkin), dropped.id);
+    const dropped = Block.pumpkin.drop(3, &rand).?;
+    try std.testing.expectEqual(Id{ .block = .pumpkin }, dropped.id);
     try std.testing.expectEqual(@as(u4, 0), dropped.meta);
 }
 
 test "only sand and gravel are falling blocks" {
-    try std.testing.expect(isFalling(sand));
-    try std.testing.expect(isFalling(gravel));
-    try std.testing.expect(!isFalling(stone));
-    try std.testing.expect(!isFalling(dirt));
+    try std.testing.expect(Block.sand.isFalling());
+    try std.testing.expect(Block.gravel.isFalling());
+    try std.testing.expect(!Block.stone.isFalling());
+    try std.testing.expect(!Block.dirt.isFalling());
 }
 
 test "a falling block can fall into air or liquid, not solid ground" {
-    try std.testing.expect(canFallInto(air));
-    try std.testing.expect(canFallInto(stationary_water));
-    try std.testing.expect(canFallInto(flowing_lava));
-    try std.testing.expect(!canFallInto(stone));
+    try std.testing.expect(Block.air.canFallInto());
+    try std.testing.expect(Block.stationary_water.canFallInto());
+    try std.testing.expect(Block.flowing_lava.canFallInto());
+    try std.testing.expect(!Block.stone.canFallInto());
 }

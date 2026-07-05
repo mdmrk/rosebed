@@ -19,8 +19,8 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
         while (y <= max_y) : (y += 1) {
             var z = min_z;
             while (z <= max_z) : (z += 1) {
-                const id = world_map.getBlockId(x, y, z);
-                if (world.block.isOpaque(id) and count < max_colliding_boxes) {
+                const id = world_map.getBlock(x, y, z);
+                if (id.isOpaque() and count < max_colliding_boxes) {
                     const fx: f64 = @floatFromInt(x);
                     const fy: f64 = @floatFromInt(y);
                     const fz: f64 = @floatFromInt(z);
@@ -70,7 +70,7 @@ fn testWorldWithFloor(floor_top_y: u32) !world.World {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 0;
             while (y < floor_top_y) : (y += 1) {
-                chunk.setBlockId(@intCast(x), @intCast(y), @intCast(z), world.block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), world.Block.stone);
             }
         }
     }
@@ -89,7 +89,7 @@ test "falling onto a floor stops the vertical offset at the surface" {
 test "walking into a wall clamps the horizontal offset at the surface" {
     var w = try testWorldWithFloor(0);
     defer w.deinit();
-    w.setBlockId(2, 0, 0, world.block.stone);
+    w.setBlock(2, 0, 0, world.Block.stone);
     const aabb = math.AABB.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
     const result = moveEntity(&w, aabb, 0.5, 0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), result.dx, 1.0e-9);

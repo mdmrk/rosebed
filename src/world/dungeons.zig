@@ -3,6 +3,7 @@ const JavaRandom = @import("java_random.zig");
 const World = @import("world_map.zig");
 const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
+const Block = @import("block.zig").Block;
 
 const room_height: i32 = 3;
 
@@ -15,16 +16,16 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
     while (dx <= radius_x + 1) : (dx += 1) {
         var dz = -radius_z - 1;
         while (dz <= radius_z + 1) : (dz += 1) {
-            const bottom = world_map.getBlockId(x + dx, y - 1, z + dz);
-            if (!block.isOpaque(bottom)) return false;
-            const top = world_map.getBlockId(x + dx, y + room_height + 1, z + dz);
-            if (!block.isOpaque(top)) return false;
+            const bottom = world_map.getBlock(x + dx, y - 1, z + dz);
+            if (!bottom.isOpaque()) return false;
+            const top = world_map.getBlock(x + dx, y + room_height + 1, z + dz);
+            if (!top.isOpaque()) return false;
 
             const on_perimeter = dx == -radius_x - 1 or dx == radius_x + 1 or dz == -radius_z - 1 or dz == radius_z + 1;
             if (on_perimeter) {
-                const floor_level = world_map.getBlockId(x + dx, y, z + dz);
-                const above_floor = world_map.getBlockId(x + dx, y + 1, z + dz);
-                if (floor_level == block.air and above_floor == block.air) openings += 1;
+                const floor_level = world_map.getBlock(x + dx, y, z + dz);
+                const above_floor = world_map.getBlock(x + dx, y + 1, z + dz);
+                if (floor_level == Block.air and above_floor == Block.air) openings += 1;
             }
         }
     }
@@ -39,22 +40,22 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
                 const on_perimeter = dx2 == -radius_x - 1 or dx2 == radius_x + 1 or dz2 == -radius_z - 1 or dz2 == radius_z + 1;
                 const is_boundary = on_perimeter or dy == -1 or dy == room_height + 1;
                 if (!is_boundary) {
-                    world_map.setBlockId(x + dx2, y + dy, z + dz2, block.air);
+                    world_map.setBlock(x + dx2, y + dy, z + dz2, Block.air);
                     continue;
                 }
 
-                const below = world_map.getBlockId(x + dx2, y + dy - 1, z + dz2);
-                if (!block.isOpaque(below)) {
-                    world_map.setBlockId(x + dx2, y + dy, z + dz2, block.air);
+                const below = world_map.getBlock(x + dx2, y + dy - 1, z + dz2);
+                if (!below.isOpaque()) {
+                    world_map.setBlock(x + dx2, y + dy, z + dz2, Block.air);
                 } else {
-                    const wall_id: u8 = if (dy == -1 and rand.nextIntBound(4) != 0) block.cobblestone_mossy else block.cobblestone;
-                    world_map.setBlockId(x + dx2, y + dy, z + dz2, wall_id);
+                    const wall_id: Block = if (dy == -1 and rand.nextIntBound(4) != 0) Block.cobblestone_mossy else Block.cobblestone;
+                    world_map.setBlock(x + dx2, y + dy, z + dz2, wall_id);
                 }
             }
         }
     }
 
-    world_map.setBlockId(x, y, z, block.mob_spawner);
+    world_map.setBlock(x, y, z, Block.mob_spawner);
     return true;
 }
 
@@ -64,7 +65,7 @@ fn testWorldWithChunk() !World {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                chunk.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
             }
         }
     }
@@ -75,22 +76,22 @@ test "a dungeon carves a room and places a spawner in solid stone" {
     var w = try testWorldWithChunk();
     defer w.deinit();
 
-    w.setBlockId(11, 40, 8, block.air);
-    w.setBlockId(11, 41, 8, block.air);
-    w.setBlockId(12, 40, 8, block.air);
-    w.setBlockId(12, 41, 8, block.air);
+    w.setBlock(11, 40, 8, Block.air);
+    w.setBlock(11, 41, 8, Block.air);
+    w.setBlock(12, 40, 8, Block.air);
+    w.setBlock(12, 41, 8, Block.air);
 
     var rand = JavaRandom.init(1);
     const made = generate(&w, &rand, 8, 40, 8);
     try std.testing.expect(made);
-    try std.testing.expectEqual(@as(u8, block.mob_spawner), w.getBlockId(8, 40, 8));
-    try std.testing.expectEqual(@as(u8, block.air), w.getBlockId(8, 41, 8));
+    try std.testing.expectEqual(Block.mob_spawner, w.getBlock(8, 40, 8));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 41, 8));
 
     var found_wall = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            const id = w.getBlockId(@intCast(x), 40, @intCast(z));
-            if (id == block.cobblestone or id == block.cobblestone_mossy) found_wall = true;
+            const id = w.getBlock(@intCast(x), 40, @intCast(z));
+            if (id == Block.cobblestone or id == Block.cobblestone_mossy) found_wall = true;
         }
     }
     try std.testing.expect(found_wall);
@@ -114,16 +115,16 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                a.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
-                b.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+                a.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                b.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
             }
         }
     }
 
-    w.setBlockId(19, 40, 8, block.air);
-    w.setBlockId(19, 41, 8, block.air);
-    w.setBlockId(20, 40, 8, block.air);
-    w.setBlockId(20, 41, 8, block.air);
+    w.setBlock(19, 40, 8, Block.air);
+    w.setBlock(19, 41, 8, Block.air);
+    w.setBlock(20, 40, 8, Block.air);
+    w.setBlock(20, 41, 8, Block.air);
 
     var rand = JavaRandom.init(1);
     const made = generate(&w, &rand, 15, 40, 8);
@@ -132,8 +133,8 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
     var found_wall_in_neighbor = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            const id = w.getBlockId(16 + @as(i32, @intCast(x)), 40, @as(i32, @intCast(z)));
-            if (id == block.cobblestone or id == block.cobblestone_mossy or id == block.air) found_wall_in_neighbor = true;
+            const id = w.getBlock(16 + @as(i32, @intCast(x)), 40, @as(i32, @intCast(z)));
+            if (id == Block.cobblestone or id == Block.cobblestone_mossy or id == Block.air) found_wall_in_neighbor = true;
         }
     }
     try std.testing.expect(found_wall_in_neighbor);

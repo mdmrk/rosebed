@@ -286,21 +286,21 @@ fn appendIsoFace(
 pub fn appendBlockIcon3d(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    id: u8,
+    id: world.Block,
     meta: u4,
     x: f32,
     y: f32,
     res: Scaled,
 ) !void {
-    var textures = world.block.faceTextures(id);
-    if (id == world.block.log) {
+    var textures = id.faceTextures();
+    if (id == .log) {
         const side_tile = world.block.logSideTile(meta);
-        textures[world.block.south] = side_tile;
-        textures[world.block.east] = side_tile;
+        textures.set(.south, side_tile);
+        textures.set(.east, side_tile);
     }
-    try appendIsoFace(mesh, gpa, iso_up_corners, textures[world.block.up], iso_brightness_up, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_south_corners, textures[world.block.south], iso_brightness_south, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_east_corners, textures[world.block.east], iso_brightness_east, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_up_corners, textures.get(.up), iso_brightness_up, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_south_corners, textures.get(.south), iso_brightness_south, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_east_corners, textures.get(.east), iso_brightness_east, x, y, res);
 }
 
 pub fn appendStackIcon(
@@ -314,16 +314,16 @@ pub fn appendStackIcon(
     y: f32,
     res: Scaled,
 ) !void {
-    if (stack.id <= 255) {
-        const id: u8 = @intCast(stack.id);
-        if (world.block.isCross(id)) {
-            const tile = world.block.crossTile(id, stack.meta);
+    switch (stack.id) {
+        .block => |id| if (id.isCross()) {
+            const tile = id.crossTile(stack.meta);
             try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
         } else {
             try appendBlockIcon3d(block_mesh, gpa, id, stack.meta, x, y, res);
-        }
-    } else if (world.item.iconTile(stack.id)) |tile| {
-        try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
+        },
+        .item => |id| if (id.iconTile()) |tile| {
+            try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
+        },
     }
 
     if (stack.count > 1) {

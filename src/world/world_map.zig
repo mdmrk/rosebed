@@ -2,6 +2,7 @@ const std = @import("std");
 const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const block = @import("block.zig");
+const Block = block.Block;
 const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
@@ -101,16 +102,16 @@ fn floorMod(value: i32, divisor: i32) i32 {
     return @mod(value, divisor);
 }
 
-pub fn getBlockId(self: *const World, x: i32, y: i32, z: i32) u8 {
-    if (y < 0 or y >= constants.chunk_height) return block.air;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return block.air;
-    return chunk.getBlockId(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+pub fn getBlock(self: *const World, x: i32, y: i32, z: i32) Block {
+    if (y < 0 or y >= constants.chunk_height) return Block.air;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return Block.air;
+    return chunk.getBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
 }
 
-pub fn setBlockId(self: *World, x: i32, y: i32, z: i32, id: u8) void {
+pub fn setBlock(self: *World, x: i32, y: i32, z: i32, id: Block) void {
     if (y < 0 or y >= constants.chunk_height) return;
     const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    chunk.setBlockId(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), id);
+    chunk.setBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), id);
 }
 
 pub fn getSkyLight(self: *const World, x: i32, y: i32, z: i32) u4 {
@@ -155,35 +156,35 @@ test "block access spans chunk boundaries using world coordinates" {
     defer w.deinit();
 
     const a = try w.createChunk(0, 0);
-    a.setBlockId(15, 5, 0, block.stone);
+    a.setBlock(15, 5, 0, Block.stone);
     const b = try w.createChunk(1, 0);
-    b.setBlockId(0, 5, 0, block.dirt);
+    b.setBlock(0, 5, 0, Block.dirt);
 
-    try std.testing.expectEqual(block.stone, w.getBlockId(15, 5, 0));
-    try std.testing.expectEqual(block.dirt, w.getBlockId(16, 5, 0));
+    try std.testing.expectEqual(Block.stone, w.getBlock(15, 5, 0));
+    try std.testing.expectEqual(Block.dirt, w.getBlock(16, 5, 0));
 }
 
 test "reading an unloaded chunk returns air" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    try std.testing.expectEqual(block.air, w.getBlockId(1000, 5, 1000));
+    try std.testing.expectEqual(Block.air, w.getBlock(1000, 5, 1000));
 }
 
 test "negative coordinates resolve to the correct chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     const neg = try w.createChunk(-1, -1);
-    neg.setBlockId(15, 5, 15, block.stone);
-    try std.testing.expectEqual(block.stone, w.getBlockId(-1, 5, -1));
-    try std.testing.expectEqual(block.air, w.getBlockId(-2, 5, -1));
+    neg.setBlock(15, 5, 15, Block.stone);
+    try std.testing.expectEqual(Block.stone, w.getBlock(-1, 5, -1));
+    try std.testing.expectEqual(Block.air, w.getBlock(-2, 5, -1));
 }
 
-test "setBlockId writes through to the owning chunk" {
+test "setBlock writes through to the owning chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     _ = try w.createChunk(0, 0);
-    w.setBlockId(3, 10, 4, block.stone);
-    try std.testing.expectEqual(block.stone, w.getBlockId(3, 10, 4));
+    w.setBlock(3, 10, 4, Block.stone);
+    try std.testing.expectEqual(Block.stone, w.getBlock(3, 10, 4));
 }
 
 test "ensureDecorated shape-generates the full 3x3 neighbor block" {
@@ -213,12 +214,12 @@ test "ensureDecorated only decorates a chunk once" {
     defer w.deinit();
     try w.ensureDecorated(gen, 0, 0);
 
-    var before: [16 * 128 * 16]u8 = undefined;
+    var before: [16 * 128 * 16]Block = undefined;
     var idx: usize = 0;
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                before[idx] = w.getBlockId(@intCast(x), @intCast(y), @intCast(z));
+                before[idx] = w.getBlock(@intCast(x), @intCast(y), @intCast(z));
                 idx += 1;
             }
         }
@@ -230,7 +231,7 @@ test "ensureDecorated only decorates a chunk once" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                try std.testing.expectEqual(before[idx], w.getBlockId(@intCast(x), @intCast(y), @intCast(z)));
+                try std.testing.expectEqual(before[idx], w.getBlock(@intCast(x), @intCast(y), @intCast(z)));
                 idx += 1;
             }
         }

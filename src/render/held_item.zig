@@ -34,7 +34,7 @@ pub const Equip = struct {
 fn sameStack(a: ?game.Inventory.ItemStack, b: ?game.Inventory.ItemStack) bool {
     if (a == null and b == null) return true;
     if (a == null or b == null) return false;
-    return a.?.id == b.?.id and a.?.meta == b.?.meta;
+    return a.?.id.eql(b.?.id) and a.?.meta == b.?.meta;
 }
 
 pub fn handMatrix(swing: f32, equipped: f32) math.Mat4 {
@@ -62,14 +62,14 @@ pub fn handMatrix(swing: f32, equipped: f32) math.Mat4 {
     return transform.mul(math.Mat4.scale(0.4, 0.4, 0.4));
 }
 
-pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: u8, brightness: f32) !void {
+pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, brightness: f32) !void {
     const first_vertex = mesh.vertices.items.len;
     try chunk_mesher.buildCube(
         mesh,
         gpa,
         .{ -0.5, -0.5, -0.5 },
         .{ 0.5, 0.5, 0.5 },
-        world.block.faceTextures(id),
+        id.faceTextures(),
     );
     mesh.scaleColors(first_vertex, brightness);
 }
@@ -176,45 +176,45 @@ pub fn appendArm(mesh: *MeshBuilder, gpa: std.mem.Allocator, brightness: f32) !v
 }
 
 pub const Held = union(enum) {
-    cube: u8,
+    cube: world.Block,
     sprite: struct { tile: u8, atlas: enum { terrain, items } },
 };
 
 pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
     const held = stack orelse return null;
-    if (held.id == world.block.air) return null;
-
-    if (held.id > 255) {
-        const tile = world.item.iconTile(held.id) orelse return null;
-        return .{ .sprite = .{ .tile = tile, .atlas = .items } };
-    }
-
-    const id: u8 = @intCast(held.id);
-    if (world.block.isCross(id)) {
-        return .{ .sprite = .{ .tile = world.block.crossTile(id, held.meta), .atlas = .terrain } };
+    const id = switch (held.id) {
+        .block => |b| b,
+        .item => |i| {
+            const tile = i.iconTile() orelse return null;
+            return .{ .sprite = .{ .tile = tile, .atlas = .items } };
+        },
+    };
+    if (id == .air) return null;
+    if (id.isCross()) {
+        return .{ .sprite = .{ .tile = id.crossTile(held.meta), .atlas = .terrain } };
     }
     return .{ .cube = id };
 }
 
 test "the equip animation dips to zero when the held stack changes, then climbs back" {
-    var equip: Equip = .{ .shown = .{ .id = world.block.stone, .count = 1 } };
+    var equip: Equip = .{ .shown = .{ .id = .{ .block = .stone }, .count = 1 } };
 
-    equip.tick(.{ .id = world.block.dirt, .count = 1 });
+    equip.tick(.{ .id = .{ .block = .dirt }, .count = 1 });
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), equip.progress, 1.0e-5);
 
-    equip.tick(.{ .id = world.block.dirt, .count = 1 });
+    equip.tick(.{ .id = .{ .block = .dirt }, .count = 1 });
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), equip.progress, 1.0e-5);
 
-    equip.tick(.{ .id = world.block.dirt, .count = 1 });
-    try std.testing.expectEqual(world.block.dirt, equip.shown.?.id);
+    equip.tick(.{ .id = .{ .block = .dirt }, .count = 1 });
+    try std.testing.expectEqual(world.Id{ .block = .dirt }, equip.shown.?.id);
 
-    equip.tick(.{ .id = world.block.dirt, .count = 1 });
+    equip.tick(.{ .id = .{ .block = .dirt }, .count = 1 });
     try std.testing.expect(equip.progress > 0.0);
 }
 
 test "an unchanged stack holds the item fully raised" {
-    var equip: Equip = .{ .shown = .{ .id = world.block.stone, .count = 1 } };
-    for (0..5) |_| equip.tick(.{ .id = world.block.stone, .count = 1 });
+    var equip: Equip = .{ .shown = .{ .id = .{ .block = .stone }, .count = 1 } };
+    for (0..5) |_| equip.tick(.{ .id = .{ .block = .stone }, .count = 1 });
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), equip.progress, 1.0e-5);
 }
 
@@ -282,15 +282,15 @@ test "the sprite samples only its own tile" {
 }
 
 test "each held stack picks the shape and atlas the original gives it" {
-    const stone = heldShape(.{ .id = world.block.stone, .count = 1 }).?;
-    try std.testing.expectEqual(world.block.stone, stone.cube);
+    const stone = heldShape(.{ .id = .{ .block = .stone }, .count = 1 }).?;
+    try std.testing.expectEqual(world.Block.stone, stone.cube);
 
-    const rose = heldShape(.{ .id = world.block.rose, .count = 1 }).?;
-    try std.testing.expectEqual(world.block.crossTile(world.block.rose, 0), rose.sprite.tile);
+    const rose = heldShape(.{ .id = .{ .block = .rose }, .count = 1 }).?;
+    try std.testing.expectEqual(world.Block.rose.crossTile(0), rose.sprite.tile);
     try std.testing.expectEqual(.terrain, rose.sprite.atlas);
 
-    const coal = heldShape(.{ .id = world.item.coal, .count = 1 }).?;
-    try std.testing.expectEqual(world.item.iconTile(world.item.coal).?, coal.sprite.tile);
+    const coal = heldShape(.{ .id = .{ .item = .coal }, .count = 1 }).?;
+    try std.testing.expectEqual(world.Item.iconTile(world.Item.coal).?, coal.sprite.tile);
     try std.testing.expectEqual(.items, coal.sprite.atlas);
 
     try std.testing.expect(heldShape(null) == null);
@@ -329,5 +329,5 @@ test "the empty hand and the held item start from different offsets" {
 
 test "an empty slot falls through to the arm" {
     try std.testing.expect(heldShape(null) == null);
-    try std.testing.expect(heldShape(.{ .id = world.block.air, .count = 0 }) == null);
+    try std.testing.expect(heldShape(.{ .id = .{ .block = .air }, .count = 0 }) == null);
 }

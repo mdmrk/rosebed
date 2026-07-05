@@ -6,7 +6,7 @@ pub const Hit = struct {
     x: i32,
     y: i32,
     z: i32,
-    face: u3,
+    face: world.Side,
 };
 
 const step: f64 = 0.05;
@@ -31,16 +31,16 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
             prev_bz = bz;
         }
 
-        const id = world_map.getBlockId(bx, by, bz);
-        if (id == world.block.air) continue;
+        const id = world_map.getBlock(bx, by, bz);
+        if (id == world.Block.air) continue;
 
-        var face: u3 = world.block.down;
+        var face: world.Side = .down;
         if (bx != prev_bx) {
-            face = if (bx > prev_bx) world.block.west else world.block.east;
+            face = if (bx > prev_bx) world.Side.west else world.Side.east;
         } else if (by != prev_by) {
-            face = if (by > prev_by) world.block.down else world.block.up;
+            face = if (by > prev_by) world.Side.down else world.Side.up;
         } else if (bz != prev_bz) {
-            face = if (bz > prev_bz) world.block.north else world.block.south;
+            face = if (bz > prev_bz) world.Side.north else world.Side.south;
         }
 
         return .{ .x = bx, .y = by, .z = bz, .face = face };
@@ -54,7 +54,7 @@ fn testWorldWithFloor() !world.World {
     const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
-            chunk.setBlockId(@intCast(x), 5, @intCast(z), world.block.stone);
+            chunk.setBlock(@intCast(x), 5, @intCast(z), world.Block.stone);
         }
     }
     return w;
@@ -67,7 +67,7 @@ test "looking straight down hits the floor's top face" {
     try std.testing.expectEqual(@as(i32, 8), hit.x);
     try std.testing.expectEqual(@as(i32, 5), hit.y);
     try std.testing.expectEqual(@as(i32, 8), hit.z);
-    try std.testing.expectEqual(world.block.up, hit.face);
+    try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
 test "looking away from anything solid finds nothing within range" {
@@ -81,10 +81,10 @@ test "approaching a wall from the side hits its facing side face" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlockId(10, 5, 8, world.block.stone);
+    chunk.setBlock(10, 5, 8, world.Block.stone);
     const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 10), hit.x);
-    try std.testing.expectEqual(world.block.west, hit.face);
+    try std.testing.expectEqual(world.Side.west, hit.face);
 }
 
 test "a target beyond max_distance is not hit" {
@@ -98,7 +98,7 @@ test "a cross-shaped plant is still targetable despite having no collision" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlockId(8, 5, 8, world.block.tall_grass);
+    chunk.setBlock(8, 5, 8, world.Block.tall_grass);
 
     const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), hit.y);

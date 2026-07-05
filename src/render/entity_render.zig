@@ -92,11 +92,13 @@ pub fn appendItem(
     item: game.ItemEntity,
     partial_ticks: f32,
 ) !void {
-    if (item.stack.id > 255) return;
-    const id: u8 = @intCast(item.stack.id);
+    const id = switch (item.stack.id) {
+        .block => |b| b,
+        .item => return,
+    };
 
-    if (world.block.isCross(id)) {
-        const tile = world.block.crossTile(id, item.stack.meta);
+    if (id.isCross()) {
+        const tile = id.crossTile(item.stack.meta);
         const Cross = struct {
             var shape_tile: u8 = 0;
             fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
@@ -108,13 +110,13 @@ pub fn appendItem(
     }
 
     const Cube = struct {
-        var faces: [6]u8 = undefined;
+        var faces: world.block.FaceTextures = undefined;
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
             const half = block_scale / 2.0;
             try chunk_mesher.buildCube(target, gpa_inner, .{ -half, -half, -half }, .{ half, half, half }, faces);
         }
     };
-    Cube.faces = world.block.faceTextures(id);
+    Cube.faces = id.faceTextures();
     try appendCopies(
         mesh,
         gpa,
@@ -149,8 +151,10 @@ pub fn appendItemIcon(
     view_yaw: f32,
     partial_ticks: f32,
 ) !void {
-    if (item.stack.id <= 255) return;
-    const tile = world.item.iconTile(item.stack.id) orelse return;
+    const tile = switch (item.stack.id) {
+        .item => |i| i.iconTile() orelse return,
+        .block => return,
+    };
 
     const Billboard = struct {
         var icon: u8 = 0;
@@ -187,7 +191,7 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
         gpa,
         .{ cx - half, cy, cz - half },
         .{ cx + half, cy + size, cz + half },
-        world.block.faceTextures(block.block_id),
+        block.block_id.faceTextures(),
     );
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
@@ -330,7 +334,7 @@ test "a dropped block renders as a small cube, not a flat cross" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
+    const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, item, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
@@ -344,7 +348,7 @@ test "a dropped plant keeps the crossing-sprite shape the original gives it" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const rose = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.rose, .count = 1 }, &rand);
+    const rose = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .rose }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, rose, 0);
 
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
@@ -367,7 +371,7 @@ test "a stack of twenty one draws four cubes" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const pile = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 21 }, &rand);
+    const pile = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .stone }, .count = 21 }, &rand);
     try appendItem(&mesh, gpa, &world_map, pile, 0);
 
     try std.testing.expectEqual(@as(usize, 4 * 6 * 4), mesh.vertices.items.len);
@@ -386,7 +390,7 @@ test "a dropped item bobs and a dropped block also spins" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    var item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
+    var item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
     try appendItem(&early, gpa, &world_map, item, 0);
     item.age = 10;
     try appendItem(&later, gpa, &world_map, item, 0);
@@ -403,7 +407,7 @@ test "a true item stack has no world geometry yet" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
+    const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .item = .coal }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, item, 0);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
@@ -416,7 +420,7 @@ test "a falling block renders as a full cube" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    const block = game.FallingBlock.spawn(.{ .x = 0, .y = 0, .z = 0 }, world.block.sand);
+    const block = game.FallingBlock.spawn(.{ .x = 0, .y = 0, .z = 0 }, world.Block.sand);
     try appendFallingBlock(&mesh, gpa, &world_map, block, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
@@ -443,8 +447,8 @@ test "an entity in the open is lit brighter than one sealed in the dark" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..world.Chunk.width) |x| {
         for (0..world.Chunk.width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
-            if (x >= 8) chunk.setBlockId(@intCast(x), 4, @intCast(z), world.block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
+            if (x >= 8) chunk.setBlock(@intCast(x), 4, @intCast(z), world.Block.stone);
         }
     }
     try world.light.relightChunk(gpa, &world_map, 0, 0);
@@ -478,12 +482,12 @@ test "a true item stack renders from the items atlas" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
+    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .item = .coal }, .count = 1 }, &rand);
     try appendItemIcon(&mesh, gpa, &world_map, coal, 0, 0);
 
     try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
 
-    const expected = Atlas.tileUv(world.item.iconTile(world.item.coal).?);
+    const expected = Atlas.tileUv(world.Item.iconTile(world.Item.coal).?);
     try std.testing.expectApproxEqAbs(expected.u0, mesh.vertices.items[0].u, 1.0e-6);
 }
 
@@ -495,11 +499,11 @@ test "the two item paths never both claim the same stack" {
     defer world_map.deinit();
 
     var rand = world.JavaRandom.init(0);
-    const stone = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.block.stone, .count = 1 }, &rand);
+    const stone = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
     try appendItemIcon(&mesh, gpa, &world_map, stone, 0, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 
-    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = world.item.coal, .count = 1 }, &rand);
+    const coal = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .item = .coal }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, coal, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }

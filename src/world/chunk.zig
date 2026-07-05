@@ -1,6 +1,7 @@
 const std = @import("std");
 const constants = @import("constants.zig");
 const NibbleArray = @import("nibble_array.zig");
+const Block = @import("block.zig").Block;
 
 const Chunk = @This();
 
@@ -10,7 +11,7 @@ pub const volume = constants.chunk_volume;
 
 x: i32,
 z: i32,
-blocks: [volume]u8 = [_]u8{0} ** volume,
+blocks: [volume]Block = [_]Block{.air} ** volume,
 metadata: NibbleArray = .{},
 sky_light: NibbleArray = .{},
 block_light: NibbleArray = .{},
@@ -26,11 +27,11 @@ fn blockIndex(x: u32, y: u32, z: u32) usize {
     return (x << 11) | (z << 7) | y;
 }
 
-pub fn getBlockId(self: *const Chunk, x: u32, y: u32, z: u32) u8 {
+pub fn getBlock(self: *const Chunk, x: u32, y: u32, z: u32) Block {
     return self.blocks[blockIndex(x, y, z)];
 }
 
-pub fn setBlockId(self: *Chunk, x: u32, y: u32, z: u32, id: u8) void {
+pub fn setBlock(self: *Chunk, x: u32, y: u32, z: u32, id: Block) void {
     self.blocks[blockIndex(x, y, z)] = id;
 }
 
@@ -85,16 +86,16 @@ pub fn setClimate(self: *Chunk, x: u32, z: u32, temperature: f32, humidity: f32)
 
 test "block id round-trips through the packed index" {
     var chunk = Chunk.init(0, 0);
-    chunk.setBlockId(1, 64, 15, 42);
-    try std.testing.expectEqual(@as(u8, 42), chunk.getBlockId(1, 64, 15));
-    try std.testing.expectEqual(@as(u8, 0), chunk.getBlockId(0, 0, 0));
+    chunk.setBlock(1, 64, 15, @enumFromInt(42));
+    try std.testing.expectEqual(@as(Block, @enumFromInt(42)), chunk.getBlock(1, 64, 15));
+    try std.testing.expectEqual(Block.air, chunk.getBlock(0, 0, 0));
 }
 
 test "metadata is independent of the block id" {
     var chunk = Chunk.init(0, 0);
-    chunk.setBlockId(2, 3, 4, 5);
+    chunk.setBlock(2, 3, 4, @enumFromInt(5));
     chunk.setBlockMetadata(2, 3, 4, 7);
-    try std.testing.expectEqual(@as(u8, 5), chunk.getBlockId(2, 3, 4));
+    try std.testing.expectEqual(@as(Block, @enumFromInt(5)), chunk.getBlock(2, 3, 4));
     try std.testing.expectEqual(@as(u4, 7), chunk.getBlockMetadata(2, 3, 4));
 }
 

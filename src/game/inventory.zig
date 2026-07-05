@@ -1,10 +1,7 @@
 const std = @import("std");
+const world = @import("world");
 
-pub const ItemStack = struct {
-    id: u16,
-    count: u8,
-    meta: u4 = 0,
-};
+pub const ItemStack = world.Stack;
 
 pub const max_stack_size: u8 = 64;
 pub const hotbar_size: u4 = 9;
@@ -36,10 +33,10 @@ fn firstEmptySlot(self: Inventory) ?usize {
     return null;
 }
 
-fn matchingSlot(self: Inventory, id: u16, meta: u4) ?usize {
+fn matchingSlot(self: Inventory, id: world.Id, meta: u4) ?usize {
     for (self.slots, 0..) |slot, i| {
         if (slot) |s| {
-            if (s.id == id and s.meta == meta and s.count < max_stack_size) return i;
+            if (s.id.eql(id) and s.meta == meta and s.count < max_stack_size) return i;
         }
     }
     return null;
@@ -63,15 +60,15 @@ pub fn addStack(self: *Inventory, stack: ItemStack) u8 {
 
 test "addStack fills a single slot below the stack limit" {
     var inv: Inventory = .{};
-    const leftover = inv.addStack(.{ .id = 1, .count = 10 });
+    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 10 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 10), inv.slots[0].?.count);
 }
 
 test "addStack tops up a matching slot before using a new one" {
     var inv: Inventory = .{};
-    inv.slots[0] = .{ .id = 1, .count = 60 };
-    const leftover = inv.addStack(.{ .id = 1, .count = 10 });
+    inv.slots[0] = .{ .id = .{ .block = @enumFromInt(1) }, .count = 60 };
+    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 10 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 64), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 6), inv.slots[1].?.count);
@@ -79,8 +76,8 @@ test "addStack tops up a matching slot before using a new one" {
 
 test "addStack does not merge stacks with different metadata" {
     var inv: Inventory = .{};
-    inv.slots[0] = .{ .id = 17, .count = 10, .meta = 0 };
-    _ = inv.addStack(.{ .id = 17, .count = 5, .meta = 1 });
+    inv.slots[0] = .{ .id = .{ .block = @enumFromInt(17) }, .count = 10, .meta = 0 };
+    _ = inv.addStack(.{ .id = .{ .block = @enumFromInt(17) }, .count = 5, .meta = 1 });
     try std.testing.expectEqual(@as(u8, 10), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 5), inv.slots[1].?.count);
     try std.testing.expectEqual(@as(u4, 1), inv.slots[1].?.meta);
@@ -88,7 +85,7 @@ test "addStack does not merge stacks with different metadata" {
 
 test "addStack splits a stack larger than the limit across slots" {
     var inv: Inventory = .{};
-    const leftover = inv.addStack(.{ .id = 1, .count = 100 });
+    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 100 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 64), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 36), inv.slots[1].?.count);
@@ -96,8 +93,8 @@ test "addStack splits a stack larger than the limit across slots" {
 
 test "addStack returns the leftover once the inventory is full" {
     var inv: Inventory = .{};
-    for (0..size) |i| inv.slots[i] = .{ .id = 1, .count = max_stack_size };
-    const leftover = inv.addStack(.{ .id = 1, .count = 5 });
+    for (0..size) |i| inv.slots[i] = .{ .id = .{ .block = @enumFromInt(1) }, .count = max_stack_size };
+    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 5 });
     try std.testing.expectEqual(@as(u8, 5), leftover);
 }
 
@@ -121,7 +118,7 @@ test "cycleHotbar wraps around both ends" {
 
 test "selectedStack reflects the currently selected hotbar slot" {
     var inv: Inventory = .{};
-    inv.slots[3] = .{ .id = 4, .count = 1 };
+    inv.slots[3] = .{ .id = .{ .block = .cobblestone }, .count = 1 };
     inv.selectHotbar(3);
-    try std.testing.expectEqual(@as(u8, 4), inv.selectedStack().?.id);
+    try std.testing.expectEqual(world.Id{ .block = .cobblestone }, inv.selectedStack().?.id);
 }

@@ -3,6 +3,7 @@ const math = @import("math");
 const JavaRandom = @import("java_random.zig");
 const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
+const Block = @import("block.zig").Block;
 
 const chunk_radius: i32 = 8;
 
@@ -111,7 +112,7 @@ fn carveTunnel(
                 const on_shell = bx == x0 or bx == x1 - 1 or bz == z0 or bz == z1 - 1;
                 var by = y1 + 1;
                 while (by >= y0 - 1) : (by -= 1) {
-                    if (chunk.getBlockId(@intCast(bx), @intCast(by), @intCast(bz)) == block.stationary_water) {
+                    if (chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == Block.stationary_water) {
                         found_water = true;
                         break :water_scan;
                     }
@@ -135,15 +136,15 @@ fn carveTunnel(
                     const ny: f64 = (@as(f64, @floatFromInt(by)) + 0.5 - y) / vertical_radius;
                     if (ny <= -0.7 or nx * nx + ny * ny + nz * nz >= 1.0) continue;
 
-                    const id = chunk.getBlockId(@intCast(bx), @intCast(by), @intCast(bz));
-                    if (id == block.grass) was_grass = true;
-                    if (id == block.stone or id == block.dirt or id == block.grass) {
+                    const id = chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz));
+                    if (id == Block.grass) was_grass = true;
+                    if (id == Block.stone or id == Block.dirt or id == Block.grass) {
                         if (by < 10) {
-                            chunk.setBlockId(@intCast(bx), @intCast(by), @intCast(bz), block.flowing_lava);
+                            chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.flowing_lava);
                         } else {
-                            chunk.setBlockId(@intCast(bx), @intCast(by), @intCast(bz), block.air);
-                            if (was_grass and by > 0 and chunk.getBlockId(@intCast(bx), @intCast(by - 1), @intCast(bz)) == block.dirt) {
-                                chunk.setBlockId(@intCast(bx), @intCast(by - 1), @intCast(bz), block.grass);
+                            chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.air);
+                            if (was_grass and by > 0 and chunk.getBlock(@intCast(bx), @intCast(by - 1), @intCast(bz)) == Block.dirt) {
+                                chunk.setBlock(@intCast(bx), @intCast(by - 1), @intCast(bz), Block.grass);
                             }
                         }
                     }
@@ -204,7 +205,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                chunk.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
             }
         }
     }
@@ -213,7 +214,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                if (chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z)) != block.air) solid_before += 1;
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.air) solid_before += 1;
             }
         }
     }
@@ -224,7 +225,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                if (chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z)) != block.air) solid_after += 1;
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.air) solid_after += 1;
             }
         }
     }
@@ -238,8 +239,8 @@ test "the same seed and chunk position carve identical caves" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..100) |y| {
-                chunk_a.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
-                chunk_b.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+                chunk_a.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk_b.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
             }
         }
     }
@@ -251,8 +252,8 @@ test "the same seed and chunk position carve identical caves" {
         for (0..16) |z| {
             for (0..100) |y| {
                 try std.testing.expectEqual(
-                    chunk_a.getBlockId(@intCast(x), @intCast(y), @intCast(z)),
-                    chunk_b.getBlockId(@intCast(x), @intCast(y), @intCast(z)),
+                    chunk_a.getBlock(@intCast(x), @intCast(y), @intCast(z)),
+                    chunk_b.getBlock(@intCast(x), @intCast(y), @intCast(z)),
                 );
             }
         }

@@ -6,7 +6,7 @@ const Entity = @import("entity.zig");
 const FallingBlock = @This();
 
 base: Entity,
-block_id: u8,
+block_id: world.Block,
 fall_time: u32 = 0,
 
 pub const size: f64 = 0.98;
@@ -17,7 +17,7 @@ const give_up_after_ticks: u32 = 100;
 
 pub const Outcome = enum { falling, landed, gave_up };
 
-pub fn spawn(position: math.Vec3, block_id: u8) FallingBlock {
+pub fn spawn(position: math.Vec3, block_id: world.Block) FallingBlock {
     return .{ .base = Entity.init(position, size, size), .block_id = block_id };
 }
 
@@ -45,7 +45,7 @@ pub fn tick(self: *FallingBlock, world_map: *const world.World) Outcome {
 test "gravity accelerates a falling block" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.block.sand);
+    var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.Block.sand);
     _ = block.tick(&w);
     try std.testing.expectApproxEqAbs(@as(f64, -0.04 * 0.98), block.base.motion.y, 1.0e-9);
 }
@@ -53,7 +53,7 @@ test "gravity accelerates a falling block" {
 test "landing on solid ground reports landed" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    var block = FallingBlock.spawn(math.Vec3.init(8, 1, 8), world.block.sand);
+    var block = FallingBlock.spawn(math.Vec3.init(8, 1, 8), world.Block.sand);
     block.base.motion = math.Vec3.init(0, -0.0784, 0);
     try std.testing.expectEqual(Outcome.landed, block.tick(&w));
 }
@@ -61,14 +61,14 @@ test "landing on solid ground reports landed" {
 test "still falling after one tick in open air" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.block.sand);
+    var block = FallingBlock.spawn(math.Vec3.init(8, 50, 8), world.Block.sand);
     try std.testing.expectEqual(Outcome.falling, block.tick(&w));
 }
 
 test "gives up after falling for more than 100 ticks without landing" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    var block = FallingBlock.spawn(math.Vec3.init(8, 1000, 8), world.block.sand);
+    var block = FallingBlock.spawn(math.Vec3.init(8, 1000, 8), world.Block.sand);
     var outcome: Outcome = .falling;
     for (0..101) |_| outcome = block.tick(&w);
     try std.testing.expectEqual(Outcome.gave_up, outcome);

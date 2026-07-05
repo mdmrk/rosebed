@@ -44,7 +44,7 @@ pub fn dropStack(
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
 
-pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: u8) !void {
+pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     const position = math.Vec3.init(
         @as(f64, @floatFromInt(x)) + 0.5,
         @floatFromInt(y),
@@ -102,7 +102,7 @@ pub fn spawnBlockHitParticle(
     x: i32,
     y: i32,
     z: i32,
-    side: u3,
+    side: world.Side,
     tile: u8,
     tint: [3]u8,
     rand: *world.JavaRandom,
@@ -113,13 +113,12 @@ pub fn spawnBlockHitParticle(
     var pz = @as(f64, @floatFromInt(z)) + rand.nextDouble() * span + hit_inset;
 
     switch (side) {
-        world.block.down => py = @as(f64, @floatFromInt(y)) - hit_inset,
-        world.block.up => py = @as(f64, @floatFromInt(y)) + 1.0 + hit_inset,
-        world.block.north => pz = @as(f64, @floatFromInt(z)) - hit_inset,
-        world.block.south => pz = @as(f64, @floatFromInt(z)) + 1.0 + hit_inset,
-        world.block.west => px = @as(f64, @floatFromInt(x)) - hit_inset,
-        world.block.east => px = @as(f64, @floatFromInt(x)) + 1.0 + hit_inset,
-        else => {},
+        world.Side.down => py = @as(f64, @floatFromInt(y)) - hit_inset,
+        world.Side.up => py = @as(f64, @floatFromInt(y)) + 1.0 + hit_inset,
+        world.Side.north => pz = @as(f64, @floatFromInt(z)) - hit_inset,
+        world.Side.south => pz = @as(f64, @floatFromInt(z)) + 1.0 + hit_inset,
+        world.Side.west => px = @as(f64, @floatFromInt(x)) - hit_inset,
+        world.Side.east => px = @as(f64, @floatFromInt(x)) + 1.0 + hit_inset,
     }
 
     var shard = Particle.spawn(math.Vec3.init(px, py, pz), math.Vec3.init(0, 0, 0), tile, rand);
@@ -181,7 +180,7 @@ test "walking over a dropped stack picks it up" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = world.block.stone, .count = 3 }, &w.rand);
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -201,11 +200,11 @@ test "a stack that does not fit keeps whatever is left over on the ground" {
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     for (&player.inventory.slots) |*slot| {
-        slot.* = .{ .id = world.block.stone, .count = Inventory.max_stack_size };
+        slot.* = .{ .id = .{ .block = .stone }, .count = Inventory.max_stack_size };
     }
     player.inventory.slots[0].?.count = Inventory.max_stack_size - 1;
 
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = world.block.stone, .count = 5 }, &w.rand);
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 5 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -224,7 +223,7 @@ test "an item out of reach of the player is left alone" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = world.block.stone, .count = 1 }, &w.rand);
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
 
     entities.tickItems(&w, &player);
@@ -241,8 +240,8 @@ test "count sums every kind of entity" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
-    try entities.dropStack(gpa, 0, 1, 0, .{ .id = world.block.stone, .count = 1 }, &w.rand);
-    try entities.spawnFallingBlock(gpa, 0, 5, 0, world.block.sand);
+    try entities.dropStack(gpa, 0, 1, 0, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    try entities.spawnFallingBlock(gpa, 0, 5, 0, .sand);
     try entities.spawnPig(gpa, math.Vec3.init(0, 1, 0));
 
     try std.testing.expectEqual(@as(usize, 3), entities.count());
@@ -254,8 +253,8 @@ test "a hit particle lands on the face being mined" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.up, 1, .{ 255, 255, 255 }, &rand);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.block.west, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.Side.up, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.Side.west, 1, .{ 255, 255, 255 }, &rand);
 
     const on_top = entities.particles.items[0];
     try std.testing.expectApproxEqAbs(@as(f64, 10.0 + hit_inset), on_top.base.position.y, 1.0e-9);
@@ -271,7 +270,7 @@ test "a hit particle is smaller and slower than a destroy shard" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.block.up, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.Side.up, 1, .{ 255, 255, 255 }, &rand);
     const hit = entities.particles.items[0];
 
     var same_rand = world.JavaRandom.init(4);

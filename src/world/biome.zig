@@ -1,5 +1,6 @@
 const std = @import("std");
 const block = @import("block.zig");
+const Block = @import("block.zig").Block;
 
 pub const Biome = enum {
     tundra,
@@ -13,17 +14,17 @@ pub const Biome = enum {
     seasonal_forest,
     rainforest,
 
-    pub fn topBlock(self: Biome) u8 {
+    pub fn topBlock(self: Biome) Block {
         return switch (self) {
-            .desert => block.sand,
-            else => block.grass,
+            .desert => Block.sand,
+            else => Block.grass,
         };
     }
 
-    pub fn fillerBlock(self: Biome) u8 {
+    pub fn fillerBlock(self: Biome) Block {
         return switch (self) {
-            .desert => block.sand,
-            else => block.dirt,
+            .desert => Block.sand,
+            else => Block.dirt,
         };
     }
 };
@@ -70,6 +71,6 @@ test "default 0.5/0.5 climate is taiga after quantization" {
 }
 
 test "desert biome tops with sand, others with grass" {
-    try std.testing.expectEqual(@as(u8, block.sand), Biome.desert.topBlock());
-    try std.testing.expectEqual(@as(u8, block.grass), Biome.forest.topBlock());
+    try std.testing.expectEqual(Block.sand, Biome.desert.topBlock());
+    try std.testing.expectEqual(Block.grass, Biome.forest.topBlock());
 }

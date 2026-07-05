@@ -126,12 +126,12 @@ const Digging = struct {
 
 fn starterInventory() game.Inventory {
     var inv: game.Inventory = .{};
-    inv.slots[0] = .{ .id = world.block.stone, .count = 64 };
-    inv.slots[1] = .{ .id = world.block.dirt, .count = 64 };
-    inv.slots[2] = .{ .id = world.block.cobblestone, .count = 64 };
-    inv.slots[3] = .{ .id = world.block.sand, .count = 64 };
-    inv.slots[4] = .{ .id = world.block.gravel, .count = 64 };
-    inv.slots[5] = .{ .id = world.block.log, .count = 64 };
+    inv.slots[0] = .{ .id = .{ .block = .stone }, .count = 64 };
+    inv.slots[1] = .{ .id = .{ .block = .dirt }, .count = 64 };
+    inv.slots[2] = .{ .id = .{ .block = .cobblestone }, .count = 64 };
+    inv.slots[3] = .{ .id = .{ .block = .sand }, .count = 64 };
+    inv.slots[4] = .{ .id = .{ .block = .gravel }, .count = 64 };
+    inv.slots[5] = .{ .id = .{ .block = .log }, .count = 64 };
     return inv;
 }
 
@@ -311,15 +311,14 @@ pub fn init(
     return .{ app_state, .run };
 }
 
-fn faceOffset(face: u3) [3]i32 {
+fn faceOffset(face: world.Side) [3]i32 {
     return switch (face) {
-        world.block.down => .{ 0, -1, 0 },
-        world.block.up => .{ 0, 1, 0 },
-        world.block.north => .{ 0, 0, -1 },
-        world.block.south => .{ 0, 0, 1 },
-        world.block.west => .{ -1, 0, 0 },
-        world.block.east => .{ 1, 0, 0 },
-        else => .{ 0, 0, 0 },
+        .down => .{ 0, -1, 0 },
+        .up => .{ 0, 1, 0 },
+        .north => .{ 0, 0, -1 },
+        .south => .{ 0, 0, 1 },
+        .west => .{ -1, 0, 0 },
+        .east => .{ 1, 0, 0 },
     };
 }
 
@@ -338,8 +337,8 @@ fn digStep(app_state: *AppState) !void {
         app_state.digging = .{ .x = hit.x, .y = hit.y, .z = hit.z, .progress = 0 };
     }
 
-    const block_id = app_state.world_map.getBlockId(hit.x, hit.y, hit.z);
-    const ticks_required = world.block.digTicksRequired(block_id) orelse return;
+    const block_id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
+    const ticks_required = block_id.digTicksRequired() orelse return;
     if (ticks_required <= 0.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try markBlockChanged(app_state, hit.x, hit.z);
@@ -353,7 +352,7 @@ fn digStep(app_state: *AppState) !void {
         hit.y,
         hit.z,
         hit.face,
-        world.block.faceTextures(block_id)[world.block.down],
+        block_id.faceTextures().get(.down),
         particleTint(app_state, block_id, hit.x, hit.y, hit.z),
         &app_state.world_map.rand,
     );
@@ -363,8 +362,8 @@ fn digStep(app_state: *AppState) !void {
     }
 }
 
-fn particleTint(app_state: *const AppState, id: u8, x: i32, y: i32, z: i32) [3]u8 {
-    if (id == world.block.grass) return .{ 255, 255, 255 };
+fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: i32) [3]u8 {
+    if (id == world.Block.grass) return .{ 255, 255, 255 };
     const width = world.constants.chunk_width;
     const chunk = app_state.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
     const lx: u32 = @intCast(@mod(x, width));
@@ -373,7 +372,7 @@ fn particleTint(app_state: *const AppState, id: u8, x: i32, y: i32, z: i32) [3]u
         app_state.colorizer,
         id,
         app_state.world_map.getBlockMetadata(x, y, z),
-        world.block.up,
+        world.Side.up,
         chunk.getTemperature(lx, lz),
         chunk.getHumidity(lx, lz),
     );
@@ -389,29 +388,29 @@ fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.In
 }
 
 fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    const id = app_state.world_map.getBlockId(x, y, z);
-    if (!world.block.isFalling(id)) return;
-    if (!world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z))) return;
+    const id = app_state.world_map.getBlock(x, y, z);
+    if (!id.isFalling()) return;
+    if (!app_state.world_map.getBlock(x, y - 1, z).canFallInto()) return;
 
-    app_state.world_map.setBlockId(x, y, z, world.block.air);
+    app_state.world_map.setBlock(x, y, z, world.Block.air);
     try markBlockChanged(app_state, x, z);
 
     try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
 
-fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: u8) !void {
+fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
     try app_state.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
         y,
         z,
-        world.block.faceTextures(block_id)[world.block.down],
+        block_id.faceTextures().get(.down),
         particleTint(app_state, block_id, x, y, z),
         &app_state.world_map.rand,
     );
-    const dropped = world.block.drop(block_id, meta, &app_state.world_map.rand);
-    app_state.world_map.setBlockId(x, y, z, world.block.air);
+    const dropped = block_id.drop(meta, &app_state.world_map.rand);
+    app_state.world_map.setBlock(x, y, z, world.Block.air);
     app_state.digging = null;
     if (dropped) |d| try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
     try checkFall(app_state, x, y + 1, z);
@@ -432,13 +431,13 @@ fn tickFallingBlocks(app_state: *AppState) !void {
         const y: i32 = @intFromFloat(@floor(block.base.position.y));
         const z: i32 = @intFromFloat(@floor(block.base.position.z));
 
-        const landing_empty = !world.block.isOpaque(app_state.world_map.getBlockId(x, y, z));
-        const support_solid = !world.block.canFallInto(app_state.world_map.getBlockId(x, y - 1, z));
+        const landing_empty = !app_state.world_map.getBlock(x, y, z).isOpaque();
+        const support_solid = !app_state.world_map.getBlock(x, y - 1, z).canFallInto();
         if (outcome == .landed and landing_empty and support_solid) {
-            app_state.world_map.setBlockId(x, y, z, block.block_id);
+            app_state.world_map.setBlock(x, y, z, block.block_id);
             try markBlockChanged(app_state, x, z);
         } else {
-            try spawnDroppedItem(app_state, x, y, z, .{ .id = block.block_id, .count = 1 });
+            try spawnDroppedItem(app_state, x, y, z, .{ .id = .{ .block = block.block_id }, .count = 1 });
         }
 
         _ = app_state.entities.falling_blocks.swapRemove(i);
@@ -464,7 +463,7 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
 fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType) void {
     if (slot.*) |*existing| {
         if (app_state.held_stack) |*held| {
-            if (existing.id == held.id and existing.meta == held.meta) {
+            if (existing.id.eql(held.id) and existing.meta == held.meta) {
                 const amount = @min(if (click_type == .left) held.count else 1, game.Inventory.max_stack_size - existing.count);
                 existing.count += amount;
                 held.count -= amount;
@@ -491,7 +490,7 @@ fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type:
 fn resultSlotClick(app_state: *AppState) void {
     const result = game.crafting.findMatch(app_state.crafting_grid) orelse return;
     if (app_state.held_stack) |*held| {
-        if (held.id != result.id or held.meta != result.meta) return;
+        if (!held.id.eql(result.id) or held.meta != result.meta) return;
         if (@as(u16, held.count) + result.count > game.Inventory.max_stack_size) return;
         held.count += result.count;
     } else {
@@ -646,15 +645,18 @@ fn consumeSelectedStack(app_state: *AppState) void {
 
 fn placeBlockAtTarget(app_state: *AppState) !void {
     const stack = app_state.player.inventory.selectedStack() orelse return;
-    if (stack.id > 255) return;
+    const placed = switch (stack.id) {
+        .block => |b| b,
+        .item => return,
+    };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
     const offset = faceOffset(hit.face);
     const px = hit.x + offset[0];
     const py = hit.y + offset[1];
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
-    if (world.block.isOpaque(app_state.world_map.getBlockId(px, py, pz))) return;
-    app_state.world_map.setBlockId(px, py, pz, @intCast(stack.id));
+    if (app_state.world_map.getBlock(px, py, pz).isOpaque()) return;
+    app_state.world_map.setBlock(px, py, pz, placed);
     app_state.world_map.setBlockMetadata(px, py, pz, stack.meta);
     consumeSelectedStack(app_state);
     try markBlockChanged(app_state, px, pz);
@@ -944,8 +946,8 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     const digging = app_state.digging orelse return;
     if (digging.progress <= 0.0) return;
 
-    const id = app_state.world_map.getBlockId(digging.x, digging.y, digging.z);
-    if (id == world.block.air) return;
+    const id = app_state.world_map.getBlock(digging.x, digging.y, digging.z);
+    if (id == world.Block.air) return;
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
@@ -975,7 +977,7 @@ fn drawSelectionOutline(app_state: *AppState) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    const id = app_state.world_map.getBlockId(hit.x, hit.y, hit.z);
+    const id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
     try render.selection.appendOutline(&mesh, app_state.frame, id, hit.x, hit.y, hit.z);
 
     gl.Enable(gl.BLEND);

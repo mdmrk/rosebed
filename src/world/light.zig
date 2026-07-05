@@ -3,22 +3,23 @@ const block = @import("block.zig");
 const constants = @import("constants.zig");
 const Chunk = @import("chunk.zig");
 const World = @import("world_map.zig");
+const Block = @import("block.zig").Block;
 
 pub const max_level: u4 = 15;
 
 pub const Kind = enum { sky, block };
 
-pub fn opacity(id: u8) u8 {
+pub fn opacity(id: Block) u8 {
     return switch (id) {
-        block.stationary_water => 3,
-        block.leaves => 1,
-        else => if (block.isOpaque(id)) 255 else 0,
+        Block.stationary_water => 3,
+        Block.leaves => 1,
+        else => if (id.isOpaque()) 255 else 0,
     };
 }
 
-pub fn emission(id: u8) u4 {
+pub fn emission(id: Block) u4 {
     return switch (id) {
-        block.flowing_lava => 15,
+        Block.flowing_lava => 15,
         else => 0,
     };
 }
@@ -42,7 +43,7 @@ pub fn brightnessAt(world_map: *const World, x: i32, y: i32, z: i32, minimum: u4
     return brightness_table[@max(levelAt(world_map, x, y, z), minimum)];
 }
 
-fn spreadCost(id: u8) u8 {
+fn spreadCost(id: Block) u8 {
     return @max(opacity(id), 1);
 }
 
@@ -50,7 +51,7 @@ pub fn generateHeightMap(chunk: *Chunk) void {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             var y: u32 = constants.chunk_height - 1;
-            while (y > 0 and opacity(chunk.getBlockId(@intCast(x), y - 1, @intCast(z))) == 0) y -= 1;
+            while (y > 0 and opacity(chunk.getBlock(@intCast(x), y - 1, @intCast(z))) == 0) y -= 1;
             chunk.setHeightValue(@intCast(x), @intCast(z), @intCast(y));
         }
     }
@@ -108,7 +109,7 @@ const Propagation = struct {
                 const nz = node.z + offset[2];
                 if (!self.inside(nx, ny, nz)) continue;
 
-                const cost = spreadCost(self.world_map.getBlockId(nx, ny, nz));
+                const cost = spreadCost(self.world_map.getBlock(nx, ny, nz));
                 if (level <= cost) continue;
 
                 const spread: u4 = @intCast(level - cost);
@@ -158,7 +159,7 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
                     chunk.setSkyLight(@intCast(lx), @intCast(ly), @intCast(lz), max_level);
                     if (skyCanSpread(chunk, lx, ly, lz, sky_floor)) try sky.seed(gpa, x, y, z);
                 }
-                const emitted = emission(chunk.getBlockId(@intCast(lx), @intCast(ly), @intCast(lz)));
+                const emitted = emission(chunk.getBlock(@intCast(lx), @intCast(ly), @intCast(lz)));
                 if (emitted > 0) {
                     chunk.setBlockLight(@intCast(lx), @intCast(ly), @intCast(lz), emitted);
                     try lamps.seed(gpa, x, y, z);
@@ -227,7 +228,7 @@ test "an open column is fully sky lit down to the ground" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
         }
     }
 
@@ -245,8 +246,8 @@ test "sky light decays by one per block sideways under an overhang" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.stone);
-            if (x > 0) chunk.setBlockId(@intCast(x), 2, @intCast(z), block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+            if (x > 0) chunk.setBlock(@intCast(x), 2, @intCast(z), Block.stone);
         }
     }
 
@@ -265,9 +266,9 @@ test "water dims the sky light passing through it" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.stone);
-            chunk.setBlockId(@intCast(x), 1, @intCast(z), block.stationary_water);
-            chunk.setBlockId(@intCast(x), 2, @intCast(z), block.stationary_water);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 1, @intCast(z), Block.stationary_water);
+            chunk.setBlock(@intCast(x), 2, @intCast(z), Block.stationary_water);
         }
     }
 
@@ -285,17 +286,17 @@ test "lava lights a sealed cave and nothing lights an empty one" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            for (0..8) |y| chunk.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+            for (0..8) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
         }
     }
-    chunk.setBlockId(4, 4, 4, block.air);
-    chunk.setBlockId(5, 4, 4, block.air);
-    chunk.setBlockId(6, 4, 4, block.air);
+    chunk.setBlock(4, 4, 4, Block.air);
+    chunk.setBlock(5, 4, 4, Block.air);
+    chunk.setBlock(6, 4, 4, Block.air);
 
     try relightChunk(gpa, &world_map, 0, 0);
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockLight(5, 4, 4));
 
-    chunk.setBlockId(4, 4, 4, block.flowing_lava);
+    chunk.setBlock(4, 4, 4, Block.flowing_lava);
     try relightChunk(gpa, &world_map, 0, 0);
 
     try std.testing.expectEqual(@as(u4, 15), world_map.getBlockLight(4, 4, 4));
@@ -312,10 +313,10 @@ test "light crosses a chunk seam from an already lit neighbor" {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             for (0..2) |y| {
-                open.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
-                roofed.setBlockId(@intCast(x), @intCast(y), @intCast(z), block.stone);
+                open.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                roofed.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
             }
-            roofed.setBlockId(@intCast(x), 3, @intCast(z), block.stone);
+            roofed.setBlock(@intCast(x), 3, @intCast(z), Block.stone);
         }
     }
 

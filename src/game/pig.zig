@@ -96,9 +96,9 @@ test "hitting a wall cuts the current wander leg short" {
     defer w.deinit();
     const chunk = w.getChunk(0, 0).?;
     for (0..world.constants.chunk_width) |x| {
-        chunk.setBlockId(@intCast(x), 0, 0, world.block.stone);
+        chunk.setBlock(@intCast(x), 0, 0, world.Block.stone);
     }
-    chunk.setBlockId(9, 1, 0, world.block.stone);
+    chunk.setBlock(9, 1, 0, world.Block.stone);
 
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 1, 0));

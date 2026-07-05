@@ -10,6 +10,7 @@ const decorate = @import("decorate.zig");
 const lakes = @import("lakes.zig");
 const dungeons = @import("dungeons.zig");
 const World = @import("world_map.zig");
+const Block = @import("block.zig").Block;
 
 const TerrainGenerator = @This();
 
@@ -181,14 +182,14 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
 
                         for (0..4) |sub_z| {
                             const bz: u32 = @intCast(cz * 4 + sub_z);
-                            var id: u8 = block.air;
+                            var id: Block = .air;
                             if (by < sea_level) {
-                                id = block.stationary_water;
+                                id = Block.stationary_water;
                             }
                             if (value > 0.0) {
-                                id = block.stone;
+                                id = Block.stone;
                             }
-                            chunk.setBlockId(bx, by, bz, id);
+                            chunk.setBlock(bx, by, bz, id);
                             value += step_value;
                         }
 
@@ -226,7 +227,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = lakes.generate(world_map, &decorate_rand, x, y, z, block.stationary_water);
+        _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.stationary_water);
     }
 
     if (decorate_rand.nextIntBound(8) == 0) {
@@ -234,7 +235,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
         if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
-            _ = lakes.generate(world_map, &decorate_rand, x, y, z, block.flowing_lava);
+            _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.flowing_lava);
         }
     }
 
@@ -255,7 +256,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
 fn chunkColumnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
     var y: i32 = 127;
     while (y >= 0) : (y -= 1) {
-        if (chunk.getBlockId(x, @intCast(y), z) != block.air) return y + 1;
+        if (chunk.getBlock(x, @intCast(y), z) != Block.air) return y + 1;
     }
     return 0;
 }
@@ -271,11 +272,11 @@ fn placeSnowLayers(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
             const temperature = climate_sample.temperature[climate_idx] - altitude_penalty;
             if (temperature >= 0.5) continue;
 
-            if (chunk.getBlockId(@intCast(x), @intCast(top_y), @intCast(z)) != block.air) continue;
-            const below = chunk.getBlockId(@intCast(x), @intCast(top_y - 1), @intCast(z));
-            if (!block.isOpaque(below) or block.isLiquid(below)) continue;
+            if (chunk.getBlock(@intCast(x), @intCast(top_y), @intCast(z)) != Block.air) continue;
+            const below = chunk.getBlock(@intCast(x), @intCast(top_y - 1), @intCast(z));
+            if (!below.isOpaque() or below.isLiquid()) continue;
 
-            chunk.setBlockId(@intCast(x), @intCast(top_y), @intCast(z), block.snow_layer);
+            chunk.setBlock(@intCast(x), @intCast(top_y), @intCast(z), Block.snow_layer);
         }
     }
 }
@@ -289,16 +290,16 @@ fn dressSurface(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
 
             var y: u32 = 127;
             while (y > 0) : (y -= 1) {
-                if (chunk.getBlockId(@intCast(x), y, @intCast(z)) == block.stone) {
-                    chunk.setBlockId(@intCast(x), y, @intCast(z), top_block);
-                    if (y > 0) chunk.setBlockId(@intCast(x), y - 1, @intCast(z), filler_block);
-                    if (y > 1) chunk.setBlockId(@intCast(x), y - 2, @intCast(z), filler_block);
-                    if (y > 2) chunk.setBlockId(@intCast(x), y - 3, @intCast(z), filler_block);
+                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.stone) {
+                    chunk.setBlock(@intCast(x), y, @intCast(z), top_block);
+                    if (y > 0) chunk.setBlock(@intCast(x), y - 1, @intCast(z), filler_block);
+                    if (y > 1) chunk.setBlock(@intCast(x), y - 2, @intCast(z), filler_block);
+                    if (y > 2) chunk.setBlock(@intCast(x), y - 3, @intCast(z), filler_block);
                     break;
                 }
             }
             for (0..5) |by| {
-                chunk.setBlockId(@intCast(x), @intCast(by), @intCast(z), block.bedrock);
+                chunk.setBlock(@intCast(x), @intCast(by), @intCast(z), Block.bedrock);
             }
         }
     }
@@ -308,7 +309,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
     var chunk = Chunk.init(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlockId(@intCast(x), 70, @intCast(z), block.grass);
+            chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
         }
     }
 
@@ -322,7 +323,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
     var found_snow = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (chunk.getBlockId(@intCast(x), 71, @intCast(z)) == block.snow_layer) found_snow = true;
+            if (chunk.getBlock(@intCast(x), 71, @intCast(z)) == Block.snow_layer) found_snow = true;
         }
     }
     try std.testing.expect(found_snow);
@@ -330,7 +331,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
     var warm_chunk = Chunk.init(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            warm_chunk.setBlockId(@intCast(x), 70, @intCast(z), block.grass);
+            warm_chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
         }
     }
     var warm: Climate.Sample = undefined;
@@ -342,7 +343,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(warm_chunk.getBlockId(@intCast(x), 71, @intCast(z)) != block.snow_layer);
+            try std.testing.expect(warm_chunk.getBlock(@intCast(x), 71, @intCast(z)) != Block.snow_layer);
         }
     }
 }
@@ -356,13 +357,13 @@ test "generated chunk has bedrock at the bottom and grass somewhere" {
     defer w.deinit();
     const chunk = try w.getOrGenerateChunk(gen, 0, 0);
 
-    try std.testing.expectEqual(@as(u8, block.bedrock), chunk.getBlockId(8, 0, 8));
+    try std.testing.expectEqual(Block.bedrock, chunk.getBlock(8, 0, 8));
 
     var found_grass = false;
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..128) |y| {
-                if (chunk.getBlockId(@intCast(x), @intCast(y), @intCast(z)) == block.grass) {
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.grass) {
                     found_grass = true;
                 }
             }
@@ -389,7 +390,7 @@ test "different seeds produce different terrain" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                if (chunk_a.getBlockId(@intCast(x), @intCast(y), @intCast(z)) != chunk_b.getBlockId(@intCast(x), @intCast(y), @intCast(z))) {
+                if (chunk_a.getBlock(@intCast(x), @intCast(y), @intCast(z)) != chunk_b.getBlock(@intCast(x), @intCast(y), @intCast(z))) {
                     any_different = true;
                 }
             }
@@ -414,8 +415,8 @@ test "the same seed and chunk position are deterministic" {
         for (0..128) |y| {
             for (0..16) |z| {
                 try std.testing.expectEqual(
-                    chunk_a.getBlockId(@intCast(x), @intCast(y), @intCast(z)),
-                    chunk_b.getBlockId(@intCast(x), @intCast(y), @intCast(z)),
+                    chunk_a.getBlock(@intCast(x), @intCast(y), @intCast(z)),
+                    chunk_b.getBlock(@intCast(x), @intCast(y), @intCast(z)),
                 );
             }
         }

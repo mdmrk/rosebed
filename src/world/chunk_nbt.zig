@@ -46,7 +46,7 @@ pub fn store(gpa: std.mem.Allocator, chunk: *const Chunk, world_time: i64, popul
     try put(gpa, &level, "xPos", .{ .int = chunk.x });
     try put(gpa, &level, "zPos", .{ .int = chunk.z });
     try put(gpa, &level, "LastUpdate", .{ .long = world_time });
-    try put(gpa, &level, "Blocks", .{ .byte_array = try gpa.dupe(u8, &chunk.blocks) });
+    try put(gpa, &level, "Blocks", .{ .byte_array = try gpa.dupe(u8, std.mem.asBytes(&chunk.blocks)) });
     try put(gpa, &level, "Data", .{ .byte_array = try gpa.dupe(u8, &chunk.metadata.data) });
     try put(gpa, &level, "SkyLight", .{ .byte_array = try gpa.dupe(u8, &chunk.sky_light.data) });
     try put(gpa, &level, "BlockLight", .{ .byte_array = try gpa.dupe(u8, &chunk.block_light.data) });
@@ -81,7 +81,7 @@ pub fn load(root: nbt.Tag) !Loaded {
 
     var chunk = Chunk.init(try intField(level, "xPos"), try intField(level, "zPos"));
 
-    @memcpy(&chunk.blocks, try bytesField(level, "Blocks", constants.chunk_volume));
+    @memcpy(std.mem.asBytes(&chunk.blocks), try bytesField(level, "Blocks", constants.chunk_volume));
     @memcpy(&chunk.metadata.data, try bytesField(level, "Data", constants.chunk_volume / 2));
     @memcpy(&chunk.sky_light.data, try bytesField(level, "SkyLight", constants.chunk_volume / 2));
     @memcpy(&chunk.block_light.data, try bytesField(level, "BlockLight", constants.chunk_volume / 2));
@@ -96,13 +96,14 @@ pub fn load(root: nbt.Tag) !Loaded {
 }
 
 const block = @import("block.zig");
+const Block = @import("block.zig").Block;
 
 fn sampleChunk() Chunk {
     var chunk = Chunk.init(-3, 7);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlockId(@intCast(x), 0, @intCast(z), block.bedrock);
-            chunk.setBlockId(@intCast(x), 1, @intCast(z), block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.bedrock);
+            chunk.setBlock(@intCast(x), 1, @intCast(z), Block.stone);
             chunk.setBlockMetadata(@intCast(x), 1, @intCast(z), @intCast(x % 16));
             chunk.setSkyLight(@intCast(x), 2, @intCast(z), 15);
             chunk.setBlockLight(@intCast(x), 1, @intCast(z), @intCast(z % 16));
@@ -123,7 +124,7 @@ test "a chunk survives a round trip through NBT tags" {
     try std.testing.expectEqual(original.x, loaded.chunk.x);
     try std.testing.expectEqual(original.z, loaded.chunk.z);
     try std.testing.expect(loaded.populated);
-    try std.testing.expectEqualSlices(u8, &original.blocks, &loaded.chunk.blocks);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&original.blocks), std.mem.asBytes(&loaded.chunk.blocks));
     try std.testing.expectEqualSlices(u8, &original.metadata.data, &loaded.chunk.metadata.data);
     try std.testing.expectEqualSlices(u8, &original.sky_light.data, &loaded.chunk.sky_light.data);
     try std.testing.expectEqualSlices(u8, &original.block_light.data, &loaded.chunk.block_light.data);
@@ -153,7 +154,7 @@ test "a chunk survives a round trip through the NBT wire format" {
     const loaded = try load(decoded.tag);
     try std.testing.expectEqual(original.x, loaded.chunk.x);
     try std.testing.expect(!loaded.populated);
-    try std.testing.expectEqualSlices(u8, &original.blocks, &loaded.chunk.blocks);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&original.blocks), std.mem.asBytes(&loaded.chunk.blocks));
     try std.testing.expectEqualSlices(u8, &original.sky_light.data, &loaded.chunk.sky_light.data);
 }
 
