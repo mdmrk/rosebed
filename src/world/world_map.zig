@@ -73,8 +73,12 @@ pub fn getOrGenerateChunk(self: *World, generator: TerrainGenerator, chunk_x: i3
     return chunk;
 }
 
+pub fn isDecorated(self: *const World, chunk_x: i32, chunk_z: i32) bool {
+    return self.decorated.contains(.{ .x = chunk_x, .z = chunk_z });
+}
+
 pub fn ensureDecorated(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !void {
-    if (self.decorated.contains(.{ .x = chunk_x, .z = chunk_z })) return;
+    if (self.isDecorated(chunk_x, chunk_z)) return;
 
     var dx: i32 = -1;
     while (dx <= 1) : (dx += 1) {

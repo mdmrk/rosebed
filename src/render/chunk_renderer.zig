@@ -49,18 +49,23 @@ pub fn markDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, chunk_x: i32, chu
     try self.dirty.put(gpa, .{ .x = chunk_x, .z = chunk_z }, {});
 }
 
+fn seamOffset(local: i32) i32 {
+    if (local == 0) return -1;
+    if (local == world.constants.chunk_width - 1) return 1;
+    return 0;
+}
+
 pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i32) !void {
     const width = world.constants.chunk_width;
     const chunk_x = @divFloor(x, width);
     const chunk_z = @divFloor(z, width);
-    const local_x = @mod(x, width);
-    const local_z = @mod(z, width);
+    const offset_x = seamOffset(@mod(x, width));
+    const offset_z = seamOffset(@mod(z, width));
 
     try self.markDirty(gpa, chunk_x, chunk_z);
-    if (local_x == 0) try self.markDirty(gpa, chunk_x - 1, chunk_z);
-    if (local_x == width - 1) try self.markDirty(gpa, chunk_x + 1, chunk_z);
-    if (local_z == 0) try self.markDirty(gpa, chunk_x, chunk_z - 1);
-    if (local_z == width - 1) try self.markDirty(gpa, chunk_x, chunk_z + 1);
+    if (offset_x != 0) try self.markDirty(gpa, chunk_x + offset_x, chunk_z);
+    if (offset_z != 0) try self.markDirty(gpa, chunk_x, chunk_z + offset_z);
+    if (offset_x != 0 and offset_z != 0) try self.markDirty(gpa, chunk_x + offset_x, chunk_z + offset_z);
 }
 
 pub const rebuild_budget_ns = 8 * std.time.ns_per_ms;
@@ -188,6 +193,20 @@ test "negative world coordinates resolve to the chunk that owns them" {
     try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = -1 }));
     try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = 0 }));
 }
+
+test "a block on a chunk corner dirties the diagonal chunk too" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    try renderer.markBlockDirty(gpa, 0, 0);
+    try std.testing.expectEqual(@as(usize, 4), renderer.dirty.count());
+    try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = 0 }));
+    try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = 0 }));
+    try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = -1 }));
+    try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = -1 }));
+}
+
 
 test "repeated edits to the same chunk collapse into one rebuild" {
     const gpa = std.testing.allocator;

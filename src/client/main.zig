@@ -187,11 +187,11 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     var pending: std.ArrayList(Pending) = .empty;
     defer pending.deinit(app_state.frame);
 
-    var cx = center.x - radius;
-    while (cx <= center.x + radius) : (cx += 1) {
-        var cz = center.z - radius;
-        while (cz <= center.z + radius) : (cz += 1) {
-            if (app_state.chunks.hasMesh(cx, cz)) continue;
+    var cx = center.x - radius - 1;
+    while (cx <= center.x + radius + 1) : (cx += 1) {
+        var cz = center.z - radius - 1;
+        while (cz <= center.z + radius + 1) : (cz += 1) {
+            if (app_state.world_map.isDecorated(cx, cz)) continue;
             const dx: i64 = cx - center.x;
             const dz: i64 = cz - center.z;
             try pending.append(app_state.frame, .{
@@ -206,8 +206,33 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     const started = sdl3.timer.getNanosecondsSinceInit();
     for (pending.items) |entry| {
         try app_state.world_map.ensureDecorated(app_state.generator, entry.coord.x, entry.coord.z);
-        try app_state.chunks.markDirty(app_state.gpa, entry.coord.x, entry.coord.z);
+        try markMeshableAround(app_state, entry.coord);
         if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) break;
+    }
+}
+
+fn neighborhoodDecorated(world_map: *const world.World, chunk_x: i32, chunk_z: i32) bool {
+    var dx: i32 = -1;
+    while (dx <= 1) : (dx += 1) {
+        var dz: i32 = -1;
+        while (dz <= 1) : (dz += 1) {
+            if (!world_map.isDecorated(chunk_x + dx, chunk_z + dz)) return false;
+        }
+    }
+    return true;
+}
+
+fn markMeshableAround(app_state: *AppState, coord: world.World.ChunkCoord) !void {
+    var dx: i32 = -1;
+    while (dx <= 1) : (dx += 1) {
+        var dz: i32 = -1;
+        while (dz <= 1) : (dz += 1) {
+            const cx = coord.x + dx;
+            const cz = coord.z + dz;
+            if (app_state.chunks.hasMesh(cx, cz) or neighborhoodDecorated(&app_state.world_map, cx, cz)) {
+                try app_state.chunks.markDirty(app_state.gpa, cx, cz);
+            }
+        }
     }
 }
 

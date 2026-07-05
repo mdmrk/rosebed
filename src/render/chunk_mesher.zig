@@ -561,6 +561,34 @@ test "two solid edges hide whatever is diagonally behind them" {
     try std.testing.expectApproxEqAbs((1.0 + 3.0 * dark) / 4.0, corners[3], 1.0e-6);
 }
 
+test "a seam face needs its neighbour lit before it shades correctly" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const near = try world_map.createChunk(0, 0);
+    const far = try world_map.createChunk(1, 0);
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            near.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
+            far.setBlockId(@intCast(x), 0, @intCast(z), world.block.stone);
+        }
+    }
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    const unlit_neighbour = smoothBrightness(&world_map, faces[world.block.up], 15, 0, 8, 0);
+    try std.testing.expect(unlit_neighbour[2] < 1.0);
+    try std.testing.expect(unlit_neighbour[3] < 1.0);
+
+    try world.light.relightChunk(gpa, &world_map, 1, 0);
+    const lit_neighbour = smoothBrightness(&world_map, faces[world.block.up], 15, 0, 8, 0);
+    const interior = smoothBrightness(&world_map, faces[world.block.up], 8, 0, 8, 0);
+    for (lit_neighbour, interior) |seam, inside| {
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), seam, 1.0e-6);
+        try std.testing.expectApproxEqAbs(inside, seam, 1.0e-6);
+    }
+}
+
 test "smooth lighting varies a face's vertex colors, flat lighting does not" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
