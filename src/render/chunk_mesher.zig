@@ -10,25 +10,27 @@ const FaceDir = struct {
     shade: f32,
     normal: [3]i32,
     corners: [4][3]f32,
+    axis_u: u2,
+    axis_v: u2,
 };
 
 const faces = [6]FaceDir{
-    .{ .side = world.block.down, .shade = 0.5, .normal = .{ 0, -1, 0 }, .corners = .{
+    .{ .side = world.block.down, .shade = 0.5, .normal = .{ 0, -1, 0 }, .axis_u = 0, .axis_v = 2, .corners = .{
         .{ 0, 0, 0 }, .{ 0, 0, 1 }, .{ 1, 0, 1 }, .{ 1, 0, 0 },
     } },
-    .{ .side = world.block.up, .shade = 1.0, .normal = .{ 0, 1, 0 }, .corners = .{
+    .{ .side = world.block.up, .shade = 1.0, .normal = .{ 0, 1, 0 }, .axis_u = 0, .axis_v = 2, .corners = .{
         .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 1, 1 },
     } },
-    .{ .side = world.block.north, .shade = 0.8, .normal = .{ 0, 0, -1 }, .corners = .{
+    .{ .side = world.block.north, .shade = 0.8, .normal = .{ 0, 0, -1 }, .axis_u = 0, .axis_v = 1, .corners = .{
         .{ 1, 0, 0 }, .{ 1, 1, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 0 },
     } },
-    .{ .side = world.block.south, .shade = 0.8, .normal = .{ 0, 0, 1 }, .corners = .{
+    .{ .side = world.block.south, .shade = 0.8, .normal = .{ 0, 0, 1 }, .axis_u = 0, .axis_v = 1, .corners = .{
         .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 1, 1, 1 }, .{ 1, 0, 1 },
     } },
-    .{ .side = world.block.west, .shade = 0.6, .normal = .{ -1, 0, 0 }, .corners = .{
+    .{ .side = world.block.west, .shade = 0.6, .normal = .{ -1, 0, 0 }, .axis_u = 2, .axis_v = 1, .corners = .{
         .{ 0, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 1 }, .{ 0, 0, 1 },
     } },
-    .{ .side = world.block.east, .shade = 0.6, .normal = .{ 1, 0, 0 }, .corners = .{
+    .{ .side = world.block.east, .shade = 0.6, .normal = .{ 1, 0, 0 }, .axis_u = 2, .axis_v = 1, .corners = .{
         .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 1, 0, 0 },
     } },
 };
@@ -60,6 +62,52 @@ pub fn blockTint(colorizer: Colorizer, id: u8, metadata: u4, side: u3, temperatu
             colorizer.grassColor(temperature, humidity),
         else => Colorizer.white,
     };
+}
+
+fn stepAlong(axis: u2, corner: [3]f32) [3]i32 {
+    var step: [3]i32 = .{ 0, 0, 0 };
+    step[axis] = if (corner[axis] == 1) 1 else -1;
+    return step;
+}
+
+fn offsetBy(cell: [3]i32, step: [3]i32) [3]i32 {
+    return .{ cell[0] + step[0], cell[1] + step[1], cell[2] + step[2] };
+}
+
+fn brightnessOf(world_map: *const world.World, cell: [3]i32, minimum: u4) f32 {
+    return world.light.brightnessAt(world_map, cell[0], cell[1], cell[2], minimum);
+}
+
+fn blocksGrass(world_map: *const world.World, cell: [3]i32) bool {
+    return world.block.isOpaque(world_map.getBlockId(cell[0], cell[1], cell[2]));
+}
+
+fn smoothBrightness(
+    world_map: *const world.World,
+    face: FaceDir,
+    x: i32,
+    y: i32,
+    z: i32,
+    minimum: u4,
+) [4]f32 {
+    const cell = offsetBy(.{ x, y, z }, face.normal);
+    const center = brightnessOf(world_map, cell, minimum);
+
+    var result: [4]f32 = undefined;
+    for (face.corners, 0..) |corner, i| {
+        const step_u = stepAlong(face.axis_u, corner);
+        const step_v = stepAlong(face.axis_v, corner);
+        const cell_u = offsetBy(cell, step_u);
+        const cell_v = offsetBy(cell, step_v);
+        const edge_u = brightnessOf(world_map, cell_u, minimum);
+        const edge_v = brightnessOf(world_map, cell_v, minimum);
+        const diagonal = if (blocksGrass(world_map, cell_u) and blocksGrass(world_map, cell_v))
+            edge_u
+        else
+            brightnessOf(world_map, offsetBy(cell_u, step_v), minimum);
+        result[i] = (center + edge_u + edge_v + diagonal) / 4.0;
+    }
+    return result;
 }
 
 fn neighborId(world_map: *const world.World, chunk: *const world.Chunk, x: i32, y: i32, z: i32) u8 {
@@ -126,7 +174,7 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     }, uvs, shadeColor(brightness, tint));
 }
 
-pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer) !Mesh {
+pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, smooth: bool) !Mesh {
     var mesh: Mesh = .{};
     errdefer mesh.deinit(gpa);
 
@@ -190,13 +238,24 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                         .{ uv.u1, uv.v1 },
                     };
 
+                    const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
+
+                    if (smooth) {
+                        const corner_brightness = smoothBrightness(world_map, face, world_x, world_y, world_z, emitted);
+                        var colors: [4][4]u8 = undefined;
+                        for (corner_brightness, 0..) |brightness, i| {
+                            colors[i] = shadeColor(face.shade * brightness, tint);
+                        }
+                        try target.quadShaded(gpa, positions, uvs, colors);
+                        continue;
+                    }
+
                     const partial_top = face.side == world.block.up and height_scale != 1.0 and !world.block.isLiquid(id);
                     const brightness = if (partial_top)
                         own_brightness
                     else
                         world.light.brightnessAt(world_map, world_x + face.normal[0], world_y + face.normal[1], world_z + face.normal[2], emitted);
 
-                    const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
                     try target.quad(gpa, positions, uvs, shadeColor(face.shade * brightness, tint));
                 }
             }
@@ -214,7 +273,7 @@ test "a cross-shaped plant emits two crossing quads instead of a cube" {
     chunk.setBlockId(0, 0, 0, world.block.tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.solid.vertices.items.len);
@@ -229,7 +288,7 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     chunk.setBlockId(1, 0, 0, world.block.tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4 + 2 * 4), mesh.solid.vertices.items.len);
@@ -244,7 +303,7 @@ test "a snow layer renders as a thin partial-height cube" {
     chunk.setBlockId(0, 2, 0, world.block.snow_layer);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     var max_y: f32 = 0;
@@ -262,7 +321,7 @@ test "a lone block emits all 6 faces" {
     chunk.setBlockId(0, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
@@ -277,7 +336,7 @@ test "each cube face carries its own directional shade" {
     chunk.setBlockId(8, 0, 8, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     const expected = [6]u8{ 6, 255, 204, 204, 153, 153 };
@@ -296,7 +355,7 @@ test "a cross-shaped plant is not directionally shaded" {
     chunk.setBlockId(0, 0, 0, world.block.rose);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     for (mesh.solid.vertices.items) |v| {
@@ -313,7 +372,7 @@ test "adjacent blocks cull their shared face" {
     chunk.setBlockId(1, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 10 * 4), mesh.solid.vertices.items.len);
@@ -326,7 +385,7 @@ test "an all-air chunk produces an empty mesh" {
     _ = try world_map.createChunk(0, 0);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.solid.vertices.items.len);
@@ -342,7 +401,7 @@ test "a block at a chunk boundary culls its face against a loaded neighbor chunk
     b.setBlockId(0, 0, 0, world.block.stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 5 * 4), mesh.solid.vertices.items.len);
@@ -361,7 +420,7 @@ test "only the grass block's top face takes the biome tint" {
     chunk.setBlockId(8, 0, 8, world.block.grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual([4]u8{ 100, 200, 50, 255 }, mesh.solid.vertices.items[1 * 4].color);
@@ -383,7 +442,7 @@ test "birch leaves take the fixed foliage color instead of the biome lookup" {
     chunk.setBlockId(11, 0, 11, world.block.leaves);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, false);
     defer mesh.deinit(gpa);
 
     const birch_top = mesh.solid.vertices.items[1 * 4].color;
@@ -400,7 +459,7 @@ test "water builds into the translucent pass, not the solid one" {
     chunk.setBlockId(8, 0, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.solid.vertices.items.len);
@@ -416,7 +475,7 @@ test "touching water faces are culled but the surface between water and air is n
     chunk.setBlockId(8, 1, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 10 * 4), mesh.translucent.vertices.items.len);
@@ -431,8 +490,103 @@ test "a solid block keeps the face it shares with water" {
     chunk.setBlockId(8, 1, 8, world.block.stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
     defer mesh.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
+}
+
+test "an unobstructed face lights all four corners the same" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    const corners = smoothBrightness(&world_map, faces[world.block.up], 8, 0, 8, 0);
+    for (corners) |corner| try std.testing.expectApproxEqAbs(@as(f32, 1.0), corner, 1.0e-6);
+}
+
+test "a block beside the face darkens the two corners nearest it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+    chunk.setBlockId(9, 1, 8, world.block.stone);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    const corners = smoothBrightness(&world_map, faces[world.block.up], 8, 0, 8, 0);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[1], 1.0e-6);
+    try std.testing.expect(corners[2] < 1.0);
+    try std.testing.expect(corners[3] < 1.0);
+    try std.testing.expectApproxEqAbs(corners[2], corners[3], 1.0e-6);
+}
+
+test "a diagonal block darkens only the corner it touches" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+    chunk.setBlockId(9, 1, 9, world.block.stone);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    const corners = smoothBrightness(&world_map, faces[world.block.up], 8, 0, 8, 0);
+
+    const dark = world.light.brightnessAt(&world_map, 9, 1, 9, 0);
+    try std.testing.expectApproxEqAbs((3.0 + dark) / 4.0, corners[3], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[2], 1.0e-6);
+}
+
+test "two solid edges hide whatever is diagonally behind them" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+    chunk.setBlockId(9, 1, 8, world.block.stone);
+    chunk.setBlockId(8, 1, 9, world.block.stone);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    const corners = smoothBrightness(&world_map, faces[world.block.up], 8, 0, 8, 0);
+
+    const dark = world.light.brightnessAt(&world_map, 9, 1, 8, 0);
+    try std.testing.expect(world.light.brightnessAt(&world_map, 9, 1, 9, 0) > dark);
+    try std.testing.expectApproxEqAbs((1.0 + 3.0 * dark) / 4.0, corners[3], 1.0e-6);
+}
+
+test "smooth lighting varies a face's vertex colors, flat lighting does not" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlockId(8, 0, 8, world.block.stone);
+    chunk.setBlockId(9, 1, 8, world.block.stone);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var flat = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, false);
+    defer flat.deinit(gpa);
+    var smooth = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, true);
+    defer smooth.deinit(gpa);
+
+    try std.testing.expectEqual(flat.solid.vertices.items.len, smooth.solid.vertices.items.len);
+    try std.testing.expect(!uniformQuads(smooth.solid));
+    try std.testing.expect(uniformQuads(flat.solid));
+}
+
+fn uniformQuads(mesh: MeshBuilder) bool {
+    var i: usize = 0;
+    while (i < mesh.vertices.items.len) : (i += 4) {
+        const first = mesh.vertices.items[i].color;
+        for (mesh.vertices.items[i .. i + 4]) |vertex| {
+            if (!std.mem.eql(u8, &first, &vertex.color)) return false;
+        }
+    }
+    return true;
 }

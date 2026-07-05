@@ -71,7 +71,7 @@ pub fn radiusFor(render_distance: u5) i32 {
     return @divTrunc(diameter, 2 * world.constants.chunk_width);
 }
 
-pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World, colorizer: Colorizer) !u32 {
+pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World, colorizer: Colorizer, smooth: bool) !u32 {
     var rebuilt: u32 = 0;
     var done: [max_rebuilds_per_flush]world.World.ChunkCoord = undefined;
     var done_count: usize = 0;
@@ -86,7 +86,7 @@ pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const wor
 
         const chunk = world_map.getChunk(coord.x, coord.z) orelse continue;
 
-        var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer);
+        var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer, smooth);
         defer mesh.deinit(gpa);
 
         const entry = try self.meshes.getOrPut(gpa, coord.*);
@@ -221,7 +221,7 @@ test "a flush consumes at most its cap and leaves the rest dirty" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted);
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, false);
     try std.testing.expect(renderer.dirty.count() >= 5);
     try std.testing.expect(renderer.dirty.count() < max_rebuilds_per_flush + 5);
 }
