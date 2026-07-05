@@ -52,6 +52,7 @@ const recipes = [_]Recipe{
     shaped(2, 2, &.{ i(.clay_ball), i(.clay_ball), i(.clay_ball), i(.clay_ball) }, .{ .block = .clay }, 1),
     shaped(2, 2, &.{ b(.planks), b(.planks), b(.planks), b(.planks) }, .{ .block = .workbench }, 1),
     shaped(2, 2, &.{ i(.snowball), i(.snowball), i(.snowball), i(.snowball) }, .{ .block = .snow_block }, 1),
+    shaped(2, 2, &.{ b(.sand), b(.sand), b(.sand), b(.sand) }, .{ .block = .sandstone }, 1),
     shaped(2, 2, &.{ i(.brick), i(.brick), i(.brick), i(.brick) }, .{ .block = .brick }, 1),
     shaped(2, 2, &.{ i(.string), i(.string), i(.string), i(.string) }, .{ .block = .wool }, 1),
     shaped(2, 2, &.{ i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust) }, .{ .block = .glowstone }, 1),
@@ -63,14 +64,14 @@ const recipes = [_]Recipe{
     shaped(1, 3, &.{ b(.mushroom_red), b(.mushroom_brown), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(1, 3, &.{ b(.mushroom_brown), b(.mushroom_red), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(3, 3, &.{
-        b(.planks), b(.planks), b(.planks),
+        b(.planks), b(.planks),  b(.planks),
         b(.planks), i(.diamond), b(.planks),
-        b(.planks), b(.planks), b(.planks),
+        b(.planks), b(.planks),  b(.planks),
     }, .{ .block = .jukebox }, 1),
     shaped(3, 3, &.{
-        b(.planks),   b(.planks), b(.planks),
-        b(.planks),   i(.redstone), b(.planks),
-        b(.planks),   b(.planks), b(.planks),
+        b(.planks), b(.planks),   b(.planks),
+        b(.planks), i(.redstone), b(.planks),
+        b(.planks), b(.planks),   b(.planks),
     }, .{ .block = .note_block }, 1),
     shaped(3, 3, &.{
         b(.planks), b(.planks), b(.planks),
@@ -90,6 +91,73 @@ const recipes = [_]Recipe{
     shaped(1, 1, &.{b(.block_iron)}, .{ .item = .ingot_iron }, 9),
     shaped(1, 1, &.{b(.block_diamond)}, .{ .item = .diamond }, 9),
     shapedMeta(1, 1, &.{b(.block_lapis)}, .{ .item = .dye }, 9, world.item.dye_meta_lapis),
+};
+
+const max_shapeless = 4;
+
+pub const ShapelessRecipe = struct {
+    ingredients: [max_shapeless]?Ingredient,
+    output_id: world.Id,
+    output_count: u8,
+    output_meta: u4 = 0,
+};
+
+fn shapeless(ingredients: []const ?Ingredient, output: world.Id, count: u8, meta: u4) ShapelessRecipe {
+    var list: [max_shapeless]?Ingredient = @splat(null);
+    for (ingredients, 0..) |ingredient, index| list[index] = ingredient;
+    return .{ .ingredients = list, .output_id = output, .output_count = count, .output_meta = meta };
+}
+
+fn dyeFrom(ingredients: []const ?Ingredient, count: u8, meta: u4) ShapelessRecipe {
+    return shapeless(ingredients, .{ .item = .dye }, count, meta);
+}
+
+const dye_black: u4 = 0;
+const dye_red: u4 = 1;
+const dye_green: u4 = 2;
+const dye_blue: u4 = world.item.dye_meta_lapis;
+const dye_purple: u4 = 5;
+const dye_cyan: u4 = 6;
+const dye_light_gray: u4 = 7;
+const dye_gray: u4 = 8;
+const dye_pink: u4 = 9;
+const dye_lime: u4 = 10;
+const dye_yellow: u4 = 11;
+const dye_light_blue: u4 = 12;
+const dye_magenta: u4 = 13;
+const dye_orange: u4 = 14;
+const dye_white: u4 = 15;
+
+fn woolDyeRecipes() [16]ShapelessRecipe {
+    var list: [16]ShapelessRecipe = undefined;
+    for (0..16) |index| {
+        const meta: u4 = @intCast(index);
+        list[index] = shapeless(
+            &.{ dye(meta), .{ .id = .{ .block = .wool }, .meta = 0 } },
+            .{ .block = .wool },
+            1,
+            ~meta,
+        );
+    }
+    return list;
+}
+
+const shapeless_recipes = woolDyeRecipes() ++ [_]ShapelessRecipe{
+    dyeFrom(&.{b(.dandelion)}, 2, dye_yellow),
+    dyeFrom(&.{b(.rose)}, 2, dye_red),
+    dyeFrom(&.{i(.bone)}, 3, dye_white),
+    dyeFrom(&.{ dye(dye_red), dye(dye_white) }, 2, dye_pink),
+    dyeFrom(&.{ dye(dye_red), dye(dye_yellow) }, 2, dye_orange),
+    dyeFrom(&.{ dye(dye_green), dye(dye_white) }, 2, dye_lime),
+    dyeFrom(&.{ dye(dye_black), dye(dye_white) }, 2, dye_gray),
+    dyeFrom(&.{ dye(dye_gray), dye(dye_white) }, 2, dye_light_gray),
+    dyeFrom(&.{ dye(dye_black), dye(dye_white), dye(dye_white) }, 3, dye_light_gray),
+    dyeFrom(&.{ dye(dye_blue), dye(dye_white) }, 2, dye_light_blue),
+    dyeFrom(&.{ dye(dye_blue), dye(dye_green) }, 2, dye_cyan),
+    dyeFrom(&.{ dye(dye_blue), dye(dye_red) }, 2, dye_purple),
+    dyeFrom(&.{ dye(dye_purple), dye(dye_pink) }, 2, dye_magenta),
+    dyeFrom(&.{ dye(dye_blue), dye(dye_red), dye(dye_pink) }, 3, dye_magenta),
+    dyeFrom(&.{ dye(dye_blue), dye(dye_red), dye(dye_red), dye(dye_white) }, 4, dye_magenta),
 };
 
 fn matchesAt(grid: []const ?Inventory.ItemStack, size: u8, recipe: Recipe, offset_x: u8, offset_y: u8) bool {
@@ -113,6 +181,34 @@ fn matchesAt(grid: []const ?Inventory.ItemStack, size: u8, recipe: Recipe, offse
     return true;
 }
 
+fn matchesShapeless(grid: []const ?Inventory.ItemStack, recipe: ShapelessRecipe) bool {
+    var used: [max_shapeless]bool = @splat(false);
+    var wanted: usize = 0;
+    for (recipe.ingredients) |ingredient| {
+        if (ingredient != null) wanted += 1;
+    }
+
+    var matched: usize = 0;
+    for (grid) |maybe_stack| {
+        const stack = maybe_stack orelse continue;
+        var found = false;
+        for (recipe.ingredients, 0..) |maybe_ingredient, index| {
+            const ingredient = maybe_ingredient orelse continue;
+            if (used[index]) continue;
+            if (!stack.id.eql(ingredient.id)) continue;
+            if (ingredient.meta) |m| {
+                if (stack.meta != m) continue;
+            }
+            used[index] = true;
+            matched += 1;
+            found = true;
+            break;
+        }
+        if (!found) return false;
+    }
+    return matched == wanted;
+}
+
 pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemStack {
     for (recipes) |recipe| {
         if (recipe.width > size or recipe.height > size) continue;
@@ -122,6 +218,12 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
                     return .{ .id = recipe.output_id, .count = recipe.output_count, .meta = recipe.output_meta };
                 }
             }
+        }
+    }
+
+    for (shapeless_recipes) |recipe| {
+        if (matchesShapeless(grid, recipe)) {
+            return .{ .id = recipe.output_id, .count = recipe.output_count, .meta = recipe.output_meta };
         }
     }
     return null;
@@ -311,4 +413,98 @@ test "the lapis block recipe rejects other dye colours and keeps lapis metadata"
     const unpacked = findMatch(&single, player_grid_size).?;
     try std.testing.expectEqual(@as(u4, world.item.dye_meta_lapis), unpacked.meta);
     try std.testing.expectEqual(@as(u8, 9), unpacked.count);
+}
+
+test "a flower dyes into two of its colour anywhere in the grid" {
+    const cases = [_]struct { flower: world.Block, meta: u4 }{
+        .{ .flower = .dandelion, .meta = dye_yellow },
+        .{ .flower = .rose, .meta = dye_red },
+    };
+    for (cases) |case| {
+        var grid: [9]?Inventory.ItemStack = @splat(null);
+        grid[4] = .{ .id = .{ .block = case.flower }, .count = 1 };
+        const result = findMatch(&grid, workbench_grid_size).?;
+        try std.testing.expectEqual(world.Id{ .item = .dye }, result.id);
+        try std.testing.expectEqual(case.meta, result.meta);
+        try std.testing.expectEqual(@as(u8, 2), result.count);
+    }
+}
+
+test "a flower dyes in the player's 2x2 grid too, since shapeless recipes have no shape" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[3] = .{ .id = .{ .block = .rose }, .count = 1 };
+    try std.testing.expectEqual(@as(u4, dye_red), findMatch(&grid, player_grid_size).?.meta);
+}
+
+test "mixing two dyes ignores which cells they sit in" {
+    for ([2][2]usize{ .{ 0, 8 }, .{ 5, 2 } }) |cells| {
+        var grid: [9]?Inventory.ItemStack = @splat(null);
+        grid[cells[0]] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
+        grid[cells[1]] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+        const result = findMatch(&grid, workbench_grid_size).?;
+        try std.testing.expectEqual(@as(u4, dye_purple), result.meta);
+        try std.testing.expectEqual(@as(u8, 2), result.count);
+    }
+}
+
+test "a shapeless recipe needs its exact ingredients, no more and no fewer" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+
+    grid[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    try std.testing.expectEqual(@as(u4, dye_purple), findMatch(&grid, workbench_grid_size).?.meta);
+
+    grid[2] = .{ .id = .{ .block = .dirt }, .count = 1 };
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+}
+
+test "the three-dye and four-dye magenta recipes both match their own multiset" {
+    var three: [9]?Inventory.ItemStack = @splat(null);
+    three[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
+    three[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    three[2] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_pink };
+    const from_three = findMatch(&three, workbench_grid_size).?;
+    try std.testing.expectEqual(@as(u4, dye_magenta), from_three.meta);
+    try std.testing.expectEqual(@as(u8, 3), from_three.count);
+
+    var four: [9]?Inventory.ItemStack = @splat(null);
+    four[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
+    four[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    four[2] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    four[3] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_white };
+    const from_four = findMatch(&four, workbench_grid_size).?;
+    try std.testing.expectEqual(@as(u4, dye_magenta), from_four.meta);
+    try std.testing.expectEqual(@as(u8, 4), from_four.count);
+}
+
+test "dyeing white wool inverts the dye's metadata like BlockCloth does" {
+    for (0..16) |index| {
+        const meta: u4 = @intCast(index);
+        var grid: [4]?Inventory.ItemStack = @splat(null);
+        grid[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = meta };
+        grid[1] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 0 };
+        const result = findMatch(&grid, player_grid_size).?;
+        try std.testing.expectEqual(world.Id{ .block = .wool }, result.id);
+        try std.testing.expectEqual(~meta, result.meta);
+    }
+}
+
+test "only white wool can be dyed" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    grid[1] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 5 };
+    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
+}
+
+test "shaped recipes win over shapeless ones, as RecipeSorter orders them" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (&grid) |*slot| slot.* = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
+    try std.testing.expectEqual(world.Id{ .block = .block_lapis }, findMatch(&grid, workbench_grid_size).?.id);
+}
+
+test "four sand craft sandstone" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    for (&grid) |*slot| slot.* = .{ .id = .{ .block = .sand }, .count = 1 };
+    try std.testing.expectEqual(world.Id{ .block = .sandstone }, findMatch(&grid, player_grid_size).?.id);
 }

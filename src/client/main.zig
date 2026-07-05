@@ -132,7 +132,7 @@ fn starterInventory() game.Inventory {
     inv.slots[1] = .{ .id = .{ .block = .dirt }, .count = 64 };
     inv.slots[2] = .{ .id = .{ .block = .cobblestone }, .count = 64 };
     inv.slots[3] = .{ .id = .{ .block = .sand }, .count = 64 };
-    inv.slots[4] = .{ .id = .{ .block = .gravel }, .count = 64 };
+    inv.slots[4] = .{ .id = .{ .block = .workbench }, .count = 64 };
     inv.slots[5] = .{ .id = .{ .block = .log }, .count = 64 };
     return inv;
 }
