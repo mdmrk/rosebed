@@ -202,7 +202,12 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
                             const bz: u32 = @intCast(cz * 4 + sub_z);
                             var id: Block = .air;
                             if (by < sea_level) {
-                                id = Block.stationary_water;
+                                const temperature = climate_sample.temperature[bx * Climate.grid_size + bz];
+                                if (temperature < 0.5 and by >= sea_level - 1) {
+                                    id = Block.ice;
+                                } else {
+                                    id = Block.stationary_water;
+                                }
                             }
                             if (value > 0.0) {
                                 id = Block.stone;
@@ -229,8 +234,7 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
 }
 
 pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) !void {
-    const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
-    const chunk = world_map.getChunk(chunk_x, chunk_z).?;
+    const surface_biome = self.climate.biomeAt(chunk_x * 16 + 16, chunk_z * 16 + 16);
 
     var decorate_rand = JavaRandom.init(self.world_seed);
     const mult_x = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
@@ -264,10 +268,9 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         _ = dungeons.generate(world_map, &decorate_rand, x, y, z);
     }
 
-    decorate.generateClayPatches(chunk, chunk_x, chunk_z, &decorate_rand);
-    decorate.generateOreVeins(chunk, chunk_x, chunk_z, &decorate_rand);
+    decorate.generateClayPatches(world_map, chunk_x, chunk_z, &decorate_rand);
+    decorate.generateOreVeins(world_map, chunk_x, chunk_z, &decorate_rand);
 
-    const surface_biome = climate_sample.biomeAt(8, 8);
     const tree_density = self.tree_noise.samplePoint2D(@as(f64, @floatFromInt(base_x)) * 0.5, @as(f64, @floatFromInt(base_z)) * 0.5);
     const tree_count = decorate.treeCountFor(&decorate_rand, tree_density, surface_biome);
     decorate.generateTrees(world_map, chunk_x, chunk_z, &decorate_rand, surface_biome, tree_count);
@@ -287,33 +290,38 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         try springs.generate(world_map, x, y, z, Block.flowing_lava);
     }
 
-    placeSnowLayers(chunk, &climate_sample);
+    const snow_climate = self.climate.sample(base_x + 8, base_z + 8);
+    try placeSnowLayers(world_map, base_x, base_z, &snow_climate.temperature);
 }
 
-fn chunkColumnTopY(chunk: *const Chunk, x: u32, z: u32) i32 {
+fn findTopSolidBlock(world_map: *const World, x: i32, z: i32) i32 {
     var y: i32 = 127;
-    while (y >= 0) : (y -= 1) {
-        if (chunk.getBlock(x, @intCast(y), z) != Block.air) return y + 1;
+    while (y > 0) : (y -= 1) {
+        const material = world_map.getBlock(x, y, z).material();
+        if (material.isSolid() or material.isLiquid()) return y + 1;
     }
-    return 0;
+    return -1;
 }
 
-fn placeSnowLayers(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
-    for (0..16) |x| {
-        for (0..16) |z| {
-            const top_y = chunkColumnTopY(chunk, @intCast(x), @intCast(z));
-            if (top_y <= 0 or top_y >= 128) continue;
+fn placeSnowLayers(world_map: *World, base_x: i32, base_z: i32, temperatures: *const [Climate.grid_size * Climate.grid_size]f64) !void {
+    const origin_x = base_x + 8;
+    const origin_z = base_z + 8;
 
-            const climate_idx = x * Climate.grid_size + z;
-            const altitude_penalty = (@as(f64, @floatFromInt(top_y)) - 64.0) / 64.0 * 0.3;
-            const temperature = climate_sample.temperature[climate_idx] - altitude_penalty;
-            if (temperature >= 0.5) continue;
+    var x = origin_x;
+    while (x < origin_x + 16) : (x += 1) {
+        var z = origin_z;
+        while (z < origin_z + 16) : (z += 1) {
+            const top_y = findTopSolidBlock(world_map, x, z);
+            const climate_idx: usize = @intCast((x - origin_x) * Climate.grid_size + (z - origin_z));
+            const altitude_penalty = @as(f64, @floatFromInt(top_y - 64)) / 64.0 * 0.3;
+            const temperature = temperatures[climate_idx] - altitude_penalty;
+            if (temperature >= 0.5 or top_y <= 0 or top_y >= 128) continue;
 
-            if (chunk.getBlock(@intCast(x), @intCast(top_y), @intCast(z)) != Block.air) continue;
-            const below = chunk.getBlock(@intCast(x), @intCast(top_y - 1), @intCast(z));
-            if (!below.isOpaque() or below.isLiquid()) continue;
+            if (world_map.getBlock(x, top_y, z) != Block.air) continue;
+            const below = world_map.getBlock(x, top_y - 1, z).material();
+            if (!below.isSolid() or below == .ice) continue;
 
-            chunk.setBlock(@intCast(x), @intCast(top_y), @intCast(z), Block.snow_layer);
+            try world_map.setBlockWithNotify(x, top_y, z, Block.snow_layer);
         }
     }
 }
@@ -395,47 +403,79 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
     }
 }
 
-test "snow layers form on solid ground in cold climates but not warm ones" {
-    var chunk = Chunk.init(0, 0);
-    for (0..16) |x| {
-        for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
+fn grassPlateauWorld() !World {
+    var w = World.init(std.testing.allocator);
+    var chunk_x: i32 = 0;
+    while (chunk_x <= 1) : (chunk_x += 1) {
+        var chunk_z: i32 = 0;
+        while (chunk_z <= 1) : (chunk_z += 1) {
+            const chunk = try w.createChunk(chunk_x, chunk_z);
+            for (0..16) |x| {
+                for (0..16) |z| {
+                    chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
+                }
+            }
         }
     }
+    return w;
+}
 
-    var cold: Climate.Sample = undefined;
-    for (0..Climate.grid_size * Climate.grid_size) |i| {
-        cold.temperature[i] = 0.1;
-        cold.humidity[i] = 0.5;
-    }
-    placeSnowLayers(&chunk, &cold);
+fn uniformTemperatures(value: f64) [Climate.grid_size * Climate.grid_size]f64 {
+    return [_]f64{value} ** (Climate.grid_size * Climate.grid_size);
+}
+
+test "snow layers form on solid ground in cold climates but not warm ones" {
+    var cold_world = try grassPlateauWorld();
+    defer cold_world.deinit();
+    const cold = uniformTemperatures(0.1);
+    try placeSnowLayers(&cold_world, 0, 0, &cold);
 
     var found_snow = false;
-    for (0..16) |x| {
-        for (0..16) |z| {
-            if (chunk.getBlock(@intCast(x), 71, @intCast(z)) == Block.snow_layer) found_snow = true;
+    for (8..24) |x| {
+        for (8..24) |z| {
+            if (cold_world.getBlock(@intCast(x), 71, @intCast(z)) == Block.snow_layer) found_snow = true;
         }
     }
     try std.testing.expect(found_snow);
 
-    var warm_chunk = Chunk.init(0, 0);
-    for (0..16) |x| {
-        for (0..16) |z| {
-            warm_chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
-        }
-    }
-    var warm: Climate.Sample = undefined;
-    for (0..Climate.grid_size * Climate.grid_size) |i| {
-        warm.temperature[i] = 0.9;
-        warm.humidity[i] = 0.5;
-    }
-    placeSnowLayers(&warm_chunk, &warm);
+    var warm_world = try grassPlateauWorld();
+    defer warm_world.deinit();
+    const warm = uniformTemperatures(0.9);
+    try placeSnowLayers(&warm_world, 0, 0, &warm);
 
-    for (0..16) |x| {
-        for (0..16) |z| {
-            try std.testing.expect(warm_chunk.getBlock(@intCast(x), 71, @intCast(z)) != Block.snow_layer);
+    for (8..24) |x| {
+        for (8..24) |z| {
+            try std.testing.expect(warm_world.getBlock(@intCast(x), 71, @intCast(z)) != Block.snow_layer);
         }
     }
+}
+
+test "the snow pass covers the 16x16 area starting eight blocks into the chunk" {
+    var w = try grassPlateauWorld();
+    defer w.deinit();
+    const cold = uniformTemperatures(0.1);
+    try placeSnowLayers(&w, 0, 0, &cold);
+
+    for (8..24) |x| {
+        for (8..24) |z| {
+            try std.testing.expectEqual(Block.snow_layer, w.getBlock(@intCast(x), 71, @intCast(z)));
+        }
+    }
+    try std.testing.expectEqual(Block.air, w.getBlock(7, 71, 8));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 71, 7));
+    try std.testing.expectEqual(Block.air, w.getBlock(24, 71, 24));
+}
+
+test "snow does not settle on ice" {
+    var w = try grassPlateauWorld();
+    defer w.deinit();
+    w.setBlock(12, 70, 12, Block.ice);
+
+    const cold = uniformTemperatures(0.1);
+    try placeSnowLayers(&w, 0, 0, &cold);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(12, 71, 12));
+    try std.testing.expectEqual(Block.snow_layer, w.getBlock(13, 71, 12));
 }
 
 fn uniformClimate(temperature: f64, humidity: f64) Climate.Sample {
@@ -586,6 +626,41 @@ test "the same seed and chunk position are deterministic" {
                     chunk_b.getBlock(@intCast(x), @intCast(y), @intCast(z)),
                 );
             }
+        }
+    }
+}
+
+
+test "a cold ocean freezes over at sea level" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 777);
+    defer gen.deinit(gpa);
+
+    var w = World.init(gpa);
+    defer w.deinit();
+    const chunk = try w.getOrGenerateChunk(gen, -12, -12);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(chunk.getTemperature(@intCast(x), @intCast(z)) < 0.5);
+            try std.testing.expectEqual(Block.ice, chunk.getBlock(@intCast(x), 63, @intCast(z)));
+            try std.testing.expectEqual(Block.stationary_water, chunk.getBlock(@intCast(x), 62, @intCast(z)));
+        }
+    }
+}
+
+test "a warm ocean keeps water at sea level" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 1);
+    defer gen.deinit(gpa);
+
+    var w = World.init(gpa);
+    defer w.deinit();
+    const chunk = try w.getOrGenerateChunk(gen, 0, 0);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(chunk.getBlock(@intCast(x), 63, @intCast(z)) != Block.ice);
         }
     }
 }

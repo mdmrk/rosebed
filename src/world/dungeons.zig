@@ -17,9 +17,9 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
         var dz = -radius_z - 1;
         while (dz <= radius_z + 1) : (dz += 1) {
             const bottom = world_map.getBlock(x + dx, y - 1, z + dz);
-            if (!bottom.isOpaque()) return false;
+            if (!bottom.isSolid()) return false;
             const top = world_map.getBlock(x + dx, y + room_height + 1, z + dz);
-            if (!top.isOpaque()) return false;
+            if (!top.isSolid()) return false;
 
             const on_perimeter = dx == -radius_x - 1 or dx == radius_x + 1 or dz == -radius_z - 1 or dz == radius_z + 1;
             if (on_perimeter) {
@@ -31,23 +31,21 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
     }
     if (openings < 1 or openings > 5) return false;
 
-    var dy = room_height + 1;
+    var dy = room_height;
     while (dy >= -1) : (dy -= 1) {
         var dx2 = -radius_x - 1;
         while (dx2 <= radius_x + 1) : (dx2 += 1) {
             var dz2 = -radius_z - 1;
             while (dz2 <= radius_z + 1) : (dz2 += 1) {
                 const on_perimeter = dx2 == -radius_x - 1 or dx2 == radius_x + 1 or dz2 == -radius_z - 1 or dz2 == radius_z + 1;
-                const is_boundary = on_perimeter or dy == -1 or dy == room_height + 1;
-                if (!is_boundary) {
+                if (!on_perimeter and dy != -1) {
                     world_map.setBlock(x + dx2, y + dy, z + dz2, Block.air);
                     continue;
                 }
 
-                const below = world_map.getBlock(x + dx2, y + dy - 1, z + dz2);
-                if (!below.isOpaque()) {
+                if (y + dy >= 0 and !world_map.getBlock(x + dx2, y + dy - 1, z + dz2).isSolid()) {
                     world_map.setBlock(x + dx2, y + dy, z + dz2, Block.air);
-                } else {
+                } else if (world_map.getBlock(x + dx2, y + dy, z + dz2).isSolid()) {
                     const wall_id: Block = if (dy == -1 and rand.nextIntBound(4) != 0) Block.cobblestone_mossy else Block.cobblestone;
                     world_map.setBlock(x + dx2, y + dy, z + dz2, wall_id);
                 }
@@ -138,4 +136,25 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
         }
     }
     try std.testing.expect(found_wall_in_neighbor);
+}
+
+test "a dungeon leaves the stone above its room untouched" {
+    var w = try testWorldWithChunk();
+    defer w.deinit();
+
+    w.setBlock(11, 40, 8, Block.air);
+    w.setBlock(11, 41, 8, Block.air);
+    w.setBlock(12, 40, 8, Block.air);
+    w.setBlock(12, 41, 8, Block.air);
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expect(generate(&w, &rand, 8, 40, 8));
+
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 43, 8));
+    for (0..16) |x| {
+        for (0..16) |z| {
+            const id = w.getBlock(@intCast(x), 44, @intCast(z));
+            try std.testing.expect(id != Block.cobblestone and id != Block.cobblestone_mossy);
+        }
+    }
 }

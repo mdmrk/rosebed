@@ -25,6 +25,14 @@ fn isShellCell(flags: *const [flag_count]bool, x: usize, z: usize, y: usize) boo
     return false;
 }
 
+fn seesSky(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    var above = y + 1;
+    while (above < Chunk.height) : (above += 1) {
+        if (world_map.getBlock(x, above, z).isOpaque()) return false;
+    }
+    return true;
+}
+
 pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in: i32, liquid_id: Block) bool {
     const ox = x_in - 8;
     const oz = z_in - 8;
@@ -70,7 +78,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
                 if (y >= 4) {
                     if (existing.isLiquid()) return false;
                 } else {
-                    if (!existing.isOpaque() and existing != liquid_id) return false;
+                    if (!existing.isSolid() and existing != liquid_id) return false;
                 }
             }
         }
@@ -89,6 +97,21 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
         }
     }
 
+    for (0..grid_x) |x| {
+        for (0..grid_z) |z| {
+            var y: usize = 4;
+            while (y < grid_y) : (y += 1) {
+                if (!flags[flagIndex(x, z, y)]) continue;
+                const wx = ox + @as(i32, @intCast(x));
+                const wy = oy + @as(i32, @intCast(y));
+                const wz = oz + @as(i32, @intCast(z));
+                if (world_map.getBlock(wx, wy - 1, wz) != Block.dirt) continue;
+                if (!seesSky(world_map, wx, wy, wz)) continue;
+                world_map.setBlock(wx, wy - 1, wz, Block.grass);
+            }
+        }
+    }
+
     if (liquid_id == Block.flowing_lava) {
         for (0..grid_x) |x| {
             for (0..grid_z) |z| {
@@ -98,7 +121,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
                     const wx = ox + @as(i32, @intCast(x));
                     const wy = oy + @as(i32, @intCast(y));
                     const wz = oz + @as(i32, @intCast(z));
-                    if (world_map.getBlock(wx, wy, wz).isOpaque()) {
+                    if (world_map.getBlock(wx, wy, wz).isSolid()) {
                         world_map.setBlock(wx, wy, wz, Block.stone);
                     }
                 }
@@ -202,4 +225,57 @@ test "a lake spills across a chunk boundary into the neighbor chunk" {
         }
     }
     try std.testing.expect(found_in_neighbor);
+}
+
+test "an open water lake grows grass on the dirt around its rim" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..70) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.dirt);
+            }
+        }
+    }
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expect(generate(&w, &rand, 8, 69, 8, Block.stationary_water));
+
+    var found_grass = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..70) |y| {
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.grass) found_grass = true;
+            }
+        }
+    }
+    try std.testing.expect(found_grass);
+}
+
+test "a lake buried under stone leaves its rim as dirt" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..70) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.dirt);
+            }
+            for (70..128) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            }
+        }
+    }
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expect(generate(&w, &rand, 8, 69, 8, Block.stationary_water));
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..70) |y| {
+                try std.testing.expect(w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.grass);
+            }
+        }
+    }
 }

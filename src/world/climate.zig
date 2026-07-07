@@ -83,6 +83,13 @@ pub fn temperatureAt(self: Climate, x: i32, z: i32) f64 {
     return temperature[0];
 }
 
+pub fn biomeAt(self: Climate, x: i32, z: i32) biome.Biome {
+    var temperature: [1]f64 = undefined;
+    var humidity: [1]f64 = undefined;
+    self.generate(1, x, z, &temperature, &humidity);
+    return biome.classify(temperature[0], humidity[0]);
+}
+
 test "sample produces climate values in range and varies across a chunk" {
     const gpa = std.testing.allocator;
     const climate = try Climate.init(gpa, 1);
