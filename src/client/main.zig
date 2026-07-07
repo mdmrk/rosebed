@@ -1228,7 +1228,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setInt("u_textured", 1);
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     const frustum = math.Frustum.fromViewProjection(view_proj);
+    gl.Enable(gl.CULL_FACE);
+    gl.FrontFace(gl.CW);
     app_state.chunks_drawn = app_state.chunks.drawSolid(frustum);
+    gl.Disable(gl.CULL_FACE);
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);

@@ -19,7 +19,7 @@ out vec4 frag_color;
 
 void main() {
     frag_color = (u_textured != 0 ? texture(u_atlas, v_uv) * v_color : v_color) * u_tint;
-    if (u_alpha_test != 0 && frag_color.a < 0.5) discard;
+    if (u_alpha_test != 0 && frag_color.a <= 0.1) discard;
 
     if (u_fog_enabled != 0) {
         float visibility = u_fog_exponential != 0

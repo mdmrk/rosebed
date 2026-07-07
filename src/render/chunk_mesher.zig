@@ -164,20 +164,44 @@ pub fn buildCubeColored(
     }
 }
 
+const cross_inset: f32 = 0.45;
+
 fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8, brightness: f32, bx: f32, by: f32, bz: f32) !void {
     const uv = Atlas.tileUv(tile);
-    const uvs = [4][2]f32{
+    const color = shadeColor(brightness, tint);
+
+    const x0 = bx + 0.5 - cross_inset;
+    const x1 = bx + 0.5 + cross_inset;
+    const z0 = bz + 0.5 - cross_inset;
+    const z1 = bz + 0.5 + cross_inset;
+    const y0 = by;
+    const y1 = by + 1;
+
+    const facing = [4][2]f32{
+        .{ uv.u0, uv.v0 },
         .{ uv.u0, uv.v1 },
         .{ uv.u1, uv.v1 },
         .{ uv.u1, uv.v0 },
+    };
+    const mirrored = [4][2]f32{
+        .{ uv.u1, uv.v0 },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u0, uv.v1 },
         .{ uv.u0, uv.v0 },
     };
+
     try mesh.quad(gpa, .{
-        .{ bx, by, bz }, .{ bx + 1, by, bz + 1 }, .{ bx + 1, by + 1, bz + 1 }, .{ bx, by + 1, bz },
-    }, uvs, shadeColor(brightness, tint));
+        .{ x0, y1, z0 }, .{ x0, y0, z0 }, .{ x1, y0, z1 }, .{ x1, y1, z1 },
+    }, facing, color);
     try mesh.quad(gpa, .{
-        .{ bx + 1, by, bz }, .{ bx, by, bz + 1 }, .{ bx, by + 1, bz + 1 }, .{ bx + 1, by + 1, bz },
-    }, uvs, shadeColor(brightness, tint));
+        .{ x1, y1, z1 }, .{ x1, y0, z1 }, .{ x0, y0, z0 }, .{ x0, y1, z0 },
+    }, mirrored, color);
+    try mesh.quad(gpa, .{
+        .{ x0, y1, z1 }, .{ x0, y0, z1 }, .{ x1, y0, z0 }, .{ x1, y1, z0 },
+    }, facing, color);
+    try mesh.quad(gpa, .{
+        .{ x1, y1, z0 }, .{ x1, y0, z0 }, .{ x0, y0, z1 }, .{ x0, y1, z1 },
+    }, mirrored, color);
 }
 
 fn fluidBrightness(world_map: *const world.World, x: i32, y: i32, z: i32, minimum: u4) f32 {
@@ -436,7 +460,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     return mesh;
 }
 
-test "a cross-shaped plant emits two crossing quads instead of a cube" {
+test "a cross-shaped plant emits both faces of both diagonals so culling keeps it visible" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
@@ -447,7 +471,7 @@ test "a cross-shaped plant emits two crossing quads instead of a cube" {
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
-    try std.testing.expectEqual(@as(usize, 2 * 4), mesh.solid.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 4 * 4), mesh.solid.vertices.items.len);
 }
 
 test "a solid neighbor does not cull a cross-shaped plant" {
@@ -462,7 +486,7 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
-    try std.testing.expectEqual(@as(usize, 6 * 4 + 2 * 4), mesh.solid.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 6 * 4 + 4 * 4), mesh.solid.vertices.items.len);
 }
 
 test "a snow layer renders as a thin partial-height cube" {
