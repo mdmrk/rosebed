@@ -149,6 +149,7 @@ const Loading = struct {
     done: usize = 0,
     total: usize = 0,
     next: i32 = 0,
+    title: []const u8 = "Loading level",
 };
 
 const spawn_load_radius: i32 = 3;
@@ -800,7 +801,10 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
         app_state.spawn = .{ 8, 64, 8 };
     }
 
-    app_state.loading = .{ .total = @intCast((spawn_load_radius * 2 + 1) * (spawn_load_radius * 2 + 1)) };
+    app_state.loading = .{
+        .total = @intCast((spawn_load_radius * 2 + 1) * (spawn_load_radius * 2 + 1)),
+        .title = if (stored == null) "Generating level" else "Loading level",
+    };
     app_state.screen = .loading;
     app_state.ticks_since_save = 0;
     try updateMouseMode(app_state);
@@ -1513,14 +1517,9 @@ pub fn iterate(
         const line = std.fmt.bufPrint(&message, "'{s}' will be lost forever! (A long time!)", .{name}) catch "This world will be lost forever! (A long time!)";
         try render.confirm_screen.draw(ui, "Are you sure you want to delete this world?", line, "Delete");
     } else if (app_state.screen == .loading) {
-        var label: [48]u8 = undefined;
-        const progress = if (app_state.loading.total == 0) 0 else @as(f32, @floatFromInt(app_state.loading.done)) / @as(f32, @floatFromInt(app_state.loading.total));
-        try render.loading_screen.draw(
-            ui,
-            "Loading level",
-            render.loading_screen.progressLabel(&label, app_state.loading.done, app_state.loading.total),
-            progress,
-        );
+        const total = app_state.loading.total;
+        const progress: i32 = if (total == 0) 0 else @intCast(app_state.loading.done * 100 / total);
+        try render.loading_screen.draw(ui, app_state.loading.title, "Building terrain", progress);
     } else if (app_state.paused) {
         try render.menu.draw(ui);
     } else if (app_state.workbench_open) {
