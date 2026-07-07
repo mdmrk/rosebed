@@ -26,6 +26,11 @@ pub const title_screen = @import("title_screen.zig");
 pub const options_screen = @import("options_screen.zig");
 pub const video_settings_screen = @import("video_settings_screen.zig");
 pub const controls_screen = @import("controls_screen.zig");
+pub const text_field = @import("text_field.zig");
+pub const select_world_screen = @import("select_world_screen.zig");
+pub const create_world_screen = @import("create_world_screen.zig");
+pub const confirm_screen = @import("confirm_screen.zig");
+pub const loading_screen = @import("loading_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
 pub const underwater = @import("underwater.zig");
 
@@ -57,5 +62,10 @@ test {
     _ = options_screen;
     _ = video_settings_screen;
     _ = controls_screen;
+    _ = text_field;
+    _ = select_world_screen;
+    _ = create_world_screen;
+    _ = confirm_screen;
+    _ = loading_screen;
     _ = debug_overlay;
 }

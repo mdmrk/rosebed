@@ -13,14 +13,13 @@ const world = @import("world");
 
 const fps = 60;
 const ticks_per_second = 20.0;
-const screen_width = 1280;
-const screen_height = 720;
+const screen_width = 854;
+const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
 const font_png = assets.font.default_png;
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
-const world_seed = 1;
 const reach_distance = 4.5;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
@@ -56,6 +55,7 @@ pub const WinMainCRTStartup = void;
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 var frame_arena: std.heap.ArenaAllocator = undefined;
+var io_threaded: std.Io.Threaded = undefined;
 
 const AppState = struct {
     gpa: std.mem.Allocator,
@@ -114,9 +114,46 @@ const AppState = struct {
     held_stack: ?game.Inventory.ItemStack = null,
     crafting_grid: [game.crafting.player_grid_size * game.crafting.player_grid_size]?game.Inventory.ItemStack = @splat(null),
     workbench_grid: [game.crafting.workbench_grid_size * game.crafting.workbench_grid_size]?game.Inventory.ItemStack = @splat(null),
+    io: std.Io,
+    saves_dir: std.Io.Dir,
+    save_handle: ?world.save.Save = null,
+    open_folder: NameBuffer = .{},
+    open_name: NameBuffer = .{},
+    summaries: []world.save.Summary = &.{},
+    selected_world: ?usize = null,
+    list_scroll: f32 = 0,
+    create_state: render.create_world_screen.State = undefined,
+    loading: Loading = .{},
+    needs_spawn: bool = false,
+    spawn: [3]i32 = .{ 0, 64, 0 },
+    ticks_since_save: u32 = 0,
 };
 
-const Screen = enum { title, playing };
+const Screen = enum { title, select_world, create_world, confirm_delete, loading, playing };
+
+const NameBuffer = struct {
+    bytes: [64]u8 = undefined,
+    len: usize = 0,
+
+    fn text(self: *const NameBuffer) []const u8 {
+        return self.bytes[0..self.len];
+    }
+
+    fn set(self: *NameBuffer, value: []const u8) void {
+        self.len = @min(value.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], value[0..self.len]);
+    }
+};
+
+const Loading = struct {
+    done: usize = 0,
+    total: usize = 0,
+    next: i32 = 0,
+};
+
+const spawn_load_radius: i32 = 3;
+const autosave_interval_ticks: u32 = 900;
+const save_chunks_per_tick: usize = 1;
 const OptionsParent = enum { title, pause };
 
 const Digging = struct {
@@ -267,6 +304,9 @@ pub fn init(
 
     const gpa = if (builtin.mode == .Debug) debug_allocator.allocator() else std.heap.smp_allocator;
     frame_arena = .init(gpa);
+    io_threaded = .init(gpa, .{});
+    const io = io_threaded.io();
+    const saves_dir = try world.save.openSavesDir(io);
 
     var app_state: AppState = .{
         .gpa = gpa,
@@ -283,6 +323,8 @@ pub fn init(
         .generator = undefined,
         .world_map = world.World.init(gpa),
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
+        .io = io,
+        .saves_dir = saves_dir,
     };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
@@ -307,7 +349,7 @@ pub fn init(
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
 
-    app_state.generator = try world.TerrainGenerator.init(gpa, world_seed);
+    app_state.generator = try world.TerrainGenerator.init(gpa, 0);
     errdefer app_state.generator.deinit(gpa);
 
     return .{ app_state, .run };
@@ -613,15 +655,207 @@ fn togglePause(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
-fn enterWorld(app_state: *AppState) !void {
-    app_state.screen = .playing;
-    try updateMouseMode(app_state);
-}
-
 fn quitToTitle(app_state: *AppState) !void {
+    if (app_state.save_handle != null) try saveWorld(app_state);
+    closeWorld(app_state);
     app_state.screen = .title;
     app_state.paused = false;
     app_state.splash = pickSplash(&app_state.world_map.rand);
+    try updateMouseMode(app_state);
+}
+
+fn refreshWorldList(app_state: *AppState) !void {
+    world.save.freeList(app_state.gpa, app_state.summaries);
+    app_state.summaries = try world.save.list(app_state.gpa, app_state.io, app_state.saves_dir);
+    app_state.selected_world = null;
+    app_state.list_scroll = 0;
+}
+
+fn openSelectWorld(app_state: *AppState) !void {
+    try refreshWorldList(app_state);
+    app_state.screen = .select_world;
+    try updateMouseMode(app_state);
+}
+
+fn openCreateWorld(app_state: *AppState) !void {
+    app_state.create_state = render.create_world_screen.init(.create);
+    app_state.create_state.name.setText("New World");
+    updateCreateFolder(app_state);
+    app_state.screen = .create_world;
+    try sdl3.keyboard.startTextInput(app_state.window);
+    try updateMouseMode(app_state);
+}
+
+fn updateCreateFolder(app_state: *AppState) void {
+    var buffer: [world.save.max_name_len]u8 = undefined;
+    const sanitized = world.save.sanitizeFolderName(&buffer, app_state.create_state.name.text());
+    app_state.create_state.setFolderName(sanitized);
+}
+
+fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.InventoryEntry)) !world.save.PlayerState {
+    try app_state.player.inventory.appendSaveEntries(app_state.gpa, entries);
+    const position = app_state.player.base.position;
+    return .{
+        .pos = .{ position.x, position.y, position.z },
+        .motion = .{ app_state.player.base.motion.x, app_state.player.base.motion.y, app_state.player.base.motion.z },
+        .yaw = app_state.player.yaw,
+        .pitch = app_state.player.pitch,
+        .on_ground = app_state.player.base.on_ground,
+        .inventory = entries.items,
+    };
+}
+
+fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
+    app_state.player.base.position = math.Vec3.init(
+        @floatCast(state.pos[0]),
+        @floatCast(state.pos[1]),
+        @floatCast(state.pos[2]),
+    );
+    app_state.player.base.motion = math.Vec3.init(
+        @floatCast(state.motion[0]),
+        @floatCast(state.motion[1]),
+        @floatCast(state.motion[2]),
+    );
+    app_state.player.base.prev_position = app_state.player.base.position;
+    app_state.player.yaw = state.yaw;
+    app_state.player.pitch = state.pitch;
+    app_state.player.base.on_ground = state.on_ground;
+
+    app_state.player.inventory.loadSaveEntries(state.inventory);
+}
+
+fn saveWorld(app_state: *AppState) !void {
+    if (app_state.save_handle == null) return;
+    try app_state.world_map.saveLoadedChunks();
+    try saveLevel(app_state);
+}
+
+fn saveLevel(app_state: *AppState) !void {
+    const handle = if (app_state.save_handle) |*h| h else return;
+
+    var entries: std.ArrayList(world.save.InventoryEntry) = .empty;
+    defer entries.deinit(app_state.gpa);
+    const player = try playerState(app_state, &entries);
+
+    const info: world.save.LevelInfo = .{
+        .seed = app_state.generator.world_seed,
+        .spawn = app_state.spawn,
+        .time = app_state.world_map.time,
+        .last_played = world.RegionFile.unixSeconds(app_state.io),
+        .size_on_disk = @intCast(handle.diskSize(app_state.io)),
+        .name = @constCast(app_state.open_name.text()),
+        .player = player,
+    };
+    try handle.writeLevel(app_state.gpa, app_state.io, info);
+}
+
+fn closeWorld(app_state: *AppState) void {
+    if (app_state.save_handle) |*handle| handle.close(app_state.gpa, app_state.io);
+    app_state.save_handle = null;
+    app_state.world_map.persistence = null;
+    const rand = app_state.world_map.rand;
+    app_state.world_map.deinit();
+    app_state.world_map = world.World.init(app_state.gpa);
+    app_state.world_map.rand = rand;
+    app_state.chunks.deinit(app_state.gpa);
+    app_state.chunks = .{};
+    app_state.entities.deinit(app_state.gpa);
+    app_state.entities = .{};
+}
+
+fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: ?i64) !void {
+    closeWorld(app_state);
+
+    app_state.open_folder.set(folder);
+    app_state.open_name.set(name);
+
+    app_state.save_handle = try world.save.open(app_state.io, app_state.saves_dir, folder);
+    const handle = &app_state.save_handle.?;
+
+    var stored = handle.readLevel(app_state.gpa, app_state.io) catch null;
+    defer if (stored) |*info| info.deinit(app_state.gpa);
+
+    const level_seed = if (stored) |info| info.seed else seed orelse app_state.world_map.rand.nextLong();
+
+    app_state.generator.deinit(app_state.gpa);
+    app_state.generator = try world.TerrainGenerator.init(app_state.gpa, level_seed);
+
+    app_state.world_map.persistence = .{ .handle = handle, .io = app_state.io };
+    app_state.player = .{
+        .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
+        .inventory = starterInventory(),
+    };
+
+    app_state.needs_spawn = true;
+    if (stored) |info| {
+        app_state.open_name.set(info.name);
+        app_state.world_map.time = info.time;
+        app_state.spawn = info.spawn;
+        if (info.player) |player| {
+            applyPlayerState(app_state, player);
+            app_state.needs_spawn = false;
+        }
+    } else {
+        app_state.world_map.time = 0;
+        app_state.spawn = .{ 8, 64, 8 };
+    }
+
+    app_state.loading = .{ .total = @intCast((spawn_load_radius * 2 + 1) * (spawn_load_radius * 2 + 1)) };
+    app_state.screen = .loading;
+    app_state.ticks_since_save = 0;
+    try updateMouseMode(app_state);
+}
+
+fn loadingChunkCoord(app_state: *const AppState, index: i32) world.World.ChunkCoord {
+    const side = spawn_load_radius * 2 + 1;
+    const center_x = @divFloor(app_state.spawn[0], world.constants.chunk_width);
+    const center_z = @divFloor(app_state.spawn[2], world.constants.chunk_width);
+    return .{
+        .x = center_x + @mod(index, side) - spawn_load_radius,
+        .z = center_z + @divFloor(index, side) - spawn_load_radius,
+    };
+}
+
+fn stepLoading(app_state: *AppState) !void {
+    const started = sdl3.timer.getNanosecondsSinceInit();
+
+    while (app_state.loading.done < app_state.loading.total) {
+        const coord = loadingChunkCoord(app_state, app_state.loading.next);
+        try app_state.world_map.ensureDecorated(app_state.generator, coord.x, coord.z);
+        app_state.loading.next += 1;
+        app_state.loading.done += 1;
+        if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) return;
+    }
+
+    try finishLoading(app_state);
+}
+
+fn findSpawnY(app_state: *AppState, x: i32, z: i32) i32 {
+    var y: i32 = world.constants.chunk_height - 1;
+    while (y > 0) : (y -= 1) {
+        if (app_state.world_map.getBlock(x, y, z).isSolid()) return y + 1;
+    }
+    return 64;
+}
+
+fn finishLoading(app_state: *AppState) !void {
+    if (app_state.needs_spawn) {
+        const x = app_state.spawn[0];
+        const z = app_state.spawn[2];
+        const y = findSpawnY(app_state, x, z);
+        app_state.spawn = .{ x, y, z };
+        app_state.player.base.position = math.Vec3.init(
+            @as(f64, @floatFromInt(x)) + 0.5,
+            @floatFromInt(y),
+            @as(f64, @floatFromInt(z)) + 0.5,
+        );
+        app_state.player.base.prev_position = app_state.player.base.position;
+        app_state.needs_spawn = false;
+    }
+
+    try app_state.chunks.markAllDirty(app_state.gpa);
+    app_state.screen = .playing;
+    try saveWorld(app_state);
     try updateMouseMode(app_state);
 }
 
@@ -638,6 +872,103 @@ fn closeOptions(app_state: *AppState) !void {
     app_state.rebinding = null;
     app_state.dragging_slider = null;
     try updateMouseMode(app_state);
+}
+
+fn selectWorldClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.select_world_screen.hitAt(
+        app_state.mouse_x,
+        app_state.mouse_y,
+        gui,
+        app_state.summaries.len,
+        app_state.list_scroll,
+        app_state.selected_world != null,
+    ) orelse return;
+
+    switch (hit) {
+        .entry => |index| app_state.selected_world = index,
+        .select => try playSelectedWorld(app_state),
+        .rename => try openRenameWorld(app_state),
+        .delete => app_state.screen = .confirm_delete,
+        .create => try openCreateWorld(app_state),
+        .cancel => {
+            app_state.screen = .title;
+            try updateMouseMode(app_state);
+        },
+    }
+}
+
+fn playSelectedWorld(app_state: *AppState) !void {
+    const index = app_state.selected_world orelse return;
+    const summary = app_state.summaries[index];
+    try startWorld(app_state, summary.folder, summary.name, null);
+}
+
+fn openRenameWorld(app_state: *AppState) !void {
+    const index = app_state.selected_world orelse return;
+    app_state.create_state = render.create_world_screen.init(.rename);
+    app_state.create_state.name.setText(app_state.summaries[index].name);
+    app_state.screen = .create_world;
+    try sdl3.keyboard.startTextInput(app_state.window);
+}
+
+fn createWorldClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.create_world_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, &app_state.create_state) orelse return;
+
+    switch (hit) {
+        .name_field, .seed_field => app_state.create_state.focus(hit),
+        .confirm => try confirmCreateWorld(app_state),
+        .cancel => {
+            try sdl3.keyboard.stopTextInput(app_state.window);
+            try openSelectWorld(app_state);
+        },
+    }
+}
+
+fn confirmCreateWorld(app_state: *AppState) !void {
+    const name = app_state.create_state.name.text();
+    if (name.len == 0) return;
+    try sdl3.keyboard.stopTextInput(app_state.window);
+
+    switch (app_state.create_state.mode) {
+        .create => {
+            const folder = try world.save.unusedFolderName(app_state.gpa, app_state.io, app_state.saves_dir, name);
+            defer app_state.gpa.free(folder);
+
+            const random_seed = app_state.world_map.rand.nextLong();
+            const seed = render.create_world_screen.seedFromText(app_state.create_state.seed.text(), random_seed);
+            try startWorld(app_state, folder, name, seed);
+        },
+        .rename => {
+            const index = app_state.selected_world orelse return;
+            var handle = try world.save.open(app_state.io, app_state.saves_dir, app_state.summaries[index].folder);
+            defer handle.close(app_state.gpa, app_state.io);
+
+            var info = try handle.readLevel(app_state.gpa, app_state.io);
+            defer info.deinit(app_state.gpa);
+
+            app_state.gpa.free(info.name);
+            info.name = try app_state.gpa.dupe(u8, name);
+            try handle.writeLevel(app_state.gpa, app_state.io, info);
+
+            try openSelectWorld(app_state);
+        },
+    }
+}
+
+fn confirmDeleteClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.confirm_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, "Delete") orelse return;
+    switch (hit) {
+        .confirm => {
+            if (app_state.selected_world) |index| {
+                try world.save.deleteWorld(app_state.io, app_state.saves_dir, app_state.summaries[index].folder);
+            }
+            try openSelectWorld(app_state);
+        },
+        .cancel => app_state.screen = .select_world,
+    }
 }
 
 fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f32) void {
@@ -756,6 +1087,14 @@ fn tick(app_state: *AppState) !void {
     app_state.entities.tickParticles(&app_state.world_map);
     try ensureChunksAroundPlayer(app_state);
     try advanceWorldTime(app_state);
+
+    app_state.ticks_since_save += 1;
+    if (app_state.ticks_since_save >= autosave_interval_ticks) {
+        app_state.ticks_since_save = 0;
+        try app_state.world_map.beginSaveRound();
+        try saveLevel(app_state);
+    }
+    _ = try app_state.world_map.saveQueuedChunks(save_chunks_per_tick);
 }
 
 fn advanceWorldTime(app_state: *AppState) !void {
@@ -1123,7 +1462,11 @@ pub fn iterate(
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
             try tick(app_state);
         }
+    } else if (app_state.screen == .create_world) {
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.create_state.tick();
     }
+
+    if (app_state.screen == .loading) try stepLoading(app_state);
 
     const horizon = horizonColor(app_state);
     gl.Enable(gl.DEPTH_TEST);
@@ -1159,6 +1502,25 @@ pub fn iterate(
         try render.options_screen.draw(ui, app_state.settings, backdrop);
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
+    } else if (app_state.screen == .select_world) {
+        app_state.list_scroll = std.math.clamp(app_state.list_scroll, 0, render.select_world_screen.maxScroll(gui, app_state.summaries.len));
+        try render.select_world_screen.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
+    } else if (app_state.screen == .create_world) {
+        try render.create_world_screen.draw(ui, &app_state.create_state);
+    } else if (app_state.screen == .confirm_delete) {
+        var message: [96]u8 = undefined;
+        const name = if (app_state.selected_world) |index| app_state.summaries[index].name else "";
+        const line = std.fmt.bufPrint(&message, "'{s}' will be lost forever! (A long time!)", .{name}) catch "This world will be lost forever! (A long time!)";
+        try render.confirm_screen.draw(ui, "Are you sure you want to delete this world?", line, "Delete");
+    } else if (app_state.screen == .loading) {
+        var label: [48]u8 = undefined;
+        const progress = if (app_state.loading.total == 0) 0 else @as(f32, @floatFromInt(app_state.loading.done)) / @as(f32, @floatFromInt(app_state.loading.total));
+        try render.loading_screen.draw(
+            ui,
+            "Loading level",
+            render.loading_screen.progressLabel(&label, app_state.loading.done, app_state.loading.total),
+            progress,
+        );
     } else if (app_state.paused) {
         try render.menu.draw(ui);
     } else if (app_state.workbench_open) {
@@ -1231,6 +1593,24 @@ pub fn event(
             if (k.key == .escape) app_state.video_open = false;
         } else if (app_state.options_open) {
             if (k.key == .escape) try closeOptions(app_state);
+        } else if (app_state.screen == .select_world) {
+            if (k.key == .escape) {
+                app_state.screen = .title;
+            }
+        } else if (app_state.screen == .create_world) {
+            if (k.key == .escape) {
+                try sdl3.keyboard.stopTextInput(app_state.window);
+                try openSelectWorld(app_state);
+            } else if (k.key == .backspace) {
+                app_state.create_state.backspace();
+                updateCreateFolder(app_state);
+            } else if (k.key == .tab) {
+                app_state.create_state.focus(if (app_state.create_state.name.focused) .seed_field else .name_field);
+            } else if (k.key == .return_key or k.key == .kp_enter) {
+                try confirmCreateWorld(app_state);
+            }
+        } else if (app_state.screen == .confirm_delete) {
+            if (k.key == .escape) app_state.screen = .select_world;
         } else if (app_state.screen == .playing) {
             if (k.key == .escape) {
                 if (containerOpen(app_state)) {
@@ -1260,6 +1640,13 @@ pub fn event(
         },
         .mouse_wheel => |w| if (worldFocused(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
+        } else if (app_state.screen == .select_world) {
+            const limit = render.select_world_screen.maxScroll(guiSize(app_state), app_state.summaries.len);
+            app_state.list_scroll = std.math.clamp(app_state.list_scroll - w.scroll_y * render.select_world_screen.entry_height, 0, limit);
+        },
+        .text_input => |t| if (app_state.screen == .create_world) {
+            app_state.create_state.typeText(t.text);
+            updateCreateFolder(app_state);
         },
         .mouse_button_down => |m| switch (m.button) {
             .left => if (app_state.controls_open) {
@@ -1271,10 +1658,18 @@ pub fn event(
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
-                    .singleplayer => try enterWorld(app_state),
+                    .singleplayer => try openSelectWorld(app_state),
                     .options => try openOptions(app_state, .title),
                     .quit => return .success,
                 };
+            } else if (app_state.screen == .select_world) {
+                try selectWorldClick(app_state);
+            } else if (app_state.screen == .create_world) {
+                try createWorldClick(app_state);
+            } else if (app_state.screen == .confirm_delete) {
+                try confirmDeleteClick(app_state);
+            } else if (app_state.screen == .loading) {
+                // the loading screen swallows clicks until the spawn area is ready
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
             } else if (containerOpen(app_state)) {
@@ -1311,6 +1706,10 @@ pub fn quit(
 
     if (app_state) |state| {
         gl.makeProcTableCurrent(&state.gl_procs);
+        if (state.save_handle != null) saveWorld(state) catch {};
+        if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
+        world.save.freeList(state.gpa, state.summaries);
+        state.saves_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.entities.deinit(state.gpa);
         state.world_map.deinit();
