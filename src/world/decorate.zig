@@ -304,129 +304,186 @@ pub fn generateSpruceTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, 
     return true;
 }
 
-fn bigTreeSetLeafIfClear(world_map: *World, x: i32, y: i32, z: i32) void {
-    if (world_map.getBlock(x, y, z) == Block.air) world_map.setBlock(x, y, z, Block.leaves);
+const big_tree_leaf_cluster_height: i32 = 5;
+const big_tree_axis_pair = [6]usize{ 2, 0, 0, 1, 2, 1 };
+
+fn bigTreeDominantAxis(delta: [3]i32) usize {
+    var dominant: usize = 0;
+    for (0..3) |axis| {
+        if (@abs(delta[axis]) > @abs(delta[dominant])) dominant = axis;
+    }
+    return dominant;
 }
 
-fn bigTreeLineIsClear(world_map: *const World, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32) bool {
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const dz = z1 - z0;
-    const steps: i32 = @intCast(@max(@max(@abs(dx), @abs(dy)), @abs(dz)));
-    if (steps == 0) return true;
+fn bigTreeLineIsClear(world_map: *const World, from: [3]i32, to: [3]i32) bool {
+    var delta: [3]i32 = undefined;
+    for (0..3) |axis| delta[axis] = to[axis] - from[axis];
+
+    const dominant = bigTreeDominantAxis(delta);
+    if (delta[dominant] == 0) return true;
+
+    const first = big_tree_axis_pair[dominant];
+    const second = big_tree_axis_pair[dominant + 3];
+    const step: i32 = if (delta[dominant] > 0) 1 else -1;
+    const first_slope = @as(f64, @floatFromInt(delta[first])) / @as(f64, @floatFromInt(delta[dominant]));
+    const second_slope = @as(f64, @floatFromInt(delta[second])) / @as(f64, @floatFromInt(delta[dominant]));
+
+    var at: [3]i32 = undefined;
     var i: i32 = 0;
-    while (i <= steps) : (i += 1) {
-        const t = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
-        const lx = x0 + math.util.floorDouble(@as(f64, @floatFromInt(dx)) * t + 0.5);
-        const ly = y0 + math.util.floorDouble(@as(f64, @floatFromInt(dy)) * t + 0.5);
-        const lz = z0 + math.util.floorDouble(@as(f64, @floatFromInt(dz)) * t + 0.5);
-        const id = world_map.getBlock(lx, ly, lz);
+    const end = delta[dominant] + step;
+    while (i != end) : (i += step) {
+        at[dominant] = from[dominant] + i;
+        at[first] = math.util.floorDouble(@as(f64, @floatFromInt(from[first])) + @as(f64, @floatFromInt(i)) * first_slope);
+        at[second] = math.util.floorDouble(@as(f64, @floatFromInt(from[second])) + @as(f64, @floatFromInt(i)) * second_slope);
+        const id = world_map.getBlock(at[0], at[1], at[2]);
         if (id != Block.air and id != Block.leaves) return false;
     }
     return true;
 }
 
-fn bigTreeDrawLogLine(world_map: *World, x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32) void {
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const dz = z1 - z0;
-    const steps: i32 = @intCast(@max(@max(@abs(dx), @abs(dy)), @abs(dz)));
-    if (steps == 0) {
-        world_map.setBlock(x0, y0, z0, Block.log);
-        return;
-    }
+fn bigTreeDrawLogLine(world_map: *World, from: [3]i32, to: [3]i32) void {
+    var delta: [3]i32 = undefined;
+    for (0..3) |axis| delta[axis] = to[axis] - from[axis];
+
+    const dominant = bigTreeDominantAxis(delta);
+    if (delta[dominant] == 0) return;
+
+    const first = big_tree_axis_pair[dominant];
+    const second = big_tree_axis_pair[dominant + 3];
+    const step: i32 = if (delta[dominant] > 0) 1 else -1;
+    const first_slope = @as(f64, @floatFromInt(delta[first])) / @as(f64, @floatFromInt(delta[dominant]));
+    const second_slope = @as(f64, @floatFromInt(delta[second])) / @as(f64, @floatFromInt(delta[dominant]));
+
+    var at: [3]i32 = undefined;
     var i: i32 = 0;
-    while (i <= steps) : (i += 1) {
-        const t = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
-        const lx = x0 + math.util.floorDouble(@as(f64, @floatFromInt(dx)) * t + 0.5);
-        const ly = y0 + math.util.floorDouble(@as(f64, @floatFromInt(dy)) * t + 0.5);
-        const lz = z0 + math.util.floorDouble(@as(f64, @floatFromInt(dz)) * t + 0.5);
-        world_map.setBlock(lx, ly, lz, Block.log);
+    const end = delta[dominant] + step;
+    while (i != end) : (i += step) {
+        at[dominant] = from[dominant] + i;
+        at[first] = math.util.floorDouble(@as(f64, @floatFromInt(from[first])) + @as(f64, @floatFromInt(i)) * first_slope + 0.5);
+        at[second] = math.util.floorDouble(@as(f64, @floatFromInt(from[second])) + @as(f64, @floatFromInt(i)) * second_slope + 0.5);
+        world_map.setBlock(at[0], at[1], at[2], Block.log);
     }
 }
 
-fn bigTreeLeafDisc(world_map: *World, cx: i32, cy: i32, cz: i32, radius: f64) void {
-    const r: i32 = @intFromFloat(@ceil(radius));
-    var dx: i32 = -r;
-    while (dx <= r) : (dx += 1) {
-        var dz: i32 = -r;
-        while (dz <= r) : (dz += 1) {
-            const fdx = @abs(@as(f64, @floatFromInt(dx))) + 0.5;
-            const fdz = @abs(@as(f64, @floatFromInt(dz))) + 0.5;
-            if (@sqrt(fdx * fdx + fdz * fdz) > radius) continue;
-            bigTreeSetLeafIfClear(world_map, cx + dx, cy, cz + dz);
+fn bigTreeLeafDisc(world_map: *World, center: [3]i32, radius: f32) void {
+    const reach: i32 = @intFromFloat(@as(f64, radius) + 0.618);
+    var dx: i32 = -reach;
+    while (dx <= reach) : (dx += 1) {
+        var dz: i32 = -reach;
+        while (dz <= reach) : (dz += 1) {
+            const fdx = @as(f64, @floatFromInt(@abs(dx))) + 0.5;
+            const fdz = @as(f64, @floatFromInt(@abs(dz))) + 0.5;
+            if (@sqrt(std.math.pow(f64, fdx, 2.0) + std.math.pow(f64, fdz, 2.0)) > @as(f64, radius)) continue;
+            const id = world_map.getBlock(center[0] + dx, center[1], center[2] + dz);
+            if (id != Block.air and id != Block.leaves) continue;
+            world_map.setBlock(center[0] + dx, center[1], center[2] + dz, Block.leaves);
         }
     }
 }
 
-const big_tree_leaf_cluster_height: i32 = 5;
+fn bigTreeLeafRadius(offset: i32) f32 {
+    if (offset < 0 or offset >= big_tree_leaf_cluster_height) return -1.0;
+    return if (offset != 0 and offset != big_tree_leaf_cluster_height - 1) 3.0 else 2.0;
+}
+
+fn bigTreeLayerSize(trunk_size: i32, layer: i32) f32 {
+    const trunk_size_f: f32 = @floatFromInt(trunk_size);
+    if (@as(f64, @floatFromInt(layer)) < @as(f64, trunk_size_f) * 0.3) return -1.618;
+
+    const half = trunk_size_f / 2.0;
+    const offset = half - @as(f32, @floatFromInt(layer));
+
+    var size: f32 = undefined;
+    if (offset == 0.0) {
+        size = half;
+    } else if (@abs(offset) >= half) {
+        size = 0.0;
+    } else {
+        size = @floatCast(@sqrt(std.math.pow(f64, @abs(@as(f64, half)), 2.0) - std.math.pow(f64, @abs(@as(f64, offset)), 2.0)));
+    }
+    return size * 0.5;
+}
 
 pub fn generateBigTree(world_map: *World, world_rand: *JavaRandom, x: i32, y_in: i32, z: i32) bool {
     var rand = JavaRandom.init(world_rand.nextLong());
+    const base = [3]i32{ x, y_in, z };
 
-    var height: i32 = 5 + rand.nextIntBound(12);
+    var trunk_size: i32 = 5 + rand.nextIntBound(12);
 
-    var checked: i32 = 0;
-    while (checked < height - 1) : (checked += 1) {
-        const id = world_map.getBlock(x, y_in + checked, z);
-        if (id != Block.air and id != Block.leaves) {
-            if (checked < 6) return false;
-            height = checked;
-            break;
-        }
+    const below = world_map.getBlock(x, y_in - 1, z);
+    if (below != Block.grass and below != Block.dirt) return false;
+
+    var probed: i32 = 0;
+    while (probed < trunk_size) : (probed += 1) {
+        const id = world_map.getBlock(x, y_in + probed, z);
+        if (id == Block.air or id == Block.leaves) continue;
+        if (probed < 6) return false;
+        trunk_size = probed;
+        break;
     }
-    if (y_in < 1 or height < 6 or y_in + height + 1 > 128) return false;
 
-    const crown_y: i32 = @min(math.util.floorDouble(@as(f64, @floatFromInt(height)) * 0.618), height - 1);
-    const half_h: f64 = @as(f64, @floatFromInt(height)) / 2.0;
-    const branches_per_layer_f = 1.382 + std.math.pow(f64, @as(f64, @floatFromInt(height)) / 13.0, 2.0);
-    const branches_per_layer: i32 = @max(1, @as(i32, @intFromFloat(@floor(branches_per_layer_f))));
+    const crown_height: i32 = @min(math.util.floorDouble(@as(f64, @floatFromInt(trunk_size)) * 0.618), trunk_size - 1);
+    const trunk_top = base[1] + crown_height;
+
+    const branches_per_layer_f = 1.382 + std.math.pow(f64, @as(f64, @floatFromInt(trunk_size)) / 13.0, 2.0);
+    const branches_per_layer: i32 = @max(1, @as(i32, @intFromFloat(branches_per_layer_f)));
 
     const Cluster = struct { x: i32, y: i32, z: i32, base_y: i32 };
     var clusters: [128]Cluster = undefined;
-    clusters[0] = .{ .x = x, .y = y_in + height - big_tree_leaf_cluster_height, .z = z, .base_y = y_in + crown_y };
-    var cluster_count: usize = 1;
 
-    var y = height - big_tree_leaf_cluster_height;
-    const min_y: i32 = math.util.floorDouble(0.3 * @as(f64, @floatFromInt(height)));
-    while (y >= min_y) : (y -= 1) {
-        const centered = half_h - @as(f64, @floatFromInt(y));
-        const term = half_h * half_h - centered * centered;
-        const radius: f64 = if (term > 0) 0.5 * @sqrt(term) else 0.0;
+    var cluster_y = base[1] + trunk_size - big_tree_leaf_cluster_height;
+    var layer = cluster_y - base[1];
+    clusters[0] = .{ .x = base[0], .y = cluster_y, .z = base[2], .base_y = trunk_top };
+    var cluster_count: usize = 1;
+    cluster_y -= 1;
+
+    while (layer >= 0) : ({
+        cluster_y -= 1;
+        layer -= 1;
+    }) {
+        const layer_size = bigTreeLayerSize(trunk_size, layer);
+        if (layer_size < 0.0) continue;
 
         var i: i32 = 0;
         while (i < branches_per_layer) : (i += 1) {
+            const reach = @as(f64, layer_size) * (@as(f64, rand.nextFloat()) + 0.328);
+            const angle = @as(f64, rand.nextFloat()) * 2.0 * 3.14159;
+            const tip = [3]i32{
+                math.util.floorDouble(reach * @sin(angle) + @as(f64, @floatFromInt(base[0])) + 0.5),
+                cluster_y,
+                math.util.floorDouble(reach * @cos(angle) + @as(f64, @floatFromInt(base[2])) + 0.5),
+            };
+            if (!bigTreeLineIsClear(world_map, tip, .{ tip[0], tip[1] + big_tree_leaf_cluster_height, tip[2] })) continue;
+
+            const spread = @sqrt(std.math.pow(f64, @as(f64, @floatFromInt(@abs(base[0] - tip[0]))), 2.0) +
+                std.math.pow(f64, @as(f64, @floatFromInt(@abs(base[2] - tip[2]))), 2.0));
+            const tip_y_f = @as(f64, @floatFromInt(tip[1]));
+            const drop = spread * 0.381;
+            const branch_base_y: i32 = if (tip_y_f - drop > @as(f64, @floatFromInt(trunk_top)))
+                trunk_top
+            else
+                @intFromFloat(tip_y_f - drop);
+
+            if (!bigTreeLineIsClear(world_map, .{ base[0], branch_base_y, base[2] }, tip)) continue;
+
             if (cluster_count >= clusters.len) break;
-            const len = radius * (@as(f64, rand.nextFloat()) + 0.328);
-            const angle: f64 = @as(f64, rand.nextFloat()) * 2.0 * std.math.pi;
-            const dx = len * @sin(angle);
-            const dz = len * @cos(angle);
-            const tip_x = x + math.util.floorDouble(dx);
-            const tip_z = z + math.util.floorDouble(dz);
-            const tip_y = y_in + y;
-
-            if (!bigTreeLineIsClear(world_map, tip_x, tip_y, tip_z, tip_x, tip_y + big_tree_leaf_cluster_height - 1, tip_z)) continue;
-
-            var base_y = tip_y - math.util.floorDouble(len * 0.381);
-            if (base_y < y_in + crown_y) base_y = y_in + crown_y;
-
-            if (!bigTreeLineIsClear(world_map, x, base_y, z, tip_x, tip_y, tip_z)) continue;
-
-            clusters[cluster_count] = .{ .x = tip_x, .y = tip_y, .z = tip_z, .base_y = base_y };
+            clusters[cluster_count] = .{ .x = tip[0], .y = tip[1], .z = tip[2], .base_y = branch_base_y };
             cluster_count += 1;
         }
     }
 
-    bigTreeDrawLogLine(world_map, x, y_in, z, x, y_in + crown_y, z);
-    for (clusters[1..cluster_count]) |c| {
-        bigTreeDrawLogLine(world_map, x, c.base_y, z, c.x, c.y, c.z);
-    }
     for (clusters[0..cluster_count]) |c| {
-        bigTreeLeafDisc(world_map, c.x, c.y, c.z, 2.0);
-        bigTreeLeafDisc(world_map, c.x, c.y + 1, c.z, 3.0);
-        bigTreeLeafDisc(world_map, c.x, c.y + 2, c.z, 3.0);
-        bigTreeLeafDisc(world_map, c.x, c.y + 3, c.z, 3.0);
-        bigTreeLeafDisc(world_map, c.x, c.y + 4, c.z, 2.0);
+        var offset: i32 = 0;
+        while (offset < big_tree_leaf_cluster_height) : (offset += 1) {
+            bigTreeLeafDisc(world_map, .{ c.x, c.y + offset, c.z }, bigTreeLeafRadius(offset));
+        }
+    }
+
+    bigTreeDrawLogLine(world_map, base, .{ base[0], trunk_top, base[2] });
+
+    for (clusters[0..cluster_count]) |c| {
+        if (@as(f64, @floatFromInt(c.base_y - base[1])) < @as(f64, @floatFromInt(trunk_size)) * 0.2) continue;
+        bigTreeDrawLogLine(world_map, .{ base[0], c.base_y, base[2] }, .{ c.x, c.y, c.z });
     }
 
     return true;
@@ -931,6 +988,55 @@ test "a big tree refuses to grow with an obstruction right above its base" {
     var rand = JavaRandom.init(1);
     const grew = generateBigTree(&w, &rand, 8, 1, 8);
     try std.testing.expect(!grew);
+}
+
+test "a big tree refuses to grow on anything but grass or dirt" {
+    for ([_]Block{ Block.sand, Block.stone, Block.stationary_water }) |ground| {
+        var w = World.init(std.testing.allocator);
+        defer w.deinit();
+        const chunk = try w.createChunk(0, 0);
+        for (0..16) |x| {
+            for (0..16) |z| {
+                chunk.setBlock(@intCast(x), 0, @intCast(z), ground);
+            }
+        }
+
+        var rand = JavaRandom.init(1);
+        try std.testing.expect(!generateBigTree(&w, &rand, 8, 1, 8));
+    }
+}
+
+test "a big tree's trunk runs unbroken from the ground to its topmost leaf cluster" {
+    var seed: i64 = 1;
+    while (seed <= 40) : (seed += 1) {
+        var w = try testWorldWithFloor();
+        defer w.deinit();
+
+        var rand = JavaRandom.init(seed);
+        try std.testing.expect(generateBigTree(&w, &rand, 8, 1, 8));
+
+        var highest_leaf: i32 = 0;
+        var y: i32 = 1;
+        while (y < 128) : (y += 1) {
+            var x: i32 = 0;
+            while (x < 16) : (x += 1) {
+                var z: i32 = 0;
+                while (z < 16) : (z += 1) {
+                    if (w.getBlock(x, y, z) == Block.leaves) highest_leaf = y;
+                }
+            }
+        }
+
+        const trunk_size = highest_leaf - 1 + 1;
+        const crown_height = math.util.floorDouble(@as(f64, @floatFromInt(trunk_size)) * 0.618);
+        const trunk_top = 1 + @max(crown_height, trunk_size - big_tree_leaf_cluster_height);
+
+        y = 1;
+        while (y <= trunk_top) : (y += 1) {
+            try std.testing.expectEqual(Block.log, w.getBlock(8, y, 8));
+        }
+        try std.testing.expect(w.getBlock(8, trunk_top + 1, 8) != Block.log);
+    }
 }
 
 test "generateTrees places trees in a forest biome and none in desert" {
