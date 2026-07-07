@@ -44,6 +44,7 @@ dropped: std.ArrayList(DroppedBlock) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 time: i64 = 0,
 skylight_subtracted: u4 = 0,
+scheduled_updates_are_immediate: bool = false,
 
 pub const ticks_per_day: i64 = 24000;
 
@@ -104,6 +105,7 @@ pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
 
 pub fn getOrGenerateChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !*Chunk {
     if (self.getChunk(chunk_x, chunk_z)) |existing| return existing;
+
     const chunk = try self.createChunk(chunk_x, chunk_z);
     generator.generateShape(chunk);
     return chunk;
@@ -124,7 +126,7 @@ pub fn ensureDecorated(self: *World, generator: TerrainGenerator, chunk_x: i32, 
         }
     }
 
-    generator.decorateChunk(self, chunk_x, chunk_z);
+    try generator.decorateChunk(self, chunk_x, chunk_z);
     try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
     try light.relightChunk(self.allocator, self, chunk_x, chunk_z);
 }
@@ -247,9 +249,15 @@ fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
     if (self.getBlock(x, y, z) == .stationary_water) try fluid.onNeighborChange(self, x, y, z);
 }
 
-pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) !void {
+pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) std.mem.Allocator.Error!void {
     const radius = load_radius;
     if (!self.chunksExist(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius)) return;
+
+    if (self.scheduled_updates_are_immediate) {
+        if (self.getBlock(x, y, z) != id) return;
+        if (id == .flowing_water) try fluid.tick(self, x, y, z);
+        return;
+    }
 
     const entry: ScheduledTick = .{
         .pos = .{ .x = x, .y = y, .z = z },
@@ -421,3 +429,4 @@ test "a day wraps around without discontinuity" {
     world_map.time = 0;
     try std.testing.expectEqual(world_map.celestialAngle(0.0), wrapped);
 }
+

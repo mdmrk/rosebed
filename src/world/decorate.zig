@@ -204,6 +204,113 @@ fn generateTreeVariant(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, 
     return true;
 }
 
+const taiga_wood_metadata: u4 = 1;
+
+fn taigaSpaceIsClear(world_map: *const World, x: i32, y: i32, z: i32, height: i32, bare_height: i32, max_radius: i32) bool {
+    if (y < 1 or y + height + 1 > 128) return false;
+
+    var cy = y;
+    while (cy <= y + 1 + height) : (cy += 1) {
+        if (cy < 0 or cy >= 128) return false;
+        const radius: i32 = if (cy - y < bare_height) 0 else max_radius;
+
+        var cx = x - radius;
+        while (cx <= x + radius) : (cx += 1) {
+            var cz = z - radius;
+            while (cz <= z + radius) : (cz += 1) {
+                const id = world_map.getBlock(cx, cy, cz);
+                if (id != Block.air and id != Block.leaves) return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn taigaGroundIsSuitable(world_map: *const World, x: i32, y: i32, z: i32, height: i32) bool {
+    const below = world_map.getBlock(x, y - 1, z);
+    return (below == Block.grass or below == Block.dirt) and y < 128 - height - 1;
+}
+
+fn placeTaigaLeafLayer(world_map: *World, x: i32, y: i32, z: i32, radius: i32) void {
+    var cx = x - radius;
+    while (cx <= x + radius) : (cx += 1) {
+        var cz = z - radius;
+        while (cz <= z + radius) : (cz += 1) {
+            if (@abs(cx - x) == radius and @abs(cz - z) == radius and radius > 0) continue;
+            if (world_map.getBlock(cx, y, cz).isOpaqueCube()) continue;
+            world_map.setBlock(cx, y, cz, Block.leaves);
+            world_map.setBlockMetadata(cx, y, cz, taiga_wood_metadata);
+        }
+    }
+}
+
+fn placeTaigaTrunk(world_map: *World, x: i32, y: i32, z: i32, height: i32) void {
+    var i: i32 = 0;
+    while (i < height) : (i += 1) {
+        const id = world_map.getBlock(x, y + i, z);
+        if (id != Block.air and id != Block.leaves) continue;
+        world_map.setBlock(x, y + i, z, Block.log);
+        world_map.setBlockMetadata(x, y + i, z, taiga_wood_metadata);
+    }
+}
+
+pub fn generatePineTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bool {
+    const height = rand.nextIntBound(5) + 7;
+    const bare_height = height - rand.nextIntBound(2) - 3;
+    const max_radius = 1 + rand.nextIntBound(height - bare_height + 1);
+
+    if (!taigaSpaceIsClear(world_map, x, y, z, height, bare_height, max_radius)) return false;
+    if (!taigaGroundIsSuitable(world_map, x, y, z, height)) return false;
+
+    world_map.setBlock(x, y - 1, z, Block.dirt);
+
+    var radius: i32 = 0;
+    var ly = y + height;
+    while (ly >= y + bare_height) : (ly -= 1) {
+        placeTaigaLeafLayer(world_map, x, ly, z, radius);
+        if (radius >= 1 and ly == y + bare_height + 1) {
+            radius -= 1;
+        } else if (radius < max_radius) {
+            radius += 1;
+        }
+    }
+
+    placeTaigaTrunk(world_map, x, y, z, height - 1);
+    return true;
+}
+
+pub fn generateSpruceTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bool {
+    const height = rand.nextIntBound(4) + 6;
+    const bare_height = 1 + rand.nextIntBound(2);
+    const leaf_layers = height - bare_height;
+    const max_radius = 2 + rand.nextIntBound(2);
+
+    if (!taigaSpaceIsClear(world_map, x, y, z, height, bare_height, max_radius)) return false;
+    if (!taigaGroundIsSuitable(world_map, x, y, z, height)) return false;
+
+    world_map.setBlock(x, y - 1, z, Block.dirt);
+
+    var radius: i32 = rand.nextIntBound(2);
+    var radius_limit: i32 = 1;
+    var radius_after_reset: i32 = 0;
+
+    var layer: i32 = 0;
+    while (layer <= leaf_layers) : (layer += 1) {
+        placeTaigaLeafLayer(world_map, x, y + height - layer, z, radius);
+        if (radius >= radius_limit) {
+            radius = radius_after_reset;
+            radius_after_reset = 1;
+            radius_limit += 1;
+            if (radius_limit > max_radius) radius_limit = max_radius;
+        } else {
+            radius += 1;
+        }
+    }
+
+    placeTaigaTrunk(world_map, x, y, z, height - rand.nextIntBound(3));
+    return true;
+}
+
 fn bigTreeSetLeafIfClear(world_map: *World, x: i32, y: i32, z: i32) void {
     if (world_map.getBlock(x, y, z) == Block.air) world_map.setBlock(x, y, z, Block.leaves);
 }
@@ -332,27 +439,23 @@ pub fn generateBigTree(world_map: *World, world_rand: *JavaRandom, x: i32, y_in:
     return true;
 }
 
-fn treeCountFor(surface_biome: biome.Biome) i32 {
-    return switch (surface_biome) {
-        .forest, .rainforest, .taiga => 10,
-        .seasonal_forest => 7,
-        .desert, .tundra, .plains => 0,
+pub fn treeCountFor(rand: *JavaRandom, density_noise: f64, surface_biome: biome.Biome) i32 {
+    const from_noise: i32 = @intFromFloat((density_noise / 8.0 + rand.nextDouble() * 4.0 + 4.0) / 3.0);
+
+    var count: i32 = 0;
+    if (rand.nextIntBound(10) == 0) count += 1;
+
+    return count + switch (surface_biome) {
+        .forest, .rainforest, .taiga => from_noise + 5,
+        .seasonal_forest => from_noise + 2,
+        .desert, .tundra, .plains => -20,
         else => 0,
     };
 }
 
-pub fn generateTrees(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, surface_biome: biome.Biome) void {
-    const base_x = chunk_x * 16;
-    const base_z = chunk_z * 16;
-    const count = treeCountFor(surface_biome);
-
-    var i: i32 = 0;
-    while (i < count) : (i += 1) {
-        const x = base_x + rand.nextIntBound(16) + 8;
-        const z = base_z + rand.nextIntBound(16) + 8;
-        const y = columnTopY(world_map, x, z);
-
-        if (surface_biome == .forest) {
+fn growRandomTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32, surface_biome: biome.Biome) void {
+    switch (surface_biome) {
+        .forest => {
             if (rand.nextIntBound(5) == 0) {
                 _ = generateBirchTree(world_map, rand, x, y, z);
             } else if (rand.nextIntBound(3) == 0) {
@@ -360,11 +463,40 @@ pub fn generateTrees(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *JavaR
             } else {
                 _ = generateTree(world_map, rand, x, y, z);
             }
-        } else if (rand.nextIntBound(10) == 0) {
-            _ = generateBigTree(world_map, rand, x, y, z);
-        } else {
-            _ = generateTree(world_map, rand, x, y, z);
-        }
+        },
+        .taiga => {
+            if (rand.nextIntBound(3) == 0) {
+                _ = generatePineTree(world_map, rand, x, y, z);
+            } else {
+                _ = generateSpruceTree(world_map, rand, x, y, z);
+            }
+        },
+        .rainforest => {
+            if (rand.nextIntBound(3) == 0) {
+                _ = generateBigTree(world_map, rand, x, y, z);
+            } else {
+                _ = generateTree(world_map, rand, x, y, z);
+            }
+        },
+        else => {
+            if (rand.nextIntBound(10) == 0) {
+                _ = generateBigTree(world_map, rand, x, y, z);
+            } else {
+                _ = generateTree(world_map, rand, x, y, z);
+            }
+        },
+    }
+}
+
+pub fn generateTrees(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *JavaRandom, surface_biome: biome.Biome, count: i32) void {
+    const base_x = chunk_x * 16;
+    const base_z = chunk_z * 16;
+
+    var i: i32 = 0;
+    while (i < count) : (i += 1) {
+        const x = base_x + rand.nextIntBound(16) + 8;
+        const z = base_z + rand.nextIntBound(16) + 8;
+        growRandomTree(world_map, rand, x, columnTopY(world_map, x, z), z, surface_biome);
     }
 }
 
@@ -435,6 +567,32 @@ pub fn generatePumpkinPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32
         if (below != Block.grass) continue;
         world_map.setBlock(wx, wy, wz, Block.pumpkin);
         world_map.setBlockMetadata(wx, wy, wz, @intCast(rand.nextIntBound(4)));
+    }
+}
+
+fn cactusCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    if (world_map.getBlock(x - 1, y, z).isSolid()) return false;
+    if (world_map.getBlock(x + 1, y, z).isSolid()) return false;
+    if (world_map.getBlock(x, y, z - 1).isSolid()) return false;
+    if (world_map.getBlock(x, y, z + 1).isSolid()) return false;
+
+    const below = world_map.getBlock(x, y - 1, z);
+    return below == Block.cactus or below == Block.sand;
+}
+
+pub fn generateCactusPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) void {
+    for (0..10) |_| {
+        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+
+        const height = 1 + rand.nextIntBound(rand.nextIntBound(3) + 1);
+        var k: i32 = 0;
+        while (k < height) : (k += 1) {
+            if (!cactusCanStay(world_map, wx, wy + k, wz)) continue;
+            world_map.setBlock(wx, wy + k, wz, Block.cactus);
+        }
     }
 }
 
@@ -554,6 +712,16 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         const z = base_z + rand.nextIntBound(16) + 8;
         generatePumpkinPatch(world_map, rand, x, y, z);
     }
+
+    if (surface_biome == .desert) {
+        i = 0;
+        while (i < 10) : (i += 1) {
+            const x = base_x + rand.nextIntBound(16) + 8;
+            const y = rand.nextIntBound(128);
+            const z = base_z + rand.nextIntBound(16) + 8;
+            generateCactusPatch(world_map, rand, x, y, z);
+        }
+    }
 }
 
 test "clay patches replace sand only where the origin is underwater" {
@@ -657,6 +825,35 @@ test "a birch tree stores wood metadata 2 on its log and leaves" {
     try std.testing.expectEqual(@as(u4, 2), w.getBlockMetadata(8, 1, 8));
 }
 
+test "taiga pines and spruces grow with spruce wood metadata" {
+    for ([_]bool{ true, false }) |pine| {
+        var w = try testWorldWithFloor();
+        defer w.deinit();
+
+        var rand = JavaRandom.init(3);
+        const grew = if (pine)
+            generatePineTree(&w, &rand, 8, 1, 8)
+        else
+            generateSpruceTree(&w, &rand, 8, 1, 8);
+        try std.testing.expect(grew);
+
+        try std.testing.expectEqual(Block.log, w.getBlock(8, 1, 8));
+        try std.testing.expectEqual(taiga_wood_metadata, w.getBlockMetadata(8, 1, 8));
+
+        var leaves: usize = 0;
+        for (0..16) |x| {
+            for (1..30) |y| {
+                for (0..16) |z| {
+                    if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.leaves) continue;
+                    leaves += 1;
+                    try std.testing.expectEqual(taiga_wood_metadata, w.getBlockMetadata(@intCast(x), @intCast(y), @intCast(z)));
+                }
+            }
+        }
+        try std.testing.expect(leaves > 0);
+    }
+}
+
 test "a tree does not grow without clear space above" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
@@ -714,7 +911,9 @@ test "generateTrees places trees in a forest biome and none in desert" {
         }
     }
     var forest_rand = JavaRandom.init(1);
-    generateTrees(&forest_w, 0, 0, &forest_rand, .forest);
+    const forest_count = treeCountFor(&forest_rand, 0.0, .forest);
+    try std.testing.expect(forest_count > 0);
+    generateTrees(&forest_w, 0, 0, &forest_rand, .forest, forest_count);
 
     var forest_logs: usize = 0;
     for (0..16) |x| {
@@ -735,7 +934,9 @@ test "generateTrees places trees in a forest biome and none in desert" {
         }
     }
     var desert_rand = JavaRandom.init(1);
-    generateTrees(&desert_w, 0, 0, &desert_rand, .desert);
+    const desert_count = treeCountFor(&desert_rand, 0.0, .desert);
+    try std.testing.expect(desert_count <= 0);
+    generateTrees(&desert_w, 0, 0, &desert_rand, .desert, desert_count);
 
     var desert_logs: usize = 0;
     for (0..16) |x| {
@@ -895,6 +1096,56 @@ test "reeds do not take root on grass away from water" {
     for (0..16) |x| {
         for (0..16) |z| {
             try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != Block.reed);
+        }
+    }
+}
+
+test "cactus grows on sand in stacks of at most three" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.sand);
+        }
+    }
+
+    var rand = JavaRandom.init(5);
+    generateCactusPatch(&w, &rand, 8, 11, 8);
+
+    var tallest: usize = 0;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            var height: usize = 0;
+            for (11..16) |y| {
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.cactus) break;
+                height += 1;
+            }
+            tallest = @max(tallest, height);
+        }
+    }
+    try std.testing.expect(tallest > 0);
+    try std.testing.expect(tallest <= 3);
+}
+
+test "cactus refuses to grow beside a solid block" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.sand);
+            chunk.setBlock(@intCast(x), 11, @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 11, 8, Block.air);
+
+    var rand = JavaRandom.init(5);
+    generateCactusPatch(&w, &rand, 8, 11, 8);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != Block.cactus);
         }
     }
 }

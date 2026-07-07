@@ -8,6 +8,7 @@ const biome = @import("biome.zig");
 const caves = @import("caves.zig");
 const decorate = @import("decorate.zig");
 const lakes = @import("lakes.zig");
+const springs = @import("springs.zig");
 const dungeons = @import("dungeons.zig");
 const World = @import("world_map.zig");
 const Block = @import("block.zig").Block;
@@ -17,8 +18,11 @@ const TerrainGenerator = @This();
 main_noise: NoiseGeneratorOctaves,
 upper_noise: NoiseGeneratorOctaves,
 blend_noise: NoiseGeneratorOctaves,
+surface_noise: NoiseGeneratorOctaves,
+depth_variation_noise: NoiseGeneratorOctaves,
 scale_noise: NoiseGeneratorOctaves,
 depth_noise: NoiseGeneratorOctaves,
+tree_noise: NoiseGeneratorOctaves,
 climate: Climate,
 world_seed: i64,
 
@@ -32,12 +36,23 @@ const climate_downsample_step = Climate.grid_size / density_x;
 
 pub fn init(gpa: std.mem.Allocator, seed: i64) !TerrainGenerator {
     var rand = JavaRandom.init(seed);
+    const main_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16);
+    const upper_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16);
+    const blend_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 8);
+    const surface_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 4);
+    const depth_variation_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 4);
+    const scale_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 10);
+    const depth_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16);
+    const tree_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 8);
     return .{
-        .main_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16),
-        .upper_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16),
-        .blend_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 8),
-        .scale_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 10),
-        .depth_noise = try NoiseGeneratorOctaves.init(gpa, &rand, 16),
+        .main_noise = main_noise,
+        .upper_noise = upper_noise,
+        .blend_noise = blend_noise,
+        .surface_noise = surface_noise,
+        .depth_variation_noise = depth_variation_noise,
+        .scale_noise = scale_noise,
+        .depth_noise = depth_noise,
+        .tree_noise = tree_noise,
         .climate = try Climate.init(gpa, seed),
         .world_seed = seed,
     };
@@ -47,8 +62,11 @@ pub fn deinit(self: TerrainGenerator, gpa: std.mem.Allocator) void {
     self.main_noise.deinit(gpa);
     self.upper_noise.deinit(gpa);
     self.blend_noise.deinit(gpa);
+    self.surface_noise.deinit(gpa);
+    self.depth_variation_noise.deinit(gpa);
     self.scale_noise.deinit(gpa);
     self.depth_noise.deinit(gpa);
+    self.tree_noise.deinit(gpa);
     self.climate.deinit(gpa);
 }
 
@@ -206,11 +224,11 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
         }
     }
 
-    dressSurface(chunk, &climate_sample);
+    self.dressSurface(chunk, &climate_sample);
     caves.carve(chunk, chunk_x, chunk_z, self.world_seed);
 }
 
-pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) void {
+pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) !void {
     const climate_sample = self.climate.sample(chunk_x * Climate.grid_size, chunk_z * Climate.grid_size);
     const chunk = world_map.getChunk(chunk_x, chunk_z).?;
 
@@ -248,8 +266,27 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
 
     decorate.generateClayPatches(chunk, chunk_x, chunk_z, &decorate_rand);
     decorate.generateOreVeins(chunk, chunk_x, chunk_z, &decorate_rand);
-    decorate.generateTrees(world_map, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
-    decorate.generateSurfacePlants(world_map, chunk_x, chunk_z, &decorate_rand, climate_sample.biomeAt(8, 8));
+
+    const surface_biome = climate_sample.biomeAt(8, 8);
+    const tree_density = self.tree_noise.samplePoint2D(@as(f64, @floatFromInt(base_x)) * 0.5, @as(f64, @floatFromInt(base_z)) * 0.5);
+    const tree_count = decorate.treeCountFor(&decorate_rand, tree_density, surface_biome);
+    decorate.generateTrees(world_map, chunk_x, chunk_z, &decorate_rand, surface_biome, tree_count);
+    decorate.generateSurfacePlants(world_map, chunk_x, chunk_z, &decorate_rand, surface_biome);
+
+    for (0..50) |_| {
+        const x = base_x + decorate_rand.nextIntBound(16) + 8;
+        const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
+        const z = base_z + decorate_rand.nextIntBound(16) + 8;
+        try springs.generate(world_map, x, y, z, Block.flowing_water);
+    }
+
+    for (0..20) |_| {
+        const x = base_x + decorate_rand.nextIntBound(16) + 8;
+        const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(decorate_rand.nextIntBound(112) + 8) + 8);
+        const z = base_z + decorate_rand.nextIntBound(16) + 8;
+        try springs.generate(world_map, x, y, z, Block.flowing_lava);
+    }
+
     placeSnowLayers(chunk, &climate_sample);
 }
 
@@ -281,25 +318,78 @@ fn placeSnowLayers(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
     }
 }
 
-fn dressSurface(chunk: *Chunk, climate_sample: *const Climate.Sample) void {
+fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Climate.Sample) void {
+    var rand = JavaRandom.init(@as(i64, chunk.x) *% 341873128712 +% @as(i64, chunk.z) *% 132897987541);
+
+    const noise_scale = 1.0 / 32.0;
+    const base_x: f64 = @floatFromInt(chunk.x * 16);
+    const base_z: f64 = @floatFromInt(chunk.z * 16);
+
+    var sand_field: [256]f64 = undefined;
+    self.surface_noise.generate(&sand_field, .{ .x = base_x, .y = base_z, .z = 0.0 }, .{ .x = 16, .y = 16, .z = 1 }, .{ .x = noise_scale, .y = noise_scale, .z = 1.0 });
+
+    var gravel_field: [256]f64 = undefined;
+    self.surface_noise.generate(&gravel_field, .{ .x = base_x, .y = 109.0134, .z = base_z }, .{ .x = 16, .y = 1, .z = 16 }, .{ .x = noise_scale, .y = 1.0, .z = noise_scale });
+
+    var depth_field: [256]f64 = undefined;
+    self.depth_variation_noise.generate(&depth_field, .{ .x = base_x, .y = base_z, .z = 0.0 }, .{ .x = 16, .y = 16, .z = 1 }, .{ .x = noise_scale * 2.0, .y = noise_scale * 2.0, .z = noise_scale * 2.0 });
+
     for (0..16) |x| {
         for (0..16) |z| {
             const surface_biome = climate_sample.biomeAt(x, z);
-            const top_block = surface_biome.topBlock();
-            const filler_block = surface_biome.fillerBlock();
+            const noise_index = x + z * 16;
+            const sandy = sand_field[noise_index] + rand.nextDouble() * 0.2 > 0.0;
+            const gravelly = gravel_field[noise_index] + rand.nextDouble() * 0.2 > 3.0;
+            const surface_depth: i32 = @intFromFloat(depth_field[noise_index] / 3.0 + 3.0 + rand.nextDouble() * 0.25);
 
-            var y: u32 = 127;
-            while (y > 0) : (y -= 1) {
-                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.stone) {
-                    chunk.setBlock(@intCast(x), y, @intCast(z), top_block);
-                    if (y > 0) chunk.setBlock(@intCast(x), y - 1, @intCast(z), filler_block);
-                    if (y > 1) chunk.setBlock(@intCast(x), y - 2, @intCast(z), filler_block);
-                    if (y > 2) chunk.setBlock(@intCast(x), y - 3, @intCast(z), filler_block);
-                    break;
+            var remaining_filler: i32 = -1;
+            var top_block = surface_biome.topBlock();
+            var filler_block = surface_biome.fillerBlock();
+
+            var y: i32 = 127;
+            while (y >= 0) : (y -= 1) {
+                if (y <= rand.nextIntBound(5)) {
+                    chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.bedrock);
+                    continue;
                 }
-            }
-            for (0..5) |by| {
-                chunk.setBlock(@intCast(x), @intCast(by), @intCast(z), Block.bedrock);
+
+                const current = chunk.getBlock(@intCast(x), @intCast(y), @intCast(z));
+                if (current == Block.air) {
+                    remaining_filler = -1;
+                    continue;
+                }
+                if (current != Block.stone) continue;
+
+                if (remaining_filler == -1) {
+                    if (surface_depth <= 0) {
+                        top_block = Block.air;
+                        filler_block = Block.stone;
+                    } else if (y >= sea_level - 4 and y <= sea_level + 1) {
+                        top_block = surface_biome.topBlock();
+                        filler_block = surface_biome.fillerBlock();
+                        if (gravelly) {
+                            top_block = Block.air;
+                            filler_block = Block.gravel;
+                        }
+                        if (sandy) {
+                            top_block = Block.sand;
+                            filler_block = Block.sand;
+                        }
+                    }
+
+                    if (y < sea_level and top_block == Block.air) top_block = Block.stationary_water;
+
+                    remaining_filler = surface_depth;
+                    const placed = if (y >= sea_level - 1) top_block else filler_block;
+                    chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), placed);
+                } else if (remaining_filler > 0) {
+                    remaining_filler -= 1;
+                    chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), filler_block);
+                    if (remaining_filler == 0 and filler_block == Block.sand) {
+                        remaining_filler = rand.nextIntBound(4);
+                        filler_block = Block.sandstone;
+                    }
+                }
             }
         }
     }
@@ -346,6 +436,83 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
             try std.testing.expect(warm_chunk.getBlock(@intCast(x), 71, @intCast(z)) != Block.snow_layer);
         }
     }
+}
+
+fn uniformClimate(temperature: f64, humidity: f64) Climate.Sample {
+    var sample: Climate.Sample = undefined;
+    for (0..Climate.grid_size * Climate.grid_size) |i| {
+        sample.temperature[i] = temperature;
+        sample.humidity[i] = humidity;
+    }
+    return sample;
+}
+
+test "surface dressing lays sandstone under a desert's sand" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 4242);
+    defer gen.deinit(gpa);
+
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..81) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            }
+        }
+    }
+
+    const desert = uniformClimate(0.99, 0.05);
+    try std.testing.expectEqual(biome.Biome.desert, desert.biomeAt(0, 0));
+    gen.dressSurface(&chunk, &desert);
+
+    try std.testing.expectEqual(Block.sand, chunk.getBlock(8, 80, 8));
+
+    var found_sandstone = false;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            var y: u32 = 79;
+            while (y > 5) : (y -= 1) {
+                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.sandstone) found_sandstone = true;
+            }
+        }
+    }
+    try std.testing.expect(found_sandstone);
+}
+
+test "surface dressing stops the stone column with a jagged bedrock floor" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 4242);
+    defer gen.deinit(gpa);
+
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (0..81) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            }
+        }
+    }
+
+    const plains = uniformClimate(0.99, 0.4);
+    gen.dressSurface(&chunk, &plains);
+
+    var lowest_top: u32 = 127;
+    var highest_top: u32 = 0;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expectEqual(Block.bedrock, chunk.getBlock(@intCast(x), 0, @intCast(z)));
+
+            var top: u32 = 0;
+            var y: u32 = 0;
+            while (y < 8) : (y += 1) {
+                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.bedrock) top = y;
+            }
+            try std.testing.expect(top <= 4);
+            lowest_top = @min(lowest_top, top);
+            highest_top = @max(highest_top, top);
+        }
+    }
+    try std.testing.expect(lowest_top < highest_top);
 }
 
 test "generated chunk has bedrock at the bottom and grass somewhere" {

@@ -32,6 +32,7 @@ pub const Material = enum {
     ice,
     clay,
     pumpkin,
+    cactus,
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
@@ -163,6 +164,7 @@ pub const Block = enum(u8) {
     snow_layer = 78,
     ice = 79,
     snow_block = 80,
+    cactus = 81,
     clay = 82,
     reed = 83,
     jukebox = 84,
@@ -195,6 +197,7 @@ pub const Block = enum(u8) {
             .flowing_lava => .lava,
             .snow_layer => .snow,
             .clay => .clay,
+            .cactus => .cactus,
             .pumpkin, .jack_o_lantern => .pumpkin,
             else => .rock,
         };
@@ -300,6 +303,7 @@ pub const Block = enum(u8) {
             .ore_diamond => uniform(50),
             .ore_redstone => uniform(51),
             .clay => uniform(72),
+            .cactus => topAndSide(69, 71, 70),
             .pumpkin => topAndSide(102, 102, 118),
             .snow_layer => uniform(66),
             .cobblestone => uniform(16),
@@ -372,6 +376,7 @@ pub const Block = enum(u8) {
             .log => 2.0,
             .leaves => 0.2,
             .clay => 0.6,
+            .cactus => 0.4,
             .pumpkin => 1.0,
             .snow_layer => 0.1,
             .cobblestone, .cobblestone_mossy => 2.0,
@@ -443,6 +448,7 @@ pub const Block = enum(u8) {
             .ore_redstone => "Redstone Ore",
             .snow_layer => "Snow",
             .clay => "Clay",
+            .cactus => "Cactus",
             .reed => "Sugar cane",
             .pumpkin => "Pumpkin",
             .sponge => "Sponge",
