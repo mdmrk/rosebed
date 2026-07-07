@@ -5,6 +5,7 @@ const Chunk = @import("chunk.zig");
 const World = @import("world_map.zig");
 const block = @import("block.zig");
 const biome = @import("biome.zig");
+const light = @import("light.zig");
 const Block = @import("block.zig").Block;
 
 fn tryPlaceIfMatches(world_map: *World, wx: i32, wy: i32, wz: i32, match_id: Block, replace_id: Block) void {
@@ -113,12 +114,10 @@ pub fn generateClayPatches(world_map: *World, chunk_x: i32, chunk_z: i32, rand: 
     }
 }
 
-pub fn columnTopY(world_map: *const World, x: i32, z: i32) i32 {
+pub fn heightValueAt(world_map: *const World, x: i32, z: i32) i32 {
     var y: i32 = 127;
-    while (y >= 0) : (y -= 1) {
-        if (world_map.getBlock(x, y, z) != Block.air) return y + 1;
-    }
-    return 0;
+    while (y > 0 and light.opacity(world_map.getBlock(x, y - 1, z)) == 0) y -= 1;
+    return y;
 }
 
 pub fn generateTree(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, z: i32) bool {
@@ -546,7 +545,7 @@ pub fn generateTrees(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *JavaR
     while (i < count) : (i += 1) {
         const x = base_x + rand.nextIntBound(16) + 8;
         const z = base_z + rand.nextIntBound(16) + 8;
-        growRandomTree(world_map, rand, x, columnTopY(world_map, x, z), z, surface_biome);
+        growRandomTree(world_map, rand, x, heightValueAt(world_map, x, z), z, surface_biome);
     }
 }
 
@@ -1037,6 +1036,33 @@ test "a big tree's trunk runs unbroken from the ground to its topmost leaf clust
         }
         try std.testing.expect(w.getBlock(8, trunk_top + 1, 8) != Block.log);
     }
+}
+
+test "the height value ignores blocks that do not block light, like the original's heightmap" {
+    var w = try flatGrassWorld();
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
+
+    w.setBlock(8, 11, 8, Block.tall_grass);
+    try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
+
+    w.setBlock(8, 11, 8, Block.dandelion);
+    try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
+
+    w.setBlock(8, 11, 8, Block.stone);
+    try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
+}
+
+test "the height value stops on water and leaves, which do block light" {
+    var w = try flatGrassWorld();
+    defer w.deinit();
+
+    w.setBlock(8, 11, 8, Block.stationary_water);
+    try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
+
+    w.setBlock(8, 11, 8, Block.leaves);
+    try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
 }
 
 test "generateTrees places trees in a forest biome and none in desert" {
