@@ -28,6 +28,9 @@ pub const fluid = @import("fluid.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
 pub const nbt = @import("nbt.zig");
+pub const deflate = @import("deflate.zig");
+pub const RegionFile = @import("region.zig");
+pub const save = @import("save.zig");
 pub const testing = @import("testing.zig");
 
 test {
@@ -53,5 +56,8 @@ test {
     _ = dungeons;
     _ = World;
     _ = nbt;
+    _ = deflate;
+    _ = RegionFile;
+    _ = save;
     _ = testing;
 }

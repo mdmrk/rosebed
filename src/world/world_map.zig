@@ -7,9 +7,15 @@ const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
 const fluid = @import("fluid.zig");
+const save = @import("save.zig");
 const math = @import("math");
 
 const World = @This();
+
+pub const Persistence = struct {
+    handle: *save.Save,
+    io: std.Io,
+};
 
 pub const ChunkCoord = struct { x: i32, z: i32 };
 
@@ -45,6 +51,8 @@ rand: JavaRandom = JavaRandom.init(0),
 time: i64 = 0,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
+persistence: ?Persistence = null,
+save_queue: std.ArrayList(ChunkCoord) = .empty,
 
 pub const ticks_per_day: i64 = 24000;
 
@@ -83,6 +91,7 @@ pub fn deinit(self: *World) void {
     self.scheduled_keys.deinit(self.allocator);
     self.changed.deinit(self.allocator);
     self.dropped.deinit(self.allocator);
+    self.save_queue.deinit(self.allocator);
 }
 
 pub fn getChunk(self: *const World, chunk_x: i32, chunk_z: i32) ?*Chunk {
@@ -106,9 +115,68 @@ pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
 pub fn getOrGenerateChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !*Chunk {
     if (self.getChunk(chunk_x, chunk_z)) |existing| return existing;
 
+    if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| return loaded;
+
     const chunk = try self.createChunk(chunk_x, chunk_z);
     generator.generateShape(chunk);
     return chunk;
+}
+
+fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !?*Chunk {
+    const persistence = self.persistence orelse return null;
+    const found = persistence.handle.readChunk(self.allocator, persistence.io, chunk_x, chunk_z) catch return null;
+    const stored = found orelse return null;
+
+    const chunk = try self.createChunk(chunk_x, chunk_z);
+    const climate = generator.climate.sample(chunk_x * Chunk.width, chunk_z * Chunk.width);
+    chunk.* = stored.chunk;
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            const i = x * Chunk.width + z;
+            chunk.setClimate(@intCast(x), @intCast(z), @floatCast(climate.temperature[i]), @floatCast(climate.humidity[i]));
+        }
+    }
+
+    if (stored.populated) try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
+    return chunk;
+}
+
+fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
+    const persistence = self.persistence orelse return;
+    const chunk = self.getChunk(coord.x, coord.z) orelse return;
+    try persistence.handle.writeChunk(
+        self.allocator,
+        persistence.io,
+        chunk,
+        self.time,
+        self.isDecorated(coord.x, coord.z),
+    );
+}
+
+pub fn saveLoadedChunks(self: *World) !void {
+    if (self.persistence == null) return;
+
+    var it = self.chunks.keyIterator();
+    while (it.next()) |coord| try self.writeChunkAt(coord.*);
+    self.save_queue.clearRetainingCapacity();
+}
+
+pub fn beginSaveRound(self: *World) !void {
+    self.save_queue.clearRetainingCapacity();
+    if (self.persistence == null) return;
+
+    var it = self.chunks.keyIterator();
+    while (it.next()) |coord| try self.save_queue.append(self.allocator, coord.*);
+}
+
+pub fn saveQueuedChunks(self: *World, limit: usize) !usize {
+    var written: usize = 0;
+    while (written < limit) {
+        const coord = self.save_queue.pop() orelse break;
+        try self.writeChunkAt(coord);
+        written += 1;
+    }
+    return self.save_queue.items.len;
 }
 
 pub fn isDecorated(self: *const World, chunk_x: i32, chunk_z: i32) bool {
@@ -430,3 +498,88 @@ test "a day wraps around without discontinuity" {
     try std.testing.expectEqual(world_map.celestialAngle(0.0), wrapped);
 }
 
+test "a world with a save reloads its chunks from disk instead of regenerating them" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const generator = try TerrainGenerator.init(gpa, 4321);
+    defer generator.deinit(gpa);
+
+    var handle = try save.open(io, tmp.dir, "Persisted");
+    defer handle.close(gpa, io);
+
+    {
+        var world_map = World.init(gpa);
+        defer world_map.deinit();
+        world_map.persistence = .{ .handle = &handle, .io = io };
+
+        try world_map.ensureDecorated(generator, 0, 0);
+        world_map.setBlock(4, 100, 6, Block.glowstone);
+        try world_map.saveLoadedChunks();
+    }
+
+    var reloaded = World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    const chunk = try reloaded.getOrGenerateChunk(generator, 0, 0);
+    try std.testing.expectEqual(Block.glowstone, chunk.getBlock(4, 100, 6));
+    try std.testing.expect(reloaded.isDecorated(0, 0));
+}
+
+test "a world without a save still generates chunks" {
+    const gpa = std.testing.allocator;
+    const generator = try TerrainGenerator.init(gpa, 4321);
+    defer generator.deinit(gpa);
+
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.getOrGenerateChunk(generator, 0, 0);
+    try std.testing.expectEqual(Block.bedrock, chunk.getBlock(0, 0, 0));
+    try world_map.saveLoadedChunks();
+}
+
+test "an incremental save round writes every loaded chunk a few at a time" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const generator = try TerrainGenerator.init(gpa, 55);
+    defer generator.deinit(gpa);
+
+    var handle = try save.open(io, tmp.dir, "Incremental");
+    defer handle.close(gpa, io);
+
+    {
+        var world_map = World.init(gpa);
+        defer world_map.deinit();
+        world_map.persistence = .{ .handle = &handle, .io = io };
+
+        var cx: i32 = 0;
+        while (cx < 2) : (cx += 1) {
+            _ = try world_map.getOrGenerateChunk(generator, cx, 0);
+            world_map.setBlock(cx * 16 + 1, 90, 1, Block.glowstone);
+        }
+
+        try world_map.beginSaveRound();
+        var rounds: usize = 0;
+        while (try world_map.saveQueuedChunks(1) > 0) : (rounds += 1) {
+            try std.testing.expect(rounds < 16);
+        }
+        try std.testing.expect(rounds > 0);
+    }
+
+    var reloaded = World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var cx: i32 = 0;
+    while (cx < 2) : (cx += 1) {
+        _ = try reloaded.getOrGenerateChunk(generator, cx, 0);
+        try std.testing.expectEqual(Block.glowstone, reloaded.getBlock(cx * 16 + 1, 90, 1));
+    }
+}
