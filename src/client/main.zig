@@ -231,7 +231,12 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     while (cx <= center.x + radius + 1) : (cx += 1) {
         var cz = center.z - radius - 1;
         while (cz <= center.z + radius + 1) : (cz += 1) {
-            if (app_state.world_map.isDecorated(cx, cz)) continue;
+            if (app_state.world_map.isDecorated(cx, cz)) {
+                if (!app_state.chunks.hasMesh(cx, cz) and neighborhoodDecorated(&app_state.world_map, cx, cz)) {
+                    try app_state.chunks.markDirty(app_state.gpa, cx, cz);
+                }
+                continue;
+            }
             const dx: i64 = cx - center.x;
             const dz: i64 = cz - center.z;
             try pending.append(app_state.frame, .{
@@ -1188,7 +1193,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer, .{
         .smooth = app_state.settings.ambient_occlusion,
         .fancy = app_state.settings.fancy_graphics,
-    });
+    }, app_state.player.base.position.x, app_state.player.base.position.z);
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));

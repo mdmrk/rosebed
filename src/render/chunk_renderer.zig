@@ -70,40 +70,73 @@ pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i
 
 pub const rebuild_budget_ns = 8 * std.time.ns_per_ms;
 const max_rebuilds_per_flush = 64;
+const immediate_rebuild_distance = 16.0;
 
 pub fn radiusFor(render_distance: u5) i32 {
     const diameter = @min(@as(i32, 64) << (3 - render_distance), 400);
     return @divTrunc(diameter, 2 * world.constants.chunk_width);
 }
 
-pub fn flush(self: *ChunkRenderer, gpa: std.mem.Allocator, world_map: *const world.World, colorizer: Colorizer, options: chunk_mesher.Options) !u32 {
-    var rebuilt: u32 = 0;
-    var done: [max_rebuilds_per_flush]world.World.ChunkCoord = undefined;
-    var done_count: usize = 0;
-    const started = sdl3.timer.getNanosecondsSinceInit();
+const Pending = struct {
+    coord: world.World.ChunkCoord,
+    distance: f64,
 
+    fn nearestFirst(_: void, a: Pending, b: Pending) bool {
+        return a.distance < b.distance;
+    }
+};
+
+pub fn flush(
+    self: *ChunkRenderer,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    colorizer: Colorizer,
+    options: chunk_mesher.Options,
+    eye_x: f64,
+    eye_z: f64,
+) !u32 {
+    if (self.dirty.count() == 0) return 0;
+
+    var pending: std.ArrayList(Pending) = .empty;
+    defer pending.deinit(gpa);
+    try pending.ensureTotalCapacity(gpa, self.dirty.count());
+
+    const width: f64 = @floatFromInt(world.constants.chunk_width);
     var it = self.dirty.keyIterator();
     while (it.next()) |coord| {
-        if (done_count == max_rebuilds_per_flush) break;
-        if (done_count > 0 and sdl3.timer.getNanosecondsSinceInit() -% started >= rebuild_budget_ns) break;
-        done[done_count] = coord.*;
-        done_count += 1;
+        const center_x = (@as(f64, @floatFromInt(coord.x)) + 0.5) * width;
+        const center_z = (@as(f64, @floatFromInt(coord.z)) + 0.5) * width;
+        const dx = center_x - eye_x;
+        const dz = center_z - eye_z;
+        pending.appendAssumeCapacity(.{ .coord = coord.*, .distance = dx * dx + dz * dz });
+    }
+    std.mem.sort(Pending, pending.items, {}, Pending.nearestFirst);
 
-        const chunk = world_map.getChunk(coord.x, coord.z) orelse continue;
+    var rebuilt: u32 = 0;
+    var attempts: usize = 0;
+    const started = sdl3.timer.getNanosecondsSinceInit();
+
+    for (pending.items) |entry| {
+        if (entry.distance > immediate_rebuild_distance * immediate_rebuild_distance) {
+            if (attempts == max_rebuilds_per_flush) break;
+            if (attempts > 0 and sdl3.timer.getNanosecondsSinceInit() -% started >= rebuild_budget_ns) break;
+        }
+        attempts += 1;
+        _ = self.dirty.remove(entry.coord);
+
+        const chunk = world_map.getChunk(entry.coord.x, entry.coord.z) orelse continue;
 
         var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer, options);
         defer mesh.deinit(gpa);
 
-        const entry = try self.meshes.getOrPut(gpa, coord.*);
-        if (entry.found_existing) entry.value_ptr.deinit();
-        entry.value_ptr.* = .{
+        const slot = try self.meshes.getOrPut(gpa, entry.coord);
+        if (slot.found_existing) slot.value_ptr.deinit();
+        slot.value_ptr.* = .{
             .solid = GpuMesh.upload(&mesh.solid),
             .translucent = GpuMesh.upload(&mesh.translucent),
         };
         rebuilt += 1;
     }
-
-    for (done[0..done_count]) |coord| _ = self.dirty.remove(coord);
 
     return rebuilt;
 }
@@ -240,7 +273,48 @@ test "a flush consumes at most its cap and leaves the rest dirty" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{});
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 100_000, 100_000);
     try std.testing.expect(renderer.dirty.count() >= 5);
     try std.testing.expect(renderer.dirty.count() < max_rebuilds_per_flush + 5);
+}
+
+test "a flush drains the nearest chunks first and never starves the one underfoot" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    var coord: i32 = 0;
+    while (coord < max_rebuilds_per_flush * 4) : (coord += 1) {
+        try renderer.markDirty(gpa, coord + 1, 0);
+    }
+    try renderer.markDirty(gpa, 0, 0);
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 8);
+
+    try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 0 }));
+    try std.testing.expect(renderer.dirty.contains(.{ .x = max_rebuilds_per_flush * 4, .z = 0 }));
+}
+
+test "a chunk within the immediate radius is rebuilt even past the attempt cap" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    var coord: i32 = 0;
+    while (coord < max_rebuilds_per_flush * 2) : (coord += 1) {
+        try renderer.markDirty(gpa, -coord - 8, 0);
+    }
+    try renderer.markDirty(gpa, 0, 0);
+    try renderer.markDirty(gpa, 0, 1);
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 20);
+
+    try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 0 }));
+    try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 1 }));
 }
