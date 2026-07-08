@@ -17,22 +17,22 @@ const FaceDir = struct {
 
 const faces = [6]FaceDir{
     .{ .side = .down, .shade = 0.5, .normal = .{ 0, -1, 0 }, .axis_u = 0, .axis_v = 2, .corners = .{
-        .{ 0, 0, 0 }, .{ 0, 0, 1 }, .{ 1, 0, 1 }, .{ 1, 0, 0 },
+        .{ 1, 0, 0 }, .{ 1, 0, 1 }, .{ 0, 0, 1 }, .{ 0, 0, 0 },
     } },
     .{ .side = .up, .shade = 1.0, .normal = .{ 0, 1, 0 }, .axis_u = 0, .axis_v = 2, .corners = .{
-        .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 1, 1 },
+        .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 1 },
     } },
     .{ .side = .north, .shade = 0.8, .normal = .{ 0, 0, -1 }, .axis_u = 0, .axis_v = 1, .corners = .{
-        .{ 1, 0, 0 }, .{ 1, 1, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 0 },
+        .{ 0, 0, 0 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 0, 0 },
     } },
     .{ .side = .south, .shade = 0.8, .normal = .{ 0, 0, 1 }, .axis_u = 0, .axis_v = 1, .corners = .{
-        .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 1, 1, 1 }, .{ 1, 0, 1 },
+        .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 0, 1, 1 }, .{ 0, 0, 1 },
     } },
     .{ .side = .west, .shade = 0.6, .normal = .{ -1, 0, 0 }, .axis_u = 2, .axis_v = 1, .corners = .{
-        .{ 0, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 1 }, .{ 0, 0, 1 },
+        .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 0, 0, 0 },
     } },
     .{ .side = .east, .shade = 0.6, .normal = .{ 1, 0, 0 }, .axis_u = 2, .axis_v = 1, .corners = .{
-        .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 1, 0, 0 },
+        .{ 1, 0, 0 }, .{ 1, 1, 0 }, .{ 1, 1, 1 }, .{ 1, 0, 1 },
     } },
 };
 
@@ -155,10 +155,10 @@ pub fn buildCubeColored(
             };
         }
         const uvs = [4][2]f32{
-            .{ uv.u0, uv.v1 },
-            .{ uv.u0, uv.v0 },
-            .{ uv.u1, uv.v0 },
             .{ uv.u1, uv.v1 },
+            .{ uv.u1, uv.v0 },
+            .{ uv.u0, uv.v0 },
+            .{ uv.u0, uv.v1 },
         };
         try mesh.quad(gpa, positions, uvs, color orelse shadeColor(face.shade, Colorizer.white));
     }
@@ -309,15 +309,15 @@ fn buildFluid(
         const brightness = fluidBrightness(world_map, x, y - 1, z, emitted);
         const color = shadeColor(0.5 * brightness, Colorizer.white);
         try mesh.quad(gpa, .{
-            .{ origin[0], origin[1], origin[2] },
-            .{ origin[0], origin[1], origin[2] + 1 },
-            .{ origin[0] + 1, origin[1], origin[2] + 1 },
             .{ origin[0] + 1, origin[1], origin[2] },
+            .{ origin[0] + 1, origin[1], origin[2] + 1 },
+            .{ origin[0], origin[1], origin[2] + 1 },
+            .{ origin[0], origin[1], origin[2] },
         }, .{
-            .{ uv.u0, uv.v0 },
-            .{ uv.u0, uv.v1 },
-            .{ uv.u1, uv.v1 },
             .{ uv.u1, uv.v0 },
+            .{ uv.u1, uv.v1 },
+            .{ uv.u0, uv.v1 },
+            .{ uv.u0, uv.v0 },
         }, color);
     }
 
@@ -427,10 +427,10 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                         positions[i] = .{ bx + corner[0], by + corner[1] * height_scale, bz + corner[2] };
                     }
                     const uvs = [4][2]f32{
-                        .{ uv.u0, uv.v1 },
-                        .{ uv.u0, uv.v0 },
-                        .{ uv.u1, uv.v0 },
                         .{ uv.u1, uv.v1 },
+                        .{ uv.u1, uv.v0 },
+                        .{ uv.u0, uv.v0 },
+                        .{ uv.u0, uv.v1 },
                     };
 
                     const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
@@ -747,11 +747,11 @@ test "a block beside the face darkens the two corners nearest it" {
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
 
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[1], 1.0e-6);
-    try std.testing.expect(corners[2] < 1.0);
-    try std.testing.expect(corners[3] < 1.0);
-    try std.testing.expectApproxEqAbs(corners[2], corners[3], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[3], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[2], 1.0e-6);
+    try std.testing.expect(corners[1] < 1.0);
+    try std.testing.expect(corners[0] < 1.0);
+    try std.testing.expectApproxEqAbs(corners[1], corners[0], 1.0e-6);
 }
 
 test "a diagonal block darkens only the corner it touches" {
@@ -766,10 +766,10 @@ test "a diagonal block darkens only the corner it touches" {
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
 
     const dark = world.light.brightnessAt(&world_map, 9, 1, 9, 0);
-    try std.testing.expectApproxEqAbs((3.0 + dark) / 4.0, corners[3], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs((3.0 + dark) / 4.0, corners[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[3], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[2], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[1], 1.0e-6);
 }
 
 test "two solid edges hide whatever is diagonally behind them" {
@@ -786,7 +786,7 @@ test "two solid edges hide whatever is diagonally behind them" {
 
     const dark = world.light.brightnessAt(&world_map, 9, 1, 8, 0);
     try std.testing.expect(world.light.brightnessAt(&world_map, 9, 1, 9, 0) > dark);
-    try std.testing.expectApproxEqAbs((1.0 + 3.0 * dark) / 4.0, corners[3], 1.0e-6);
+    try std.testing.expectApproxEqAbs((1.0 + 3.0 * dark) / 4.0, corners[0], 1.0e-6);
 }
 
 test "a seam face needs its neighbour lit before it shades correctly" {
@@ -805,8 +805,8 @@ test "a seam face needs its neighbour lit before it shades correctly" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const unlit_neighbour = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
-    try std.testing.expect(unlit_neighbour[2] < 1.0);
-    try std.testing.expect(unlit_neighbour[3] < 1.0);
+    try std.testing.expect(unlit_neighbour[1] < 1.0);
+    try std.testing.expect(unlit_neighbour[0] < 1.0);
 
     try world.light.relightChunk(gpa, &world_map, 1, 0);
     const lit_neighbour = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
@@ -912,3 +912,4 @@ test "a flowing surface slopes across the block, a level one does not" {
     try std.testing.expect(highest - lowest > 0.05);
     try std.testing.expect(highest < 2.0);
 }
+

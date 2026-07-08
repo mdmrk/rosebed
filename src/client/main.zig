@@ -1229,9 +1229,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     const frustum = math.Frustum.fromViewProjection(view_proj);
     gl.Enable(gl.CULL_FACE);
-    gl.FrontFace(gl.CW);
     app_state.chunks_drawn = app_state.chunks.drawSolid(frustum);
-    gl.Disable(gl.CULL_FACE);
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
@@ -1274,6 +1272,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.Disable(gl.CULL_FACE);
     app_state.shader.setInt("u_alpha_test", 0);
     try app_state.chunks.drawTranslucent(app_state.frame, frustum, eye.x, eye.z);
     app_state.shader.setInt("u_alpha_test", 1);
