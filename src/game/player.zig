@@ -23,6 +23,8 @@ is_swinging: bool = false,
 prev_camera_yaw: f32 = 0,
 camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
+jumped: bool = false,
+damage_taken: i32 = 0,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -53,6 +55,7 @@ pub fn spawn(position: math.Vec3) Player {
 
 pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: f32, jump: bool) void {
     self.base.beginTick();
+    self.jumped = false;
     self.prev_distance_walked = self.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
@@ -64,6 +67,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: 
         if (jump) self.base.motion.y += water_jump;
     } else if (self.base.on_ground and jump) {
         self.base.motion.y = jump_velocity;
+        self.jumped = true;
     }
 
     const speed: f64 = if (self.base.in_water)
@@ -124,6 +128,7 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
         if (self.air == -20) {
             self.air = 0;
             self.health = @max(0, self.health - drown_damage);
+            self.damage_taken += drown_damage;
         }
         return;
     }

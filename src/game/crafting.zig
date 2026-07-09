@@ -229,6 +229,16 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
     return null;
 }
 
+pub fn isCraftable(id: world.Id) bool {
+    for (recipes) |recipe| {
+        if (recipe.output_id.eql(id)) return true;
+    }
+    for (shapeless_recipes) |recipe| {
+        if (recipe.output_id.eql(id)) return true;
+    }
+    return false;
+}
+
 pub fn consume(grid: []?Inventory.ItemStack) void {
     for (grid) |*slot| {
         if (slot.*) |*stack| {

@@ -22,6 +22,7 @@ pub const inventory_screen = @import("inventory_screen.zig");
 pub const crafting_screen = @import("crafting_screen.zig");
 pub const button = @import("button.zig");
 pub const menu = @import("menu.zig");
+pub const stats_screen = @import("stats_screen.zig");
 pub const title_screen = @import("title_screen.zig");
 pub const options_screen = @import("options_screen.zig");
 pub const video_settings_screen = @import("video_settings_screen.zig");
@@ -58,6 +59,7 @@ test {
     _ = crafting_screen;
     _ = button;
     _ = menu;
+    _ = stats_screen;
     _ = title_screen;
     _ = options_screen;
     _ = video_settings_screen;

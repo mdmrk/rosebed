@@ -10,6 +10,8 @@ pub const FallingBlock = @import("falling_block.zig");
 pub const Pig = @import("pig.zig");
 pub const crafting = @import("crafting.zig");
 pub const Settings = @import("settings.zig");
+pub const stats = @import("stats.zig");
+pub const stats_file = @import("stats_file.zig");
 
 test {
     _ = Entity;
@@ -24,4 +26,6 @@ test {
     _ = Pig;
     _ = crafting;
     _ = Settings;
+    _ = stats;
+    _ = stats_file;
 }

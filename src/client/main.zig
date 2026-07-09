@@ -127,6 +127,9 @@ const AppState = struct {
     needs_spawn: bool = false,
     spawn: [3]i32 = .{ 0, 64, 0 },
     ticks_since_save: u32 = 0,
+    stats: game.stats.Stats = .{},
+    stats_open: bool = false,
+    stats_view: render.stats_screen.State = .{},
 };
 
 const Screen = enum { title, select_world, create_world, confirm_delete, loading, playing };
@@ -335,6 +338,9 @@ pub fn init(
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
 
+    app_state.stats = try game.stats_file.load(gpa, io, game.stats_file.default_username);
+    errdefer app_state.stats.deinit(gpa);
+
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
     app_state.splash = pickSplash(&app_state.world_map.rand);
 
@@ -477,6 +483,7 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
+    try app_state.stats.mine(app_state.gpa, block_id);
     try app_state.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
@@ -534,6 +541,7 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     );
     const remaining = held.count - drop_count;
     app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
+    try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
 
 fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType) void {
@@ -563,7 +571,7 @@ fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type:
     }
 }
 
-fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size: u8) void {
+fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size: u8) !void {
     const result = game.crafting.findMatch(grid, size) orelse return;
     if (app_state.held_stack) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return;
@@ -573,6 +581,7 @@ fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size
         app_state.held_stack = result;
     }
     game.crafting.consume(grid);
+    try app_state.stats.craft(app_state.gpa, result.id, result.count);
 }
 
 fn containerClickAt(
@@ -593,7 +602,7 @@ fn containerClickAt(
     switch (slot.kind) {
         .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type),
         .craft_input => slotClick(app_state, &grid[slot.index], click_type),
-        .craft_result => resultSlotClick(app_state, grid, size),
+        .craft_result => try resultSlotClick(app_state, grid, size),
     }
 }
 
@@ -618,6 +627,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
             stack,
         );
         slot.* = null;
+        try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
     }
 }
 
@@ -662,6 +672,8 @@ fn togglePause(app_state: *AppState) !void {
 }
 
 fn quitToTitle(app_state: *AppState) !void {
+    try app_state.stats.add(app_state.gpa, .{ .general = .leave_game }, 1);
+    game.stats_file.save(app_state.gpa, app_state.io, game.stats_file.default_username, &app_state.stats) catch {};
     if (app_state.save_handle != null) try saveWorld(app_state);
     closeWorld(app_state);
     app_state.screen = .title;
@@ -791,6 +803,9 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
         .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),
     };
+
+    try app_state.stats.add(app_state.gpa, .{ .general = if (stored == null) .create_world else .load_world }, 1);
+    try app_state.stats.add(app_state.gpa, .{ .general = .start_game }, 1);
 
     app_state.needs_spawn = true;
     if (stored) |info| {
@@ -993,8 +1008,33 @@ fn pauseMenuClick(app_state: *AppState) !void {
     const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     switch (action) {
         .resume_game => try togglePause(app_state),
+        .statistics => try openStats(app_state),
         .options => try openOptions(app_state, .pause),
         .quit_to_title => try quitToTitle(app_state),
+    }
+}
+
+fn openStats(app_state: *AppState) !void {
+    app_state.stats_view.deinit(app_state.gpa);
+    app_state.stats_view = try render.stats_screen.State.init(app_state.gpa, &app_state.stats);
+    app_state.stats_open = true;
+}
+
+fn closeStats(app_state: *AppState) void {
+    app_state.stats_view.deinit(app_state.gpa);
+    app_state.stats_open = false;
+}
+
+fn statsClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.stats_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view) orelse return;
+    switch (hit) {
+        .done => closeStats(app_state),
+        .tab => |tab| app_state.stats_view.tab = tab,
+        .header => |column| {
+            app_state.stats_view.pressed = column;
+            render.stats_screen.applySort(&app_state.stats_view, &app_state.stats, column);
+        },
     }
 }
 
@@ -1073,9 +1113,42 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.meta);
+    try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try checkFall(app_state, px, py, pz);
     try applyBlockChanges(app_state);
+}
+
+fn centimetres(value: f64) i32 {
+    return @intFromFloat(@round(@as(f32, @floatCast(value)) * 100.0));
+}
+
+fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
+    const gpa = app_state.gpa;
+    const player = &app_state.player;
+
+    try app_state.stats.add(gpa, .{ .general = .minutes_played }, 1);
+    if (player.jumped) try app_state.stats.add(gpa, .{ .general = .jump }, 1);
+    if (player.damage_taken > 0) {
+        try app_state.stats.add(gpa, .{ .general = .damage_taken }, player.damage_taken);
+        player.damage_taken = 0;
+    }
+
+    const dx = player.base.position.x - before.x;
+    const dy = player.base.position.y - before.y;
+    const dz = player.base.position.z - before.z;
+    const horizontal = centimetres(@sqrt(dx * dx + dz * dz));
+
+    if (player.isSubmerged(&app_state.world_map)) {
+        const travelled = centimetres(@sqrt(dx * dx + dy * dy + dz * dz));
+        if (travelled > 0) try app_state.stats.add(gpa, .{ .general = .distance_dove }, travelled);
+    } else if (player.base.in_water) {
+        if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_swum }, horizontal);
+    } else if (player.base.on_ground) {
+        if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_walked }, horizontal);
+    } else if (horizontal > 25) {
+        try app_state.stats.add(gpa, .{ .general = .distance_flown }, horizontal);
+    }
 }
 
 fn tick(app_state: *AppState) !void {
@@ -1084,7 +1157,9 @@ fn tick(app_state: *AppState) !void {
     const moving_allowed = !containerOpen(app_state);
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
+    const before_move = app_state.player.base.position;
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
+    try recordPlayerTick(app_state, before_move);
     app_state.player.tickSwing();
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
@@ -1511,6 +1586,10 @@ pub fn iterate(
         try render.video_settings_screen.draw(ui, app_state.settings, backdrop);
     } else if (app_state.options_open) {
         try render.options_screen.draw(ui, app_state.settings, backdrop);
+    } else if (app_state.stats_open) {
+        const view = &app_state.stats_view;
+        view.scroll.set(view.tab, render.stats_screen.clampScroll(gui, view.*, view.scrollOf()));
+        try render.stats_screen.draw(ui, view.*, &app_state.stats);
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.screen == .select_world) {
@@ -1599,6 +1678,11 @@ pub fn event(
             if (k.key == .escape) app_state.video_open = false;
         } else if (app_state.options_open) {
             if (k.key == .escape) try closeOptions(app_state);
+        } else if (app_state.stats_open) {
+            if (k.key == .escape) {
+                closeStats(app_state);
+                try togglePause(app_state);
+            }
         } else if (app_state.screen == .select_world) {
             if (k.key == .escape) {
                 app_state.screen = .title;
@@ -1646,6 +1730,10 @@ pub fn event(
         },
         .mouse_wheel => |w| if (worldFocused(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
+        } else if (app_state.stats_open) {
+            const view = &app_state.stats_view;
+            const step = render.stats_screen.scrollStep(view.tab);
+            view.scroll.set(view.tab, render.stats_screen.clampScroll(guiSize(app_state), view.*, view.scrollOf() - w.scroll_y * step));
         } else if (app_state.screen == .select_world) {
             const limit = render.select_world_screen.maxScroll(guiSize(app_state), app_state.summaries.len);
             app_state.list_scroll = std.math.clamp(app_state.list_scroll - w.scroll_y * render.select_world_screen.entry_height, 0, limit);
@@ -1661,6 +1749,8 @@ pub fn event(
                 try videoClick(app_state);
             } else if (app_state.options_open) {
                 try optionsClick(app_state);
+            } else if (app_state.stats_open) {
+                try statsClick(app_state);
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
@@ -1684,7 +1774,7 @@ pub fn event(
                 app_state.mouse_left_down = true;
                 app_state.player.swingItem();
             },
-            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
+            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
             } else {
                 try useBlockOrPlace(app_state);
@@ -1696,6 +1786,7 @@ pub fn event(
             .left => {
                 app_state.mouse_left_down = false;
                 app_state.dragging_slider = null;
+                app_state.stats_view.pressed = null;
             },
             else => {},
         },
@@ -1712,6 +1803,9 @@ pub fn quit(
 
     if (app_state) |state| {
         gl.makeProcTableCurrent(&state.gl_procs);
+        game.stats_file.save(state.gpa, state.io, game.stats_file.default_username, &state.stats) catch {};
+        state.stats_view.deinit(state.gpa);
+        state.stats.deinit(state.gpa);
         if (state.save_handle != null) saveWorld(state) catch {};
         if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
         world.save.freeList(state.gpa, state.summaries);

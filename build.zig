@@ -56,6 +56,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "math", .module = math_mod },
             .{ .name = "world", .module = world_mod },
+            .{ .name = "assets", .module = assets_mod },
         },
     });
 
