@@ -119,14 +119,18 @@ pub fn formatDetail(buffer: []u8, folder: []const u8, last_played: i64, size_byt
     const year_day = day.calculateYearDay();
     const month_day = year_day.calculateMonthDay();
     const day_seconds = epoch.getDaySeconds();
+    const hours = day_seconds.getMinutesIntoHour();
+    const am_or_pm = if (hours > 12) "PM" else "AM";
+    const hours_12_format = if (hours > 12) hours - 12 else hours;
 
-    return std.fmt.bufPrint(buffer, "{s} ({d}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}, {d:.2} MB)", .{
+    return std.fmt.bufPrint(buffer, "{s} ({d}/{d}/{d:0>2} {d}:{d:0>2} {s}, {d:.2} MB)", .{
         folder,
-        year_day.year,
         month_day.month.numeric(),
         month_day.day_index + 1,
-        day_seconds.getHoursIntoDay(),
+        year_day.year % 100,
+        hours_12_format,
         day_seconds.getMinutesIntoHour(),
+        am_or_pm,
         megabytes,
     }) catch folder;
 }
@@ -291,7 +295,7 @@ test "the detail line shows the folder, a date and a size" {
     var buffer: [96]u8 = undefined;
     const detail = formatDetail(&buffer, "My World", 1700000000, 3 * 1024 * 1024);
     try std.testing.expect(std.mem.startsWith(u8, detail, "My World ("));
-    try std.testing.expect(std.mem.indexOf(u8, detail, "2023-11-14") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "11/14/23") != null);
     try std.testing.expect(std.mem.indexOf(u8, detail, "3.00 MB") != null);
 }
 
