@@ -21,7 +21,7 @@ const tooltip_offset_y: f32 = -12;
 const tooltip_padding: f32 = 3;
 const tooltip_line_height: f32 = 8;
 
-pub const SlotKind = enum { inventory, craft_input, craft_result };
+pub const SlotKind = enum { inventory, craft_input, craft_result, armor };
 pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 pub const Label = struct { text: []const u8, x: f32, y: f32 };
 
@@ -117,16 +117,19 @@ pub fn drawContents(
     defer block_icons.deinit(ui.gpa);
     var item_icons: MeshBuilder = .{};
     defer item_icons.deinit(ui.gpa);
+    var bars: MeshBuilder = .{};
+    defer bars.deinit(ui.gpa);
     var text: MeshBuilder = .{};
     defer text.deinit(ui.gpa);
 
     for (slots, stacks) |slot, maybe_stack| {
         const stack = maybe_stack orelse continue;
-        try gui.appendStackIcon(&block_icons, &item_icons, &text, ui.gpa, ui.font, stack, org[0] + slot.x, org[1] + slot.y, ui.res);
+        try gui.appendStackIcon(&block_icons, &item_icons, &bars, &text, ui.gpa, ui.font, stack, org[0] + slot.x, org[1] + slot.y, ui.res);
     }
 
     try gui.drawTexturedMesh(&block_icons, ui.shader, ui.textures.terrain);
     try gui.drawTexturedMesh(&item_icons, ui.shader, ui.textures.items);
+    try gui.drawColorMesh(&bars, ui.shader);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
     const hovered = slotAt(slots, ui.mouse_x, ui.mouse_y, ui.res);
@@ -147,11 +150,14 @@ pub fn drawContents(
         defer cursor_blocks.deinit(ui.gpa);
         var cursor_items: MeshBuilder = .{};
         defer cursor_items.deinit(ui.gpa);
+        var cursor_bars: MeshBuilder = .{};
+        defer cursor_bars.deinit(ui.gpa);
         const hx = ui.mouse_x / ui.res.factor - gui.icon_size / 2.0;
         const hy = ui.mouse_y / ui.res.factor - gui.icon_size / 2.0;
-        try gui.appendStackIcon(&cursor_blocks, &cursor_items, &foreground, ui.gpa, ui.font, stack, hx, hy, ui.res);
+        try gui.appendStackIcon(&cursor_blocks, &cursor_items, &cursor_bars, &foreground, ui.gpa, ui.font, stack, hx, hy, ui.res);
         try gui.drawTexturedMesh(&cursor_blocks, ui.shader, ui.textures.terrain);
         try gui.drawTexturedMesh(&cursor_items, ui.shader, ui.textures.items);
+        try gui.drawColorMesh(&cursor_bars, ui.shader);
     }
 
     for (labels) |label| {

@@ -51,6 +51,13 @@ pub const Material = enum {
     pub fn isSolid(self: Material) bool {
         return self.blocksGrass() and !self.isLiquid();
     }
+
+    pub fn isHarvestable(self: Material) bool {
+        return switch (self) {
+            .rock, .iron, .snow, .built_snow => false,
+            else => true,
+        };
+    }
 };
 
 pub const Shape = union(enum) {
@@ -95,13 +102,36 @@ fn plantBounds(half_width: f32, height: f32) Bounds {
 pub const Stack = struct {
     id: Id,
     count: u8,
-    meta: u4 = 0,
+    meta: u16 = 0,
 
     pub fn displayName(self: Stack) []const u8 {
         return switch (self.id) {
             .block => |id| id.displayName(),
             .item => |id| id.displayName(self.meta),
         };
+    }
+
+    pub fn blockMeta(self: Stack) u4 {
+        return @truncate(self.meta);
+    }
+
+    pub fn maxDamage(self: Stack) u16 {
+        return switch (self.id) {
+            .block => 0,
+            .item => |id| id.maxDamage(),
+        };
+    }
+
+    pub fn isDamaged(self: Stack) bool {
+        return self.maxDamage() > 0 and self.meta > 0;
+    }
+
+    pub fn damage(self: *Stack, amount: u16) void {
+        if (self.maxDamage() == 0) return;
+        self.meta += amount;
+        if (self.meta <= self.maxDamage()) return;
+        self.count -|= 1;
+        self.meta = 0;
     }
 };
 
@@ -113,6 +143,13 @@ pub const Id = union(enum) {
         return switch (self) {
             .block => |b| other == .block and other.block == b,
             .item => |i| other == .item and other.item == i,
+        };
+    }
+
+    pub fn maxStackSize(self: Id) u8 {
+        return switch (self) {
+            .block => 64,
+            .item => |id| id.maxStackSize(),
         };
     }
 };
@@ -416,18 +453,28 @@ pub const Block = enum(u8) {
         };
     }
 
-    fn isHarvestableByHand(self: Block) bool {
-        return switch (self.material()) {
-            .rock, .iron => false,
-            else => true,
+    pub fn harvestableWith(self: Block, held: ?Stack) bool {
+        if (self.material().isHarvestable()) return true;
+        const stack = held orelse return false;
+        return switch (stack.id) {
+            .block => false,
+            .item => |id| id.canHarvestBlock(self),
         };
     }
 
-    pub fn digTicksRequired(self: Block) ?f32 {
+    pub fn strVsBlock(self: Block, held: ?Stack) f32 {
+        const stack = held orelse return 1.0;
+        return switch (stack.id) {
+            .block => 1.0,
+            .item => |id| id.strVsBlock(self),
+        };
+    }
+
+    pub fn strength(self: Block, held: ?Stack, speed_factor: f32) f32 {
         const h = self.hardness();
-        if (h < 0.0) return null;
-        const divisor: f32 = if (self.isHarvestableByHand()) 30.0 else 100.0;
-        return h * divisor;
+        if (h < 0.0) return 0.0;
+        if (!self.harvestableWith(held)) return 1.0 / h / 100.0;
+        return self.strVsBlock(held) * speed_factor / h / 30.0;
     }
 
     pub fn displayName(self: Block) []const u8 {
@@ -574,18 +621,108 @@ test "shape carries the partial height instead of a separate lookup" {
     try std.testing.expectEqual(@as(f32, 1.0), Block.stone.heightScale());
 }
 
-test "digTicksRequired matches hardness*30 for hand-harvestable blocks" {
-    try std.testing.expectApproxEqAbs(@as(f32, 15.0), Block.dirt.digTicksRequired().?, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 60.0), Block.log.digTicksRequired().?, 1.0e-6);
+fn digTicks(id: Block, held: ?Stack) f32 {
+    return 1.0 / id.strength(held, 1.0);
 }
 
-test "digTicksRequired matches hardness*100 for blocks needing a tool" {
-    try std.testing.expectApproxEqAbs(@as(f32, 150.0), Block.stone.digTicksRequired().?, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 300.0), Block.ore_diamond.digTicksRequired().?, 1.0e-6);
+test "bare hands take hardness*30 ticks on a hand-harvestable block" {
+    try std.testing.expectApproxEqAbs(@as(f32, 15.0), digTicks(.dirt, null), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 60.0), digTicks(.log, null), 1.0e-4);
+}
+
+test "bare hands take hardness*100 on a block that needs a tool, and drop nothing" {
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, null), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 300.0), digTicks(.ore_diamond, null), 1.0e-4);
+    try std.testing.expect(!Block.stone.harvestableWith(null));
+    try std.testing.expect(!Block.ore_diamond.harvestableWith(null));
+}
+
+test "an effective tool divides the dig time by its material's efficiency" {
+    const wood: Stack = .{ .id = .{ .item = .pickaxe_wood }, .count = 1 };
+    const diamond: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 22.5), digTicks(.stone, wood), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 5.625), digTicks(.stone, diamond), 1.0e-4);
+}
+
+test "the wrong tool still harvests rock, only no faster than a hand" {
+    const shovel: Stack = .{ .id = .{ .item = .shovel_iron }, .count = 1 };
+    try std.testing.expect(!Block.stone.harvestableWith(shovel));
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, shovel), 1.0e-4);
+
+    const axe: Stack = .{ .id = .{ .item = .axe_diamond }, .count = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 7.5), digTicks(.log, axe), 1.0e-4);
+}
+
+test "an ore only drops for a pickaxe at or above its harvest level" {
+    const wood: Stack = .{ .id = .{ .item = .pickaxe_wood }, .count = 1 };
+    const stone: Stack = .{ .id = .{ .item = .pickaxe_stone }, .count = 1 };
+    const iron: Stack = .{ .id = .{ .item = .pickaxe_iron }, .count = 1 };
+    const diamond: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
+
+    try std.testing.expect(Block.stone.harvestableWith(wood));
+    try std.testing.expect(Block.ore_coal.harvestableWith(wood));
+    try std.testing.expect(!Block.ore_iron.harvestableWith(wood));
+    try std.testing.expect(Block.ore_iron.harvestableWith(stone));
+    try std.testing.expect(!Block.ore_diamond.harvestableWith(stone));
+    try std.testing.expect(Block.ore_diamond.harvestableWith(iron));
+    try std.testing.expect(!Block.obsidian.harvestableWith(iron));
+    try std.testing.expect(Block.obsidian.harvestableWith(diamond));
+}
+
+test "swimming or airborne slows a tool down, but not a bare-handed dig" {
+    const pickaxe: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 28.125), 1.0 / Block.stone.strength(pickaxe, 0.2), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), 1.0 / Block.stone.strength(null, 0.2), 1.0e-4);
+}
+
+test "a gold pickaxe digs fastest but harvests least, matching its level of zero" {
+    const gold: Stack = .{ .id = .{ .item = .pickaxe_gold }, .count = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 3.75), digTicks(.stone, gold), 1.0e-4);
+    try std.testing.expect(!Block.ore_iron.harvestableWith(gold));
+}
+
+test "snow only drops for a shovel, which is the one thing a shovel harvests" {
+    const shovel: Stack = .{ .id = .{ .item = .shovel_wood }, .count = 1 };
+    const pickaxe: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
+    try std.testing.expect(!Block.snow_layer.harvestableWith(null));
+    try std.testing.expect(!Block.snow_block.harvestableWith(pickaxe));
+    try std.testing.expect(Block.snow_layer.harvestableWith(shovel));
+    try std.testing.expect(Block.snow_block.harvestableWith(shovel));
+}
+
+test "a sword digs everything at 1.5x, but not what it cannot harvest" {
+    const sword: Stack = .{ .id = .{ .item = .sword_diamond }, .count = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 10.0), digTicks(.dirt, sword), 1.0e-4);
+    try std.testing.expect(!Block.stone.harvestableWith(sword));
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, sword), 1.0e-4);
 }
 
 test "bedrock is unbreakable" {
-    try std.testing.expect(Block.bedrock.digTicksRequired() == null);
+    try std.testing.expectEqual(@as(f32, 0.0), Block.bedrock.strength(null, 1.0));
+}
+
+test "a stack wears out after exactly its material's uses" {
+    var pickaxe: Stack = .{ .id = .{ .item = .pickaxe_wood }, .count = 1 };
+    for (0..59) |_| pickaxe.damage(1);
+    try std.testing.expectEqual(@as(u8, 1), pickaxe.count);
+    try std.testing.expectEqual(@as(u16, 59), pickaxe.meta);
+    pickaxe.damage(1);
+    try std.testing.expectEqual(@as(u8, 0), pickaxe.count);
+    try std.testing.expectEqual(@as(u16, 0), pickaxe.meta);
+}
+
+test "an undamageable stack ignores wear, so block metadata survives" {
+    var log: Stack = .{ .id = .{ .block = .log }, .count = 5, .meta = 2 };
+    log.damage(3);
+    try std.testing.expectEqual(@as(u16, 2), log.meta);
+    try std.testing.expectEqual(@as(u8, 5), log.count);
+}
+
+test "only tools and armour stack alone" {
+    try std.testing.expectEqual(@as(u8, 1), (Id{ .item = .pickaxe_iron }).maxStackSize());
+    try std.testing.expectEqual(@as(u8, 1), (Id{ .item = .chestplate_diamond }).maxStackSize());
+    try std.testing.expectEqual(@as(u8, 64), (Id{ .item = .ingot_iron }).maxStackSize());
+    try std.testing.expectEqual(@as(u8, 64), (Id{ .block = .stone }).maxStackSize());
 }
 
 test "snow layers are thin and non-opaque, unlike regular blocks" {
@@ -813,13 +950,13 @@ test "snow blocks and glowstone drop their item form, wool keeps its colour" {
 
     const wool = Block.wool.drop(9, &rand).?;
     try std.testing.expectEqual(Id{ .block = .wool }, wool.id);
-    try std.testing.expectEqual(@as(u4, 9), wool.meta);
+    try std.testing.expectEqual(@as(u16, 9), wool.meta);
 }
 
 test "rock and iron blocks need a tool, other new blocks do not" {
-    try std.testing.expectApproxEqAbs(@as(f32, 200.0), Block.brick.digTicksRequired().?, 1.0e-4);
-    try std.testing.expectApproxEqAbs(@as(f32, 500.0), Block.block_iron.digTicksRequired().?, 1.0e-4);
-    try std.testing.expectApproxEqAbs(@as(f32, 24.0), Block.wool.digTicksRequired().?, 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 200.0), digTicks(.brick, null), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 500.0), digTicks(.block_iron, null), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 24.0), digTicks(.wool, null), 1.0e-4);
 }
 
 test "liquids and plants are not solid, so nothing collides with them" {

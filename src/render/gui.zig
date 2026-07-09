@@ -318,9 +318,29 @@ pub fn appendBlockIcon3d(
     try appendIsoFace(mesh, gpa, iso_east_corners, textures.get(.east), iso_brightness_east, x, y, res);
 }
 
+fn appendDurabilityBar(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    stack: game.Inventory.ItemStack,
+    x: f32,
+    y: f32,
+    res: Scaled,
+) !void {
+    const wear = @as(f32, @floatFromInt(stack.meta)) / @as(f32, @floatFromInt(stack.maxDamage()));
+    const filled = @round(13.0 - wear * 13.0);
+    const green: u8 = @intFromFloat(@round(255.0 - wear * 255.0));
+
+    const bar_x = x + 2.0;
+    const bar_y = y + 13.0;
+    try appendRectColor(mesh, gpa, bar_x, bar_y, 13, 2, opaque_texel, .{ 0, 0, 0, 255 }, res);
+    try appendRectColor(mesh, gpa, bar_x, bar_y, 12, 1, opaque_texel, .{ (255 - green) / 4, 63, 0, 255 }, res);
+    try appendRectColor(mesh, gpa, bar_x, bar_y, filled, 1, opaque_texel, .{ 255 - green, green, 0, 255 }, res);
+}
+
 pub fn appendStackIcon(
     block_mesh: *MeshBuilder,
     item_mesh: *MeshBuilder,
+    bar_mesh: *MeshBuilder,
     text_mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     font: Font,
@@ -331,10 +351,10 @@ pub fn appendStackIcon(
 ) !void {
     switch (stack.id) {
         .block => |id| if (id.isCross()) {
-            const tile = id.crossTile(stack.meta);
+            const tile = id.crossTile(stack.blockMeta());
             try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
         } else {
-            try appendBlockIcon3d(block_mesh, gpa, id, stack.meta, x, y, res);
+            try appendBlockIcon3d(block_mesh, gpa, id, stack.blockMeta(), x, y, res);
         },
         .item => |id| if (id.iconTile()) |tile| {
             try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
@@ -347,4 +367,6 @@ pub fn appendStackIcon(
         const label_width: f32 = @floatFromInt(font.stringWidth(label));
         try appendText(text_mesh, gpa, font, label, x + 17.0 - label_width, y + 9.0, res);
     }
+
+    if (stack.isDamaged()) try appendDurabilityBar(bar_mesh, gpa, stack, x, y, res);
 }

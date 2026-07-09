@@ -394,14 +394,18 @@ fn digStep(app_state: *AppState) !void {
     }
 
     const block_id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
-    const ticks_required = block_id.digTicksRequired() orelse return;
-    if (ticks_required <= 0.0) {
+    const strength = block_id.strength(
+        app_state.player.inventory.selectedStack(),
+        app_state.player.digSpeedFactor(&app_state.world_map),
+    );
+    if (strength <= 0.0) return;
+    if (strength >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
         try applyBlockChanges(app_state);
         return;
     }
 
-    app_state.digging.?.progress += 1.0 / ticks_required;
+    app_state.digging.?.progress += strength;
     try app_state.entities.spawnBlockHitParticle(
         app_state.gpa,
         hit.x,
@@ -481,9 +485,27 @@ fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
 
+fn wearHeldItem(app_state: *AppState) !void {
+    const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
+    if (slot.*) |*stack| {
+        const cost = switch (stack.id) {
+            .block => return,
+            .item => |id| if (id.tool()) |t| t.blockDestroyedCost() else 0,
+        };
+        if (cost == 0) return;
+
+        try app_state.stats.use(app_state.gpa, stack.id);
+        stack.damage(cost);
+        if (stack.count == 0) {
+            try app_state.stats.deplete(app_state.gpa, stack.id);
+            slot.* = null;
+        }
+    }
+}
+
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     const meta = app_state.world_map.getBlockMetadata(x, y, z);
-    try app_state.stats.mine(app_state.gpa, block_id);
+    const harvested = block_id.harvestableWith(app_state.player.inventory.selectedStack());
     try app_state.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
@@ -493,10 +515,16 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         particleTint(app_state, block_id, x, y, z),
         &app_state.world_map.rand,
     );
-    const dropped = block_id.drop(meta, &app_state.world_map.rand);
     try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
     app_state.digging = null;
-    if (dropped) |d| try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+    try wearHeldItem(app_state);
+
+    if (harvested) {
+        try app_state.stats.mine(app_state.gpa, block_id);
+        if (block_id.drop(meta, &app_state.world_map.rand)) |d| {
+            try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+        }
+    }
     try checkFall(app_state, x, y + 1, z);
 }
 
@@ -544,15 +572,30 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
 
-fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType) void {
+const SlotRules = struct {
+    armor: ?world.item.ArmorSlot = null,
+
+    fn accepts(self: SlotRules, stack: game.Inventory.ItemStack) bool {
+        const piece = self.armor orelse return true;
+        return game.Inventory.fitsArmorSlot(stack, piece);
+    }
+
+    fn limit(self: SlotRules, stack: game.Inventory.ItemStack) u8 {
+        if (self.armor != null) return 1;
+        return stack.id.maxStackSize();
+    }
+};
+
+fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType, rules: SlotRules) void {
     if (slot.*) |*existing| {
         if (app_state.held_stack) |*held| {
             if (existing.id.eql(held.id) and existing.meta == held.meta) {
-                const amount = @min(if (click_type == .left) held.count else 1, game.Inventory.max_stack_size - existing.count);
+                const amount = @min(if (click_type == .left) held.count else 1, rules.limit(existing.*) -| existing.count);
                 existing.count += amount;
                 held.count -= amount;
                 if (held.count == 0) app_state.held_stack = null;
             } else {
+                if (!rules.accepts(held.*)) return;
                 const swapped = existing.*;
                 slot.* = held.*;
                 app_state.held_stack = swapped;
@@ -564,7 +607,8 @@ fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type:
             if (existing.count == 0) slot.* = null;
         }
     } else if (app_state.held_stack) |*held| {
-        const amount = if (click_type == .left) held.count else 1;
+        if (!rules.accepts(held.*)) return;
+        const amount = @min(if (click_type == .left) held.count else 1, rules.limit(held.*));
         slot.* = .{ .id = held.id, .count = amount, .meta = held.meta };
         held.count -= amount;
         if (held.count == 0) app_state.held_stack = null;
@@ -575,7 +619,7 @@ fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size
     const result = game.crafting.findMatch(grid, size) orelse return;
     if (app_state.held_stack) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return;
-        if (@as(u16, held.count) + result.count > game.Inventory.max_stack_size) return;
+        if (@as(u16, held.count) + result.count > result.id.maxStackSize()) return;
         held.count += result.count;
     } else {
         app_state.held_stack = result;
@@ -600,9 +644,15 @@ fn containerClickAt(
     };
     const slot = slots[index];
     switch (slot.kind) {
-        .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type),
-        .craft_input => slotClick(app_state, &grid[slot.index], click_type),
+        .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type, .{}),
+        .craft_input => slotClick(app_state, &grid[slot.index], click_type, .{}),
         .craft_result => try resultSlotClick(app_state, grid, size),
+        .armor => slotClick(
+            app_state,
+            &app_state.player.inventory.armor[slot.index],
+            click_type,
+            .{ .armor = @enumFromInt(slot.index) },
+        ),
     }
 }
 
@@ -1112,7 +1162,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
-    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.meta);
+    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.blockMeta());
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try checkFall(app_state, px, py, pz);

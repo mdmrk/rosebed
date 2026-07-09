@@ -98,7 +98,7 @@ pub fn appendItem(
     };
 
     if (id.isCross()) {
-        const tile = id.crossTile(item.stack.meta);
+        const tile = id.crossTile(item.stack.blockMeta());
         const Cross = struct {
             var shape_tile: u8 = 0;
             fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {

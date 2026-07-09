@@ -192,7 +192,7 @@ pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
     };
     if (id == .air) return null;
     if (id.isCross()) {
-        return .{ .sprite = .{ .tile = id.crossTile(held.meta), .atlas = .terrain } };
+        return .{ .sprite = .{ .tile = id.crossTile(held.blockMeta()), .atlas = .terrain } };
     }
     return .{ .cube = id };
 }

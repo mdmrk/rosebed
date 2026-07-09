@@ -1,6 +1,7 @@
 const std = @import("std");
 const gl = @import("gl");
 const game = @import("game");
+const world = @import("world");
 
 const MeshBuilder = @import("mesh_builder.zig");
 const MobModel = @import("mob_model.zig");
@@ -21,9 +22,12 @@ const craft_grid_x: f32 = 88;
 const craft_grid_y: f32 = 26;
 const craft_result_x: f32 = 144;
 const craft_result_y: f32 = 36;
+const armor_x: f32 = 8;
+const armor_y: f32 = 8;
 
 const grid_size = game.crafting.player_grid_size;
-pub const slot_count = 1 + grid_size * grid_size + container.player_slot_count;
+const armor_size = game.Inventory.armor_size;
+pub const slot_count = 1 + grid_size * grid_size + armor_size + container.player_slot_count;
 
 pub fn slots() [slot_count]container.Slot {
     var result: [slot_count]container.Slot = undefined;
@@ -40,6 +44,15 @@ pub fn slots() [slot_count]container.Slot {
             };
             n += 1;
         }
+    }
+    for (0..armor_size) |piece| {
+        result[n] = .{
+            .x = armor_x,
+            .y = armor_y + @as(f32, @floatFromInt(piece)) * container.slot_pitch,
+            .kind = .armor,
+            .index = piece,
+        };
+        n += 1;
     }
     container.appendPlayerSlots(result[n..]);
     return result;
@@ -115,6 +128,7 @@ pub fn draw(
             .inventory => inventory.slots[slot.index],
             .craft_input => crafting_grid[slot.index],
             .craft_result => craft_result,
+            .armor => inventory.armor[slot.index],
         };
     }
 
@@ -122,4 +136,17 @@ pub fn draw(
         .{ .text = "Crafting", .x = label_x, .y = label_y },
     }, held);
     container.end();
+}
+
+test "the armour column sits where ContainerPlayer puts it, helmet at the top" {
+    const layout = slots();
+    var found: usize = 0;
+    for (layout) |slot| {
+        if (slot.kind != .armor) continue;
+        try std.testing.expectEqual(@as(f32, 8), slot.x);
+        try std.testing.expectEqual(@as(f32, 8) + @as(f32, @floatFromInt(slot.index)) * container.slot_pitch, slot.y);
+        found += 1;
+    }
+    try std.testing.expectEqual(armor_size, found);
+    try std.testing.expectEqual(@as(usize, @intFromEnum(world.item.ArmorSlot.helmet)), layout[5].index);
 }

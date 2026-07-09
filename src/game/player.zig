@@ -25,6 +25,7 @@ camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
 jumped: bool = false,
 damage_taken: i32 = 0,
+damage_remainder: i32 = 0,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -127,12 +128,26 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
         self.air -= 1;
         if (self.air == -20) {
             self.air = 0;
-            self.health = @max(0, self.health - drown_damage);
             self.damage_taken += drown_damage;
+            self.hurt(drown_damage);
         }
         return;
     }
     self.air = max_air;
+}
+
+pub fn hurt(self: *Player, amount: i32) void {
+    const scaled = amount * (25 - self.inventory.totalArmorValue()) + self.damage_remainder;
+    self.inventory.damageArmor(@intCast(amount));
+    self.damage_remainder = @rem(scaled, 25);
+    self.health = @max(0, self.health - @divTrunc(scaled, 25));
+}
+
+pub fn digSpeedFactor(self: Player, world_map: *const world.World) f32 {
+    var factor: f32 = 1.0;
+    if (self.isSubmerged(world_map)) factor /= 5.0;
+    if (!self.base.on_ground) factor /= 5.0;
+    return factor;
 }
 
 fn turnFactor(sensitivity: f32) f32 {
@@ -505,6 +520,36 @@ test "air holds for 300 ticks underwater and then drowning starts" {
     for (0..20) |_| player.updateAir(&w);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(i32, 0), player.air);
+}
+
+test "a full diamond suit soaks four fifths of a hit and wears down doing it" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    inline for (.{ .helmet, .chestplate, .leggings, .boots }, .{
+        world.Item.helmet_diamond,
+        world.Item.chestplate_diamond,
+        world.Item.leggings_diamond,
+        world.Item.boots_diamond,
+    }) |slot, id| {
+        player.inventory.armorSlot(slot).* = .{ .id = .{ .item = id }, .count = 1 };
+    }
+    try std.testing.expectEqual(@as(i32, 20), player.inventory.totalArmorValue());
+
+    player.hurt(10);
+    try std.testing.expectEqual(@as(i32, 18), player.health);
+    try std.testing.expectEqual(@as(u16, 10), player.inventory.armorSlot(.helmet).*.?.meta);
+}
+
+test "the twenty-fifths armour rounds away carry into the next hit" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.inventory.armorSlot(.chestplate).* = .{ .id = .{ .item = .chestplate_iron }, .count = 1 };
+
+    player.hurt(2);
+    try std.testing.expectEqual(@as(i32, 19), player.health);
+    try std.testing.expectEqual(@as(i32, 9), player.damage_remainder);
+
+    player.hurt(2);
+    try std.testing.expectEqual(@as(i32, 18), player.health);
+    try std.testing.expectEqual(@as(i32, 20), player.damage_remainder);
 }
 
 test "surfacing refills the air supply immediately" {

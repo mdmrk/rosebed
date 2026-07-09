@@ -320,6 +320,8 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
     defer block_icons.deinit(ui.gpa);
     var item_icons: MeshBuilder = .{};
     defer item_icons.deinit(ui.gpa);
+    var bars: MeshBuilder = .{};
+    defer bars.deinit(ui.gpa);
     var row_text: MeshBuilder = .{};
     defer row_text.deinit(ui.gpa);
 
@@ -381,6 +383,7 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
             try gui.appendStackIcon(
                 &block_icons,
                 &item_icons,
+                &bars,
                 &row_text,
                 ui.gpa,
                 ui.font,
@@ -409,6 +412,7 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
     try gui.drawTexturedMesh(&sprites, ui.shader, ui.textures.slot);
     try gui.drawTexturedMesh(&block_icons, ui.shader, ui.textures.terrain);
     try gui.drawTexturedMesh(&item_icons, ui.shader, ui.textures.items);
+    try gui.drawColorMesh(&bars, ui.shader);
     try gui.drawTexturedMesh(&row_text, ui.shader, ui.font);
 
     var bands: MeshBuilder = .{};

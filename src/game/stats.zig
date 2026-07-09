@@ -206,7 +206,10 @@ pub fn registered(stat: Key) bool {
         .mined => |id| tracksMining(id),
         .used => true,
         .crafted => |id| crafting.isCraftable(id),
-        .depleted => false,
+        .depleted => |id| switch (id) {
+            .block => false,
+            .item => |value| value.isDamageable(),
+        },
     };
 }
 
@@ -245,6 +248,10 @@ pub const Stats = struct {
 
     pub fn craft(self: *Stats, gpa: std.mem.Allocator, id: world.Id, count: u8) !void {
         try self.add(gpa, .{ .crafted = canonical(id) }, count);
+    }
+
+    pub fn deplete(self: *Stats, gpa: std.mem.Allocator, id: world.Id) !void {
+        try self.add(gpa, .{ .depleted = canonical(id) }, 1);
     }
 };
 
@@ -540,4 +547,11 @@ test "the general list keeps StatList's registration order" {
     try std.testing.expectEqual(General.minutes_played, values[5]);
     try std.testing.expectEqual(General.distance_walked, values[6]);
     try std.testing.expectEqual(General.fish_caught, values[values.len - 1]);
+}
+
+test "only damageable items register a depleted count, as StatList's filter does" {
+    try std.testing.expect(registered(.{ .depleted = .{ .item = .pickaxe_iron } }));
+    try std.testing.expect(registered(.{ .depleted = .{ .item = .helmet_gold } }));
+    try std.testing.expect(!registered(.{ .depleted = .{ .item = .ingot_iron } }));
+    try std.testing.expect(!registered(.{ .depleted = .{ .block = .stone } }));
 }

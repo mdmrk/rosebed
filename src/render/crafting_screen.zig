@@ -53,6 +53,7 @@ pub fn draw(
             .inventory => inventory.slots[slot.index],
             .craft_input => grid[slot.index],
             .craft_result => craft_result,
+            .armor => unreachable,
         };
     }
 
