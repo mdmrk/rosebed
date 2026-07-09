@@ -132,8 +132,12 @@ pub const Mesh = struct {
     }
 };
 
-pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [3]f32, face_textures: world.block.FaceTextures) !void {
-    try buildCubeColored(mesh, gpa, min, max, face_textures, null);
+fn pulledInward(coordinate: f32, normal: i32, inset: f32) f32 {
+    return coordinate - @as(f32, @floatFromInt(normal)) * inset;
+}
+
+pub fn buildCube(mesh: *MeshBuilder, gpa: std.mem.Allocator, min: [3]f32, max: [3]f32, face_textures: world.block.FaceTextures, inset: f32) !void {
+    try buildCubeColored(mesh, gpa, min, max, face_textures, inset, null);
 }
 
 pub fn buildCubeColored(
@@ -142,6 +146,7 @@ pub fn buildCubeColored(
     min: [3]f32,
     max: [3]f32,
     face_textures: world.block.FaceTextures,
+    inset: f32,
     color: ?[4]u8,
 ) !void {
     for (faces) |face| {
@@ -149,9 +154,9 @@ pub fn buildCubeColored(
         var positions: [4][3]f32 = undefined;
         for (face.corners, 0..) |corner, i| {
             positions[i] = .{
-                if (corner[0] == 0) min[0] else max[0],
+                pulledInward(if (corner[0] == 0) min[0] else max[0], face.normal[0], inset),
                 if (corner[1] == 0) min[1] else max[1],
-                if (corner[2] == 0) min[2] else max[2],
+                pulledInward(if (corner[2] == 0) min[2] else max[2], face.normal[2], inset),
             };
         }
         const uvs = [4][2]f32{
@@ -414,6 +419,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 }
 
                 const height_scale = id.heightScale();
+                const inset = id.sideInset();
 
                 for (faces) |face| {
                     const nx: i32 = @as(i32, @intCast(lx)) + face.normal[0];
@@ -424,7 +430,11 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     const uv = Atlas.tileUv(textures.get(face.side));
                     var positions: [4][3]f32 = undefined;
                     for (face.corners, 0..) |corner, i| {
-                        positions[i] = .{ bx + corner[0], by + corner[1] * height_scale, bz + corner[2] };
+                        positions[i] = .{
+                            pulledInward(bx + corner[0], face.normal[0], inset),
+                            by + corner[1] * height_scale,
+                            pulledInward(bz + corner[2], face.normal[2], inset),
+                        };
                     }
                     const uvs = [4][2]f32{
                         .{ uv.u1, uv.v1 },
@@ -506,6 +516,49 @@ test "a snow layer renders as a thin partial-height cube" {
         if (v.y > 2.0 and v.y < 3.0) max_y = @max(max_y, v.y);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 2.125), max_y, 1.0e-5);
+}
+
+test "a cactus pulls its four sides in by a sixteenth and keeps its top and bottom full" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.cactus);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    const near: f32 = 8.0 + 1.0 / 16.0;
+    const far: f32 = 9.0 - 1.0 / 16.0;
+
+    for (mesh.solid.vertices.items[0..8]) |v| {
+        try std.testing.expect(v.x == 8.0 or v.x == 9.0);
+        try std.testing.expect(v.z == 8.0 or v.z == 9.0);
+    }
+    for (mesh.solid.vertices.items[2 * 4 ..][0..4]) |v| {
+        try std.testing.expectApproxEqAbs(near, v.z, 1.0e-6);
+        try std.testing.expect(v.x == 8.0 or v.x == 9.0);
+        try std.testing.expect(v.y == 0.0 or v.y == 1.0);
+    }
+    for (mesh.solid.vertices.items[3 * 4 ..][0..4]) |v| try std.testing.expectApproxEqAbs(far, v.z, 1.0e-6);
+    for (mesh.solid.vertices.items[4 * 4 ..][0..4]) |v| try std.testing.expectApproxEqAbs(near, v.x, 1.0e-6);
+    for (mesh.solid.vertices.items[5 * 4 ..][0..4]) |v| try std.testing.expectApproxEqAbs(far, v.x, 1.0e-6);
+}
+
+test "a cactus leaves the top face of the sand under it visible" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.sand);
+    chunk.setBlock(8, 1, 8, world.Block.cactus);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, (6 + 5) * 4), mesh.solid.vertices.items.len);
 }
 
 test "a lone block emits all 6 faces" {

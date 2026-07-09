@@ -52,7 +52,7 @@ pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, 
         @as(f32, @floatFromInt(y)) + bounds.max[1],
         @as(f32, @floatFromInt(z)) + bounds.max[2],
     };
-    try @import("chunk_mesher.zig").buildCubeColored(mesh, gpa, min, max, world.block.FaceTextures.initFill(tile), .{ 255, 255, 255, 255 });
+    try @import("chunk_mesher.zig").buildCubeColored(mesh, gpa, min, max, world.block.FaceTextures.initFill(tile), 0.0, .{ 255, 255, 255, 255 });
 }
 
 test "the crack texture walks the ten destroy stages" {
@@ -92,6 +92,23 @@ test "a snow layer's outline is only as tall as the layer" {
     var highest: f32 = -std.math.floatMax(f32);
     for (mesh.vertices.items) |v| highest = @max(highest, v.y);
     try std.testing.expectApproxEqAbs(@as(f32, 0.125 + expand), highest, 1.0e-6);
+}
+
+test "a cactus outline hugs the inset sides but stands a full block tall" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendOutline(&mesh, gpa, world.Block.cactus, 0, 0, 0);
+
+    var lowest_x: f32 = std.math.floatMax(f32);
+    var highest_y: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |v| {
+        lowest_x = @min(lowest_x, v.x);
+        highest_y = @max(highest_y, v.y);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0 - expand), lowest_x, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 + expand), highest_y, 1.0e-6);
 }
 
 test "a flower's outline is the narrow plant box, not a full cube" {

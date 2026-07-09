@@ -220,6 +220,13 @@ pub const Block = enum(u8) {
         return self.shape().heightScale();
     }
 
+    pub fn sideInset(self: Block) f32 {
+        return switch (self) {
+            .cactus => 1.0 / 16.0,
+            else => 0.0,
+        };
+    }
+
     pub fn isOpaque(self: Block) bool {
         return self.material().blocksGrass();
     }
@@ -242,7 +249,7 @@ pub const Block = enum(u8) {
 
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
-            .leaves, .glass, .ice => false,
+            .leaves, .glass, .ice, .cactus => false,
             else => self.isOpaque() and !self.isLiquid(),
         };
     }
@@ -269,6 +276,7 @@ pub const Block = enum(u8) {
             .dandelion, .rose => plantBounds(0.2, 0.6),
             .mushroom_brown, .mushroom_red => plantBounds(0.2, 0.4),
             .reed => plantBounds(6.0 / 16.0, 1.0),
+            .cactus => plantBounds(7.0 / 16.0, 1.0),
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }

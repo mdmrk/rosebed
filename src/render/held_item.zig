@@ -70,6 +70,7 @@ pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, 
         .{ -0.5, -0.5, -0.5 },
         .{ 0.5, 0.5, 0.5 },
         id.faceTextures(),
+        id.sideInset(),
     );
     mesh.scaleColors(first_vertex, brightness);
 }

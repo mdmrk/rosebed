@@ -111,12 +111,14 @@ pub fn appendItem(
 
     const Cube = struct {
         var faces: world.block.FaceTextures = undefined;
+        var inset: f32 = 0.0;
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
             const half = block_scale / 2.0;
-            try chunk_mesher.buildCube(target, gpa_inner, .{ -half, -half, -half }, .{ half, half, half }, faces);
+            try chunk_mesher.buildCube(target, gpa_inner, .{ -half, -half, -half }, .{ half, half, half }, faces, inset);
         }
     };
     Cube.faces = id.faceTextures();
+    Cube.inset = id.sideInset() * block_scale;
     try appendCopies(
         mesh,
         gpa,
@@ -192,6 +194,7 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
         .{ cx - half, cy, cz - half },
         .{ cx + half, cy + size, cz + half },
         block.block_id.faceTextures(),
+        block.block_id.sideInset() * size,
     );
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
