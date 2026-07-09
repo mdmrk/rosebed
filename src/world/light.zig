@@ -19,7 +19,7 @@ pub fn opacity(id: Block) u8 {
 
 pub fn emission(id: Block) u4 {
     return switch (id) {
-        Block.flowing_lava => 15,
+        Block.flowing_lava, Block.stationary_lava => 15,
         else => 0,
     };
 }

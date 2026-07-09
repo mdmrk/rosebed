@@ -112,7 +112,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
         }
     }
 
-    if (liquid_id == Block.flowing_lava) {
+    if (liquid_id.material() == .lava) {
         for (0..grid_x) |x| {
             for (0..grid_z) |z| {
                 for (0..grid_y) |y| {

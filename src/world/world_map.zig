@@ -309,12 +309,12 @@ pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32) !void 
     try self.onNeighborBlockChange(x, y, z + 1);
 }
 
-fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
-    if (id == .flowing_water) try fluid.onBlockAdded(self, x, y, z);
+fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
+    if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
 }
 
-fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
-    if (self.getBlock(x, y, z) == .stationary_water) try fluid.onNeighborChange(self, x, y, z);
+fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    if (self.getBlock(x, y, z).isLiquid()) try fluid.onNeighborChange(self, x, y, z);
 }
 
 pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) std.mem.Allocator.Error!void {
@@ -323,7 +323,7 @@ pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, dela
 
     if (self.scheduled_updates_are_immediate) {
         if (self.getBlock(x, y, z) != id) return;
-        if (id == .flowing_water) try fluid.tick(self, x, y, z);
+        if (id.isLiquid()) try fluid.tick(self, x, y, z);
         return;
     }
 
@@ -359,7 +359,7 @@ pub fn tickUpdates(self: *World) !void {
         const pos = entry.pos;
         if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) continue;
         if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
-        if (entry.id == .flowing_water) try fluid.tick(self, pos.x, pos.y, pos.z);
+        if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
     }
 }
 

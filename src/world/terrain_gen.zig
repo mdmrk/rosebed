@@ -257,7 +257,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
         if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
-            _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.flowing_lava);
+            _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.stationary_lava);
         }
     }
 

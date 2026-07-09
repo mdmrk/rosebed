@@ -68,6 +68,19 @@ test "a water spring has already run its course when generation returns" {
     try std.testing.expect(!w.scheduled_updates_are_immediate);
 }
 
+test "a lava spring has already run its course when generation returns" {
+    var w = try stoneWorldWithOpening(9, 8);
+    defer w.deinit();
+    for (30..35) |y| {
+        w.setBlock(9, @intCast(y), 8, Block.air);
+    }
+
+    try generate(&w, 8, 35, 8, Block.flowing_lava);
+
+    try std.testing.expectEqual(block.Material.lava, w.getBlock(9, 30, 8).material());
+    try std.testing.expectEqual(@as(usize, 0), w.scheduled.items.len);
+}
+
 test "a spring does not form where two sides are open" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
