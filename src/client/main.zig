@@ -90,6 +90,7 @@ const AppState = struct {
         jump: bool = false,
     } = .{},
     mouse_left_down: bool = false,
+    last_held_swing_tick: u64 = 0,
     digging: ?Digging = null,
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
@@ -1215,6 +1216,10 @@ fn tick(app_state: *AppState) !void {
     const before_move = app_state.player.base.position;
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
     try recordPlayerTick(app_state, before_move);
+    if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
+        app_state.player.swingItem();
+        app_state.last_held_swing_tick = app_state.tick_count;
+    }
     app_state.player.tickSwing();
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
@@ -1833,6 +1838,7 @@ pub fn event(
                 try openContainerClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
+                app_state.last_held_swing_tick = app_state.tick_count;
                 app_state.player.swingItem();
             },
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
