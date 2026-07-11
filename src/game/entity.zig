@@ -10,6 +10,7 @@ prev_position: math.Vec3,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),
 on_ground: bool = false,
 in_water: bool = false,
+sneaking: bool = false,
 width: f64,
 height: f64,
 
@@ -69,7 +70,14 @@ pub fn isOffsetPositionInLiquid(self: Entity, world_map: *const world.World, dx:
 }
 
 pub fn move(self: *Entity, world_map: *const world.World) Moved {
-    const result = physics.moveEntity(world_map, self.boundingBox(), self.motion.x, self.motion.y, self.motion.z);
+    var dx = self.motion.x;
+    var dz = self.motion.z;
+    if (self.sneaking and self.on_ground) {
+        const clamped = physics.clampToLedge(world_map, self.boundingBox(), dx, dz);
+        dx = clamped[0];
+        dz = clamped[1];
+    }
+    const result = physics.moveEntity(world_map, self.boundingBox(), dx, self.motion.y, dz);
 
     self.position = .{
         .x = (result.aabb.min_x + result.aabb.max_x) / 2.0,
@@ -81,9 +89,9 @@ pub fn move(self: *Entity, world_map: *const world.World) Moved {
         .dx = result.dx,
         .dy = result.dy,
         .dz = result.dz,
-        .blocked_x = self.motion.x != result.dx,
+        .blocked_x = dx != result.dx,
         .blocked_y = self.motion.y != result.dy,
-        .blocked_z = self.motion.z != result.dz,
+        .blocked_z = dz != result.dz,
     };
 
     self.on_ground = moved.blocked_y and self.motion.y < 0.0;

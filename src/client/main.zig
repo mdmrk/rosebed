@@ -88,6 +88,7 @@ const AppState = struct {
         left: bool = false,
         right: bool = false,
         jump: bool = false,
+        sneak: bool = false,
     } = .{},
     mouse_left_down: bool = false,
     last_held_swing_tick: u64 = 0,
@@ -1215,7 +1216,13 @@ fn tick(app_state: *AppState) !void {
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
     const was_in_water = app_state.player.base.in_water;
-    app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
+    app_state.player.tick(
+        &app_state.world_map,
+        strafe,
+        forward,
+        moving_allowed and app_state.keys.jump,
+        moving_allowed and app_state.keys.sneak,
+    );
     try recordPlayerTick(app_state, before_move);
     if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
         try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
@@ -1745,6 +1752,7 @@ fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) voi
     if (boundTo(app_state, .left, key)) app_state.keys.left = down;
     if (boundTo(app_state, .right, key)) app_state.keys.right = down;
     if (boundTo(app_state, .jump, key)) app_state.keys.jump = down;
+    if (boundTo(app_state, .sneak, key)) app_state.keys.sneak = down;
 }
 
 fn selectHotbarFromKey(app_state: *AppState, key: ?sdl3.keycode.Keycode) void {

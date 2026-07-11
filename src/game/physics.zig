@@ -33,6 +33,32 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
     return count;
 }
 
+const ledge_step: f64 = 0.05;
+
+fn shaveTowardLedge(world_map: *const world.World, aabb: math.AABB, axis_dx: f64, axis_dz: f64, amount_in: f64) f64 {
+    var box_buf: [max_colliding_boxes]math.AABB = undefined;
+    var amount = amount_in;
+    while (amount != 0.0) {
+        const probe = aabb.offset(axis_dx * amount, -1.0, axis_dz * amount);
+        if (collidingBoxes(world_map, probe, &box_buf) != 0) break;
+        if (amount < ledge_step and amount >= -ledge_step) {
+            amount = 0.0;
+        } else if (amount > 0.0) {
+            amount -= ledge_step;
+        } else {
+            amount += ledge_step;
+        }
+    }
+    return amount;
+}
+
+pub fn clampToLedge(world_map: *const world.World, aabb: math.AABB, dx: f64, dz: f64) [2]f64 {
+    return .{
+        shaveTowardLedge(world_map, aabb, 1.0, 0.0, dx),
+        shaveTowardLedge(world_map, aabb, 0.0, 1.0, dz),
+    };
+}
+
 pub const MoveResult = struct {
     aabb: math.AABB,
     dx: f64,

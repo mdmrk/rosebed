@@ -26,6 +26,8 @@ prev_camera_pitch: f32 = 0,
 jumped: bool = false,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
+y_size: f64 = 0,
+prev_y_size: f64 = 0,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -50,16 +52,31 @@ const water_climb_out: f64 = 0.3;
 pub const max_air: i32 = 300;
 const drown_damage: i32 = 2;
 
+const sneak_input_scale: f32 = 0.3;
+const sneak_camera_dip: f64 = 0.2;
+
 pub fn spawn(position: math.Vec3) Player {
     return .{ .base = Entity.init(position, width, height) };
 }
 
-pub fn tick(self: *Player, world_map: *const world.World, strafe: f32, forward: f32, jump: bool) void {
+pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {
     self.base.beginTick();
     self.jumped = false;
     self.prev_distance_walked = self.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
+
+    self.base.sneaking = sneak;
+    self.prev_y_size = self.y_size;
+    self.y_size *= 0.4;
+    if (sneak and self.y_size < sneak_camera_dip) self.y_size = sneak_camera_dip;
+
+    var strafe = strafe_in;
+    var forward = forward_in;
+    if (sneak) {
+        strafe *= sneak_input_scale;
+        forward *= sneak_input_scale;
+    }
 
     self.base.updateWaterState(world_map);
     self.updateAir(world_map);
@@ -179,7 +196,7 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
     const c = @cos(yaw_rad);
     var dir = [3]f32{ strafe * c - forward * s, 0, forward * c + strafe * s };
     const len = @sqrt(dir[0] * dir[0] + dir[2] * dir[2]);
-    if (len > 1.0e-4) {
+    if (len > 1.0) {
         dir[0] /= len;
         dir[2] /= len;
     }
@@ -189,7 +206,7 @@ pub fn moveDirection(self: Player, strafe: f32, forward: f32) [3]f32 {
 pub fn eyePosition(self: Player) math.Vec3 {
     return .{
         .x = self.base.position.x,
-        .y = self.base.position.y + eye_height,
+        .y = self.base.position.y + eye_height - self.y_size,
         .z = self.base.position.z,
     };
 }
@@ -229,8 +246,9 @@ pub fn viewRotation(self: Player) math.Mat4 {
 
 pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const render_position = self.base.renderPosition(partial_ticks);
+    const dip = self.prev_y_size + (self.y_size - self.prev_y_size) * @as(f64, partial_ticks);
     const eye_x: f32 = @floatCast(render_position.x);
-    const eye_y: f32 = @floatCast(render_position.y + eye_height);
+    const eye_y: f32 = @floatCast(render_position.y + eye_height - dip);
     const eye_z: f32 = @floatCast(render_position.z);
     return self.viewRotation()
         .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
@@ -378,7 +396,7 @@ test "resting on the ground stays grounded" {
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     player.base.on_ground = true;
     player.base.motion = math.Vec3.init(0, -0.0784, 0);
-    player.tick(&w, 0, 0, false);
+    player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
 }
@@ -387,7 +405,7 @@ test "gravity accelerates a falling player" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 50, 8));
-    player.tick(&w, 0, 0, false);
+    player.tick(&w, 0, 0, false, false);
     try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.base.motion.y, 1.0e-9);
 }
 
@@ -396,7 +414,7 @@ test "jumping from the ground sets the jump velocity" {
     defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     player.base.on_ground = true;
-    player.tick(&w, 0, 0, true);
+    player.tick(&w, 0, 0, true, false);
     try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.base.motion.y, 1.0e-9);
 }
 
@@ -405,7 +423,7 @@ test "forward input on the ground moves the player each tick" {
     defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     player.base.on_ground = true;
-    player.tick(&w, 0, 1, false);
+    player.tick(&w, 0, 1, false, false);
     try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.base.position.z, 1.0e-9);
 }
 
@@ -468,12 +486,12 @@ test "a player in water sinks far more slowly than one falling through air" {
     defer w.deinit();
 
     var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
-    swimmer.tick(&w, 0, 0, false);
+    swimmer.tick(&w, 0, 0, false, false);
     try std.testing.expect(swimmer.base.in_water);
     try std.testing.expectApproxEqAbs(@as(f64, -water_gravity), swimmer.base.motion.y, 1.0e-9);
 
     var faller = Player.spawn(math.Vec3.init(8, 40, 8));
-    faller.tick(&w, 0, 0, false);
+    faller.tick(&w, 0, 0, false, false);
     try std.testing.expect(!faller.base.in_water);
     try std.testing.expect(faller.base.motion.y < swimmer.base.motion.y);
 }
@@ -483,7 +501,7 @@ test "holding jump underwater swims upward instead of doing nothing" {
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8, 10, 8));
-    for (0..10) |_| player.tick(&w, 0, 0, true);
+    for (0..10) |_| player.tick(&w, 0, 0, true, false);
     try std.testing.expect(player.base.motion.y > 0.0);
     try std.testing.expect(player.base.position.y > 10.0);
 }
@@ -493,12 +511,12 @@ test "swimming forward is slower than walking the same input on land" {
     defer dry.deinit();
     var walker = Player.spawn(math.Vec3.init(8, 1, 8));
     walker.base.on_ground = true;
-    walker.tick(&dry, 0, 1, false);
+    walker.tick(&dry, 0, 1, false, false);
 
     var flooded = try floodedWorld(20);
     defer flooded.deinit();
     var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
-    swimmer.tick(&flooded, 0, 1, false);
+    swimmer.tick(&flooded, 0, 1, false, false);
 
     try std.testing.expect(swimmer.base.position.z - 8.0 < walker.base.position.z - 8.0);
 }
@@ -550,6 +568,46 @@ test "the twenty-fifths armour rounds away carry into the next hit" {
     player.hurt(2);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(i32, 20), player.damage_remainder);
+}
+
+test "sneaking walks at a third of normal speed" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+    player.tick(&w, 0, 1, false, true);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.03), player.base.position.z, 1.0e-6);
+}
+
+test "a sneaking player will not walk off the edge of a block" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 0);
+    defer w.deinit();
+    w.getChunk(0, 0).?.setBlock(8, 0, 8, world.Block.stone);
+
+    var sneaker = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    sneaker.base.on_ground = true;
+    for (0..40) |_| sneaker.tick(&w, 0, 1, false, true);
+    try std.testing.expect(sneaker.base.on_ground);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), sneaker.base.position.y, 1.0e-9);
+    try std.testing.expect(sneaker.base.position.z < 9.3);
+
+    var walker = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    walker.base.on_ground = true;
+    for (0..40) |_| walker.tick(&w, 0, 1, false, false);
+    try std.testing.expect(walker.base.position.y < 1.0);
+}
+
+test "sneaking dips the camera a fifth of a block and eases back up" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+
+    player.tick(&w, 0, 0, false, true);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0 + eye_height - 0.2), player.eyePosition().y, 1.0e-9);
+
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0 + eye_height - 0.08), player.eyePosition().y, 1.0e-9);
 }
 
 test "surfacing refills the air supply immediately" {
