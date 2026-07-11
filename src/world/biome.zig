@@ -29,7 +29,7 @@ pub const Biome = enum {
     }
 };
 
-fn classifyExact(temperature: f64, humidity: f64) Biome {
+fn classifyExact(temperature: f32, humidity: f32) Biome {
     const rainfall = humidity * temperature;
     if (temperature < 0.1) return .tundra;
     if (rainfall < 0.2) {
@@ -49,9 +49,9 @@ fn classifyExact(temperature: f64, humidity: f64) Biome {
 }
 
 pub fn classify(temperature: f64, humidity: f64) Biome {
-    const q_temp: f64 = @as(f64, @floatFromInt(@as(i32, @intFromFloat(temperature * 63.0)))) / 63.0;
-    const q_humidity: f64 = @as(f64, @floatFromInt(@as(i32, @intFromFloat(humidity * 63.0)))) / 63.0;
-    return classifyExact(q_temp, q_humidity);
+    const q_temp: i32 = @intFromFloat(temperature * 63.0);
+    const q_humidity: i32 = @intFromFloat(humidity * 63.0);
+    return classifyExact(@as(f32, @floatFromInt(q_temp)) / 63.0, @as(f32, @floatFromInt(q_humidity)) / 63.0);
 }
 
 test "cold and dry is tundra" {

@@ -563,6 +563,21 @@ fn canPlantStayOn(below: Block) bool {
     return below == Block.grass or below == Block.dirt;
 }
 
+fn flowerCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    if (light.columnSkyLight(world_map, x, y, z) < 8) return false;
+    return canPlantStayOn(world_map.getBlock(x, y - 1, z));
+}
+
+fn deadBushCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    if (light.columnSkyLight(world_map, x, y, z) < 8) return false;
+    return world_map.getBlock(x, y - 1, z) == Block.sand;
+}
+
+fn mushroomCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    if (light.columnSkyLight(world_map, x, y, z) >= 13) return false;
+    return world_map.getBlock(x, y - 1, z).isOpaque();
+}
+
 pub fn generateTallGrassPatch(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, z: i32, metadata: u4) void {
     const y = descendToAnchor(world_map, x, y_in, z);
     for (0..128) |_| {
@@ -571,8 +586,7 @@ pub fn generateTallGrassPatch(world_map: *World, rand: *JavaRandom, x: i32, y_in
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
         if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
-        const below = world_map.getBlock(wx, wy - 1, wz);
-        if (!canPlantStayOn(below)) continue;
+        if (!flowerCanStayAt(world_map, wx, wy, wz)) continue;
         world_map.setBlock(wx, wy, wz, Block.tall_grass);
         world_map.setBlockMetadata(wx, wy, wz, metadata);
     }
@@ -586,21 +600,19 @@ pub fn generateDeadBushPatch(world_map: *World, rand: *JavaRandom, x: i32, y_in:
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
         if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
-        const below = world_map.getBlock(wx, wy - 1, wz);
-        if (below != Block.sand) continue;
+        if (!deadBushCanStayAt(world_map, wx, wy, wz)) continue;
         world_map.setBlock(wx, wy, wz, Block.dead_bush);
     }
 }
 
-pub fn generateFlowerPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32, flower_id: Block, stayCheck: *const fn (Block) bool) void {
+pub fn generateFlowerPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32, flower_id: Block, stayCheck: *const fn (*const World, i32, i32, i32) bool) void {
     for (0..64) |_| {
         const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
         if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
-        const below = world_map.getBlock(wx, wy - 1, wz);
-        if (!stayCheck(below)) continue;
+        if (!stayCheck(world_map, wx, wy, wz)) continue;
         world_map.setBlock(wx, wy, wz, flower_id);
     }
 }
@@ -652,19 +664,24 @@ fn hasAdjacentWater(world_map: *const World, x: i32, y: i32, z: i32) bool {
         world_map.getBlock(x, y, z + 1).material() == .water;
 }
 
+fn reedCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    const below = world_map.getBlock(x, y - 1, z);
+    if (below == Block.reed) return true;
+    if (below != Block.grass and below != Block.dirt) return false;
+    return hasAdjacentWater(world_map, x, y - 1, z);
+}
+
 pub fn generateReedPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) void {
     for (0..20) |_| {
         const wx = x + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(4) - rand.nextIntBound(4);
-        if (y < 1 or y >= 128) continue;
         if (world_map.getBlock(wx, y, wz) != Block.air) continue;
-        const below = world_map.getBlock(wx, y - 1, wz);
-        if (below != Block.grass and below != Block.dirt) continue;
         if (!hasAdjacentWater(world_map, wx, y - 1, wz)) continue;
 
         const height = 2 + rand.nextIntBound(rand.nextIntBound(3) + 1);
         var k: i32 = 0;
         while (k < height) : (k += 1) {
+            if (!reedCanStayAt(world_map, wx, y + k, wz)) continue;
             world_map.setBlock(wx, y + k, wz, Block.reed);
         }
     }
@@ -700,7 +717,7 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.dandelion, canPlantStayOn);
+        generateFlowerPatch(world_map, rand, x, y, z, Block.dandelion, flowerCanStayAt);
     }
 
     i = 0;
@@ -727,21 +744,21 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.rose, canPlantStayOn);
+        generateFlowerPatch(world_map, rand, x, y, z, Block.rose, flowerCanStayAt);
     }
 
     if (rand.nextIntBound(4) == 0) {
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_brown, Block.isOpaque);
+        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_brown, mushroomCanStayAt);
     }
 
     if (rand.nextIntBound(8) == 0) {
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_red, Block.isOpaque);
+        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_red, mushroomCanStayAt);
     }
 
     i = 0;
@@ -1207,17 +1224,18 @@ test "surface plants place dandelions in plains but not in the ocean" {
     try std.testing.expect(found_flower_or_grass);
 }
 
-test "mushrooms can stay on any opaque block, unlike flowers" {
+test "mushrooms can stay on any opaque block, but only away from full daylight" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
             chunk.setBlock(@intCast(x), 10, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 14, @intCast(z), Block.stone);
         }
     }
     var rand = JavaRandom.init(1);
-    generateFlowerPatch(&w, &rand, 8, 11, 8, Block.mushroom_brown, Block.isOpaque);
+    generateFlowerPatch(&w, &rand, 8, 11, 8, Block.mushroom_brown, mushroomCanStayAt);
 
     var found = false;
     for (0..16) |x| {
@@ -1226,6 +1244,23 @@ test "mushrooms can stay on any opaque block, unlike flowers" {
         }
     }
     try std.testing.expect(found);
+
+    var uncovered = World.init(std.testing.allocator);
+    defer uncovered.deinit();
+    const open_chunk = try uncovered.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            open_chunk.setBlock(@intCast(x), 10, @intCast(z), Block.stone);
+        }
+    }
+    var open_rand = JavaRandom.init(1);
+    generateFlowerPatch(&uncovered, &open_rand, 8, 11, 8, Block.mushroom_brown, mushroomCanStayAt);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            try std.testing.expect(uncovered.getBlock(@intCast(x), 11, @intCast(z)) != Block.mushroom_brown);
+        }
+    }
 }
 
 test "reeds only take root on grass adjacent to water" {

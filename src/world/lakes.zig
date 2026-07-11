@@ -1,9 +1,9 @@
 const std = @import("std");
 const JavaRandom = @import("java_random.zig");
 const World = @import("world_map.zig");
-const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const light = @import("light.zig");
 
 const grid_x = 16;
 const grid_z = 16;
@@ -26,11 +26,7 @@ fn isShellCell(flags: *const [flag_count]bool, x: usize, z: usize, y: usize) boo
 }
 
 fn seesSky(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    var above = y + 1;
-    while (above < Chunk.height) : (above += 1) {
-        if (world_map.getBlock(x, above, z).isOpaque()) return false;
-    }
-    return true;
+    return light.columnSkyLight(world_map, x, y, z) > 0;
 }
 
 pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in: i32, liquid_id: Block) bool {
@@ -39,7 +35,6 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
     var oy = y_in;
     while (oy > 0 and world_map.getBlock(ox, oy, oz) == Block.air) : (oy -= 1) {}
     oy -= 4;
-    if (oy < 0) oy = 0;
 
     var flags: [flag_count]bool = [_]bool{false} ** flag_count;
 

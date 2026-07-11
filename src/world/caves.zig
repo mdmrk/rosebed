@@ -136,15 +136,15 @@ fn carveTunnel(
                     const ny: f64 = (@as(f64, @floatFromInt(by)) + 0.5 - y) / vertical_radius;
                     if (ny <= -0.7 or nx * nx + ny * ny + nz * nz >= 1.0) continue;
 
-                    const id = chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz));
+                    const id = chunk.getBlock(@intCast(bx), @intCast(by + 1), @intCast(bz));
                     if (id == Block.grass) was_grass = true;
                     if (id == Block.stone or id == Block.dirt or id == Block.grass) {
                         if (by < 10) {
-                            chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.flowing_lava);
+                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), Block.flowing_lava);
                         } else {
-                            chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.air);
-                            if (was_grass and by > 0 and chunk.getBlock(@intCast(bx), @intCast(by - 1), @intCast(bz)) == Block.dirt) {
-                                chunk.setBlock(@intCast(bx), @intCast(by - 1), @intCast(bz), Block.grass);
+                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), Block.air);
+                            if (was_grass and chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == Block.dirt) {
+                                chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.grass);
                             }
                         }
                     }

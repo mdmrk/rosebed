@@ -342,10 +342,10 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
     var depth_field: [256]f64 = undefined;
     self.depth_variation_noise.generate(&depth_field, .{ .x = base_x, .y = base_z, .z = 0.0 }, .{ .x = 16, .y = 16, .z = 1 }, .{ .x = noise_scale * 2.0, .y = noise_scale * 2.0, .z = noise_scale * 2.0 });
 
-    for (0..16) |x| {
-        for (0..16) |z| {
+    for (0..16) |z| {
+        for (0..16) |x| {
             const surface_biome = climate_sample.biomeAt(x, z);
-            const noise_index = x + z * 16;
+            const noise_index = x * 16 + z;
             const sandy = sand_field[noise_index] + rand.nextDouble() * 0.2 > 0.0;
             const gravelly = gravel_field[noise_index] + rand.nextDouble() * 0.2 > 3.0;
             const surface_depth: i32 = @intFromFloat(depth_field[noise_index] / 3.0 + 3.0 + rand.nextDouble() * 0.25);

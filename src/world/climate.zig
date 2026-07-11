@@ -49,8 +49,10 @@ fn generate(
     const fx: f64 = @floatFromInt(x_offset);
     const fz: f64 = @floatFromInt(z_offset);
 
-    self.temperature_noise.generateDefault(temperature_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.025, .y = 0.025 }, 0.25);
-    self.humidity_noise.generateDefault(humidity_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.05, .y = 0.05 }, 1.0 / 3.0);
+    const temperature_scale: f64 = @as(f32, 0.025);
+    const humidity_scale: f64 = @as(f32, 0.05);
+    self.temperature_noise.generateDefault(temperature_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = temperature_scale, .y = temperature_scale }, 0.25);
+    self.humidity_noise.generateDefault(humidity_out, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = humidity_scale, .y = humidity_scale }, 1.0 / 3.0);
 
     var blend: [size * size]f64 = undefined;
     self.blend_noise.generateDefault(&blend, .{ .x = fx, .y = fz }, .{ .x = size, .y = size }, .{ .x = 0.25, .y = 0.25 }, 0.5882352941176471);

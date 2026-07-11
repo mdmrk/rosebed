@@ -17,6 +17,16 @@ pub fn opacity(id: Block) u8 {
     };
 }
 
+pub fn columnSkyLight(world_map: *const World, x: i32, y: i32, z: i32) i32 {
+    var value: i32 = 15;
+    var above: i32 = 127;
+    while (above > y) : (above -= 1) {
+        value -= opacity(world_map.getBlock(x, above, z));
+        if (value <= 0) return 0;
+    }
+    return value;
+}
+
 pub fn emission(id: Block) u4 {
     return switch (id) {
         Block.flowing_lava, Block.stationary_lava => 15,

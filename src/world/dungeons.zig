@@ -52,8 +52,52 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
         }
     }
 
+    for (0..2) |_| {
+        tries: for (0..3) |_| {
+            const cx = x + rand.nextIntBound(radius_x * 2 + 1) - radius_x;
+            const cz = z + rand.nextIntBound(radius_z * 2 + 1) - radius_z;
+            if (world_map.getBlock(cx, y, cz) != Block.air) continue;
+
+            var solid_sides: i32 = 0;
+            if (world_map.getBlock(cx - 1, y, cz).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(cx + 1, y, cz).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(cx, y, cz - 1).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(cx, y, cz + 1).isSolid()) solid_sides += 1;
+            if (solid_sides != 1) continue;
+
+            world_map.setBlock(cx, y, cz, Block.chest);
+            for (0..8) |_| {
+                if (rollLootItem(rand)) _ = rand.nextIntBound(27);
+            }
+            break :tries;
+        }
+    }
+
     world_map.setBlock(x, y, z, Block.mob_spawner);
+    _ = rand.nextIntBound(4);
     return true;
+}
+
+fn rollLootItem(rand: *JavaRandom) bool {
+    return switch (rand.nextIntBound(11)) {
+        0, 2, 6, 10 => true,
+        1, 3, 4, 5 => blk: {
+            _ = rand.nextIntBound(4);
+            break :blk true;
+        },
+        7 => rand.nextIntBound(100) == 0,
+        8 => blk: {
+            if (rand.nextIntBound(2) != 0) break :blk false;
+            _ = rand.nextIntBound(4);
+            break :blk true;
+        },
+        9 => blk: {
+            if (rand.nextIntBound(10) != 0) break :blk false;
+            _ = rand.nextIntBound(2);
+            break :blk true;
+        },
+        else => unreachable,
+    };
 }
 
 fn testWorldWithChunk() !World {
