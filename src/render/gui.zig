@@ -89,7 +89,7 @@ pub fn appendGradientRect(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: f32, y:
 
 pub const veil_top: [4]u8 = .{ 16, 16, 16, 192 };
 pub const veil_bottom: [4]u8 = .{ 16, 16, 16, 208 };
-pub const opaque_texel: Atlas.Uv = .{ .u0 = 2.5 / gui_texture_size, .v0 = 2.5 / gui_texture_size, .u1 = 2.5 / gui_texture_size, .v1 = 2.5 / gui_texture_size };
+pub const opaque_texel: Atlas.Uv = .{ .u0 = 201.5 / gui_texture_size, .v0 = 65.5 / gui_texture_size, .u1 = 201.5 / gui_texture_size, .v1 = 65.5 / gui_texture_size };
 
 pub fn appendVeil(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled) !void {
     try appendGradientRect(mesh, gpa, 0, 0, res.width, res.height, opaque_texel, veil_top, veil_bottom, res);
