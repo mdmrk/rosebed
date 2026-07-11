@@ -2,10 +2,7 @@ const std = @import("std");
 const gl = @import("gl");
 const math = @import("math");
 
-const Atlas = @import("atlas.zig");
-const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
-const Shader = @import("shader.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
 
@@ -14,8 +11,6 @@ const logo_piece_width: f32 = 155;
 const logo_height: f32 = 44;
 const logo_layout_width: f32 = 274;
 const logo_top: f32 = 30;
-const dirt_tile_scale: f32 = 32;
-const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const version_color: [4]u8 = .{ 80, 80, 80, 255 };
 const copyright_color: [4]u8 = .{ 255, 255, 255, 255 };
 const splash_color: [4]u8 = .{ 255, 255, 0, 255 };
@@ -60,11 +55,7 @@ pub fn draw(
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var dirt: MeshBuilder = .{};
-    defer dirt.deinit(ui.gpa);
-    const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
-    try gui.appendRectColor(&dirt, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
-    try gui.drawTexturedMesh(&dirt, ui.shader, ui.textures.dirt);
+    try gui.drawDirtBackground(ui);
 
     var logo: MeshBuilder = .{};
     defer logo.deinit(ui.gpa);

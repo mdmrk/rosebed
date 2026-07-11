@@ -1,9 +1,7 @@
 const std = @import("std");
 const gl = @import("gl");
 
-const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
-const Shader = @import("shader.zig");
 const gui = @import("gui.zig");
 
 const white: [4]u8 = .{ 255, 255, 255, 255 };

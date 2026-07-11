@@ -1,5 +1,4 @@
 const std = @import("std");
-const Chunk = @import("chunk.zig");
 const World = @import("world_map.zig");
 const block = @import("block.zig");
 const constants = @import("constants.zig");

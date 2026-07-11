@@ -12,13 +12,10 @@ const gui = @import("gui.zig");
 const stats = game.stats;
 
 const dirt_tile_scale: f32 = 32;
-const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const list_dirt_tint: [4]u8 = .{ 32, 32, 32, 255 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const row_color: [4]u8 = .{ 255, 255, 255, 255 };
 const alternate_row_color: [4]u8 = .{ 144, 144, 144, 255 };
-const shadow_opaque: [4]u8 = .{ 0, 0, 0, 255 };
-const shadow_clear: [4]u8 = .{ 0, 0, 0, 0 };
 const scrollbar_track: [4]u8 = .{ 0, 0, 0, 255 };
 const scrollbar_thumb: [4]u8 = .{ 128, 128, 128, 255 };
 const scrollbar_highlight: [4]u8 = .{ 192, 192, 192, 255 };
@@ -415,23 +412,11 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
     try gui.drawColorMesh(&bars, ui.shader);
     try gui.drawTexturedMesh(&row_text, ui.shader, ui.font);
 
-    var bands: MeshBuilder = .{};
-    defer bands.deinit(ui.gpa);
-    const top_band_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = list_top / dirt_tile_scale };
-    try gui.appendRectColor(&bands, ui.gpa, 0, 0, ui.res.width, list_top, top_band_uv, dirt_tint, ui.res);
-    const bottom_band_uv: Atlas.Uv = .{
-        .u0 = 0,
-        .v0 = bottom / dirt_tile_scale,
-        .u1 = ui.res.width / dirt_tile_scale,
-        .v1 = ui.res.height / dirt_tile_scale,
-    };
-    try gui.appendRectColor(&bands, ui.gpa, 0, bottom, ui.res.width, ui.res.height - bottom, bottom_band_uv, dirt_tint, ui.res);
-    try gui.drawTexturedMesh(&bands, ui.shader, ui.textures.dirt);
+    try gui.drawEdgeBands(ui, list_top, bottom);
 
     var overlays: MeshBuilder = .{};
     defer overlays.deinit(ui.gpa);
-    try gui.appendGradientRect(&overlays, ui.gpa, 0, list_top, ui.res.width, edge_shadow_height, gui.opaque_texel, shadow_opaque, shadow_clear, ui.res);
-    try gui.appendGradientRect(&overlays, ui.gpa, 0, bottom - edge_shadow_height, ui.res.width, edge_shadow_height, gui.opaque_texel, shadow_clear, shadow_opaque, ui.res);
+    try gui.appendEdgeShadows(&overlays, ui.gpa, ui.res, list_top, bottom, edge_shadow_height);
     try appendScrollbar(&overlays, ui.gpa, ui.res, state);
 
     var overlay_text: MeshBuilder = .{};

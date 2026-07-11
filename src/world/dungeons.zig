@@ -1,7 +1,6 @@
 const std = @import("std");
 const JavaRandom = @import("java_random.zig");
 const World = @import("world_map.zig");
-const Chunk = @import("chunk.zig");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 

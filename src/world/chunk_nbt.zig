@@ -13,7 +13,7 @@ pub const Error = error{
 };
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try compound.put(gpa, try gpa.dupe(u8, key), tag);
+    try nbt.putDuped(gpa, compound, key, tag);
 }
 
 fn field(compound: nbt.Compound, key: []const u8) !nbt.Tag {

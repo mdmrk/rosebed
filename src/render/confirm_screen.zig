@@ -1,13 +1,10 @@
 const std = @import("std");
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
 
-const dirt_tile_scale: f32 = 32;
-const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const message_color: [4]u8 = .{ 255, 255, 255, 255 };
 
@@ -39,11 +36,7 @@ pub fn draw(ui: gui.Ui, title: []const u8, message: []const u8, confirm_label: [
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var back: MeshBuilder = .{};
-    defer back.deinit(ui.gpa);
-    const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
-    try gui.appendRectColor(&back, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
-    try gui.drawTexturedMesh(&back, ui.shader, ui.textures.dirt);
+    try gui.drawDirtBackground(ui);
 
     var backgrounds: MeshBuilder = .{};
     defer backgrounds.deinit(ui.gpa);

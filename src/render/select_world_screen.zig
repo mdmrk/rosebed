@@ -3,7 +3,6 @@ const gl = @import("gl");
 const world = @import("world");
 
 const Atlas = @import("atlas.zig");
-const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
@@ -15,8 +14,6 @@ const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const entry_name_color: [4]u8 = .{ 255, 255, 255, 255 };
 const entry_detail_color: [4]u8 = .{ 128, 128, 128, 255 };
 const selected_color: [4]u8 = .{ 128, 128, 128, 255 };
-const shadow_opaque: [4]u8 = .{ 0, 0, 0, 255 };
-const shadow_clear: [4]u8 = .{ 0, 0, 0, 0 };
 const scrollbar_track: [4]u8 = .{ 0, 0, 0, 255 };
 const scrollbar_thumb: [4]u8 = .{ 128, 128, 128, 255 };
 const scrollbar_highlight: [4]u8 = .{ 192, 192, 192, 255 };
@@ -198,21 +195,8 @@ pub fn draw(
     var text: MeshBuilder = .{};
     defer text.deinit(ui.gpa);
 
-    var bands: MeshBuilder = .{};
-    defer bands.deinit(ui.gpa);
-    const top_band_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = list_top / dirt_tile_scale };
-    try gui.appendRectColor(&bands, ui.gpa, 0, 0, ui.res.width, list_top, top_band_uv, dirt_tint, ui.res);
-    const bottom_band_uv: Atlas.Uv = .{
-        .u0 = 0,
-        .v0 = bottom / dirt_tile_scale,
-        .u1 = ui.res.width / dirt_tile_scale,
-        .v1 = ui.res.height / dirt_tile_scale,
-    };
-    try gui.appendRectColor(&bands, ui.gpa, 0, bottom, ui.res.width, ui.res.height - bottom, bottom_band_uv, dirt_tint, ui.res);
-    try gui.drawTexturedMesh(&bands, ui.shader, ui.textures.dirt);
-
-    try gui.appendGradientRect(&backgrounds, ui.gpa, 0, list_top, ui.res.width, edge_shadow_height, gui.opaque_texel, shadow_opaque, shadow_clear, ui.res);
-    try gui.appendGradientRect(&backgrounds, ui.gpa, 0, bottom - edge_shadow_height, ui.res.width, edge_shadow_height, gui.opaque_texel, shadow_clear, shadow_opaque, ui.res);
+    try gui.drawEdgeBands(ui, list_top, bottom);
+    try gui.appendEdgeShadows(&backgrounds, ui.gpa, ui.res, list_top, bottom, edge_shadow_height);
 
     try appendScrollbar(&backgrounds, ui.gpa, ui.res, summaries.len, scroll);
 

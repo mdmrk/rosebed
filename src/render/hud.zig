@@ -1,8 +1,6 @@
-const std = @import("std");
 const gl = @import("gl");
 const game = @import("game");
 
-const Atlas = @import("atlas.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
 

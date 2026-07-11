@@ -189,18 +189,21 @@ fn readLevelFile(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []co
     return try levelFromTag(gpa, named.tag);
 }
 
-pub fn regionBytes(io: std.Io, dir: std.Io.Dir) u64 {
-    var region_dir = dir.openDir(io, region_dir_name, .{ .iterate = true }) catch return 0;
-    defer region_dir.close(io);
-
+fn sumFileSizes(io: std.Io, dir: std.Io.Dir) u64 {
     var total: u64 = 0;
-    var iterator = region_dir.iterate();
+    var iterator = dir.iterate();
     while (iterator.next(io) catch null) |entry| {
         if (entry.kind != .file) continue;
-        const stat = region_dir.statFile(io, entry.name, .{}) catch continue;
+        const stat = dir.statFile(io, entry.name, .{}) catch continue;
         total += stat.size;
     }
     return total;
+}
+
+pub fn regionBytes(io: std.Io, dir: std.Io.Dir) u64 {
+    var region_dir = dir.openDir(io, region_dir_name, .{ .iterate = true }) catch return 0;
+    defer region_dir.close(io);
+    return sumFileSizes(io, region_dir);
 }
 
 const RegionKey = struct { x: i32, z: i32 };
@@ -314,7 +317,7 @@ pub fn open(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) !Save {
 }
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try compound.put(gpa, try gpa.dupe(u8, key), tag);
+    try nbt.putDuped(gpa, compound, key, tag);
 }
 
 fn doubleList(gpa: std.mem.Allocator, values: [3]f64) !nbt.Tag {

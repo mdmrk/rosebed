@@ -95,6 +95,58 @@ pub fn appendVeil(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled) !void
     try appendGradientRect(mesh, gpa, 0, 0, res.width, res.height, opaque_texel, veil_top, veil_bottom, res);
 }
 
+const dirt_tile_scale: f32 = 32;
+const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
+
+pub fn appendDirt(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled) !void {
+    const uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = res.width / dirt_tile_scale, .v1 = res.height / dirt_tile_scale };
+    try appendRectColor(mesh, gpa, 0, 0, res.width, res.height, uv, dirt_tint, res);
+}
+
+pub fn drawDirtBackground(ui: Ui) !void {
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(ui.gpa);
+    try appendDirt(&mesh, ui.gpa, ui.res);
+    try drawTexturedMesh(&mesh, ui.shader, ui.textures.dirt);
+}
+
+pub const Backdrop = enum { dirt, veil };
+
+pub fn drawBackdrop(ui: Ui, backdrop: Backdrop) !void {
+    switch (backdrop) {
+        .dirt => try drawDirtBackground(ui),
+        .veil => {
+            var mesh: MeshBuilder = .{};
+            defer mesh.deinit(ui.gpa);
+            try appendVeil(&mesh, ui.gpa, ui.res);
+            try drawTexturedMesh(&mesh, ui.shader, ui.textures.gui);
+        },
+    }
+}
+
+pub fn drawEdgeBands(ui: Ui, list_top: f32, list_bottom: f32) !void {
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(ui.gpa);
+    const top_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = list_top / dirt_tile_scale };
+    try appendRectColor(&mesh, ui.gpa, 0, 0, ui.res.width, list_top, top_uv, dirt_tint, ui.res);
+    const bottom_uv: Atlas.Uv = .{
+        .u0 = 0,
+        .v0 = list_bottom / dirt_tile_scale,
+        .u1 = ui.res.width / dirt_tile_scale,
+        .v1 = ui.res.height / dirt_tile_scale,
+    };
+    try appendRectColor(&mesh, ui.gpa, 0, list_bottom, ui.res.width, ui.res.height - list_bottom, bottom_uv, dirt_tint, ui.res);
+    try drawTexturedMesh(&mesh, ui.shader, ui.textures.dirt);
+}
+
+const edge_shadow_dark: [4]u8 = .{ 0, 0, 0, 255 };
+const edge_shadow_clear: [4]u8 = .{ 0, 0, 0, 0 };
+
+pub fn appendEdgeShadows(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled, list_top: f32, list_bottom: f32, height: f32) !void {
+    try appendGradientRect(mesh, gpa, 0, list_top, res.width, height, opaque_texel, edge_shadow_dark, edge_shadow_clear, res);
+    try appendGradientRect(mesh, gpa, 0, list_bottom - height, res.width, height, opaque_texel, edge_shadow_clear, edge_shadow_dark, res);
+}
+
 pub fn pixelUv(x: f32, y: f32, w: f32, h: f32, tex_w: f32, tex_h: f32) Atlas.Uv {
     return .{ .u0 = x / tex_w, .v0 = y / tex_h, .u1 = (x + w) / tex_w, .v1 = (y + h) / tex_h };
 }

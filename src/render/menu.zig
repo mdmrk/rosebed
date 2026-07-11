@@ -1,10 +1,7 @@
 const std = @import("std");
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
-const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
-const Shader = @import("shader.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
 

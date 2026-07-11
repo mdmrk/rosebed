@@ -175,20 +175,6 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
     try lamps.run(gpa);
 }
 
-pub fn relightAround(gpa: std.mem.Allocator, world_map: *World, x: i32, z: i32) !void {
-    const width = constants.chunk_width;
-    const chunk_x = @divFloor(x, width);
-    const chunk_z = @divFloor(z, width);
-    const local_x = @mod(x, width);
-    const local_z = @mod(z, width);
-
-    try relightChunk(gpa, world_map, chunk_x, chunk_z);
-    if (local_x == 0) try relightChunk(gpa, world_map, chunk_x - 1, chunk_z);
-    if (local_x == width - 1) try relightChunk(gpa, world_map, chunk_x + 1, chunk_z);
-    if (local_z == 0) try relightChunk(gpa, world_map, chunk_x, chunk_z - 1);
-    if (local_z == width - 1) try relightChunk(gpa, world_map, chunk_x, chunk_z + 1);
-}
-
 const Side = struct { chunk_x: i32, chunk_z: i32, local_x: ?u32, local_z: ?u32 };
 
 fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, chunk_x: i32, chunk_z: i32) !void {

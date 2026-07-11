@@ -40,6 +40,10 @@ pub const NamedTag = struct {
     tag: Tag,
 };
 
+pub fn putDuped(gpa: std.mem.Allocator, compound: *Compound, key: []const u8, tag: Tag) !void {
+    try compound.put(gpa, try gpa.dupe(u8, key), tag);
+}
+
 fn writeString(w: *std.Io.Writer, s: []const u8) !void {
     try w.writeInt(u16, @intCast(s.len), .big);
     try w.writeAll(s);

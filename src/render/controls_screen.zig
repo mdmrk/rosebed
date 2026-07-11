@@ -3,7 +3,6 @@ const gl = @import("gl");
 const sdl3 = @import("sdl3");
 const game = @import("game");
 
-const Atlas = @import("atlas.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
@@ -12,8 +11,6 @@ const options_screen = @import("options_screen.zig");
 const bind_width: f32 = 70;
 const description_gap: f32 = 6;
 const description_offset_y: f32 = 7;
-const dirt_tile_scale: f32 = 32;
-const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const description_color: [4]u8 = .{ 255, 255, 255, 255 };
 const unknown_key = "???";
@@ -84,19 +81,7 @@ pub fn draw(
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var back: MeshBuilder = .{};
-    defer back.deinit(ui.gpa);
-    switch (backdrop) {
-        .dirt => {
-            const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
-            try gui.appendRectColor(&back, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
-            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.dirt);
-        },
-        .veil => {
-            try gui.appendVeil(&back, ui.gpa, ui.res);
-            try gui.drawTexturedMesh(&back, ui.shader, ui.textures.gui);
-        },
-    }
+    try gui.drawBackdrop(ui, backdrop);
 
     var backgrounds: MeshBuilder = .{};
     defer backgrounds.deinit(ui.gpa);
