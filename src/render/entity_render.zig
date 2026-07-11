@@ -118,6 +118,15 @@ pub fn appendItem(
         }
     };
     Cube.faces = id.faceTextures();
+    if (id == .log) {
+        const side_tile = world.block.logSideTile(item.stack.blockMeta());
+        Cube.faces.set(.north, side_tile);
+        Cube.faces.set(.south, side_tile);
+        Cube.faces.set(.west, side_tile);
+        Cube.faces.set(.east, side_tile);
+    } else if (id == .wool) {
+        Cube.faces = world.block.FaceTextures.initFill(world.block.woolTile(item.stack.blockMeta()));
+    }
     Cube.inset = id.sideInset() * block_scale;
     try appendCopies(
         mesh,
@@ -368,6 +377,30 @@ test "a dropped block renders as a small cube, not a flat cross" {
     try appendItem(&mesh, gpa, &world_map, item, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
+}
+
+test "a dropped pine log shows pine bark instead of oak's" {
+    const gpa = std.testing.allocator;
+    var oak: MeshBuilder = .{};
+    defer oak.deinit(gpa);
+    var pine: MeshBuilder = .{};
+    defer pine.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const oak_item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .log }, .count = 1 }, &rand);
+    try appendItem(&oak, gpa, &world_map, oak_item, 0);
+    const pine_item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .block = .log }, .count = 1, .meta = 1 }, &rand);
+    try appendItem(&pine, gpa, &world_map, pine_item, 0);
+
+    var highest_oak_v: f32 = 0;
+    for (oak.vertices.items) |v| highest_oak_v = @max(highest_oak_v, v.v);
+    var highest_pine_v: f32 = 0;
+    for (pine.vertices.items) |v| highest_pine_v = @max(highest_pine_v, v.v);
+
+    try std.testing.expect(highest_oak_v < 7.0 / 16.0);
+    try std.testing.expect(highest_pine_v > 7.0 / 16.0);
 }
 
 test "a dropped plant keeps the crossing-sprite shape the original gives it" {
