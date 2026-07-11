@@ -562,6 +562,21 @@ fn tickFallingBlocks(app_state: *AppState) !void {
     }
 }
 
+fn dropSelectedItem(app_state: *AppState) !void {
+    const inventory = &app_state.player.inventory;
+    const slot = &inventory.slots[inventory.selected];
+    var stack = slot.* orelse return;
+    try app_state.entities.throwFromPlayer(
+        app_state.gpa,
+        &app_state.player,
+        .{ .id = stack.id, .count = 1, .meta = stack.meta },
+        &app_state.world_map.rand,
+    );
+    stack.count -= 1;
+    slot.* = if (stack.count == 0) null else stack;
+    try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
+}
+
 const ClickType = enum { left, right };
 
 fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
@@ -1825,6 +1840,8 @@ pub fn event(
                 app_state.show_debug = !app_state.show_debug;
             } else if (boundTo(app_state, .inventory, k.key) and !app_state.paused) {
                 try toggleInventory(app_state);
+            } else if (boundTo(app_state, .drop, k.key) and worldFocused(app_state)) {
+                try dropSelectedItem(app_state);
             } else {
                 setKeyState(app_state, k.key, true);
                 selectHotbarFromKey(app_state, k.key);

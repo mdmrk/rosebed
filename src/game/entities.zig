@@ -45,6 +45,38 @@ pub fn dropStack(
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
 
+const throw_speed: f64 = 0.3;
+const throw_lift: f64 = 0.1;
+const throw_pickup_delay: u16 = 40;
+const player_hand_drop: f64 = 0.3 - 0.12;
+
+pub fn throwFromPlayer(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    player: *const Player,
+    stack: Inventory.ItemStack,
+    rand: *world.JavaRandom,
+) !void {
+    const position = math.Vec3.init(
+        player.base.position.x,
+        player.base.position.y + Player.eye_height - player_hand_drop,
+        player.base.position.z,
+    );
+    var item = ItemEntity.spawn(position, stack, rand);
+    item.pickup_delay = throw_pickup_delay;
+
+    const look = player.lookVector();
+    const angle = @as(f64, rand.nextFloat()) * std.math.pi * 2.0;
+    const jitter = 0.02 * @as(f64, rand.nextFloat());
+    item.base.motion = .{
+        .x = @as(f64, look[0]) * throw_speed + @cos(angle) * jitter,
+        .y = @as(f64, look[1]) * throw_speed + throw_lift + @as(f64, rand.nextFloat() - rand.nextFloat()) * 0.1,
+        .z = @as(f64, look[2]) * throw_speed + @sin(angle) * jitter,
+    };
+
+    try self.items.append(gpa, item);
+}
+
 pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     const position = math.Vec3.init(
         @as(f64, @floatFromInt(x)) + 0.5,
@@ -200,6 +232,23 @@ pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player
 
 pub fn tickPigs(self: *Entities, world_map: *const world.World, rand: *world.JavaRandom) void {
     for (self.pigs.items) |*pig| pig.tick(world_map, rand);
+}
+
+test "a thrown item flies out in front of the player with a pickup delay" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(0);
+
+    const player = Player.spawn(math.Vec3.init(8, 1, 8));
+    try entities.throwFromPlayer(gpa, &player, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+
+    const item = entities.items.items[0];
+    try std.testing.expectEqual(@as(u16, 40), item.pickup_delay);
+    try std.testing.expect(!item.canPickUp());
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0 + Player.eye_height - 0.18), item.base.position.y, 1.0e-9);
+    try std.testing.expect(item.base.motion.z > 0.25);
+    try std.testing.expect(@abs(item.base.motion.x) < 0.05);
 }
 
 test "walking over a dropped stack picks it up" {
