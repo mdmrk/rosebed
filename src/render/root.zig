@@ -32,6 +32,7 @@ pub const select_world_screen = @import("select_world_screen.zig");
 pub const create_world_screen = @import("create_world_screen.zig");
 pub const confirm_screen = @import("confirm_screen.zig");
 pub const loading_screen = @import("loading_screen.zig");
+pub const mojang_screen = @import("mojang_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
 pub const underwater = @import("underwater.zig");
 

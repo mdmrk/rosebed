@@ -95,6 +95,7 @@ const AppState = struct {
     mouse_y: f32 = 0,
     screen: Screen = .title,
     splash: []const u8 = splashes[0],
+    mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
     workbench_open: bool = false,
     paused: bool = false,
@@ -357,6 +358,10 @@ pub fn init(
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
+
+    try render.mojang_screen.draw(uiContext(&app_state, guiSize(&app_state)));
+    try sdl3.video.gl.swapWindow(window);
+    app_state.mojang_until_ms = sdl3.timer.getMillisecondsSinceInit() + render.mojang_screen.hold_ms;
 
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
@@ -1582,6 +1587,12 @@ pub fn iterate(
 
     const dt = app_state.fps_capper.delay();
     _ = dt;
+
+    if (sdl3.timer.getMillisecondsSinceInit() < app_state.mojang_until_ms) {
+        try render.mojang_screen.draw(uiContext(app_state, gui));
+        try sdl3.video.gl.swapWindow(app_state.window);
+        return .run;
+    }
 
     app_state.frames_this_second += 1;
     const now_ms = sdl3.timer.getMillisecondsSinceInit();
