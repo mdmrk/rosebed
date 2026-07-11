@@ -7,6 +7,7 @@ const TerrainGenerator = @import("terrain_gen.zig");
 const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
 const fluid = @import("fluid.zig");
+const leaf_decay = @import("leaf_decay.zig");
 const save = @import("save.zig");
 const math = @import("math");
 
@@ -48,6 +49,7 @@ due: std.ArrayList(ScheduledTick) = .empty,
 changed: std.ArrayList(BlockPos) = .empty,
 dropped: std.ArrayList(DroppedBlock) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
+update_lcg: i32 = 0,
 time: i64 = 0,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
@@ -282,8 +284,10 @@ pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: B
     const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
     const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
     const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
+    const previous = chunk.getBlock(local_x, @intCast(y), local_z);
     chunk.setBlock(local_x, @intCast(y), local_z, id);
     chunk.setBlockMetadata(local_x, @intCast(y), local_z, meta);
+    if (previous != id) leaf_decay.onBlockRemoved(self, x, y, z, previous);
     try self.onBlockAdded(x, y, z, id);
     try self.notifyBlockChange(x, y, z);
 }
@@ -360,6 +364,34 @@ pub fn tickUpdates(self: *World) !void {
         if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) continue;
         if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
         if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
+    }
+}
+
+pub const random_tick_samples: usize = 80;
+
+const random_tick_chunk_radius: i32 = 9;
+
+pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) !void {
+    var chunk_x = center_chunk_x - random_tick_chunk_radius;
+    while (chunk_x <= center_chunk_x + random_tick_chunk_radius) : (chunk_x += 1) {
+        var chunk_z = center_chunk_z - random_tick_chunk_radius;
+        while (chunk_z <= center_chunk_z + random_tick_chunk_radius) : (chunk_z += 1) {
+            const chunk = self.getChunk(chunk_x, chunk_z) orelse continue;
+            for (0..random_tick_samples) |_| {
+                self.update_lcg = self.update_lcg *% 3 +% 1013904223;
+                const bits = self.update_lcg >> 2;
+                const local_x: u32 = @intCast(bits & 15);
+                const local_z: u32 = @intCast((bits >> 8) & 15);
+                const local_y: u32 = @intCast((bits >> 16) & 127);
+                if (chunk.getBlock(local_x, local_y, local_z) != .leaves) continue;
+                try leaf_decay.tick(
+                    self,
+                    chunk_x * constants.chunk_width + @as(i32, @intCast(local_x)),
+                    @intCast(local_y),
+                    chunk_z * constants.chunk_width + @as(i32, @intCast(local_z)),
+                );
+            }
+        }
     }
 }
 

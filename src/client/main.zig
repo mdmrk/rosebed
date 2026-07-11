@@ -1229,6 +1229,8 @@ fn tick(app_state: *AppState) !void {
     try digStep(app_state);
     app_state.entities.tickItems(&app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
+    const player_chunk = playerChunkCoord(app_state);
+    try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
     try app_state.world_map.tickUpdates();
     try applyBlockChanges(app_state);
     app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);

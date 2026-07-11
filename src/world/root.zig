@@ -25,6 +25,7 @@ pub const decorate = @import("decorate.zig");
 pub const lakes = @import("lakes.zig");
 pub const springs = @import("springs.zig");
 pub const fluid = @import("fluid.zig");
+pub const leaf_decay = @import("leaf_decay.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
 pub const nbt = @import("nbt.zig");
@@ -53,6 +54,7 @@ test {
     _ = lakes;
     _ = springs;
     _ = fluid;
+    _ = leaf_decay;
     _ = dungeons;
     _ = World;
     _ = nbt;
