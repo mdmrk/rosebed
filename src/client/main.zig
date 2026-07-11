@@ -1214,8 +1214,12 @@ fn tick(app_state: *AppState) !void {
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
+    const was_in_water = app_state.player.base.in_water;
     app_state.player.tick(&app_state.world_map, strafe, forward, moving_allowed and app_state.keys.jump);
     try recordPlayerTick(app_state, before_move);
+    if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
+        try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
+    }
     if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
         app_state.player.swingItem();
         app_state.last_held_swing_tick = app_state.tick_count;
@@ -1228,7 +1232,8 @@ fn tick(app_state: *AppState) !void {
     try app_state.world_map.tickUpdates();
     try applyBlockChanges(app_state);
     app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
-    app_state.entities.tickParticles(&app_state.world_map);
+    try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
+    try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
     try advanceWorldTime(app_state);
 
@@ -1239,6 +1244,30 @@ fn tick(app_state: *AppState) !void {
         try saveLevel(app_state);
     }
     _ = try app_state.world_map.saveQueuedChunks(save_chunks_per_tick);
+}
+
+const display_particle_samples = 1000;
+const display_particle_range = 16;
+
+fn spawnDisplayParticles(app_state: *AppState) !void {
+    const rand = &app_state.world_map.rand;
+    const px = math.util.floorDouble(app_state.player.base.position.x);
+    const py = math.util.floorDouble(app_state.player.base.position.y);
+    const pz = math.util.floorDouble(app_state.player.base.position.z);
+    for (0..display_particle_samples) |_| {
+        const x = px + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
+        const y = py + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
+        const z = pz + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
+        if (app_state.world_map.getBlock(x, y, z).material() != .lava) continue;
+        if (app_state.world_map.getBlock(x, y + 1, z) != .air) continue;
+        if (rand.nextIntBound(100) != 0) continue;
+        const position = math.Vec3.init(
+            @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()),
+            @as(f64, @floatFromInt(y)) + 1.0,
+            @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()),
+        );
+        try app_state.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
+    }
 }
 
 fn advanceWorldTime(app_state: *AppState) !void {
@@ -1375,10 +1404,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
     }
     const basis = render.entity_render.CameraBasis.fromLook(app_state.player.yaw, app_state.player.pitch);
+    var particle_mesh: render.MeshBuilder = .{};
+    defer particle_mesh.deinit(app_state.frame);
     for (app_state.entities.particles.items) |particle| {
-        try render.entity_render.appendParticle(&atlas_mesh, app_state.frame, &app_state.world_map, particle, basis, partial);
+        const target = if (particle.kind == .digging) &atlas_mesh else &particle_mesh;
+        try render.entity_render.appendParticle(target, app_state.frame, &app_state.world_map, particle, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
+    if (particle_mesh.vertices.items.len > 0) {
+        app_state.textures.particles.bind();
+        drawEntityMesh(&particle_mesh);
+        app_state.textures.terrain.bind();
+    }
 
     var pig_mesh: render.MeshBuilder = .{};
     defer pig_mesh.deinit(app_state.frame);

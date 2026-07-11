@@ -250,14 +250,20 @@ pub fn appendParticle(
     const cx: f32 = @floatCast(pos.x);
     const cy: f32 = @floatCast(pos.y);
     const cz: f32 = @floatCast(pos.z);
-    const half = particle.halfSize();
+    const half = particle.halfSize(partial_ticks);
 
     const tile_size: f32 = 1.0 / 16.0;
     const quarter: f32 = 0.999 / 64.0;
-    const left = (@as(f32, @floatFromInt(particle.tile % 16)) + particle.jitter_u / 4.0) * tile_size;
-    const top = (@as(f32, @floatFromInt(particle.tile / 16)) + particle.jitter_v / 4.0) * tile_size;
-    const right = left + quarter;
-    const bottom = top + quarter;
+    var left = @as(f32, @floatFromInt(particle.tile % 16)) * tile_size;
+    var top = @as(f32, @floatFromInt(particle.tile / 16)) * tile_size;
+    var right = left + 0.999 / 16.0;
+    var bottom = top + 0.999 / 16.0;
+    if (particle.kind == .digging) {
+        left += particle.jitter_u / 4.0 * tile_size;
+        top += particle.jitter_v / 4.0 * tile_size;
+        right = left + quarter;
+        bottom = top + quarter;
+    }
 
     const positions = [4][3]f32{
         .{ cx - basis.right_x * half - basis.tilt_x * half, cy - basis.up_y * half, cz - basis.right_z * half - basis.tilt_z * half },
@@ -267,7 +273,7 @@ pub fn appendParticle(
     };
     const uvs = [4][2]f32{ .{ left, bottom }, .{ left, top }, .{ right, top }, .{ right, bottom } };
 
-    const brightness = brightnessOf(world_map, particle.base);
+    const brightness: f32 = if (particle.fullBright()) 1.0 else brightnessOf(world_map, particle.base);
     const shade: [4]u8 = .{
         @intFromFloat(particle.color[0] * @as(f32, @floatFromInt(particle.tint[0])) / 255.0 * brightness * 255.0),
         @intFromFloat(particle.color[1] * @as(f32, @floatFromInt(particle.tint[1])) / 255.0 * brightness * 255.0),
@@ -327,6 +333,27 @@ test "a particle samples only a quarter of its block's tile" {
         highest_u = @max(highest_u, v.u);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 0.999 / 64.0), highest_u - lowest_u, 1.0e-6);
+}
+
+test "a lava ember samples a whole tile of the particle sheet" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    const particle = game.Particle.spawnLava(.{ .x = 8, .y = 40, .z = 8 }, &rand);
+    try appendParticle(&mesh, gpa, &world_map, particle, CameraBasis.fromLook(0, 0), 0);
+
+    var lowest_u: f32 = std.math.floatMax(f32);
+    var highest_u: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |v| {
+        lowest_u = @min(lowest_u, v.u);
+        highest_u = @max(highest_u, v.u);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 0.999 / 16.0), highest_u - lowest_u, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), lowest_u, 1.0e-6);
 }
 
 test "a dropped block renders as a small cube, not a flat cross" {
