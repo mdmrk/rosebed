@@ -206,14 +206,17 @@ pub fn spawnPig(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !v
     try self.pigs.append(gpa, Pig.spawn(position));
 }
 
+const pickup_reach: f64 = 1.0;
+
 pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player) void {
+    const reach = player.base.boundingBox().expand(pickup_reach, 0, pickup_reach);
     var i: usize = 0;
     while (i < self.items.items.len) {
         const item = &self.items.items[i];
         item.tick(world_map);
 
         var picked_up = false;
-        if (item.canPickUp() and item.base.boundingBox().intersects(player.base.boundingBox())) {
+        if (player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {
             const leftover = player.inventory.addStack(item.stack);
             if (leftover == 0) {
                 picked_up = true;
@@ -397,4 +400,46 @@ test "a hit particle is smaller and slower than a destroy shard" {
     try std.testing.expect(hit.scale < plain.scale);
     try std.testing.expectApproxEqAbs(plain.scale * hit_shrink, hit.scale, 1.0e-6);
     try std.testing.expect(@abs(hit.base.motion.x) < @abs(plain.base.motion.x));
+}
+
+test "an item within a block of the player is drawn in, one further out is not" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    for ([_]f64{ 9.4, 9.5 }) |x| {
+        try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+        var item = &entities.items.items[entities.items.items.len - 1];
+        item.pickup_delay = 0;
+        item.base.position = math.Vec3.init(x, 1, 8);
+        item.base.motion = math.Vec3.init(0, 0, 0);
+    }
+
+    entities.tickItems(&w, &player);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.5), entities.items.items[0].base.position.x, 1.0e-9);
+}
+
+test "a dead player leaves items on the ground" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.health = 0;
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    entities.items.items[0].pickup_delay = 0;
+    entities.items.items[0].base.position = player.base.position;
+
+    entities.tickItems(&w, &player);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
 }
