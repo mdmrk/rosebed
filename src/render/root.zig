@@ -13,6 +13,7 @@ pub const held_item = @import("held_item.zig");
 pub const gui = @import("gui.zig");
 pub const Ui = gui.Ui;
 pub const Textures = @import("textures.zig");
+pub const TextureFx = @import("texture_fx.zig");
 pub const Colorizer = @import("colorizer.zig");
 pub const hud = @import("hud.zig");
 pub const mob_model = @import("mob_model.zig");
@@ -51,6 +52,7 @@ test {
     _ = held_item;
     _ = gui;
     _ = Textures;
+    _ = TextureFx;
     _ = Colorizer;
     _ = hud;
     _ = mob_model;

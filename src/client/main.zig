@@ -65,6 +65,7 @@ const AppState = struct {
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
     textures: render.Textures,
+    texture_fx: render.TextureFx,
     colorizer: render.Colorizer,
     sky: render.SkyRenderer,
     font: render.Font,
@@ -328,6 +329,7 @@ pub fn init(
         .gl_context = gl_context,
         .gl_procs = undefined,
         .textures = undefined,
+        .texture_fx = .init(@bitCast(sdl3.timer.getNanosecondsSinceInit())),
         .colorizer = undefined,
         .sky = undefined,
         .font = undefined,
@@ -1677,6 +1679,11 @@ pub fn iterate(
         }
     } else if (app_state.screen == .create_world) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.create_state.tick();
+    }
+
+    if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick();
+        app_state.texture_fx.upload(app_state.textures.terrain);
     }
 
     if (app_state.screen == .loading) try stepLoading(app_state);
