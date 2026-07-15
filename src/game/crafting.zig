@@ -30,13 +30,26 @@ fn dye(meta: u16) ?Ingredient {
     return .{ .id = .{ .item = .dye }, .meta = meta };
 }
 
-fn shaped(width: u8, height: u8, cells: []const ?Ingredient, output: world.Id, count: u8) Recipe {
+fn shaped(
+    comptime width: u8,
+    comptime height: u8,
+    comptime cells: []const ?Ingredient,
+    comptime output: world.Id,
+    comptime count: u8,
+) Recipe {
     var pattern: [max_pattern]?Ingredient = @splat(null);
     for (cells, 0..) |cell, index| pattern[index] = cell;
     return .{ .width = width, .height = height, .pattern = pattern, .output_id = output, .output_count = count };
 }
 
-fn shapedMeta(width: u8, height: u8, cells: []const ?Ingredient, output: world.Id, count: u8, meta: u16) Recipe {
+fn shapedMeta(
+    comptime width: u8,
+    comptime height: u8,
+    comptime cells: []const ?Ingredient,
+    comptime output: world.Id,
+    comptime count: u8,
+    comptime meta: u16,
+) Recipe {
     var recipe = shaped(width, height, cells, output, count);
     recipe.output_meta = meta;
     return recipe;
@@ -47,8 +60,8 @@ fn storageBlock(ingredient: ?Ingredient, output: world.Block) Recipe {
 }
 
 fn family(
-    width: u8,
-    height: u8,
+    comptime width: u8,
+    comptime height: u8,
     comptime pattern: []const u8,
     comptime heads: []const ?Ingredient,
     comptime outputs: []const world.Item,
@@ -205,14 +218,26 @@ const shapeless_recipes = woolDyeRecipes() ++ [_]ShapelessRecipe{
     dyeFrom(&.{ dye(dye_blue), dye(dye_red), dye(dye_red), dye(dye_white) }, 4, dye_magenta),
 };
 
-fn matchesAt(grid: []const ?Inventory.ItemStack, size: u8, recipe: Recipe, offset_x: u8, offset_y: u8) bool {
+fn matchesAt(
+    grid: []const ?Inventory.ItemStack,
+    size: u8,
+    recipe: Recipe,
+    offset_x: u8,
+    offset_y: u8,
+    mirrored: bool,
+) bool {
     for (0..size) |y| {
         for (0..size) |x| {
             const rx = @as(i32, @intCast(x)) - @as(i32, offset_x);
             const ry = @as(i32, @intCast(y)) - @as(i32, offset_y);
             var want: ?Ingredient = null;
             if (rx >= 0 and ry >= 0 and rx < recipe.width and ry < recipe.height) {
-                want = recipe.pattern[@intCast(rx + ry * recipe.width)];
+                const px: u8 = if (mirrored)
+                    recipe.width - 1 - @as(u8, @intCast(rx))
+                else
+                    @intCast(rx);
+
+                want = recipe.pattern[px + @as(u8, @intCast(ry)) * recipe.width];
             }
             const have = grid[x + y * size];
             if (have == null and want == null) continue;
@@ -259,7 +284,9 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
         if (recipe.width > size or recipe.height > size) continue;
         for (0..size + 1 - recipe.height) |offset_y| {
             for (0..size + 1 - recipe.width) |offset_x| {
-                if (matchesAt(grid, size, recipe, @intCast(offset_x), @intCast(offset_y))) {
+                if (matchesAt(grid, size, recipe, @intCast(offset_x), @intCast(offset_y), true) or
+                    matchesAt(grid, size, recipe, @intCast(offset_x), @intCast(offset_y), false))
+                {
                     return .{ .id = recipe.output_id, .count = recipe.output_count, .meta = recipe.output_meta };
                 }
             }
@@ -577,8 +604,8 @@ test "each tool layout crafts its own head, shifted anywhere it fits" {
     const stick: world.Id = .{ .item = .stick };
 
     try std.testing.expectEqual(world.Id{ .item = .sword_wood }, craftOnWorkbench(&.{
-        wood, null, null,
-        wood, null, null,
+        wood,  null, null,
+        wood,  null, null,
         stick, null, null,
     }).?.id);
     try std.testing.expectEqual(world.Id{ .item = .shovel_wood }, craftOnWorkbench(&.{
