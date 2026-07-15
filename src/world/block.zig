@@ -325,6 +325,10 @@ pub const Block = enum(u8) {
         return self == .air or self.isLiquid();
     }
 
+    pub fn isReplaceable(self: Block) bool {
+        return self == .air or self.isLiquid() or self == .snow_layer;
+    }
+
     pub fn selectionBounds(self: Block, metadata: u4) Bounds {
         return switch (self) {
             .tall_grass, .dead_bush => plantBounds(0.4, 0.8),
@@ -1087,3 +1091,15 @@ test "a torch leaves the world as a flat sprite, like a plant does" {
     try std.testing.expectEqual(@as(?u8, null), Block.snow_layer.flatItemTile(0));
 }
 
+test "only air, liquids and snow give way to a block placed on top of them" {
+    try std.testing.expect(Block.air.isReplaceable());
+    try std.testing.expect(Block.stationary_water.isReplaceable());
+    try std.testing.expect(Block.flowing_water.isReplaceable());
+    try std.testing.expect(Block.flowing_lava.isReplaceable());
+    try std.testing.expect(Block.snow_layer.isReplaceable());
+
+    try std.testing.expect(!Block.torch.isReplaceable());
+    try std.testing.expect(!Block.stone.isReplaceable());
+    try std.testing.expect(!Block.tall_grass.isReplaceable());
+    try std.testing.expect(!Block.rose.isReplaceable());
+}

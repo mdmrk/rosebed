@@ -1203,7 +1203,7 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const py = hit.y + offset[1];
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
-    if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
+    if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return;
     if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return;
     const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, hit.face, stack.blockMeta());
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
