@@ -360,8 +360,6 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
-    try app_state.entities.spawnPig(app_state.gpa, math.Vec3.init(10, 90, 8));
-
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
@@ -1286,6 +1284,14 @@ fn tick(app_state: *AppState) !void {
         app_state.gpa,
         &app_state.world_map,
         &app_state.player,
+        &app_state.world_map.rand,
+    );
+    _ = try game.spawner.performSpawning(
+        app_state.gpa,
+        &app_state.entities,
+        &app_state.world_map,
+        app_state.player.base.position,
+        app_state.spawn,
         &app_state.world_map.rand,
     );
     try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
