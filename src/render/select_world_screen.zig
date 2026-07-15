@@ -36,6 +36,12 @@ pub const Hit = union(enum) {
     cancel,
 };
 
+pub const double_click_ms: u64 = 250;
+
+pub fn isDoubleClick(selected: ?usize, index: usize, now_ms: u64, last_click_ms: u64) bool {
+    return selected == index and now_ms -% last_click_ms < double_click_ms;
+}
+
 pub fn listBottom(res: gui.Scaled) f32 {
     return res.height - list_bottom_margin;
 }
@@ -266,6 +272,17 @@ test "cancel sits below create" {
     const res = gui.scaledResolution(640, 480, 1000);
     const cx = @floor(res.width / 2.0);
     try std.testing.expectEqual(@as(?Hit, .cancel), hitAt((cx + 80) * res.factor, (res.height - 28 + 10) * res.factor, res, 0, 0, false));
+}
+
+test "a second click counts as a double click only on the entry already selected" {
+    try std.testing.expect(isDoubleClick(1, 1, 1200, 1000));
+    try std.testing.expect(!isDoubleClick(0, 1, 1200, 1000));
+    try std.testing.expect(!isDoubleClick(null, 0, 1200, 1000));
+}
+
+test "a double click has to land within a quarter second of the first" {
+    try std.testing.expect(isDoubleClick(0, 0, 1249, 1000));
+    try std.testing.expect(!isDoubleClick(0, 0, 1250, 1000));
 }
 
 test "scrolling is bounded by how much list overflows the visible area" {

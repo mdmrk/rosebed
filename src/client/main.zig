@@ -126,6 +126,7 @@ const AppState = struct {
     open_name: NameBuffer = .{},
     summaries: []world.save.Summary = &.{},
     selected_world: ?usize = null,
+    last_list_click_ms: u64 = 0,
     list_scroll: f32 = 0,
     create_state: render.create_world_screen.State = undefined,
     loading: Loading = .{},
@@ -995,7 +996,18 @@ fn selectWorldClick(app_state: *AppState) !void {
     ) orelse return;
 
     switch (hit) {
-        .entry => |index| app_state.selected_world = index,
+        .entry => |index| {
+            const now = sdl3.timer.getMillisecondsSinceInit();
+            const double = render.select_world_screen.isDoubleClick(
+                app_state.selected_world,
+                index,
+                now,
+                app_state.last_list_click_ms,
+            );
+            app_state.selected_world = index;
+            app_state.last_list_click_ms = now;
+            if (double) try playSelectedWorld(app_state);
+        },
         .select => try playSelectedWorld(app_state),
         .rename => try openRenameWorld(app_state),
         .delete => app_state.screen = .confirm_delete,
