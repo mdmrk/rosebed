@@ -1861,12 +1861,12 @@ pub fn iterate(
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.screen == .select_world) {
-        app_state.list_scroll = std.math.clamp(app_state.list_scroll, 0, render.select_world_screen.maxScroll(gui, app_state.summaries.len));
+        app_state.list_scroll = render.select_world_screen.clampScroll(gui, app_state.summaries.len, app_state.list_scroll);
         try render.select_world_screen.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
     } else if (app_state.screen == .create_world) {
         try render.create_world_screen.draw(ui, &app_state.create_state);
     } else if (app_state.screen == .texture_packs) {
-        app_state.pack_scroll = std.math.clamp(app_state.pack_scroll, 0, render.texture_packs_screen.maxScroll(gui, app_state.packs.len));
+        app_state.pack_scroll = render.texture_packs_screen.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
         try render.texture_packs_screen.draw(
             ui,
             app_state.packs,
@@ -2021,11 +2021,11 @@ pub fn event(
             const step = render.stats_screen.scrollStep(view.tab);
             view.scroll.set(view.tab, render.stats_screen.clampScroll(guiSize(app_state), view.*, view.scrollOf() - w.scroll_y * step));
         } else if (app_state.screen == .select_world) {
-            const limit = render.select_world_screen.maxScroll(guiSize(app_state), app_state.summaries.len);
-            app_state.list_scroll = std.math.clamp(app_state.list_scroll - w.scroll_y * render.select_world_screen.entry_height, 0, limit);
+            const step = w.scroll_y * render.select_world_screen.entry_height;
+            app_state.list_scroll = render.select_world_screen.clampScroll(guiSize(app_state), app_state.summaries.len, app_state.list_scroll - step);
         } else if (app_state.screen == .texture_packs) {
-            const limit = render.texture_packs_screen.maxScroll(guiSize(app_state), app_state.packs.len);
-            app_state.pack_scroll = std.math.clamp(app_state.pack_scroll - w.scroll_y * render.texture_packs_screen.entry_height, 0, limit);
+            const step = w.scroll_y * render.texture_packs_screen.entry_height;
+            app_state.pack_scroll = render.texture_packs_screen.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
         },
         .text_input => |t| if (app_state.screen == .create_world) {
             app_state.create_state.typeText(t.text);

@@ -48,8 +48,13 @@ pub fn listBottom(res: gui.Scaled) f32 {
 
 pub fn maxScroll(res: gui.Scaled, count: usize) f32 {
     const content = @as(f32, @floatFromInt(count)) * entry_height;
-    const visible = listBottom(res) - list_top;
-    return @max(0, content - visible);
+    const visible = listBottom(res) - list_top - entry_padding;
+    const overflow = content - visible;
+    return if (overflow < 0) @trunc(overflow / 2.0) else overflow;
+}
+
+pub fn clampScroll(res: gui.Scaled, count: usize, scroll: f32) f32 {
+    return @min(@max(scroll, 0), maxScroll(res, count));
 }
 
 fn buttons(res: gui.Scaled, has_selection: bool) [5]struct { button: button.Button, hit: Hit } {
@@ -287,9 +292,30 @@ test "a double click has to land within a quarter second of the first" {
 
 test "scrolling is bounded by how much list overflows the visible area" {
     const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(f32, 0), maxScroll(res, 0));
-    try std.testing.expectEqual(@as(f32, 0), maxScroll(res, 1));
     try std.testing.expect(maxScroll(res, 100) > 0);
+    try std.testing.expectEqual(@as(f32, 0), clampScroll(res, 100, -20));
+    try std.testing.expectEqual(maxScroll(res, 100), clampScroll(res, 100, 1.0e6));
+}
+
+test "a list too short to fill the view is pushed down to sit centred in it" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const visible = listBottom(res) - list_top - entry_padding;
+
+    for ([_]usize{ 0, 1, 2 }) |count| {
+        const leftover = visible - @as(f32, @floatFromInt(count)) * entry_height;
+        const settled = clampScroll(res, count, 0);
+        try std.testing.expectEqual(@trunc(-leftover / 2.0), settled);
+
+        const first = entryY(res, 0, settled);
+        const last = entryY(res, count, settled);
+        try std.testing.expectApproxEqAbs(first - list_top - entry_padding, listBottom(res) - last, 1.0);
+    }
+}
+
+test "a list long enough to overflow scrolls from the top instead of centring" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    try std.testing.expect(clampScroll(res, 100, 0) == 0);
+    try std.testing.expectEqual(list_top + entry_padding, entryY(res, 0, clampScroll(res, 100, 0)));
 }
 
 test "the detail line shows the folder, a date and a size" {

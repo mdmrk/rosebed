@@ -23,6 +23,8 @@ pub const list_top: f32 = 32;
 pub const entry_height: f32 = 36;
 const list_bottom_margin: f32 = 51;
 const entry_half_width: f32 = 110;
+const entry_padding: f32 = 4;
+const row_height: f32 = entry_height - 4;
 const thumbnail_size: f32 = 32;
 const text_left_gap: f32 = thumbnail_size + 2;
 const edge_shadow_height: f32 = 4;
@@ -44,8 +46,13 @@ pub fn listBottom(res: gui.Scaled) f32 {
 
 pub fn maxScroll(res: gui.Scaled, count: usize) f32 {
     const content = @as(f32, @floatFromInt(count)) * entry_height;
-    const visible = listBottom(res) - list_top;
-    return @max(0, content - visible);
+    const visible = listBottom(res) - list_top - entry_padding;
+    const overflow = content - visible;
+    return if (overflow < 0) @trunc(overflow / 2.0) else overflow;
+}
+
+pub fn clampScroll(res: gui.Scaled, count: usize, scroll: f32) f32 {
+    return @min(@max(scroll, 0), maxScroll(res, count));
 }
 
 fn buttons(res: gui.Scaled) [2]struct { button: button.Button, hit: Hit } {
@@ -67,7 +74,7 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
 
     const cx = @floor(res.width / 2.0);
     if (gy >= list_top and gy < listBottom(res) and gx >= cx - entry_half_width and gx <= cx + entry_half_width) {
-        const offset = gy - list_top + scroll;
+        const offset = gy - list_top + scroll - entry_padding;
         if (offset < 0) return null;
         const index: usize = @intFromFloat(offset / entry_height);
         if (index < count) return .{ .entry = index };
@@ -76,14 +83,14 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
 }
 
 fn entryY(index: usize, scroll: f32) f32 {
-    return list_top - scroll + @as(f32, @floatFromInt(index)) * entry_height;
+    return list_top + entry_padding - scroll + @as(f32, @floatFromInt(index)) * entry_height;
 }
 
 pub fn scrollbarThumb(res: gui.Scaled, count: usize, scroll: f32) ?struct { y: f32, height: f32 } {
     const bottom = listBottom(res);
     const visible = bottom - list_top;
     const content = @as(f32, @floatFromInt(count)) * entry_height;
-    const overflow = content - visible;
+    const overflow = content - (visible - entry_padding);
     if (overflow <= 0) return null;
 
     var height = visible * visible / content;
@@ -142,7 +149,7 @@ pub fn draw(
 
     for (packs, 0..) |_, index| {
         const y = entryY(index, scroll);
-        if (y + entry_height < list_top or y > bottom) continue;
+        if (y + row_height < list_top or y > bottom) continue;
         if (selected == null or selected.? != index) continue;
 
         try gui.appendRectColor(&highlights, ui.gpa, cx - entry_half_width, y - 2, entry_half_width * 2, entry_height, gui.opaque_texel, selected_color, ui.res);
@@ -152,7 +159,7 @@ pub fn draw(
 
     for (packs, thumbnails, 0..) |_, thumbnail, index| {
         const y = entryY(index, scroll);
-        if (y + entry_height < list_top or y > bottom) continue;
+        if (y + row_height < list_top or y > bottom) continue;
 
         var icon: MeshBuilder = .{};
         defer icon.deinit(ui.gpa);
@@ -165,7 +172,7 @@ pub fn draw(
 
     for (packs, 0..) |pack, index| {
         const y = entryY(index, scroll);
-        if (y + entry_height < list_top or y > bottom) continue;
+        if (y + row_height < list_top or y > bottom) continue;
 
         const text_x = slot_left + text_left_gap;
         try gui.appendTextColor(&entry_text, ui.gpa, ui.font, pack.name, text_x, y + 1, name_color, ui.res);
@@ -202,7 +209,7 @@ pub fn draw(
 }
 
 fn rowClickY(res: gui.Scaled, index: usize) f32 {
-    return (list_top + @as(f32, @floatFromInt(index)) * entry_height + 2) * res.factor;
+    return (list_top + entry_padding + @as(f32, @floatFromInt(index)) * entry_height + 2) * res.factor;
 }
 
 test "clicking a row returns its index, offset by the scroll position" {
@@ -257,4 +264,77 @@ test "a row scrolled above the list is not clickable through the header" {
     const res = gui.scaledResolution(640, 480, 1000);
     const cx = @floor(res.width / 2.0) * res.factor;
     try std.testing.expectEqual(@as(?Hit, null), hitAt(cx, (list_top - 4) * res.factor, res, 3, 0));
+}
+
+test "rows start four pixels below the top of the list, as GuiSlot does" {
+    try std.testing.expectEqual(list_top + entry_padding, entryY(0, 0));
+    try std.testing.expectEqual(list_top + entry_padding + entry_height, entryY(1, 0));
+    try std.testing.expectEqual(list_top, entryY(0, entry_padding));
+}
+
+test "the row content is the slot height less its four pixel gap" {
+    try std.testing.expectEqual(@as(f32, 32), row_height);
+}
+
+test "the list content sits where the original puts it, at half the width less 108" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const cx = @floor(res.width / 2.0);
+    try std.testing.expectEqual(cx - 92 - 16, cx - entry_half_width + 2);
+    try std.testing.expectEqual(cx - 110, cx - entry_half_width);
+    try std.testing.expectEqual(cx + 124, cx + scrollbar_offset);
+}
+
+test "the last row can be scrolled to sit just above the bottom of the list" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const count = 40;
+    const limit = maxScroll(res, count);
+    const last = entryY(count - 1, limit);
+    try std.testing.expectEqual(listBottom(res) - row_height, last);
+}
+
+test "a list too short to fill the view is pushed down to sit centred in it" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const visible = listBottom(res) - list_top - entry_padding;
+
+    for ([_]usize{ 1, 2, 3 }) |count| {
+        const leftover = visible - @as(f32, @floatFromInt(count)) * entry_height;
+        const settled = clampScroll(res, count, 0);
+        try std.testing.expectEqual(@trunc(-leftover / 2.0), settled);
+
+        const above = entryY(0, settled) - list_top - entry_padding;
+        const below = listBottom(res) - entryY(count, settled);
+        try std.testing.expectApproxEqAbs(above, below, 1.0);
+    }
+}
+
+test "the one Default pack alone sits in the middle of the list, not at its top" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const settled = clampScroll(res, 1, 0);
+    try std.testing.expect(settled < 0);
+    try std.testing.expect(entryY(0, settled) > list_top + entry_padding);
+}
+
+test "a list long enough to overflow scrolls from the top instead of centring" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    try std.testing.expectEqual(@as(f32, 0), clampScroll(res, 100, 0));
+    try std.testing.expectEqual(list_top + entry_padding, entryY(0, clampScroll(res, 100, 0)));
+    try std.testing.expect(maxScroll(res, 100) > 0);
+}
+
+test "scrolling a centred list stays put, since it has nowhere to go" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const settled = clampScroll(res, 2, 0);
+    try std.testing.expectEqual(settled, clampScroll(res, 2, settled - entry_height));
+    try std.testing.expectEqual(settled, clampScroll(res, 2, settled + entry_height));
+}
+
+test "clicking a centred row still finds it at the place it was drawn" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const cx = @floor(res.width / 2.0) * res.factor;
+    const settled = clampScroll(res, 2, 0);
+
+    for ([_]usize{ 0, 1 }) |index| {
+        const drawn_y = (entryY(index, settled) + 2) * res.factor;
+        try std.testing.expectEqual(@as(?Hit, .{ .entry = index }), hitAt(cx, drawn_y, res, 2, settled));
+    }
 }
