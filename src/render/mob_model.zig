@@ -7,12 +7,20 @@ pub const Box = struct {
     size: [3]f32,
     tex_u: f32,
     tex_v: f32,
+    inflate: f32 = 0,
 };
 
 pub const Part = struct {
     box: Box,
     pivot: [3]f32,
     rotate_x: f32 = 0,
+    rotate_y: f32 = 0,
+};
+
+pub const Pose = struct {
+    position: [3]f32,
+    yaw: f32,
+    roll: f32 = 0,
 };
 
 pub const Model = struct {
@@ -23,16 +31,31 @@ pub const Model = struct {
 };
 
 const pig_parts = [6]Part{
-    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, 12, -6 } },
-    .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, 11, 2 }, .rotate_x = std.math.pi * 0.5 },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, 18, -5 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, 18, -5 } },
+    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -12, -6 } },
+    .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, -13, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, -5 } },
 };
 
 pub const pig: Model = .{
     .parts = &pig_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+const saddle_inflate: f32 = 0.5;
+
+const pig_saddle_parts = blk: {
+    var parts = pig_parts;
+    for (&parts) |*part| part.box.inflate = saddle_inflate;
+    break :blk parts;
+};
+
+pub const pig_saddle: Model = .{
+    .parts = &pig_saddle_parts,
     .head_index = 0,
     .texture_width = 64,
     .texture_height = 32,
@@ -63,6 +86,20 @@ fn rotateX(p: [3]f32, angle: f32) [3]f32 {
     return .{ p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c };
 }
 
+fn rotateY(p: [3]f32, angle: f32) [3]f32 {
+    if (angle == 0) return p;
+    const c = @cos(angle);
+    const s = @sin(angle);
+    return .{ p[0] * c + p[2] * s, p[1], p[2] * c - p[0] * s };
+}
+
+fn rotateZ(x: f32, y: f32, angle: f32) [2]f32 {
+    if (angle == 0) return .{ x, y };
+    const c = @cos(angle);
+    const s = @sin(angle);
+    return .{ x * c - y * s, x * s + y * c };
+}
+
 fn rotateYaw(x: f32, z: f32, yaw: f32) [2]f32 {
     const c = @cos(yaw);
     const s = @sin(yaw);
@@ -78,12 +115,12 @@ fn faceSpecs(box: Box) [6]FaceSpec {
     const w = box.size[0];
     const h = box.size[1];
     const d = box.size[2];
-    const x1 = box.origin[0];
-    const y1 = box.origin[1];
-    const z1 = box.origin[2];
-    const x2 = x1 + w;
-    const y2 = y1 + h;
-    const z2 = z1 + d;
+    const x1 = box.origin[0] - box.inflate;
+    const y1 = box.origin[1] - box.inflate;
+    const z1 = box.origin[2] - box.inflate;
+    const x2 = box.origin[0] + w + box.inflate;
+    const y2 = box.origin[1] + h + box.inflate;
+    const z2 = box.origin[2] + d + box.inflate;
     const tu = box.tex_u;
     const tv = box.tex_v;
 
@@ -131,17 +168,17 @@ pub fn appendPart(
     part: Part,
     tex_width: f32,
     tex_height: f32,
-    entity_pos: [3]f32,
-    entity_yaw: f32,
+    pose: Pose,
 ) !void {
     for (faceSpecs(part.box)) |face| {
         var positions: [4][3]f32 = undefined;
         for (face.corners, 0..) |c, i| {
-            var p = rotateX(c, part.rotate_x);
+            var p = rotateY(rotateX(c, part.rotate_x), part.rotate_y);
             p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
             const world_scale = .{ p[0] * pixel_scale, -p[1] * pixel_scale, p[2] * pixel_scale };
-            const xz = rotateYaw(world_scale[0], world_scale[2], entity_yaw);
-            positions[i] = .{ xz[0] + entity_pos[0], world_scale[1] + entity_pos[1], xz[1] + entity_pos[2] };
+            const rolled = rotateZ(world_scale[0], world_scale[1], pose.roll);
+            const xz = rotateYaw(rolled[0], world_scale[2], pose.yaw);
+            positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
         }
         const uvs = [4][2]f32{
             .{ face.rect[2] / tex_width, face.rect[1] / tex_height },
@@ -162,7 +199,7 @@ test "appendPart emits 6 quads and flips the box into world space at yaw 0" {
         .box = .{ .origin = .{ 0, 0, 0 }, .size = .{ 16, 16, 16 }, .tex_u = 0, .tex_v = 0 },
         .pivot = .{ 0, 0, 0 },
     };
-    try appendPart(&mesh, gpa, part, 64, 32, .{ 0, 0, 0 }, 0);
+    try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
 
     try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
 

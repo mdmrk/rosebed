@@ -89,6 +89,59 @@ pub fn moveEntity(world_map: *const world.World, aabb: math.AABB, dx: f64, dy: f
     return .{ .aabb = result, .dx = moved_x, .dy = moved_y, .dz = moved_z };
 }
 
+pub const StepResult = struct {
+    aabb: math.AABB,
+    dx: f64,
+    dy: f64,
+    dz: f64,
+    y_size: f64,
+};
+
+const step_lock: f64 = 0.05;
+
+pub fn moveEntityStepping(
+    world_map: *const world.World,
+    aabb: math.AABB,
+    dx: f64,
+    dy: f64,
+    dz: f64,
+    step_height: f64,
+    on_ground: bool,
+    sneaking: bool,
+    y_size: f64,
+) StepResult {
+    const plain = moveEntity(world_map, aabb, dx, dy, dz);
+    const flat: StepResult = .{
+        .aabb = plain.aabb,
+        .dx = plain.dx,
+        .dy = plain.dy,
+        .dz = plain.dz,
+        .y_size = y_size,
+    };
+
+    const landed = on_ground or (dy != plain.dy and dy < 0.0);
+    const unlocked = sneaking or y_size < step_lock;
+    const obstructed = dx != plain.dx or dz != plain.dz;
+    if (step_height <= 0.0 or !landed or !unlocked or !obstructed) return flat;
+
+    const raised = moveEntity(world_map, aabb, dx, step_height, dz);
+    const settled = moveEntity(world_map, raised.aabb, 0, -step_height, 0);
+
+    if (plain.dx * plain.dx + plain.dz * plain.dz >= raised.dx * raised.dx + raised.dz * raised.dz) return flat;
+
+    var stepped_y_size = y_size;
+    const overhang = settled.aabb.min_y - @trunc(settled.aabb.min_y);
+    if (overhang > 0.0) stepped_y_size += overhang + 0.01;
+
+    return .{
+        .aabb = settled.aabb,
+        .dx = raised.dx,
+        .dy = settled.dy,
+        .dz = raised.dz,
+        .y_size = stepped_y_size,
+    };
+}
+
 const flow_acceleration: f64 = 0.014;
 
 pub fn fluidSurface(world_map: *const world.World, x: i32, y: i32, z: i32) f64 {
@@ -129,7 +182,16 @@ pub fn handleWaterMovement(world_map: *const world.World, box: math.AABB) ?math.
     return flow.normalize().scale(flow_acceleration);
 }
 
-fn isAnyLiquid(world_map: *const world.World, box: math.AABB) bool {
+pub fn isBoxObstructed(world_map: *const world.World, box: math.AABB) bool {
+    var box_buf: [max_colliding_boxes]math.AABB = undefined;
+    const count = collidingBoxes(world_map, box, &box_buf);
+    for (box_buf[0..count]) |candidate| {
+        if (candidate.intersects(box)) return true;
+    }
+    return false;
+}
+
+pub fn isAnyLiquid(world_map: *const world.World, box: math.AABB) bool {
     var min_x = math.util.floorDouble(box.min_x);
     var min_y = math.util.floorDouble(box.min_y);
     var min_z = math.util.floorDouble(box.min_z);
@@ -148,6 +210,28 @@ fn isAnyLiquid(world_map: *const world.World, box: math.AABB) bool {
             var z = min_z;
             while (z < max_z) : (z += 1) {
                 if (world_map.getBlock(x, y, z).isLiquid()) return true;
+            }
+        }
+    }
+    return false;
+}
+
+pub fn isInLava(world_map: *const world.World, box: math.AABB) bool {
+    const query = box.expand(-0.1, -0.4, -0.1);
+    const min_x = math.util.floorDouble(query.min_x);
+    const min_y = math.util.floorDouble(query.min_y);
+    const min_z = math.util.floorDouble(query.min_z);
+    const max_x = math.util.floorDouble(query.max_x + 1.0);
+    const max_y = math.util.floorDouble(query.max_y + 1.0);
+    const max_z = math.util.floorDouble(query.max_z + 1.0);
+
+    var x = min_x;
+    while (x < max_x) : (x += 1) {
+        var y = min_y;
+        while (y < max_y) : (y += 1) {
+            var z = min_z;
+            while (z < max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z).material() == .lava) return true;
             }
         }
     }
@@ -216,6 +300,43 @@ test "open air applies the full requested movement" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.dy, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dz, 1.0e-9);
+}
+
+test "a rise of half a block is stepped over when the entity has step height" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(2, 1, 0, world.Block.stone);
+
+    const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
+    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 0.4), stepped.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), stepped.aabb.min_y, 1.0e-9);
+}
+
+test "the same rise stops an entity that cannot step" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(2, 1, 0, world.Block.stone);
+
+    const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
+    const blocked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0, true, false, 0);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), blocked.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.42), blocked.aabb.min_y, 1.0e-9);
+}
+
+test "a step that lands mid-block locks out stepping until the offset decays" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(2, 1, 0, world.Block.stone);
+
+    const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
+    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), stepped.y_size, 1.0e-9);
+
+    const locked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0.2);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), locked.dx, 1.0e-9);
 }
 
 fn waterWorld() !world.World {

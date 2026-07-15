@@ -1281,7 +1281,12 @@ fn tick(app_state: *AppState) !void {
     try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
     try app_state.world_map.tickUpdates();
     try applyBlockChanges(app_state);
-    app_state.entities.tickPigs(&app_state.world_map, &app_state.world_map.rand);
+    try app_state.entities.tickPigs(
+        app_state.gpa,
+        &app_state.world_map,
+        &app_state.player,
+        &app_state.world_map.rand,
+    );
     try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
     try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
@@ -1469,8 +1474,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var pig_mesh: render.MeshBuilder = .{};
     defer pig_mesh.deinit(app_state.frame);
+    var saddle_mesh: render.MeshBuilder = .{};
+    defer saddle_mesh.deinit(app_state.frame);
     for (app_state.entities.pigs.items) |pig| {
         try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig, partial);
+        if (pig.saddled) {
+            try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig, partial);
+        }
     }
     var icon_mesh: render.MeshBuilder = .{};
     defer icon_mesh.deinit(app_state.frame);
@@ -1486,6 +1496,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
         drawEntityMesh(&pig_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (saddle_mesh.vertices.items.len > 0) {
+        app_state.textures.saddle.bind();
+        drawEntityMesh(&saddle_mesh);
         app_state.textures.terrain.bind();
     }
 

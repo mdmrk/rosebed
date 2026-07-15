@@ -80,7 +80,7 @@ fn appendPlayerPreview(
             yaw = head_yaw;
             p.rotate_x = pitch;
         }
-        try MobModel.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, .{ 0, 0, 0 }, yaw);
+        try MobModel.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, .{ .position = .{ 0, 0, 0 }, .yaw = yaw });
     }
 
     for (mesh.vertices.items[start..]) |*v| {

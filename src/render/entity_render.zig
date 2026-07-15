@@ -209,20 +209,61 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
 }
 
+pub const hurt_tint: f32 = 0.4;
+
+const to_radians: f32 = std.math.pi / 180.0;
+
 pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
+    return appendPigModel(mesh, gpa, world_map, pig, partial_ticks, mob_model.pig);
+}
+
+pub fn appendPigSaddle(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
+    return appendPigModel(mesh, gpa, world_map, pig, partial_ticks, mob_model.pig_saddle);
+}
+
+fn appendPigModel(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    pig: game.Pig,
+    partial_ticks: f32,
+    model: mob_model.Model,
+) !void {
     const first_vertex = mesh.vertices.items.len;
     const pos = pig.base.renderPosition(partial_ticks);
-    const entity_pos = [3]f32{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) };
-    const yaw_rad = pig.yaw * std.math.pi / 180.0;
-    const swing = @cos(pig.walk_distance * 0.6662) * 1.4;
 
-    for (mob_model.pig.parts, 0..) |part, i| {
+    const pose: mob_model.Pose = .{
+        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
+        .yaw = pig.renderYaw(partial_ticks) * to_radians,
+        .roll = pig.deathTilt(partial_ticks) * to_radians,
+    };
+
+    const stride = @cos(pig.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * pig.limbSwingAmount(partial_ticks);
+
+    for (model.parts, 0..) |part, i| {
         var p = part;
-        if (i >= 2) p.rotate_x = if (i == 2 or i == 5) swing else -swing;
-        try mob_model.appendPart(mesh, gpa, p, mob_model.pig.texture_width, mob_model.pig.texture_height, entity_pos, yaw_rad);
+        if (i == model.head_index) {
+            p.rotate_y = pig.headYaw(partial_ticks) * to_radians;
+            p.rotate_x = pig.headPitch(partial_ticks) * to_radians;
+        } else if (i >= 2) {
+            p.rotate_x = if (i == 2 or i == 5) stride else -stride;
+        }
+        try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose);
     }
 
-    mesh.scaleColors(first_vertex, brightnessOf(world_map, pig.base));
+    const brightness = brightnessOf(world_map, pig.base);
+    mesh.scaleColors(first_vertex, brightness);
+    if (pig.hurt_time > 0 or pig.death_time > 0) tintRed(mesh, first_vertex, brightness);
+}
+
+fn tintRed(mesh: *MeshBuilder, first_vertex: usize, brightness: f32) void {
+    const red: f32 = brightness * 255.0 * hurt_tint;
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        const kept = 1.0 - hurt_tint;
+        vertex.color[0] = @intFromFloat(@min(255.0, @as(f32, @floatFromInt(vertex.color[0])) * kept + red));
+        vertex.color[1] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[1])) * kept);
+        vertex.color[2] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[2])) * kept);
+    }
 }
 
 pub const CameraBasis = struct {
@@ -502,6 +543,216 @@ test "a pig renders all six body parts" {
     try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
 }
 
+fn meshBounds(mesh: MeshBuilder) [2][3]f32 {
+    var min: [3]f32 = .{ 1.0e9, 1.0e9, 1.0e9 };
+    var max: [3]f32 = .{ -1.0e9, -1.0e9, -1.0e9 };
+    for (mesh.vertices.items) |v| {
+        min = .{ @min(min[0], v.x), @min(min[1], v.y), @min(min[2], v.z) };
+        max = .{ @max(max[0], v.x), @max(max[1], v.y), @max(max[2], v.z) };
+    }
+    return .{ min, max };
+}
+
+test "the pig model stands on its own feet instead of hanging below them" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const pig = game.Pig.spawn(.{ .x = 0, .y = 64, .z = 0 });
+    try appendPig(&mesh, gpa, &world_map, pig, 0);
+
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expect(bounds[1][1] > 64.0);
+    try std.testing.expect(bounds[1][1] < 64.0 + 1.2);
+}
+
+test "the pig's head is drawn on the side it walks toward" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendPig(&mesh, gpa, &world_map, game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    const per_part = 6 * 4;
+    var head_z: f32 = 0;
+    for (mesh.vertices.items[0..per_part]) |v| head_z += v.z;
+    head_z /= @floatFromInt(per_part);
+
+    var body_z: f32 = 0;
+    for (mesh.vertices.items[per_part .. 2 * per_part]) |v| body_z += v.z;
+    body_z /= @floatFromInt(per_part);
+
+    try std.testing.expect(head_z > body_z);
+    try std.testing.expect(head_z > 0.0);
+}
+
+test "a walking pig swings diagonal legs together and opposite legs apart" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    pig.limb_swing = 1.0;
+    pig.limb_swing_amount = 1.0;
+    pig.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendPig(&walking, gpa, &world_map, pig, 1.0);
+
+    const rear_left = legReach(walking, 2);
+    const rear_right = legReach(walking, 3);
+    const front_left = legReach(walking, 4);
+    const front_right = legReach(walking, 5);
+
+    try std.testing.expect(rear_left != rear_right);
+    try std.testing.expectApproxEqAbs(rear_left, front_right, 1.0e-5);
+    try std.testing.expectApproxEqAbs(rear_right, front_left, 1.0e-5);
+}
+
+fn legReach(mesh: MeshBuilder, part_index: usize) f32 {
+    const per_part = 6 * 4;
+    const pivot_z = -mob_model.pig.parts[part_index].pivot[2] / 16.0;
+
+    var reach: f32 = -1.0e9;
+    for (mesh.vertices.items[part_index * per_part ..][0..per_part]) |v| {
+        reach = @max(reach, v.z);
+    }
+    return reach - pivot_z;
+}
+
+test "a standing pig holds all four legs still" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    const pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    try appendPig(&still, gpa, &world_map, pig, 0);
+
+    const per_part = 6 * 4;
+    for (0..4) |leg| {
+        const vertices = still.vertices.items[(2 + leg) * per_part ..][0..per_part];
+        for (vertices) |v| try std.testing.expect(v.y <= 0.5);
+    }
+}
+
+test "turning the head moves the head without moving the body" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var straight: MeshBuilder = .{};
+    defer straight.deinit(gpa);
+    var turned: MeshBuilder = .{};
+    defer turned.deinit(gpa);
+
+    const pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    try appendPig(&straight, gpa, &world_map, pig, 0);
+
+    var looking = pig;
+    looking.yaw = 60;
+    looking.prev_yaw = 60;
+    try appendPig(&turned, gpa, &world_map, looking, 0);
+
+    const per_part = 6 * 4;
+    var head_moved = false;
+    for (straight.vertices.items[0..per_part], turned.vertices.items[0..per_part]) |a, b| {
+        if (@abs(a.x - b.x) > 1.0e-4) head_moved = true;
+    }
+    try std.testing.expect(head_moved);
+
+    for (straight.vertices.items[per_part .. 2 * per_part], turned.vertices.items[per_part .. 2 * per_part]) |a, b| {
+        try std.testing.expectApproxEqAbs(a.x, b.x, 1.0e-5);
+        try std.testing.expectApproxEqAbs(a.z, b.z, 1.0e-5);
+    }
+}
+
+test "a hurt pig flashes red and a healthy one does not" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
+    }
+
+    var healthy: MeshBuilder = .{};
+    defer healthy.deinit(gpa);
+    var hurt: MeshBuilder = .{};
+    defer hurt.deinit(gpa);
+
+    const pig = game.Pig.spawn(.{ .x = 8, .y = 1, .z = 8 });
+    try appendPig(&healthy, gpa, &world_map, pig, 0);
+
+    var wounded = pig;
+    wounded.hurt_time = 10;
+    try appendPig(&hurt, gpa, &world_map, wounded, 0);
+
+    const healthy_red: u32 = healthy.vertices.items[0].color[0];
+    const hurt_red: u32 = hurt.vertices.items[0].color[0];
+    try std.testing.expect(hurt.vertices.items[0].color[1] < healthy.vertices.items[0].color[1]);
+    try std.testing.expect(hurt_red * 4 >= healthy_red * 3);
+}
+
+test "the saddle is drawn as a slightly larger skin over the same pose" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var bare: MeshBuilder = .{};
+    defer bare.deinit(gpa);
+    var saddled: MeshBuilder = .{};
+    defer saddled.deinit(gpa);
+
+    var pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    pig.saddled = true;
+    try appendPig(&bare, gpa, &world_map, pig, 0);
+    try appendPigSaddle(&saddled, gpa, &world_map, pig, 0);
+
+    try std.testing.expectEqual(bare.vertices.items.len, saddled.vertices.items.len);
+
+    const bare_bounds = meshBounds(bare);
+    const saddle_bounds = meshBounds(saddled);
+    try std.testing.expect(saddle_bounds[1][1] > bare_bounds[1][1]);
+    try std.testing.expectApproxEqAbs(0.5 / 16.0, saddle_bounds[1][1] - bare_bounds[1][1], 1.0e-5);
+
+    for (bare.vertices.items, saddled.vertices.items) |a, b| {
+        try std.testing.expectApproxEqAbs(a.u, b.u, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.v, b.v, 1.0e-6);
+    }
+}
+
+test "a dying pig rolls onto its side" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var upright: MeshBuilder = .{};
+    defer upright.deinit(gpa);
+    var toppled: MeshBuilder = .{};
+    defer toppled.deinit(gpa);
+
+    const pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    try appendPig(&upright, gpa, &world_map, pig, 0);
+
+    var dying = pig;
+    dying.death_time = game.Pig.death_ticks;
+    try appendPig(&toppled, gpa, &world_map, dying, 1.0);
+
+    const upright_bounds = meshBounds(upright);
+    const toppled_bounds = meshBounds(toppled);
+    try std.testing.expect(toppled_bounds[1][1] < upright_bounds[1][1]);
+    try std.testing.expect(toppled_bounds[1][0] - toppled_bounds[0][0] > upright_bounds[1][0] - upright_bounds[0][0]);
+}
+
 test "an entity in the open is lit brighter than one sealed in the dark" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
@@ -570,3 +821,4 @@ test "the two item paths never both claim the same stack" {
     try appendItem(&mesh, gpa, &world_map, coal, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
+

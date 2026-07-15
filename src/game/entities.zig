@@ -21,6 +21,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
+    for (self.pigs.items) |*pig| pig.deinit(gpa);
     self.pigs.deinit(gpa);
 }
 
@@ -233,8 +234,75 @@ pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player
     }
 }
 
-pub fn tickPigs(self: *Entities, world_map: *const world.World, rand: *world.JavaRandom) void {
-    for (self.pigs.items) |*pig| pig.tick(world_map, rand);
+const pig_push_reach: f64 = 0.2;
+const pig_push_strength: f64 = 0.05;
+
+fn pushApart(pusher: *Pig, pushed: *Pig) void {
+    var dx = pushed.base.position.x - pusher.base.position.x;
+    var dz = pushed.base.position.z - pusher.base.position.z;
+
+    var spread = math.util.absMax(dx, dz);
+    if (spread < 0.01) return;
+
+    spread = @sqrt(spread);
+    dx /= spread;
+    dz /= spread;
+
+    const falloff = @min(1.0 / spread, 1.0);
+    dx *= falloff * pig_push_strength;
+    dz *= falloff * pig_push_strength;
+
+    pusher.base.motion.x -= dx;
+    pusher.base.motion.z -= dz;
+    pushed.base.motion.x += dx;
+    pushed.base.motion.z += dz;
+}
+
+fn pushNeighbours(self: *Entities, index: usize) void {
+    const reach = self.pigs.items[index].base.boundingBox().expand(pig_push_reach, 0, pig_push_reach);
+    for (self.pigs.items, 0..) |*other, i| {
+        if (i == index) continue;
+        if (!other.base.boundingBox().intersects(reach)) continue;
+        pushApart(other, &self.pigs.items[index]);
+    }
+}
+
+pub fn tickPigs(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: *const Player,
+    rand: *world.JavaRandom,
+) !void {
+    const view: Pig.PlayerView = .{
+        .position = player.base.position,
+        .eye_height = Player.eye_height,
+        .alive = player.health > 0,
+    };
+
+    var i: usize = 0;
+    while (i < self.pigs.items.len) {
+        try self.pigs.items[i].tick(gpa, world_map, view, rand);
+        self.pushNeighbours(i);
+
+        if (self.pigs.items[i].takeDrops()) |drops| {
+            const position = self.pigs.items[i].base.position;
+            for (0..drops.count) |_| {
+                try self.items.append(gpa, ItemEntity.spawn(
+                    position,
+                    .{ .id = .{ .item = drops.id }, .count = 1 },
+                    rand,
+                ));
+            }
+        }
+
+        if (self.pigs.items[i].dead) {
+            var removed = self.pigs.swapRemove(i);
+            removed.deinit(gpa);
+            continue;
+        }
+        i += 1;
+    }
 }
 
 test "a thrown item flies out in front of the player with a pickup delay" {
