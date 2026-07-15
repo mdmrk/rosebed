@@ -244,7 +244,7 @@ pub const Block = enum(u8) {
 
     pub fn shape(self: Block) Shape {
         return switch (self) {
-            .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
+            .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
             .snow_layer => .{ .partial = 0.125 },
             else => .cube,
         };
@@ -397,6 +397,11 @@ pub const Block = enum(u8) {
 
     pub fn crossTile(self: Block, metadata: u4) u8 {
         return switch (self) {
+            .sapling => switch (metadata & 3) {
+                1 => 63,
+                2 => 79,
+                else => 15,
+            },
             .tall_grass => if (metadata == 2) 56 else 39,
             .dead_bush => 55,
             .dandelion => 13,
@@ -991,4 +996,12 @@ test "a liquid culls the face it shares with its own material or with ice" {
 test "a liquid always draws its top face unless the same liquid sits above it" {
     try std.testing.expect(Block.stationary_water.shouldRenderFace(.stone, .up, true));
     try std.testing.expect(!Block.stationary_water.shouldRenderFace(.stationary_water, .up, true));
+}
+
+test "saplings draw as a cross, with a tile per tree kind" {
+    try std.testing.expect(Block.sapling.isCross());
+    try std.testing.expectEqual(@as(u8, 15), Block.sapling.crossTile(0));
+    try std.testing.expectEqual(@as(u8, 63), Block.sapling.crossTile(1));
+    try std.testing.expectEqual(@as(u8, 79), Block.sapling.crossTile(2));
+    try std.testing.expectEqual(@as(u8, 15), Block.sapling.crossTile(3));
 }

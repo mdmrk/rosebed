@@ -163,7 +163,7 @@ pub fn appendItemIcon(
     partial_ticks: f32,
 ) !void {
     const tile = switch (item.stack.id) {
-        .item => |i| i.iconTile() orelse return,
+        .item => |i| i.iconTile(item.stack.meta) orelse return,
         .block => return,
     };
 
@@ -550,7 +550,7 @@ test "a true item stack renders from the items atlas" {
 
     try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
 
-    const expected = Atlas.tileUv(world.Item.iconTile(world.Item.coal).?);
+    const expected = Atlas.tileUv(world.Item.iconTile(world.Item.coal, 0).?);
     try std.testing.expectApproxEqAbs(expected.u0, mesh.vertices.items[0].u, 1.0e-6);
 }
 

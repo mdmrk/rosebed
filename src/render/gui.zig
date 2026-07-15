@@ -299,11 +299,39 @@ fn normalize3(v: [3]f32) [3]f32 {
     return .{ v[0] / len, v[1] / len, v[2] / len };
 }
 
+const light_setup_pitch: f32 = 120.0;
+const icon_pitch: f32 = 210.0;
+const icon_yaw: f32 = -45.0;
+
+fn rotateX(v: [3]f32, degrees: f32) [3]f32 {
+    const a = degrees * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+    return .{ v[0], c * v[1] - s * v[2], s * v[1] + c * v[2] };
+}
+
+fn rotateY(v: [3]f32, degrees: f32) [3]f32 {
+    const a = degrees * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+    return .{ c * v[0] + s * v[2], v[1], c * v[2] - s * v[0] };
+}
+
+fn eyeNormal(normal: [3]f32) [3]f32 {
+    const turned = rotateX(rotateY(normal, icon_yaw), icon_pitch);
+    return normalize3(.{ turned[0], turned[1], -turned[2] });
+}
+
+fn eyeLight(direction: [3]f32) [3]f32 {
+    return rotateX(normalize3(direction), light_setup_pitch);
+}
+
 fn isoFaceBrightness(normal: [3]f32) f32 {
-    const light0 = normalize3(.{ 0.2, 1.0, -0.7 });
-    const light1 = normalize3(.{ -0.2, 1.0, 0.7 });
-    const d0 = @max(0.0, normal[0] * light0[0] + normal[1] * light0[1] + normal[2] * light0[2]);
-    const d1 = @max(0.0, normal[0] * light1[0] + normal[1] * light1[1] + normal[2] * light1[2]);
+    const n = eyeNormal(normal);
+    const light0 = eyeLight(.{ 0.2, 1.0, -0.7 });
+    const light1 = eyeLight(.{ -0.2, 1.0, 0.7 });
+    const d0 = @max(0.0, n[0] * light0[0] + n[1] * light0[1] + n[2] * light0[2]);
+    const d1 = @max(0.0, n[0] * light1[0] + n[1] * light1[1] + n[2] * light1[2]);
     return @min(1.0, iso_light_ambient + iso_light_diffuse * d0 + iso_light_diffuse * d1);
 }
 
@@ -330,6 +358,8 @@ fn appendIsoFace(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     corners: [4][3]f32,
+    axis: usize,
+    inset: f32,
     tile: u8,
     brightness: f32,
     x: f32,
@@ -339,7 +369,9 @@ fn appendIsoFace(
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
     var positions: [4][3]f32 = undefined;
-    for (corners, 0..) |c, i| {
+    for (corners, 0..) |corner, i| {
+        var c = corner;
+        c[axis] -= inset;
         const offset = isoOffset(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5);
         const ndc = toNdc(x + 8.0 + offset[0], y + 8.0 + offset[1], res);
         positions[i] = .{ ndc[0], ndc[1], 0 };
@@ -365,9 +397,10 @@ pub fn appendBlockIcon3d(
     } else if (id == .wool) {
         textures = world.block.FaceTextures.initFill(world.block.woolTile(meta));
     }
-    try appendIsoFace(mesh, gpa, iso_up_corners, textures.get(.up), iso_brightness_up, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_south_corners, textures.get(.south), iso_brightness_south, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_east_corners, textures.get(.east), iso_brightness_east, x, y, res);
+    const inset = id.sideInset();
+    try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, textures.get(.up), iso_brightness_up, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_south_corners, 2, inset, textures.get(.south), iso_brightness_south, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_east_corners, 0, inset, textures.get(.east), iso_brightness_east, x, y, res);
 }
 
 fn appendDurabilityBar(
@@ -408,7 +441,7 @@ pub fn appendStackIcon(
         } else {
             try appendBlockIcon3d(block_mesh, gpa, id, stack.blockMeta(), x, y, res);
         },
-        .item => |id| if (id.iconTile()) |tile| {
+        .item => |id| if (id.iconTile(stack.meta)) |tile| {
             try appendRect(item_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
         },
     }
@@ -421,4 +454,22 @@ pub fn appendStackIcon(
     }
 
     if (stack.isDamaged()) try appendDurabilityBar(bar_mesh, gpa, stack, x, y, res);
+}
+
+test "the icon cube is lit the way the GUI's two item lights light it" {
+    try std.testing.expectEqual(@as(u8, 255), @as(u8, @intFromFloat(@round(iso_brightness_up * 255.0))));
+    try std.testing.expectEqual(@as(u8, 189), @as(u8, @intFromFloat(@round(iso_brightness_south * 255.0))));
+    try std.testing.expectEqual(@as(u8, 216), @as(u8, @intFromFloat(@round(iso_brightness_east * 255.0))));
+}
+
+test "the icon cube projects to the hexagon renderBlockOnInventory draws" {
+    const top = isoOffset(-0.5, 0.5, -0.5);
+    const upper_right = isoOffset(0.5, 0.5, -0.5);
+    const bottom = isoOffset(0.5, -0.5, 0.5);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), top[0], 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, -7.8657), top[1], 1.0e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.0711), upper_right[0], 1.0e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, -4.3301), upper_right[1], 1.0e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.8657), bottom[1], 1.0e-3);
 }

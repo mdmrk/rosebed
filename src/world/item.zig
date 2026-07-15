@@ -316,8 +316,10 @@ pub const Item = enum(u16) {
         return t.canHarvestBlock(target);
     }
 
-    pub fn iconTile(self: Item) ?u8 {
+    pub fn iconTile(self: Item, damage: u16) ?u8 {
+        const dye_color: u8 = @as(u4, @truncate(damage));
         return switch (self) {
+            .dye => 4 * 16 + 14 + dye_color % 8 * 16 + dye_color / 8,
             .sword_wood => 4 * 16 + 0,
             .shovel_wood => 5 * 16 + 0,
             .pickaxe_wood => 6 * 16 + 0,
@@ -391,7 +393,6 @@ pub const Item = enum(u16) {
             .slime_ball => 1 * 16 + 14,
             .egg => 12,
             .glowstone_dust => 4 * 16 + 9,
-            .dye => 4 * 16 + 14,
             .bone => 1 * 16 + 12,
             .sugar => 13,
             else => null,
@@ -501,10 +502,10 @@ const dye_names: [16][]const u8 = .{
 };
 
 test "iconTile matches the real items.png icon coordinates" {
-    try std.testing.expectEqual(@as(?u8, 7), Item.coal.iconTile());
-    try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile());
-    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile());
-    try std.testing.expectEqual(@as(?u8, null), (@as(Item, @enumFromInt(0))).iconTile());
+    try std.testing.expectEqual(@as(?u8, 7), Item.coal.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, null), (@as(Item, @enumFromInt(0))).iconTile(0));
 }
 
 test "dye display names are selected by metadata" {
@@ -520,13 +521,13 @@ test "an item's display name ignores metadata unless it is a dye" {
 }
 
 test "the new items match their real items.png icon coordinates" {
-    try std.testing.expectEqual(@as(?u8, 23), Item.ingot_iron.iconTile());
-    try std.testing.expectEqual(@as(?u8, 39), Item.ingot_gold.iconTile());
-    try std.testing.expectEqual(@as(?u8, 8), Item.string.iconTile());
-    try std.testing.expectEqual(@as(?u8, 87), Item.pork_raw.iconTile());
-    try std.testing.expectEqual(@as(?u8, 88), Item.pork_cooked.iconTile());
-    try std.testing.expectEqual(@as(?u8, 73), Item.glowstone_dust.iconTile());
-    try std.testing.expectEqual(@as(?u8, 13), Item.sugar.iconTile());
+    try std.testing.expectEqual(@as(?u8, 23), Item.ingot_iron.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 39), Item.ingot_gold.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 8), Item.string.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 87), Item.pork_raw.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 88), Item.pork_cooked.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 73), Item.glowstone_dust.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 13), Item.sugar.iconTile(0));
 }
 
 test "tool materials carry EnumToolMaterial's four numbers" {
@@ -565,9 +566,15 @@ test "sticks and ingots are neither tools nor armour" {
 }
 
 test "the new icons match their real items.png coordinates" {
-    try std.testing.expectEqual(@as(?u8, 66), Item.sword_iron.iconTile());
-    try std.testing.expectEqual(@as(?u8, 98), Item.pickaxe_iron.iconTile());
-    try std.testing.expectEqual(@as(?u8, 128), Item.hoe_wood.iconTile());
-    try std.testing.expectEqual(@as(?u8, 51), Item.boots_diamond.iconTile());
-    try std.testing.expectEqual(@as(?u8, 103), Item.leather.iconTile());
+    try std.testing.expectEqual(@as(?u8, 66), Item.sword_iron.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 98), Item.pickaxe_iron.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 128), Item.hoe_wood.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 51), Item.boots_diamond.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 103), Item.leather.iconTile(0));
+}
+
+test "dye icons step through items.png the way getIconFromDamage does" {
+    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 142), Item.dye.iconTile(dye_meta_lapis));
+    try std.testing.expectEqual(@as(?u8, 191), Item.dye.iconTile(15));
 }

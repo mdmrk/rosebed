@@ -87,7 +87,7 @@ pub fn draw(
 
     for (0..game.Inventory.hotbar_size) |i| {
         const stack = inventory.slots[i] orelse continue;
-        const slot_x = hotbar_x + 2.0 + @as(f32, @floatFromInt(i)) * slot_pitch;
+        const slot_x = hotbar_x + 3.0 + @as(f32, @floatFromInt(i)) * slot_pitch;
         const slot_y = hotbar_y + 3.0;
         try gui.appendStackIcon(&block_icons, &item_icons, &bars, &text, ui.gpa, ui.font, stack, slot_x, slot_y, ui.res);
     }

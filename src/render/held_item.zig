@@ -186,7 +186,7 @@ pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
     const id = switch (held.id) {
         .block => |b| b,
         .item => |i| {
-            const tile = i.iconTile() orelse return null;
+            const tile = i.iconTile(held.meta) orelse return null;
             return .{ .sprite = .{ .tile = tile, .atlas = .items } };
         },
     };
@@ -291,7 +291,7 @@ test "each held stack picks the shape and atlas the original gives it" {
     try std.testing.expectEqual(.terrain, rose.sprite.atlas);
 
     const coal = heldShape(.{ .id = .{ .item = .coal }, .count = 1 }).?;
-    try std.testing.expectEqual(world.Item.iconTile(world.Item.coal).?, coal.sprite.tile);
+    try std.testing.expectEqual(world.Item.iconTile(world.Item.coal, 0).?, coal.sprite.tile);
     try std.testing.expectEqual(.items, coal.sprite.atlas);
 
     try std.testing.expect(heldShape(null) == null);
