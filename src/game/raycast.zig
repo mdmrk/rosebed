@@ -9,41 +9,87 @@ pub const Hit = struct {
     face: world.Side,
 };
 
-const step: f64 = 0.05;
+const max_steps: u32 = 200;
+
+const low_faces = [3]world.Side{ .west, .down, .north };
+const high_faces = [3]world.Side{ .east, .up, .south };
+
+fn boundsHit(
+    bounds: world.block.Bounds,
+    cell: [3]i32,
+    origin: [3]f64,
+    direction: [3]f64,
+    max_distance: f64,
+) ?world.Side {
+    var entry: f64 = 0;
+    var exit = max_distance;
+    var entry_face = world.Side.down;
+    var exit_face = world.Side.down;
+    var entered = false;
+
+    for (0..3) |axis| {
+        const base: f64 = @floatFromInt(cell[axis]);
+        const low = base + bounds.min[axis];
+        const high = base + bounds.max[axis];
+
+        if (direction[axis] == 0.0) {
+            if (origin[axis] < low or origin[axis] > high) return null;
+            continue;
+        }
+
+        const to_low = (low - origin[axis]) / direction[axis];
+        const to_high = (high - origin[axis]) / direction[axis];
+        const near = @min(to_low, to_high);
+        const far = @max(to_low, to_high);
+
+        if (near > entry) {
+            entry = near;
+            entry_face = if (to_low < to_high) low_faces[axis] else high_faces[axis];
+            entered = true;
+        }
+        if (far < exit) {
+            exit = far;
+            exit_face = if (to_low < to_high) high_faces[axis] else low_faces[axis];
+        }
+    }
+
+    if (entry > exit) return null;
+    return if (entered) entry_face else exit_face;
+}
 
 pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32, max_distance: f64) ?Hit {
-    var traveled: f64 = 0;
-    var prev_bx = math.util.floorDouble(origin.x);
-    var prev_by = math.util.floorDouble(origin.y);
-    var prev_bz = math.util.floorDouble(origin.z);
+    const start = [3]f64{ origin.x, origin.y, origin.z };
+    const along = [3]f64{ direction[0], direction[1], direction[2] };
 
-    while (traveled < max_distance) : (traveled += step) {
-        const x = origin.x + @as(f64, direction[0]) * traveled;
-        const y = origin.y + @as(f64, direction[1]) * traveled;
-        const z = origin.z + @as(f64, direction[2]) * traveled;
-        const bx = math.util.floorDouble(x);
-        const by = math.util.floorDouble(y);
-        const bz = math.util.floorDouble(z);
+    var cell = [3]i32{
+        math.util.floorDouble(start[0]),
+        math.util.floorDouble(start[1]),
+        math.util.floorDouble(start[2]),
+    };
 
-        defer {
-            prev_bx = bx;
-            prev_by = by;
-            prev_bz = bz;
+    for (0..max_steps) |_| {
+        const id = world_map.getBlock(cell[0], cell[1], cell[2]);
+        if (id != world.Block.air and !id.isLiquid()) {
+            const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
+            if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |face| {
+                return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = face };
+            }
         }
 
-        const id = world_map.getBlock(bx, by, bz);
-        if (id == world.Block.air or id.isLiquid()) continue;
-
-        var face: world.Side = .down;
-        if (bx != prev_bx) {
-            face = if (bx > prev_bx) world.Side.west else world.Side.east;
-        } else if (by != prev_by) {
-            face = if (by > prev_by) world.Side.down else world.Side.up;
-        } else if (bz != prev_bz) {
-            face = if (bz > prev_bz) world.Side.north else world.Side.south;
+        var crossed: f64 = std.math.inf(f64);
+        var axis: usize = 3;
+        for (0..3) |candidate| {
+            if (along[candidate] == 0.0) continue;
+            const boundary: f64 = @floatFromInt(cell[candidate] + @as(i32, if (along[candidate] > 0.0) 1 else 0));
+            const distance = (boundary - start[candidate]) / along[candidate];
+            if (distance < crossed) {
+                crossed = distance;
+                axis = candidate;
+            }
         }
 
-        return .{ .x = bx, .y = by, .z = bz, .face = face };
+        if (axis == 3 or crossed > max_distance) return null;
+        cell[axis] += if (along[axis] > 0.0) 1 else -1;
     }
 
     return null;
@@ -103,3 +149,78 @@ test "a cross-shaped plant is still targetable despite having no collision" {
     const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), hit.y);
 }
+
+test "aiming past a wall torch targets the wall behind it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(10, 5, 8, world.Block.stone);
+    chunk.setBlock(9, 5, 8, world.Block.torch);
+    chunk.setBlockMetadata(9, 5, 8, 2);
+
+    const on_torch = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 9), on_torch.x);
+    try std.testing.expectEqual(world.Side.west, on_torch.face);
+
+    const beside_torch = cast(&w, math.Vec3.init(5, 5.5, 8.9), .{ 1, 0, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 10), beside_torch.x);
+    try std.testing.expectEqual(world.Side.west, beside_torch.face);
+
+    const above_torch = cast(&w, math.Vec3.init(5, 5.9, 8.5), .{ 1, 0, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 10), above_torch.x);
+}
+
+test "a standing torch is only targetable down its own narrow column" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(8, 5, 8, world.Block.stone);
+    chunk.setBlock(8, 6, 8, world.Block.torch);
+    chunk.setBlockMetadata(8, 6, 8, 5);
+
+    const centred = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 6), centred.y);
+    try std.testing.expectEqual(world.Side.up, centred.face);
+
+    const off_centre = cast(&w, math.Vec3.init(8.9, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 5), off_centre.y);
+    try std.testing.expectEqual(world.Side.up, off_centre.face);
+}
+
+test "a snow layer is only hit within its eighth of a block" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(10, 5, 8, world.Block.stone);
+    chunk.setBlock(9, 5, 8, world.Block.snow_layer);
+
+    const low = cast(&w, math.Vec3.init(5, 5.05, 8.5), .{ 1, 0, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 9), low.x);
+
+    const high = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 10), high.x);
+}
+
+test "looking down onto a snow layer reports its own top, not the block's" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(8, 5, 8, world.Block.snow_layer);
+
+    const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(world.Side.up, hit.face);
+}
+
+test "standing inside a plant still targets it, by the face the ray leaves through" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(8, 5, 8, world.Block.tall_grass);
+
+    const hit = cast(&w, math.Vec3.init(8.5, 5.4, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 8), hit.x);
+    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(world.Side.down, hit.face);
+}
+
