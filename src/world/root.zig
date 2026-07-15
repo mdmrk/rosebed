@@ -28,6 +28,7 @@ pub const fluid = @import("fluid.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const World = @import("world_map.zig");
+pub const pathfinder = @import("pathfinder.zig");
 pub const nbt = @import("nbt.zig");
 pub const deflate = @import("deflate.zig");
 pub const RegionFile = @import("region.zig");
@@ -57,6 +58,7 @@ test {
     _ = leaf_decay;
     _ = dungeons;
     _ = World;
+    _ = pathfinder;
     _ = nbt;
     _ = deflate;
     _ = RegionFile;
