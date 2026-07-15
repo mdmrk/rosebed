@@ -93,6 +93,7 @@ const AppState = struct {
     } = .{},
     mouse_left_down: bool = false,
     last_held_swing_tick: u64 = 0,
+    missed_click_cooldown: u32 = 0,
     digging: ?Digging = null,
     mouse_x: f32 = 0,
     mouse_y: f32 = 0,
@@ -387,11 +388,21 @@ fn faceOffset(face: world.Side) [3]i32 {
     };
 }
 
+const missed_click_ticks = 10;
+
+fn clickLeft(app_state: *AppState) void {
+    if (app_state.missed_click_cooldown > 0) return;
+    app_state.player.swingItem();
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance);
+    if (hit == null) app_state.missed_click_cooldown = missed_click_ticks;
+}
+
 fn digStep(app_state: *AppState) !void {
     if (!app_state.mouse_left_down) {
         app_state.digging = null;
         return;
     }
+    if (app_state.missed_click_cooldown > 0) return;
 
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
         app_state.digging = null;
@@ -1244,8 +1255,9 @@ fn tick(app_state: *AppState) !void {
     if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
         try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
     }
+    if (app_state.missed_click_cooldown > 0) app_state.missed_click_cooldown -= 1;
     if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
-        app_state.player.swingItem();
+        clickLeft(app_state);
         app_state.last_held_swing_tick = app_state.tick_count;
     }
     app_state.player.tickSwing();
@@ -1910,7 +1922,7 @@ pub fn event(
             } else {
                 app_state.mouse_left_down = true;
                 app_state.last_held_swing_tick = app_state.tick_count;
-                app_state.player.swingItem();
+                clickLeft(app_state);
             },
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
@@ -1923,6 +1935,7 @@ pub fn event(
         .mouse_button_up => |m| switch (m.button) {
             .left => {
                 app_state.mouse_left_down = false;
+                app_state.missed_click_cooldown = 0;
                 app_state.dragging_slider = null;
                 app_state.stats_view.pressed = null;
             },
