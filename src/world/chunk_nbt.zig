@@ -36,7 +36,13 @@ fn bytesField(compound: nbt.Compound, key: []const u8, expected: usize) ![]u8 {
     return bytes;
 }
 
-pub fn store(gpa: std.mem.Allocator, chunk: *const Chunk, world_time: i64, populated: bool) !nbt.Tag {
+pub fn store(
+    gpa: std.mem.Allocator,
+    chunk: *const Chunk,
+    world_time: i64,
+    populated: bool,
+    entities: []nbt.Tag,
+) !nbt.Tag {
     var level: nbt.Compound = .{};
     errdefer {
         var owned: nbt.Tag = .{ .compound = level };
@@ -52,7 +58,7 @@ pub fn store(gpa: std.mem.Allocator, chunk: *const Chunk, world_time: i64, popul
     try put(gpa, &level, "BlockLight", .{ .byte_array = try gpa.dupe(u8, &chunk.block_light.data) });
     try put(gpa, &level, "HeightMap", .{ .byte_array = try gpa.dupe(u8, &chunk.height_map) });
     try put(gpa, &level, "TerrainPopulated", .{ .byte = @intFromBool(populated) });
-    try put(gpa, &level, "Entities", .{ .list = .{ .element_type = .compound, .items = try gpa.alloc(nbt.Tag, 0) } });
+    try put(gpa, &level, "Entities", .{ .list = .{ .element_type = .compound, .items = entities } });
     try put(gpa, &level, "TileEntities", .{ .list = .{ .element_type = .compound, .items = try gpa.alloc(nbt.Tag, 0) } });
 
     var root: nbt.Compound = .{};
@@ -67,7 +73,16 @@ pub fn store(gpa: std.mem.Allocator, chunk: *const Chunk, world_time: i64, popul
 pub const Loaded = struct {
     chunk: Chunk,
     populated: bool,
+    entities: []const nbt.Tag,
 };
+
+fn entityList(level: nbt.Compound) []const nbt.Tag {
+    const tag = level.get("Entities") orelse return &.{};
+    return switch (tag) {
+        .list => |list| list.items,
+        else => &.{},
+    };
+}
 
 pub fn load(root: nbt.Tag) !Loaded {
     const outer = switch (root) {
@@ -92,7 +107,7 @@ pub fn load(root: nbt.Tag) !Loaded {
         else => return Error.WrongFieldType,
     };
 
-    return .{ .chunk = chunk, .populated = populated };
+    return .{ .chunk = chunk, .populated = populated, .entities = entityList(level) };
 }
 
 const block = @import("block.zig");
@@ -117,7 +132,7 @@ test "a chunk survives a round trip through NBT tags" {
     const gpa = std.testing.allocator;
     const original = sampleChunk();
 
-    var tag = try store(gpa, &original, 1234, true);
+    var tag = try store(gpa, &original, 1234, true, try gpa.alloc(nbt.Tag, 0));
     defer nbt.deinit(gpa, &tag);
 
     const loaded = try load(tag);
@@ -135,7 +150,7 @@ test "a chunk survives a round trip through the NBT wire format" {
     const gpa = std.testing.allocator;
     const original = sampleChunk();
 
-    var tag = try store(gpa, &original, 99, false);
+    var tag = try store(gpa, &original, 99, false, try gpa.alloc(nbt.Tag, 0));
     defer nbt.deinit(gpa, &tag);
 
     var buffer: std.ArrayList(u8) = .empty;
@@ -162,7 +177,7 @@ test "the stored layout is the original's Level compound" {
     const gpa = std.testing.allocator;
     const original = sampleChunk();
 
-    var tag = try store(gpa, &original, 5, true);
+    var tag = try store(gpa, &original, 5, true, try gpa.alloc(nbt.Tag, 0));
     defer nbt.deinit(gpa, &tag);
 
     const level = tag.compound.get(level_key).?.compound;
@@ -187,7 +202,7 @@ test "a truncated block array is rejected" {
     const gpa = std.testing.allocator;
     const original = sampleChunk();
 
-    var tag = try store(gpa, &original, 0, true);
+    var tag = try store(gpa, &original, 0, true, try gpa.alloc(nbt.Tag, 0));
     defer nbt.deinit(gpa, &tag);
 
     const level = tag.compound.getPtr(level_key).?;

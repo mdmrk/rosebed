@@ -254,7 +254,19 @@ pub const Save = struct {
         return file.hasChunk(RegionFile.localCoord(chunk_x), RegionFile.localCoord(chunk_z));
     }
 
-    pub fn readChunk(self: *Save, gpa: std.mem.Allocator, io: std.Io, chunk_x: i32, chunk_z: i32) !?chunk_nbt.Loaded {
+    pub const EntityVisitor = struct {
+        context: *anyopaque,
+        visit: *const fn (context: *anyopaque, gpa: std.mem.Allocator, entity: nbt.Compound) anyerror!void,
+    };
+
+    pub fn readChunk(
+        self: *Save,
+        gpa: std.mem.Allocator,
+        io: std.Io,
+        chunk_x: i32,
+        chunk_z: i32,
+        visitor: ?EntityVisitor,
+    ) !?chunk_nbt.Loaded {
         const file = try self.region(gpa, io, chunk_x, chunk_z);
         const bytes = try file.readChunk(gpa, io, RegionFile.localCoord(chunk_x), RegionFile.localCoord(chunk_z)) orelse return null;
         defer gpa.free(bytes);
@@ -266,11 +278,28 @@ pub const Save = struct {
             nbt.deinit(gpa, &named.tag);
         }
 
-        return try chunk_nbt.load(named.tag);
+        const loaded = try chunk_nbt.load(named.tag);
+        if (visitor) |sink| {
+            for (loaded.entities) |entity| {
+                switch (entity) {
+                    .compound => |compound| try sink.visit(sink.context, gpa, compound),
+                    else => {},
+                }
+            }
+        }
+        return loaded;
     }
 
-    pub fn writeChunk(self: *Save, gpa: std.mem.Allocator, io: std.Io, chunk: *const Chunk, world_time: i64, populated: bool) !void {
-        var tag = try chunk_nbt.store(gpa, chunk, world_time, populated);
+    pub fn writeChunk(
+        self: *Save,
+        gpa: std.mem.Allocator,
+        io: std.Io,
+        chunk: *const Chunk,
+        world_time: i64,
+        populated: bool,
+        entities: []nbt.Tag,
+    ) !void {
+        var tag = try chunk_nbt.store(gpa, chunk, world_time, populated, entities);
         defer nbt.deinit(gpa, &tag);
 
         var allocating: std.Io.Writer.Allocating = .init(gpa);
@@ -624,10 +653,10 @@ test "a chunk written through the save handler comes back with its blocks" {
     chunk.setBlockMetadata(1, 2, 3, 9);
 
     try std.testing.expect(!world.hasChunk(gpa, io, -40, 33));
-    try world.writeChunk(gpa, io, &chunk, 1234, true);
+    try world.writeChunk(gpa, io, &chunk, 1234, true, try gpa.alloc(nbt.Tag, 0));
     try std.testing.expect(world.hasChunk(gpa, io, -40, 33));
 
-    const loaded = (try world.readChunk(gpa, io, -40, 33)).?;
+    const loaded = (try world.readChunk(gpa, io, -40, 33, null)).?;
     try std.testing.expectEqual(@as(i32, -40), loaded.chunk.x);
     try std.testing.expectEqual(@as(i32, 33), loaded.chunk.z);
     try std.testing.expect(loaded.populated);
@@ -635,7 +664,7 @@ test "a chunk written through the save handler comes back with its blocks" {
     try std.testing.expectEqual(Chunk.getBlock(&chunk, 15, 127, 15), loaded.chunk.getBlock(15, 127, 15));
     try std.testing.expectEqual(@as(u4, 9), loaded.chunk.getBlockMetadata(1, 2, 3));
 
-    try std.testing.expectEqual(@as(?chunk_nbt.Loaded, null), try world.readChunk(gpa, io, 0, 0));
+    try std.testing.expectEqual(@as(?chunk_nbt.Loaded, null), try world.readChunk(gpa, io, 0, 0, null));
 }
 
 test "listing worlds returns them newest first and skips folders without a level.dat" {

@@ -885,6 +885,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     app_state.generator = try world.TerrainGenerator.init(app_state.gpa, level_seed);
 
     app_state.world_map.persistence = .{ .handle = handle, .io = app_state.io };
+    app_state.world_map.entity_io = app_state.entities.entityIo();
     app_state.player = .{
         .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
         .inventory = starterInventory(),

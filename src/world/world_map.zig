@@ -9,6 +9,7 @@ const light = @import("light.zig");
 const fluid = @import("fluid.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const save = @import("save.zig");
+const nbt = @import("nbt.zig");
 const math = @import("math");
 
 const World = @This();
@@ -16,6 +17,18 @@ const World = @This();
 pub const Persistence = struct {
     handle: *save.Save,
     io: std.Io,
+};
+
+pub const EntityIo = struct {
+    context: *anyopaque,
+    collect: *const fn (
+        context: *anyopaque,
+        gpa: std.mem.Allocator,
+        chunk_x: i32,
+        chunk_z: i32,
+        out: *std.ArrayList(nbt.Tag),
+    ) anyerror!void,
+    restore: *const fn (context: *anyopaque, gpa: std.mem.Allocator, entity: nbt.Compound) anyerror!void,
 };
 
 pub const ChunkCoord = struct { x: i32, z: i32 };
@@ -54,6 +67,7 @@ time: i64 = 0,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
 persistence: ?Persistence = null,
+entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
 
 pub const ticks_per_day: i64 = 24000;
@@ -124,9 +138,26 @@ pub fn getOrGenerateChunk(self: *World, generator: TerrainGenerator, chunk_x: i3
     return chunk;
 }
 
+fn restoreEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: nbt.Compound) anyerror!void {
+    const self: *World = @ptrCast(@alignCast(context));
+    const io = self.entity_io.?;
+    try io.restore(io.context, gpa, entity);
+}
+
+fn entityVisitor(self: *World) ?save.Save.EntityVisitor {
+    if (self.entity_io == null) return null;
+    return .{ .context = self, .visit = restoreEntity };
+}
+
 fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !?*Chunk {
     const persistence = self.persistence orelse return null;
-    const found = persistence.handle.readChunk(self.allocator, persistence.io, chunk_x, chunk_z) catch return null;
+    const found = persistence.handle.readChunk(
+        self.allocator,
+        persistence.io,
+        chunk_x,
+        chunk_z,
+        self.entityVisitor(),
+    ) catch return null;
     const stored = found orelse return null;
 
     const chunk = try self.createChunk(chunk_x, chunk_z);
@@ -146,12 +177,21 @@ fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i
 fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
     const persistence = self.persistence orelse return;
     const chunk = self.getChunk(coord.x, coord.z) orelse return;
+
+    var entities: std.ArrayList(nbt.Tag) = .empty;
+    errdefer {
+        for (entities.items) |*tag| nbt.deinit(self.allocator, tag);
+        entities.deinit(self.allocator);
+    }
+    if (self.entity_io) |io| try io.collect(io.context, self.allocator, coord.x, coord.z, &entities);
+
     try persistence.handle.writeChunk(
         self.allocator,
         persistence.io,
         chunk,
         self.time,
         self.isDecorated(coord.x, coord.z),
+        try entities.toOwnedSlice(self.allocator),
     );
 }
 

@@ -234,6 +234,38 @@ pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player
     }
 }
 
+fn chunkOf(coordinate: f64) i32 {
+    return @divFloor(math.util.floorDouble(coordinate), world.constants.chunk_width);
+}
+
+fn collectChunkEntities(
+    context: *anyopaque,
+    gpa: std.mem.Allocator,
+    chunk_x: i32,
+    chunk_z: i32,
+    out: *std.ArrayList(world.nbt.Tag),
+) anyerror!void {
+    const self: *Entities = @ptrCast(@alignCast(context));
+    for (self.pigs.items) |pig| {
+        if (chunkOf(pig.base.position.x) != chunk_x or chunkOf(pig.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storePig(gpa, pig.toRecord()));
+    }
+}
+
+fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!void {
+    const self: *Entities = @ptrCast(@alignCast(context));
+    const record = world.entity_nbt.loadPig(entity) orelse return;
+    try self.pigs.append(gpa, Pig.fromRecord(record));
+}
+
+pub fn entityIo(self: *Entities) world.World.EntityIo {
+    return .{
+        .context = self,
+        .collect = collectChunkEntities,
+        .restore = restoreChunkEntity,
+    };
+}
+
 const pig_push_reach: f64 = 0.2;
 const pig_push_strength: f64 = 0.05;
 
@@ -303,6 +335,89 @@ pub fn tickPigs(
         }
         i += 1;
     }
+}
+
+test "a pig is written into the chunk it stands in and comes back on reload" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Piggy");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 8.5));
+        entities.pigs.items[0].health = 6;
+        entities.pigs.items[0].yaw = 42.0;
+        entities.pigs.items[0].saddled = true;
+        entities.pigs.items[0].base.on_ground = true;
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.pigs.items.len);
+    const pig = restored.pigs.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), pig.base.position.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pig.base.position.y, 1.0e-9);
+    try std.testing.expectEqual(@as(i32, 6), pig.health);
+    try std.testing.expectApproxEqAbs(@as(f32, 42.0), pig.yaw, 1.0e-6);
+    try std.testing.expect(pig.saddled);
+    try std.testing.expect(pig.base.on_ground);
+}
+
+test "a pig is only written into the chunk it is standing in" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 8.5));
+    try entities.spawnPig(gpa, math.Vec3.init(-24.0, 1, 40.0));
+
+    const io = entities.entityIo();
+
+    var here: std.ArrayList(world.nbt.Tag) = .empty;
+    defer {
+        for (here.items) |*tag| world.nbt.deinit(gpa, tag);
+        here.deinit(gpa);
+    }
+    try io.collect(io.context, gpa, 0, 0, &here);
+    try std.testing.expectEqual(@as(usize, 1), here.items.len);
+
+    var neighbour: std.ArrayList(world.nbt.Tag) = .empty;
+    defer {
+        for (neighbour.items) |*tag| world.nbt.deinit(gpa, tag);
+        neighbour.deinit(gpa);
+    }
+    try io.collect(io.context, gpa, -2, 2, &neighbour);
+    try std.testing.expectEqual(@as(usize, 1), neighbour.items.len);
+
+    var empty: std.ArrayList(world.nbt.Tag) = .empty;
+    defer empty.deinit(gpa);
+    try io.collect(io.context, gpa, 5, 5, &empty);
+    try std.testing.expectEqual(@as(usize, 0), empty.items.len);
 }
 
 test "a thrown item flies out in front of the player with a pickup delay" {

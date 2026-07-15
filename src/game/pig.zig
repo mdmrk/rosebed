@@ -573,6 +573,43 @@ pub fn tick(
     self.updateRenderYaw();
 }
 
+pub fn toRecord(self: Pig) world.entity_nbt.Pig {
+    return .{
+        .position = .{ self.base.position.x, self.base.position.y + self.base.y_size, self.base.position.z },
+        .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+        .yaw = self.yaw,
+        .pitch = self.pitch,
+        .fall_distance = self.fall_distance,
+        .fire = @intCast(self.fire),
+        .air = @intCast(self.air),
+        .on_ground = self.base.on_ground,
+        .health = @intCast(self.health),
+        .hurt_time = @intCast(self.hurt_time),
+        .death_time = @intCast(self.death_time),
+        .saddled = self.saddled,
+    };
+}
+
+pub fn fromRecord(record: world.entity_nbt.Pig) Pig {
+    var pig = Pig.spawn(math.Vec3.init(record.position[0], record.position[1], record.position[2]));
+    pig.base.motion = math.Vec3.init(record.motion[0], record.motion[1], record.motion[2]);
+    pig.base.on_ground = record.on_ground;
+    pig.yaw = record.yaw;
+    pig.prev_yaw = record.yaw;
+    pig.render_yaw = record.yaw;
+    pig.prev_render_yaw = record.yaw;
+    pig.pitch = record.pitch;
+    pig.prev_pitch = record.pitch;
+    pig.fall_distance = record.fall_distance;
+    pig.fire = record.fire;
+    pig.air = record.air;
+    pig.health = record.health;
+    pig.hurt_time = record.hurt_time;
+    pig.death_time = record.death_time;
+    pig.saddled = record.saddled;
+    return pig;
+}
+
 pub fn renderYaw(self: Pig, partial_ticks: f32) f32 {
     return self.prev_render_yaw + (self.render_yaw - self.prev_render_yaw) * partial_ticks;
 }
