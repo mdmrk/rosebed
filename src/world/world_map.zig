@@ -8,6 +8,7 @@ const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
 const fluid = @import("fluid.zig");
 const leaf_decay = @import("leaf_decay.zig");
+const block_update = @import("block_update.zig");
 const save = @import("save.zig");
 const nbt = @import("nbt.zig");
 const math = @import("math");
@@ -37,6 +38,8 @@ pub const BlockPos = struct { x: i32, y: i32, z: i32 };
 
 pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
 
+pub const FallingBlock = struct { pos: BlockPos, id: Block };
+
 pub const ScheduledTick = struct {
     pos: BlockPos,
     id: Block,
@@ -61,6 +64,7 @@ scheduled_keys: std.AutoHashMapUnmanaged(ScheduledTick.Key, void) = .{},
 due: std.ArrayList(ScheduledTick) = .empty,
 changed: std.ArrayList(BlockPos) = .empty,
 dropped: std.ArrayList(DroppedBlock) = .empty,
+falling: std.ArrayList(FallingBlock) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 update_lcg: i32 = 0,
 time: i64 = 0,
@@ -107,6 +111,7 @@ pub fn deinit(self: *World) void {
     self.scheduled_keys.deinit(self.allocator);
     self.changed.deinit(self.allocator);
     self.dropped.deinit(self.allocator);
+    self.falling.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
 }
 
@@ -298,6 +303,12 @@ pub fn setBlockMetadata(self: *World, x: i32, y: i32, z: i32, value: u4) void {
     chunk.setBlockMetadata(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
 }
 
+pub fn canBlockSeeTheSky(self: *const World, x: i32, y: i32, z: i32) bool {
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return false;
+    const height = chunk.getHeightValue(@intCast(floorMod(x, constants.chunk_width)), @intCast(floorMod(z, constants.chunk_width)));
+    return y >= height;
+}
+
 pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x: i32, max_y: i32, max_z: i32) bool {
     if (max_y < 0 or min_y >= constants.chunk_height) return false;
     const width = constants.chunk_width;
@@ -355,10 +366,14 @@ pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32) !void 
 
 fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
+    if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
 }
 
 fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    if (self.getBlock(x, y, z).isLiquid()) try fluid.onNeighborChange(self, x, y, z);
+    const id = self.getBlock(x, y, z);
+    if (id.isLiquid()) try fluid.onNeighborChange(self, x, y, z);
+    if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+    try block_update.onNeighborChange(self, x, y, z);
 }
 
 pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) std.mem.Allocator.Error!void {
@@ -368,6 +383,7 @@ pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, dela
     if (self.scheduled_updates_are_immediate) {
         if (self.getBlock(x, y, z) != id) return;
         if (id.isLiquid()) try fluid.tick(self, x, y, z);
+        if (id.isFalling()) try block_update.tickFalling(self, x, y, z);
         return;
     }
 
@@ -404,6 +420,7 @@ pub fn tickUpdates(self: *World) !void {
         if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) continue;
         if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
         if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
+        if (entry.id.isFalling()) try block_update.tickFalling(self, pos.x, pos.y, pos.z);
     }
 }
 

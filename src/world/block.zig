@@ -278,6 +278,7 @@ pub const Block = enum(u8) {
     }
 
     pub fn tickRate(self: Block) u32 {
+        if (self.isFalling()) return 3;
         return switch (self.material()) {
             .water => 5,
             .lava => 30,

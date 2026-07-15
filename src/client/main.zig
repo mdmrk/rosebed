@@ -489,19 +489,15 @@ fn applyBlockChanges(app_state: *AppState) !void {
         });
     }
     app_state.world_map.dropped.clearRetainingCapacity();
+
+    for (app_state.world_map.falling.items) |fall| {
+        try app_state.entities.spawnFallingBlock(app_state.gpa, fall.pos.x, fall.pos.y, fall.pos.z, fall.id);
+    }
+    app_state.world_map.falling.clearRetainingCapacity();
 }
 
 fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
     try app_state.entities.dropStack(app_state.gpa, x, y, z, stack, &app_state.world_map.rand);
-}
-
-fn checkFall(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    const id = app_state.world_map.getBlock(x, y, z);
-    if (!id.isFalling()) return;
-    if (!app_state.world_map.getBlock(x, y - 1, z).canFallInto()) return;
-
-    try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
-    try app_state.entities.spawnFallingBlock(app_state.gpa, x, y, z, id);
 }
 
 fn wearHeldItem(app_state: *AppState) !void {
@@ -544,7 +540,6 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
     }
-    try checkFall(app_state, x, y + 1, z);
 }
 
 fn tickFallingBlocks(app_state: *AppState) !void {
@@ -1208,10 +1203,10 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     const pz = hit.z + offset[2];
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
+    if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return;
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.blockMeta());
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
-    try checkFall(app_state, px, py, pz);
     try applyBlockChanges(app_state);
 }
 
