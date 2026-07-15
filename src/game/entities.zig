@@ -160,6 +160,38 @@ pub fn spawnBlockHitParticle(
     try self.particles.append(gpa, shard.slowedBy(hit_slowdown).scaledBy(hit_shrink));
 }
 
+pub const torch_flame_height: f64 = 0.7;
+pub const torch_wall_lift: f64 = 0.22;
+pub const torch_wall_reach: f64 = 0.27;
+
+pub fn torchFlamePosition(x: i32, y: i32, z: i32, metadata: u4) math.Vec3 {
+    const cx = @as(f64, @floatFromInt(x)) + 0.5;
+    const cy = @as(f64, @floatFromInt(y)) + torch_flame_height;
+    const cz = @as(f64, @floatFromInt(z)) + 0.5;
+    return switch (metadata) {
+        1 => math.Vec3.init(cx - torch_wall_reach, cy + torch_wall_lift, cz),
+        2 => math.Vec3.init(cx + torch_wall_reach, cy + torch_wall_lift, cz),
+        3 => math.Vec3.init(cx, cy + torch_wall_lift, cz - torch_wall_reach),
+        4 => math.Vec3.init(cx, cy + torch_wall_lift, cz + torch_wall_reach),
+        else => math.Vec3.init(cx, cy, cz),
+    };
+}
+
+pub fn spawnTorchParticles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    metadata: u4,
+    rand: *world.JavaRandom,
+) !void {
+    const position = torchFlamePosition(x, y, z, metadata);
+    const still = math.Vec3.init(0, 0, 0);
+    try self.particles.append(gpa, Particle.spawnSmoke(position, still, rand));
+    try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
+}
+
 pub fn tickParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -625,4 +657,45 @@ test "a dead player leaves items on the ground" {
     entities.tickItems(&w, &player);
 
     try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
+}
+
+test "a torch emits one smoke and one flame from the same point" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnTorchParticles(gpa, 8, 40, 8, 5, &rand);
+
+    try std.testing.expectEqual(@as(usize, 2), entities.particles.items.len);
+    try std.testing.expectEqual(Particle.Kind.smoke, entities.particles.items[0].kind);
+    try std.testing.expectEqual(Particle.Kind.flame, entities.particles.items[1].kind);
+    try std.testing.expectEqual(
+        entities.particles.items[0].base.position,
+        entities.particles.items[1].base.position,
+    );
+}
+
+test "a standing torch burns at its own centre, a wall torch out over its bracket" {
+    const standing = torchFlamePosition(8, 40, 8, 5);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), standing.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 40.7), standing.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), standing.z, 1.0e-9);
+    try std.testing.expectEqual(standing, torchFlamePosition(8, 40, 8, 0));
+
+    const west = torchFlamePosition(8, 40, 8, 1);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.23), west.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 40.92), west.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), west.z, 1.0e-9);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(8, 40, 8, 2).x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.23), torchFlamePosition(8, 40, 8, 3).z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(8, 40, 8, 4).z, 1.0e-9);
+}
+
+test "a torch flame sits above the tip of the model it belongs to" {
+    const bounds = world.Block.torch.selectionBounds(5);
+    const flame = torchFlamePosition(0, 0, 0, 5);
+    try std.testing.expect(flame.y > bounds.max[1]);
+    try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);
 }

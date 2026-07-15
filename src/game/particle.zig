@@ -16,7 +16,7 @@ tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 
-pub const Kind = enum { digging, smoke, splash, lava };
+pub const Kind = enum { digging, smoke, splash, lava, flame };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -29,6 +29,9 @@ pub const lava_gravity: f64 = 0.03;
 pub const lava_drag: f64 = 0.999;
 pub const lava_tile: u8 = 49;
 pub const splash_gravity: f64 = 0.04;
+pub const flame_tile: u8 = 48;
+pub const flame_drag: f64 = 0.96;
+pub const flame_drift: f64 = 0.01;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -119,6 +122,20 @@ pub fn spawnLava(position: math.Vec3, rand: *world.JavaRandom) Particle {
     return particle;
 }
 
+pub fn spawnFlame(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, drift, rand);
+    particle.kind = .flame;
+    particle.base.motion = math.Vec3.init(
+        particle.base.motion.x * flame_drift + drift.x,
+        particle.base.motion.y * flame_drift + drift.y,
+        particle.base.motion.z * flame_drift + drift.z,
+    );
+    particle.color = .{ 1, 1, 1 };
+    particle.max_age = @as(i32, @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2))) + 4;
+    particle.tile = flame_tile;
+    return particle;
+}
+
 pub fn slowedBy(self: Particle, factor: f32) Particle {
     var slowed = self;
     slowed.base.motion.x *= factor;
@@ -181,6 +198,12 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.applyDrag(lava_drag);
             self.applyGroundFriction();
         },
+        .flame => {
+            self.base.position.x += self.base.motion.x;
+            self.base.position.y += self.base.motion.y;
+            self.base.position.z += self.base.motion.z;
+            self.applyDrag(flame_drag);
+        },
     }
 }
 
@@ -217,12 +240,23 @@ pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
             const progress = self.lifeProgress(partial_ticks);
             break :blk @max(0.0, 1.0 - progress * progress);
         },
+        .flame => blk: {
+            const progress = self.lifeProgress(partial_ticks);
+            break :blk 1.0 - progress * progress * 0.5;
+        },
     };
     return 0.1 * self.scale * factor;
 }
 
-pub fn fullBright(self: Particle) bool {
-    return self.kind == .lava;
+pub fn brightness(self: Particle, ambient: f32, partial_ticks: f32) f32 {
+    return switch (self.kind) {
+        .lava => 1.0,
+        .flame => blk: {
+            const progress = std.math.clamp(self.lifeProgress(partial_ticks), 0.0, 1.0);
+            break :blk ambient * progress + (1.0 - progress);
+        },
+        else => ambient,
+    };
 }
 
 test "a particle is launched outward and settles within its lifetime" {
@@ -316,10 +350,74 @@ test "a lava ember pops upward, glows at full brightness and shrinks away" {
 
     try std.testing.expectEqual(Kind.lava, particle.kind);
     try std.testing.expectEqual(lava_tile, particle.tile);
-    try std.testing.expect(particle.fullBright());
+    try std.testing.expectEqual(@as(f32, 1.0), particle.brightness(0.2, 0.0));
     try std.testing.expect(particle.base.motion.y >= 0.05 and particle.base.motion.y < 0.45);
 
     const fresh = particle.halfSize(0.0);
     particle.age = particle.max_age;
     try std.testing.expect(particle.halfSize(0.0) < fresh);
+}
+
+test "a flame starts white, takes the flame tile and outlives smoke by four ticks" {
+    var rand = world.JavaRandom.init(4);
+    for (0..200) |_| {
+        const particle = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
+        try std.testing.expectEqual(Kind.flame, particle.kind);
+        try std.testing.expectEqual(flame_tile, particle.tile);
+        try std.testing.expectEqual([3]f32{ 1, 1, 1 }, particle.color);
+        try std.testing.expect(particle.max_age >= 12 and particle.max_age <= 44);
+    }
+}
+
+test "a flame keeps almost none of its launch speed, unlike a digging shard" {
+    var rand = world.JavaRandom.init(11);
+    const flame = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
+    rand = world.JavaRandom.init(11);
+    const shard = spawn(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), 1, &rand);
+
+    try std.testing.expectApproxEqAbs(shard.base.motion.x * flame_drift, flame.base.motion.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(shard.base.motion.y * flame_drift, flame.base.motion.y, 1.0e-12);
+}
+
+test "a flame carries the drift it was given on top of its own jitter" {
+    var rand = world.JavaRandom.init(11);
+    const drifting = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0.5, 0, 0), &rand);
+    try std.testing.expect(drifting.base.motion.x > 0.4);
+}
+
+test "a flame ignores gravity and drifts through blocks instead of landing" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 12);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(6);
+    var particle = spawnFlame(math.Vec3.init(8.5, 12.5, 8.5), math.Vec3.init(0, -0.5, 0), &rand);
+    const started = particle.base.position.y;
+
+    for (0..4) |_| particle.tick(&world_map, &rand);
+
+    try std.testing.expect(particle.base.position.y < started);
+    try std.testing.expect(particle.base.position.y < 12.0);
+    try std.testing.expect(!particle.base.on_ground);
+}
+
+test "a flame shrinks by half over its life and fades from full bright to ambient" {
+    var rand = world.JavaRandom.init(8);
+    var particle = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
+
+    const fresh = particle.halfSize(0.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), particle.brightness(0.2, 0.0), 1.0e-6);
+
+    particle.age = particle.max_age;
+    try std.testing.expectApproxEqAbs(fresh * 0.5, particle.halfSize(0.0), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), particle.brightness(0.2, 0.0), 1.0e-6);
+}
+
+test "only lava ignores the light around it, smoke and shards take it as is" {
+    var rand = world.JavaRandom.init(8);
+    const smoke = spawnSmoke(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
+    const ember = spawnLava(math.Vec3.init(8, 40, 8), &rand);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), smoke.brightness(0.2, 0.0), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), ember.brightness(0.2, 0.0), 1.0e-6);
 }

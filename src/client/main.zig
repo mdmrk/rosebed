@@ -1317,15 +1317,27 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
         const x = px + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const y = py + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const z = pz + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
-        if (app_state.world_map.getBlock(x, y, z).material() != .lava) continue;
-        if (app_state.world_map.getBlock(x, y + 1, z) != .air) continue;
-        if (rand.nextIntBound(100) != 0) continue;
-        const position = math.Vec3.init(
-            @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()),
-            @as(f64, @floatFromInt(y)) + 1.0,
-            @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()),
-        );
-        try app_state.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
+        switch (app_state.world_map.getBlock(x, y, z)) {
+            .flowing_lava, .stationary_lava => {
+                if (app_state.world_map.getBlock(x, y + 1, z) != .air) continue;
+                if (rand.nextIntBound(100) != 0) continue;
+                const position = math.Vec3.init(
+                    @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()),
+                    @as(f64, @floatFromInt(y)) + 1.0,
+                    @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()),
+                );
+                try app_state.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
+            },
+            .torch => try app_state.entities.spawnTorchParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            else => {},
+        }
     }
 }
 
