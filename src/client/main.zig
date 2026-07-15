@@ -1889,7 +1889,7 @@ pub fn event(
                 app_state.show_debug = !app_state.show_debug;
             } else if (boundTo(app_state, .inventory, k.key) and !app_state.paused) {
                 try toggleInventory(app_state);
-            } else if (boundTo(app_state, .drop, k.key) and worldFocused(app_state)) {
+            } else if (boundTo(app_state, .drop, k.key) and worldFocused(app_state) and !k.repeat) {
                 try dropSelectedItem(app_state);
             } else {
                 setKeyState(app_state, k.key, true);
