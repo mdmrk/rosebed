@@ -352,7 +352,7 @@ pub fn init(
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
     app_state.splash = pickSplash(&app_state.world_map.rand);
 
-    app_state.textures = try render.Textures.load();
+    app_state.textures = try render.Textures.load(gpa, null);
     errdefer app_state.textures.deinit();
 
     app_state.colorizer = try render.Colorizer.load(gpa);

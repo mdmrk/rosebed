@@ -13,6 +13,7 @@ pub const held_item = @import("held_item.zig");
 pub const gui = @import("gui.zig");
 pub const Ui = gui.Ui;
 pub const Textures = @import("textures.zig");
+pub const texture_pack = @import("texture_pack.zig");
 pub const TextureFx = @import("texture_fx.zig");
 pub const Colorizer = @import("colorizer.zig");
 pub const hud = @import("hud.zig");

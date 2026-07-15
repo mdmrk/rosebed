@@ -1,6 +1,8 @@
+const std = @import("std");
 const assets = @import("assets");
 
 const Atlas = @import("atlas.zig");
+const texture_pack = @import("texture_pack.zig");
 
 const Textures = @This();
 
@@ -23,31 +25,110 @@ moon: Atlas,
 clouds: Atlas,
 water: Atlas,
 
-pub fn load() !Textures {
-    return .{
-        .terrain = try Atlas.load(assets.terrain_png),
-        .gui = try Atlas.load(assets.gui.gui_png),
-        .icons = try Atlas.load(assets.gui.icons_png),
-        .items = try Atlas.load(assets.gui.items_png),
-        .inventory = try Atlas.load(assets.gui.inventory_png),
-        .crafting = try Atlas.load(assets.gui.crafting_png),
-        .slot = try Atlas.load(assets.gui.slot_png),
-        .dirt = try Atlas.loadRepeat(assets.gui.background_png),
-        .logo = try Atlas.load(assets.title.mclogo_png),
-        .mojang = try Atlas.load(assets.title.mojang_png),
-        .particles = try Atlas.load(assets.particles_png),
-        .pig = try Atlas.load(assets.mob.pig_png),
-        .saddle = try Atlas.load(assets.mob.saddle_png),
-        .char = try Atlas.load(assets.mob.char_png),
-        .sun = try Atlas.load(assets.terrain.sun_png),
-        .moon = try Atlas.load(assets.terrain.moon_png),
-        .clouds = try Atlas.loadRepeat(assets.environment.clouds_png),
-        .water = try Atlas.loadRepeat(assets.misc.water_png),
+const Wrap = enum { clamp, repeat };
+
+const Resource = struct {
+    path: []const u8,
+    bytes: []const u8,
+    wrap: Wrap = .clamp,
+};
+
+fn resourceFor(comptime field: []const u8) Resource {
+    return switch (@as(Field, @field(Field, field))) {
+        .terrain => .{ .path = "terrain.png", .bytes = assets.terrain_png },
+        .gui => .{ .path = "gui/gui.png", .bytes = assets.gui.gui_png },
+        .icons => .{ .path = "gui/icons.png", .bytes = assets.gui.icons_png },
+        .items => .{ .path = "gui/items.png", .bytes = assets.gui.items_png },
+        .inventory => .{ .path = "gui/inventory.png", .bytes = assets.gui.inventory_png },
+        .crafting => .{ .path = "gui/crafting.png", .bytes = assets.gui.crafting_png },
+        .slot => .{ .path = "gui/slot.png", .bytes = assets.gui.slot_png },
+        .dirt => .{ .path = "gui/background.png", .bytes = assets.gui.background_png, .wrap = .repeat },
+        .logo => .{ .path = "title/mclogo.png", .bytes = assets.title.mclogo_png },
+        .mojang => .{ .path = "title/mojang.png", .bytes = assets.title.mojang_png },
+        .particles => .{ .path = "particles.png", .bytes = assets.particles_png },
+        .pig => .{ .path = "mob/pig.png", .bytes = assets.mob.pig_png },
+        .saddle => .{ .path = "mob/saddle.png", .bytes = assets.mob.saddle_png },
+        .char => .{ .path = "mob/char.png", .bytes = assets.mob.char_png },
+        .sun => .{ .path = "terrain/sun.png", .bytes = assets.terrain.sun_png },
+        .moon => .{ .path = "terrain/moon.png", .bytes = assets.terrain.moon_png },
+        .clouds => .{ .path = "environment/clouds.png", .bytes = assets.environment.clouds_png, .wrap = .repeat },
+        .water => .{ .path = "misc/water.png", .bytes = assets.misc.water_png, .wrap = .repeat },
     };
+}
+
+const Field = std.meta.FieldEnum(Textures);
+
+fn atlasFrom(bytes: []const u8, wrap: Wrap) !Atlas {
+    return switch (wrap) {
+        .clamp => Atlas.load(bytes),
+        .repeat => Atlas.loadRepeat(bytes),
+    };
+}
+
+fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource) !Atlas {
+    const bytes = archive orelse return atlasFrom(resource.bytes, resource.wrap);
+
+    const overridden = texture_pack.readArchiveEntry(gpa, bytes, resource.path, texture_pack.max_resource_bytes) catch null;
+    const replacement = overridden orelse return atlasFrom(resource.bytes, resource.wrap);
+    defer gpa.free(replacement);
+
+    return atlasFrom(replacement, resource.wrap) catch atlasFrom(resource.bytes, resource.wrap);
+}
+
+pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8) !Textures {
+    var loaded: Textures = undefined;
+    inline for (@typeInfo(Textures).@"struct".fields) |field| {
+        @field(loaded, field.name) = try loadOne(gpa, archive, resourceFor(field.name));
+    }
+    return loaded;
+}
+
+pub fn openArchive(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    dir: std.Io.Dir,
+    pack_name: []const u8,
+) ?[]u8 {
+    if (std.mem.eql(u8, pack_name, texture_pack.default_name)) return null;
+    return texture_pack.readArchive(gpa, io, dir, pack_name) catch null;
 }
 
 pub fn deinit(self: Textures) void {
     inline for (@typeInfo(Textures).@"struct".fields) |field| {
         @field(self, field.name).deinit();
     }
+}
+
+test "every atlas names the jar path a texture pack would override it with" {
+    inline for (@typeInfo(Textures).@"struct".fields) |field| {
+        const resource = resourceFor(field.name);
+        try std.testing.expect(resource.path.len > 0);
+        try std.testing.expect(resource.bytes.len > 0);
+        try std.testing.expect(!std.mem.startsWith(u8, resource.path, "/"));
+        try std.testing.expect(std.mem.endsWith(u8, resource.path, ".png"));
+    }
+}
+
+test "the paths are the ones the original reads, and none is claimed twice" {
+    const fields = @typeInfo(Textures).@"struct".fields;
+    inline for (fields, 0..) |field, index| {
+        inline for (fields, 0..) |other, other_index| {
+            if (index != other_index) {
+                try std.testing.expect(!std.mem.eql(u8, resourceFor(field.name).path, resourceFor(other.name).path));
+            }
+        }
+    }
+
+    try std.testing.expectEqualStrings("terrain.png", resourceFor("terrain").path);
+    try std.testing.expectEqualStrings("particles.png", resourceFor("particles").path);
+    try std.testing.expectEqualStrings("gui/items.png", resourceFor("items").path);
+    try std.testing.expectEqualStrings("mob/char.png", resourceFor("char").path);
+}
+
+test "only the tiling atlases ask for repeat wrapping" {
+    try std.testing.expectEqual(Wrap.repeat, resourceFor("dirt").wrap);
+    try std.testing.expectEqual(Wrap.repeat, resourceFor("clouds").wrap);
+    try std.testing.expectEqual(Wrap.repeat, resourceFor("water").wrap);
+    try std.testing.expectEqual(Wrap.clamp, resourceFor("terrain").wrap);
+    try std.testing.expectEqual(Wrap.clamp, resourceFor("gui").wrap);
 }
