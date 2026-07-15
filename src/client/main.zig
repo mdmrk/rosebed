@@ -1205,7 +1205,8 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (app_state.world_map.getBlock(px, py, pz).isSolid()) return;
     if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return;
-    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, stack.blockMeta());
+    const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, hit.face, stack.blockMeta());
+    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -1640,7 +1641,7 @@ fn drawBreakingCrack(app_state: *AppState) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    try render.selection.appendCrack(&mesh, app_state.frame, id, digging.x, digging.y, digging.z, digging.progress);
+    try render.selection.appendCrack(&mesh, app_state.frame, id, app_state.world_map.getBlockMetadata(digging.x, digging.y, digging.z), digging.x, digging.y, digging.z, digging.progress);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.DST_COLOR, gl.SRC_COLOR);
@@ -1667,7 +1668,7 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
     const id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
-    try render.selection.appendOutline(&mesh, app_state.frame, id, hit.x, hit.y, hit.z);
+    try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z), hit.x, hit.y, hit.z);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

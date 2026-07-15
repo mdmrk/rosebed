@@ -30,6 +30,7 @@ pub fn columnSkyLight(world_map: *const World, x: i32, y: i32, z: i32) i32 {
 pub fn emission(id: Block) u4 {
     return switch (id) {
         Block.flowing_lava, Block.stationary_lava => 15,
+        Block.torch => 14,
         else => 0,
     };
 }
@@ -351,4 +352,25 @@ test "the brightness table matches WorldProvider's curve" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.05), brightness_table[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), brightness_table[15], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2611111), brightness_table[8], 1.0e-6);
+}
+
+test "a torch lights the block it sits in and fades by one per step" {
+    const gpa = std.testing.allocator;
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 12, 8, Block.torch);
+    chunk.setBlockMetadata(8, 12, 8, 5);
+
+    try relightChunk(gpa, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(8, 12, 8));
+    try std.testing.expectEqual(@as(u4, 13), world_map.getBlockLight(9, 12, 8));
+    try std.testing.expectEqual(@as(u4, 12), world_map.getBlockLight(10, 12, 8));
+    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockLight(8, 11, 8));
 }

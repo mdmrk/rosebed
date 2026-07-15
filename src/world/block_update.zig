@@ -34,6 +34,50 @@ fn cactusCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
     return below == .cactus or below == .sand;
 }
 
+fn torchSupport(metadata: u4) ?[3]i32 {
+    return switch (metadata) {
+        1 => .{ -1, 0, 0 },
+        2 => .{ 1, 0, 0 },
+        3 => .{ 0, 0, -1 },
+        4 => .{ 0, 0, 1 },
+        5 => .{ 0, -1, 0 },
+        else => null,
+    };
+}
+
+fn torchHolds(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4) bool {
+    const offset = torchSupport(metadata) orelse return false;
+    return world_map.getBlock(x + offset[0], y + offset[1], z + offset[2]).isOpaqueCube();
+}
+
+fn torchAnySupport(world_map: *const World, x: i32, y: i32, z: i32) ?u4 {
+    for ([5]u4{ 1, 2, 3, 4, 5 }) |metadata| {
+        if (torchHolds(world_map, x, y, z, metadata)) return metadata;
+    }
+    return null;
+}
+
+fn torchCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    if (torchSupport(metadata) == null) return torchAnySupport(world_map, x, y, z) != null;
+    return torchHolds(world_map, x, y, z, metadata);
+}
+
+pub fn placementMetadata(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side, metadata: u4) u4 {
+    if (id != .torch) return metadata;
+
+    const facing: u4 = switch (face) {
+        .up => 5,
+        .north => 4,
+        .south => 3,
+        .west => 2,
+        .east => 1,
+        .down => 0,
+    };
+    if (torchHolds(world_map, x, y, z, facing)) return facing;
+    return torchAnySupport(world_map, x, y, z) orelse 0;
+}
+
 pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
         .sapling, .dandelion, .rose, .tall_grass, .dead_bush => (light.levelAt(world_map, x, y, z) >= 8 or
@@ -43,6 +87,7 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .reed => reedCanStay(world_map, x, y, z),
         .cactus => cactusCanStay(world_map, x, y, z),
         .snow_layer => world_map.getBlock(x, y - 1, z).isOpaqueCube(),
+        .torch => torchCanStay(world_map, x, y, z),
         else => true,
     };
 }
@@ -50,6 +95,7 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
 pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
         .sapling, .dandelion, .rose, .tall_grass, .dead_bush, .mushroom_brown, .mushroom_red => plantGrowsOn(id, world_map.getBlock(x, y - 1, z)),
+        .torch => torchAnySupport(world_map, x, y, z) != null,
         else => canStayAt(world_map, x, y, z, id),
     };
 }
@@ -256,4 +302,99 @@ test "with immediate updates sand slides down to its resting place at once" {
     try std.testing.expectEqual(Block.air, w.getBlock(8, 20, 8));
     try std.testing.expectEqual(Block.sand, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(@as(usize, 0), w.falling.items.len);
+}
+
+fn torchWorld() !World {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    errdefer w.deinit();
+    w.setBlock(8, 12, 8, .stone);
+    return w;
+}
+
+test "the clicked face decides which wall a torch attaches to" {
+    var w = try torchWorld();
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, 9, 12, 8, .torch, .east, 0));
+    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, 7, 12, 8, .torch, .west, 0));
+    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, 8, 12, 9, .torch, .south, 0));
+    try std.testing.expectEqual(@as(u4, 4), placementMetadata(&w, 8, 12, 7, .torch, .north, 0));
+    try std.testing.expectEqual(@as(u4, 5), placementMetadata(&w, 8, 13, 8, .torch, .up, 0));
+}
+
+test "a torch placed against a face with nothing behind it falls back to any wall" {
+    var w = try torchWorld();
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, 9, 12, 8, .torch, .down, 0));
+    try std.testing.expectEqual(@as(u4, 5), placementMetadata(&w, 8, 12, 8, .torch, .down, 0));
+}
+
+test "only a torch takes its metadata from the face, other blocks keep the stack's" {
+    var w = try torchWorld();
+    defer w.deinit();
+    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, 8, 13, 8, .log, .up, 3));
+}
+
+test "a torch needs one of the five faces around it to be a normal cube" {
+    var w = try torchWorld();
+    defer w.deinit();
+
+    try std.testing.expect(canPlaceAt(&w, 9, 12, 8, .torch));
+    try std.testing.expect(canPlaceAt(&w, 8, 13, 8, .torch));
+    try std.testing.expect(!canPlaceAt(&w, 8, 14, 8, .torch));
+
+    w.setBlock(8, 13, 8, .glass);
+    try std.testing.expect(!canPlaceAt(&w, 9, 13, 8, .torch));
+}
+
+test "a wall torch pops when its own wall goes, even with another wall left" {
+    var w = try torchWorld();
+    defer w.deinit();
+    w.setBlock(10, 12, 8, .stone);
+    try w.setBlockAndMetadataWithNotify(9, 12, 8, .torch, 1);
+
+    try std.testing.expect(canStayAt(&w, 9, 12, 8, .torch));
+    try w.setBlockWithNotify(8, 12, 8, .air);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(9, 12, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expectEqual(Block.torch, w.dropped.items[0].stack.id.block);
+}
+
+test "a standing torch ignores the walls beside it and only watches the floor" {
+    var w = try torchWorld();
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 13, 8, .torch, 5);
+
+    try w.setBlockWithNotify(9, 13, 8, .stone);
+    try std.testing.expectEqual(Block.torch, w.getBlock(8, 13, 8));
+
+    try w.setBlockWithNotify(8, 12, 8, .air);
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+}
+
+test "putting a second torch on the same wall leaves the first one alone" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+    w.setBlock(8, 12, 8, .stone);
+    w.setBlock(8, 13, 8, .stone);
+
+    try w.setBlockAndMetadataWithNotify(9, 12, 8, .torch, 1);
+    try w.setBlockAndMetadataWithNotify(9, 13, 8, .torch, 1);
+
+    try std.testing.expectEqual(Block.torch, w.getBlock(9, 12, 8));
+    try std.testing.expectEqual(Block.torch, w.getBlock(9, 13, 8));
+    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(9, 12, 8));
+    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
+}
+
+test "a torch is no support for another torch, only a normal cube is" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+    w.setBlock(8, 13, 8, .stone);
+
+    try w.setBlockAndMetadataWithNotify(9, 13, 8, .torch, 1);
+    try std.testing.expect(!canPlaceAt(&w, 10, 13, 8, .torch));
+    try std.testing.expect(!canPlaceAt(&w, 9, 14, 8, .torch));
 }

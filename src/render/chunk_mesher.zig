@@ -209,6 +209,109 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     }, mirrored, color);
 }
 
+const torch_lean: f32 = 0.4;
+const torch_half: f32 = 1.0 / 16.0;
+const torch_tip: f32 = 0.625;
+
+fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4, bx: f32, by: f32, bz: f32) !void {
+    const shift: f32 = 0.5 - torch_lean;
+    const lift: f32 = 0.2;
+
+    var origin = [3]f32{ bx, by, bz };
+    var lean = [2]f32{ 0, 0 };
+    switch (metadata) {
+        1 => {
+            origin[0] -= shift;
+            origin[1] += lift;
+            lean[0] = -torch_lean;
+        },
+        2 => {
+            origin[0] += shift;
+            origin[1] += lift;
+            lean[0] = torch_lean;
+        },
+        3 => {
+            origin[2] -= shift;
+            origin[1] += lift;
+            lean[1] = -torch_lean;
+        },
+        4 => {
+            origin[2] += shift;
+            origin[1] += lift;
+            lean[1] = torch_lean;
+        },
+        else => {},
+    }
+
+    const uv = Atlas.tileUv(tile);
+    const texel: f32 = 1.0 / 256.0;
+    const color = shadeColor(1.0, Colorizer.white);
+
+    const center_x = origin[0] + 0.5;
+    const center_z = origin[2] + 0.5;
+    const bottom = origin[1];
+    const top = origin[1] + 1.0;
+
+    const tip_x = center_x + lean[0] * (1.0 - torch_tip);
+    const tip_y = origin[1] + torch_tip;
+    const tip_z = center_z + lean[1] * (1.0 - torch_tip);
+    const tip_u0 = uv.u0 + 7.0 * texel;
+    const tip_u1 = uv.u0 + 9.0 * texel;
+    const tip_v0 = uv.v0 + 6.0 * texel;
+    const tip_v1 = uv.v0 + 8.0 * texel;
+
+    try mesh.quad(gpa, .{
+        .{ tip_x - torch_half, tip_y, tip_z - torch_half },
+        .{ tip_x - torch_half, tip_y, tip_z + torch_half },
+        .{ tip_x + torch_half, tip_y, tip_z + torch_half },
+        .{ tip_x + torch_half, tip_y, tip_z - torch_half },
+    }, .{
+        .{ tip_u0, tip_v0 },
+        .{ tip_u0, tip_v1 },
+        .{ tip_u1, tip_v1 },
+        .{ tip_u1, tip_v0 },
+    }, color);
+
+    const near_x = center_x - 0.5;
+    const far_x = center_x + 0.5;
+    const near_z = center_z - 0.5;
+    const far_z = center_z + 0.5;
+    const uvs = [4][2]f32{
+        .{ uv.u0, uv.v0 },
+        .{ uv.u0, uv.v1 },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u1, uv.v0 },
+    };
+
+    try mesh.quad(gpa, .{
+        .{ center_x - torch_half, top, near_z },
+        .{ center_x - torch_half + lean[0], bottom, near_z + lean[1] },
+        .{ center_x - torch_half + lean[0], bottom, far_z + lean[1] },
+        .{ center_x - torch_half, top, far_z },
+    }, uvs, color);
+
+    try mesh.quad(gpa, .{
+        .{ center_x + torch_half, top, far_z },
+        .{ center_x + torch_half + lean[0], bottom, far_z + lean[1] },
+        .{ center_x + torch_half + lean[0], bottom, near_z + lean[1] },
+        .{ center_x + torch_half, top, near_z },
+    }, uvs, color);
+
+    try mesh.quad(gpa, .{
+        .{ near_x, top, center_z + torch_half },
+        .{ near_x + lean[0], bottom, center_z + torch_half + lean[1] },
+        .{ far_x + lean[0], bottom, center_z + torch_half + lean[1] },
+        .{ far_x, top, center_z + torch_half },
+    }, uvs, color);
+
+    try mesh.quad(gpa, .{
+        .{ far_x, top, center_z - torch_half },
+        .{ far_x + lean[0], bottom, center_z - torch_half + lean[1] },
+        .{ near_x + lean[0], bottom, center_z - torch_half + lean[1] },
+        .{ near_x, top, center_z - torch_half },
+    }, uvs, color);
+}
+
 fn fluidBrightness(world_map: *const world.World, x: i32, y: i32, z: i32, minimum: u4) f32 {
     return @max(
         world.light.brightnessAt(world_map, x, y, z, minimum),
@@ -397,6 +500,11 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 if (id.isCross()) {
                     const tint = blockTint(colorizer, id, metadata, world.Side.up, column_temperature, column_humidity);
                     try buildCross(target, gpa, id.crossTile(metadata), tint, own_brightness, bx, by, bz);
+                    continue;
+                }
+
+                if (id.shape() == .torch) {
+                    try buildTorch(target, gpa, id.faceTextures().get(.down), metadata, bx, by, bz);
                     continue;
                 }
 
@@ -966,3 +1074,125 @@ test "a flowing surface slopes across the block, a level one does not" {
     try std.testing.expect(highest < 2.0);
 }
 
+
+fn torchMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(8, 1, 8, world.Block.torch);
+    chunk.setBlockMetadata(8, 1, 8, metadata);
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+}
+
+fn spanOf(mesh: Mesh, axis: u2) [2]f32 {
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.solid.vertices.items) |v| {
+        const value = switch (axis) {
+            0 => v.x,
+            1 => v.y,
+            else => v.z,
+        };
+        lowest = @min(lowest, value);
+        highest = @max(highest, value);
+    }
+    return .{ lowest, highest };
+}
+
+test "a torch is a tip quad plus four sides, and burns at full brightness" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try torchMesh(gpa, &world_map, 5);
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 5 * 4), mesh.solid.vertices.items.len);
+    for (mesh.solid.vertices.items) |v| {
+        try std.testing.expectEqual([4]u8{ 255, 255, 255, 255 }, v.color);
+    }
+}
+
+test "a standing torch is centred in its block and reaches its tip at ten sixteenths" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try torchMesh(gpa, &world_map, 5);
+    defer mesh.deinit(gpa);
+
+    const across = spanOf(mesh, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), across[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), across[1], 1.0e-5);
+    try std.testing.expectEqual(across, spanOf(mesh, 2));
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), upright[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), upright[1], 1.0e-5);
+
+    for (mesh.solid.vertices.items[0..4]) |v| {
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0) + torch_tip, v.y, 1.0e-5);
+    }
+}
+
+test "a wall torch shifts toward its wall and leans its foot further into it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var west = try torchMesh(gpa, &world_map, 1);
+    defer west.deinit(gpa);
+    const along_west = spanOf(west, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.5), along_west[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.9), along_west[1], 1.0e-5);
+
+    var east = try torchMesh(gpa, &world_map, 2);
+    defer east.deinit(gpa);
+    const along_east = spanOf(east, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.1), along_east[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.5), along_east[1], 1.0e-5);
+
+    var north = try torchMesh(gpa, &world_map, 3);
+    defer north.deinit(gpa);
+    try std.testing.expectEqual(along_west, spanOf(north, 2));
+
+    var south = try torchMesh(gpa, &world_map, 4);
+    defer south.deinit(gpa);
+    try std.testing.expectEqual(along_east, spanOf(south, 2));
+}
+
+test "a wall torch is lifted so its foot meets the wall above the floor" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try torchMesh(gpa, &world_map, 1);
+    defer mesh.deinit(gpa);
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.2), upright[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.2), upright[1], 1.0e-5);
+}
+
+test "a torch samples only its own tile, with the tip taking the flame end of it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try torchMesh(gpa, &world_map, 5);
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.Block.torch.faceTextures().get(.down));
+    for (mesh.solid.vertices.items) |v| {
+        try std.testing.expect(v.u >= uv.u0 - 1.0e-6 and v.u <= uv.u1 + 1.0e-6);
+        try std.testing.expect(v.v >= uv.v0 - 1.0e-6 and v.v <= uv.v1 + 1.0e-6);
+    }
+    for (mesh.solid.vertices.items[0..4]) |v| {
+        try std.testing.expect(v.u >= uv.u0 + 7.0 / 256.0 - 1.0e-6);
+        try std.testing.expect(v.u <= uv.u0 + 9.0 / 256.0 + 1.0e-6);
+    }
+}

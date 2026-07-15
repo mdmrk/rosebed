@@ -114,6 +114,7 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(2, 2, &.{ i(.brick), i(.brick), i(.brick), i(.brick) }, .{ .block = .brick }, 1),
     shaped(2, 2, &.{ i(.string), i(.string), i(.string), i(.string) }, .{ .block = .wool }, 1),
     shaped(2, 2, &.{ i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust) }, .{ .block = .glowstone }, 1),
+    shaped(1, 2, &.{ i(.coal), i(.stick) }, .{ .block = .torch }, 4),
     shaped(1, 1, &.{i(.reed)}, .{ .item = .sugar }, 1),
     shaped(3, 1, &.{ i(.reed), i(.reed), i(.reed) }, .{ .item = .paper }, 3),
     shaped(1, 3, &.{ i(.paper), i(.paper), i(.paper) }, .{ .item = .book }, 1),
@@ -677,4 +678,20 @@ test "a tool needs the full workbench, so the personal grid cannot make one" {
     grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
     grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
     try std.testing.expectEqual(@as(?Inventory.ItemStack, null), findMatch(&grid, player_grid_size));
+}
+
+test "coal over a stick crafts four torches" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .coal }, .count = 1 };
+    grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
+    const result = findMatch(&grid, player_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .torch }, result.id);
+    try std.testing.expectEqual(@as(u8, 4), result.count);
+}
+
+test "a stick over coal is upside down and crafts nothing" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .stick }, .count = 1 };
+    grid[2] = .{ .id = .{ .item = .coal }, .count = 1 };
+    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
 }

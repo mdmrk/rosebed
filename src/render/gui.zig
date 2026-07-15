@@ -435,8 +435,7 @@ pub fn appendStackIcon(
     res: Scaled,
 ) !void {
     switch (stack.id) {
-        .block => |id| if (id.isCross()) {
-            const tile = id.crossTile(stack.blockMeta());
+        .block => |id| if (id.flatItemTile(stack.blockMeta())) |tile| {
             try appendRect(block_mesh, gpa, x, y, icon_size, icon_size, Atlas.tileUv(tile), res);
         } else {
             try appendBlockIcon3d(block_mesh, gpa, id, stack.blockMeta(), x, y, res);

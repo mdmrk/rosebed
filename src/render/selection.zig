@@ -6,8 +6,8 @@ const MeshBuilder = @import("mesh_builder.zig");
 pub const expand: f32 = 0.002;
 pub const outline_color: [4]u8 = .{ 0, 0, 0, 102 };
 
-pub fn appendOutline(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, x: i32, y: i32, z: i32) !void {
-    const bounds = id.selectionBounds();
+pub fn appendOutline(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, meta: u4, x: i32, y: i32, z: i32) !void {
+    const bounds = id.selectionBounds(meta);
     const origin = [3]f32{ @floatFromInt(x), @floatFromInt(y), @floatFromInt(z) };
 
     var min: [3]f32 = undefined;
@@ -39,8 +39,8 @@ pub fn crackTile(progress: f32) u8 {
     return first_crack_tile + @min(stage, crack_stages - 1);
 }
 
-pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, x: i32, y: i32, z: i32, progress: f32) !void {
-    const bounds = id.selectionBounds();
+pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, meta: u4, x: i32, y: i32, z: i32, progress: f32) !void {
+    const bounds = id.selectionBounds(meta);
     const tile = crackTile(progress);
     const min = [3]f32{
         @as(f32, @floatFromInt(x)) + bounds.min[0],
@@ -67,7 +67,7 @@ test "an outline is twelve edges expanded past the block's own bounds" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.stone, 3, 4, 5);
+    try appendOutline(&mesh, gpa, world.Block.stone, 0, 3, 4, 5);
 
     try std.testing.expectEqual(@as(usize, 12 * 2), mesh.vertices.items.len);
     try std.testing.expectEqual(@as(usize, 12 * 2), mesh.indices.items.len);
@@ -87,7 +87,7 @@ test "a snow layer's outline is only as tall as the layer" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.snow_layer, 0, 0, 0);
+    try appendOutline(&mesh, gpa, world.Block.snow_layer, 0, 0, 0, 0);
 
     var highest: f32 = -std.math.floatMax(f32);
     for (mesh.vertices.items) |v| highest = @max(highest, v.y);
@@ -99,7 +99,7 @@ test "a cactus outline hugs the inset sides but stands a full block tall" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.cactus, 0, 0, 0);
+    try appendOutline(&mesh, gpa, world.Block.cactus, 0, 0, 0, 0);
 
     var lowest_x: f32 = std.math.floatMax(f32);
     var highest_y: f32 = -std.math.floatMax(f32);
@@ -116,7 +116,7 @@ test "a flower's outline is the narrow plant box, not a full cube" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.rose, 0, 0, 0);
+    try appendOutline(&mesh, gpa, world.Block.rose, 0, 0, 0, 0);
 
     var lowest_x: f32 = std.math.floatMax(f32);
     var highest_y: f32 = -std.math.floatMax(f32);

@@ -33,10 +33,11 @@ pub const Material = enum {
     clay,
     pumpkin,
     cactus,
+    circuits,
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
-            .air, .plants, .snow => false,
+            .air, .plants, .snow, .circuits => false,
             else => true,
         };
     }
@@ -63,6 +64,7 @@ pub const Material = enum {
 pub const Shape = union(enum) {
     cube,
     cross,
+    torch,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -96,6 +98,17 @@ fn plantBounds(half_width: f32, height: f32) Bounds {
     return .{
         .min = .{ 0.5 - half_width, 0.0, 0.5 - half_width },
         .max = .{ 0.5 + half_width, height, 0.5 + half_width },
+    };
+}
+
+fn torchBounds(metadata: u4) Bounds {
+    const wall: f32 = 0.15;
+    return switch (metadata & 7) {
+        1 => .{ .min = .{ 0.0, 0.2, 0.5 - wall }, .max = .{ wall * 2.0, 0.8, 0.5 + wall } },
+        2 => .{ .min = .{ 1.0 - wall * 2.0, 0.2, 0.5 - wall }, .max = .{ 1.0, 0.8, 0.5 + wall } },
+        3 => .{ .min = .{ 0.5 - wall, 0.2, 0.0 }, .max = .{ 0.5 + wall, 0.8, wall * 2.0 } },
+        4 => .{ .min = .{ 0.5 - wall, 0.2, 1.0 - wall * 2.0 }, .max = .{ 0.5 + wall, 0.8, 1.0 } },
+        else => plantBounds(0.1, 0.6),
     };
 }
 
@@ -194,6 +207,7 @@ pub const Block = enum(u8) {
     bookshelf = 47,
     cobblestone_mossy = 48,
     obsidian = 49,
+    torch = 50,
     mob_spawner = 52,
     chest = 54,
     ore_diamond = 56,
@@ -238,6 +252,7 @@ pub const Block = enum(u8) {
             .clay => .clay,
             .cactus => .cactus,
             .pumpkin, .jack_o_lantern => .pumpkin,
+            .torch => .circuits,
             else => .rock,
         };
     }
@@ -245,6 +260,7 @@ pub const Block = enum(u8) {
     pub fn shape(self: Block) Shape {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
+            .torch => .torch,
             .snow_layer => .{ .partial = 0.125 },
             else => .cube,
         };
@@ -309,13 +325,14 @@ pub const Block = enum(u8) {
         return self == .air or self.isLiquid();
     }
 
-    pub fn selectionBounds(self: Block) Bounds {
+    pub fn selectionBounds(self: Block, metadata: u4) Bounds {
         return switch (self) {
             .tall_grass, .dead_bush => plantBounds(0.4, 0.8),
             .dandelion, .rose => plantBounds(0.2, 0.6),
             .mushroom_brown, .mushroom_red => plantBounds(0.2, 0.4),
             .reed => plantBounds(6.0 / 16.0, 1.0),
             .cactus => plantBounds(7.0 / 16.0, 1.0),
+            .torch => torchBounds(metadata),
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }
@@ -369,6 +386,7 @@ pub const Block = enum(u8) {
             .tnt => topAndSide(9, 10, 8),
             .bookshelf => topAndSide(4, 4, 35),
             .obsidian => uniform(37),
+            .torch => uniform(80),
             .block_diamond => uniform(24),
             .workbench => FaceTextures.init(.{
                 .down = 4,
@@ -414,6 +432,14 @@ pub const Block = enum(u8) {
         };
     }
 
+    pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
+        return switch (self.shape()) {
+            .cross => self.crossTile(metadata),
+            .torch => self.faceTextures().get(.down),
+            else => null,
+        };
+    }
+
     fn hardness(self: Block) f32 {
         return switch (self) {
             .stone => 1.5,
@@ -447,6 +473,7 @@ pub const Block = enum(u8) {
             .tnt => 0.0,
             .bookshelf => 1.5,
             .obsidian => 10.0,
+            .torch => 0.0,
             .block_diamond => 5.0,
             .workbench => 2.5,
             .ice => 0.5,
@@ -527,6 +554,7 @@ pub const Block = enum(u8) {
             .tnt => "TNT",
             .bookshelf => "Bookshelf",
             .obsidian => "Obsidian",
+            .torch => "Torch",
             .block_diamond => "Block of Diamond",
             .workbench => "Crafting Table",
             .ice => "Ice",
@@ -1006,3 +1034,56 @@ test "saplings draw as a cross, with a tile per tree kind" {
     try std.testing.expectEqual(@as(u8, 79), Block.sapling.crossTile(2));
     try std.testing.expectEqual(@as(u8, 15), Block.sapling.crossTile(3));
 }
+
+test "a torch is not solid, so nothing collides with it or plants on it" {
+    try std.testing.expect(!Block.torch.isSolid());
+    try std.testing.expect(!Block.torch.isOpaque());
+    try std.testing.expect(!Block.torch.isOpaqueCube());
+    try std.testing.expectEqual(Material.circuits, Block.torch.material());
+}
+
+test "a torch breaks instantly and drops itself" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), digTicks(.torch, null), 1.0e-4);
+    const dropped = Block.torch.drop(5, &rand).?;
+    try std.testing.expectEqual(Id{ .block = .torch }, dropped.id);
+    try std.testing.expectEqual(@as(u8, 1), dropped.count);
+    try std.testing.expectEqualStrings("Torch", Block.torch.displayName());
+}
+
+test "a wall torch stands in the quarter of the block its wall is on" {
+    const west = Block.torch.selectionBounds(1);
+    try std.testing.expectEqual(@as(f32, 0.0), west.min[0]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), west.max[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), west.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), west.max[1], 1.0e-6);
+
+    const east = Block.torch.selectionBounds(2);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), east.min[0], 1.0e-6);
+    try std.testing.expectEqual(@as(f32, 1.0), east.max[0]);
+
+    const north = Block.torch.selectionBounds(3);
+    try std.testing.expectEqual(@as(f32, 0.0), north.min[2]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), north.max[2], 1.0e-6);
+
+    const south = Block.torch.selectionBounds(4);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), south.min[2], 1.0e-6);
+    try std.testing.expectEqual(@as(f32, 1.0), south.max[2]);
+}
+
+test "a standing torch is a thin column in the middle of the block" {
+    const standing = Block.torch.selectionBounds(5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), standing.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), standing.max[0], 1.0e-6);
+    try std.testing.expectEqual(@as(f32, 0.0), standing.min[1]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), standing.max[1], 1.0e-6);
+    try std.testing.expectEqual(standing, Block.torch.selectionBounds(0));
+}
+
+test "a torch leaves the world as a flat sprite, like a plant does" {
+    try std.testing.expectEqual(@as(?u8, 80), Block.torch.flatItemTile(2));
+    try std.testing.expectEqual(@as(?u8, Block.rose.crossTile(0)), Block.rose.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, null), Block.stone.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, null), Block.snow_layer.flatItemTile(0));
+}
+

@@ -97,8 +97,7 @@ pub fn appendItem(
         .item => return,
     };
 
-    if (id.isCross()) {
-        const tile = id.crossTile(item.stack.blockMeta());
+    if (id.flatItemTile(item.stack.blockMeta())) |tile| {
         const Cross = struct {
             var shape_tile: u8 = 0;
             fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
@@ -821,4 +820,3 @@ test "the two item paths never both claim the same stack" {
     try appendItem(&mesh, gpa, &world_map, coal, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
-
