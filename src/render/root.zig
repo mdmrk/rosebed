@@ -31,6 +31,7 @@ pub const video_settings_screen = @import("video_settings_screen.zig");
 pub const controls_screen = @import("controls_screen.zig");
 pub const text_field = @import("text_field.zig");
 pub const select_world_screen = @import("select_world_screen.zig");
+pub const texture_packs_screen = @import("texture_packs_screen.zig");
 pub const create_world_screen = @import("create_world_screen.zig");
 pub const confirm_screen = @import("confirm_screen.zig");
 pub const loading_screen = @import("loading_screen.zig");

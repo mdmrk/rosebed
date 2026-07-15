@@ -121,6 +121,11 @@ const AppState = struct {
     workbench_grid: [game.crafting.workbench_grid_size * game.crafting.workbench_grid_size]?game.Inventory.ItemStack = @splat(null),
     io: std.Io,
     saves_dir: std.Io.Dir,
+    packs_dir: std.Io.Dir,
+    packs: []render.texture_pack.Pack = &.{},
+    pack_thumbnails: []render.Atlas = &.{},
+    selected_pack: NameBuffer = .{},
+    pack_scroll: f32 = 0,
     save_handle: ?world.save.Save = null,
     open_folder: NameBuffer = .{},
     open_name: NameBuffer = .{},
@@ -138,7 +143,7 @@ const AppState = struct {
     stats_view: render.stats_screen.State = .{},
 };
 
-const Screen = enum { title, select_world, create_world, confirm_delete, loading, playing };
+const Screen = enum { title, select_world, create_world, texture_packs, confirm_delete, loading, playing };
 
 const NameBuffer = struct {
     bytes: [64]u8 = undefined,
@@ -323,6 +328,7 @@ pub fn init(
     io_threaded = .init(gpa, .{});
     const io = io_threaded.io();
     const saves_dir = try world.save.openSavesDir(io);
+    const packs_dir = try render.texture_pack.open(io);
 
     var app_state: AppState = .{
         .gpa = gpa,
@@ -342,7 +348,9 @@ pub fn init(
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
         .io = io,
         .saves_dir = saves_dir,
+        .packs_dir = packs_dir,
     };
+    app_state.selected_pack.set(render.texture_pack.default_name);
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
 
@@ -773,6 +781,76 @@ fn openSelectWorld(app_state: *AppState) !void {
     try refreshWorldList(app_state);
     app_state.screen = .select_world;
     try updateMouseMode(app_state);
+}
+
+fn freeTexturePacks(app_state: *AppState) void {
+    for (app_state.pack_thumbnails) |thumbnail| thumbnail.deinit();
+    app_state.gpa.free(app_state.pack_thumbnails);
+    app_state.pack_thumbnails = &.{};
+
+    render.texture_pack.deinitAll(app_state.gpa, app_state.packs);
+    app_state.packs = &.{};
+}
+
+fn openTexturePacks(app_state: *AppState) !void {
+    freeTexturePacks(app_state);
+
+    app_state.packs = try render.texture_pack.scan(app_state.gpa, app_state.io, app_state.packs_dir);
+    errdefer freeTexturePacks(app_state);
+
+    const thumbnails = try app_state.gpa.alloc(render.Atlas, app_state.packs.len);
+    for (app_state.packs, thumbnails) |pack, *thumbnail| {
+        const fallback = if (render.texture_pack.isDefault(pack)) assets.pack_png else assets.gui.unknown_pack_png;
+        thumbnail.* = render.Atlas.load(pack.thumbnail orelse fallback) catch
+            try render.Atlas.load(assets.gui.unknown_pack_png);
+    }
+    app_state.pack_thumbnails = thumbnails;
+
+    app_state.pack_scroll = 0;
+    app_state.screen = .texture_packs;
+    try updateMouseMode(app_state);
+}
+
+fn selectTexturePack(app_state: *AppState, index: usize) !void {
+    const name = app_state.packs[index].name;
+    if (std.mem.eql(u8, name, app_state.selected_pack.text())) return;
+
+    const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, name);
+    defer if (archive) |bytes| app_state.gpa.free(bytes);
+
+    const reloaded = try render.Textures.load(app_state.gpa, archive);
+    app_state.textures.deinit();
+    app_state.textures = reloaded;
+    app_state.selected_pack.set(name);
+}
+
+fn texturePacksClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const hit = render.texture_packs_screen.hitAt(
+        app_state.mouse_x,
+        app_state.mouse_y,
+        gui,
+        app_state.packs.len,
+        app_state.pack_scroll,
+    ) orelse return;
+
+    switch (hit) {
+        .entry => |index| try selectTexturePack(app_state, index),
+        .open_folder => openTexturePackFolder(app_state),
+        .done => {
+            freeTexturePacks(app_state);
+            app_state.screen = .title;
+            try updateMouseMode(app_state);
+        },
+    }
+}
+
+fn openTexturePackFolder(app_state: *AppState) void {
+    const cwd = sdl3.filesystem.getCurrentDirectory() catch return;
+    defer sdl3.free(cwd.ptr);
+
+    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ cwd, render.texture_pack.folder_name }, 0) catch return;
+    sdl3.openURL(url) catch {};
 }
 
 fn openCreateWorld(app_state: *AppState) !void {
@@ -1787,6 +1865,15 @@ pub fn iterate(
         try render.select_world_screen.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
     } else if (app_state.screen == .create_world) {
         try render.create_world_screen.draw(ui, &app_state.create_state);
+    } else if (app_state.screen == .texture_packs) {
+        app_state.pack_scroll = std.math.clamp(app_state.pack_scroll, 0, render.texture_packs_screen.maxScroll(gui, app_state.packs.len));
+        try render.texture_packs_screen.draw(
+            ui,
+            app_state.packs,
+            app_state.pack_thumbnails,
+            render.texture_pack.indexOf(app_state.packs, app_state.selected_pack.text()),
+            app_state.pack_scroll,
+        );
     } else if (app_state.screen == .confirm_delete) {
         var message: [96]u8 = undefined;
         const name = if (app_state.selected_world) |index| app_state.summaries[index].name else "";
@@ -1890,6 +1977,12 @@ pub fn event(
             } else if (k.key == .return_key or k.key == .kp_enter) {
                 try confirmCreateWorld(app_state);
             }
+        } else if (app_state.screen == .texture_packs) {
+            if (k.key == .escape) {
+                freeTexturePacks(app_state);
+                app_state.screen = .title;
+                try updateMouseMode(app_state);
+            }
         } else if (app_state.screen == .confirm_delete) {
             if (k.key == .escape) app_state.screen = .select_world;
         } else if (app_state.screen == .playing) {
@@ -1930,6 +2023,9 @@ pub fn event(
         } else if (app_state.screen == .select_world) {
             const limit = render.select_world_screen.maxScroll(guiSize(app_state), app_state.summaries.len);
             app_state.list_scroll = std.math.clamp(app_state.list_scroll - w.scroll_y * render.select_world_screen.entry_height, 0, limit);
+        } else if (app_state.screen == .texture_packs) {
+            const limit = render.texture_packs_screen.maxScroll(guiSize(app_state), app_state.packs.len);
+            app_state.pack_scroll = std.math.clamp(app_state.pack_scroll - w.scroll_y * render.texture_packs_screen.entry_height, 0, limit);
         },
         .text_input => |t| if (app_state.screen == .create_world) {
             app_state.create_state.typeText(t.text);
@@ -1948,6 +2044,7 @@ pub fn event(
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
                     .singleplayer => try openSelectWorld(app_state),
+                    .texture_packs => try openTexturePacks(app_state),
                     .options => try openOptions(app_state, .title),
                     .quit => return .success,
                 };
@@ -1955,6 +2052,8 @@ pub fn event(
                 try selectWorldClick(app_state);
             } else if (app_state.screen == .create_world) {
                 try createWorldClick(app_state);
+            } else if (app_state.screen == .texture_packs) {
+                try texturePacksClick(app_state);
             } else if (app_state.screen == .confirm_delete) {
                 try confirmDeleteClick(app_state);
             } else if (app_state.screen == .loading) {
@@ -2004,7 +2103,9 @@ pub fn quit(
         if (state.save_handle != null) saveWorld(state) catch {};
         if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
         world.save.freeList(state.gpa, state.summaries);
+        freeTexturePacks(state);
         state.saves_dir.close(state.io);
+        state.packs_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.entities.deinit(state.gpa);
         state.world_map.deinit();
