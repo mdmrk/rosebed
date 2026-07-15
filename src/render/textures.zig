@@ -35,7 +35,7 @@ pub fn load() !Textures {
         .dirt = try Atlas.loadRepeat(assets.gui.background_png),
         .logo = try Atlas.load(assets.title.mclogo_png),
         .mojang = try Atlas.load(assets.title.mojang_png),
-        .particles = try Atlas.load(assets.gui.particles_png),
+        .particles = try Atlas.load(assets.particles_png),
         .pig = try Atlas.load(assets.mob.pig_png),
         .saddle = try Atlas.load(assets.mob.saddle_png),
         .char = try Atlas.load(assets.mob.char_png),
