@@ -62,6 +62,7 @@ fn appendPlayerPreview(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     model: MobModel.Model,
+    visible: []const bool,
     anchor_x: f32,
     anchor_y: f32,
     dx: f32,
@@ -74,6 +75,7 @@ fn appendPlayerPreview(
 
     const start = mesh.vertices.items.len;
     for (model.parts, 0..) |part, i| {
+        if (!visible[i]) continue;
         var p = part;
         var yaw = body_yaw;
         if (i == model.head_index) {
@@ -93,19 +95,40 @@ fn appendPlayerPreview(
     }
 }
 
-fn drawPreview(ui: gui.Ui, player_model: MobModel.Model) !void {
+fn wornArmor(stack: ?game.Inventory.ItemStack) ?world.item.Armor {
+    const worn = stack orelse return null;
+    return switch (worn.id) {
+        .item => |id| id.armor(),
+        .block => null,
+    };
+}
+
+fn drawPreview(ui: gui.Ui, player_model: MobModel.Model, inventory: game.Inventory) !void {
     const org = container.origin(ui.res);
 
-    var preview: MeshBuilder = .{};
-    defer preview.deinit(ui.gpa);
     const anchor = .{ org[0] + preview_anchor_x, org[1] + preview_anchor_y };
     const dx = anchor[0] - ui.mouse_x / ui.res.factor;
     const dy = (anchor[1] - preview_pitch_anchor_y) - ui.mouse_y / ui.res.factor;
-    try appendPlayerPreview(&preview, ui.gpa, player_model, anchor[0], anchor[1], dx, dy, ui.res);
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
     gl.Enable(gl.DEPTH_TEST);
+
+    var preview: MeshBuilder = .{};
+    defer preview.deinit(ui.gpa);
+    const all_visible: [MobModel.biped.parts.len]bool = @splat(true);
+    try appendPlayerPreview(&preview, ui.gpa, player_model, &all_visible, anchor[0], anchor[1], dx, dy, ui.res);
     try gui.drawTexturedMesh(&preview, ui.shader, ui.textures.char);
+
+    for (inventory.armor) |stack| {
+        const piece = wornArmor(stack) orelse continue;
+        const layer = MobModel.bipedArmor(piece.slot);
+
+        var worn: MeshBuilder = .{};
+        defer worn.deinit(ui.gpa);
+        try appendPlayerPreview(&worn, ui.gpa, layer.model, &layer.visible, anchor[0], anchor[1], dx, dy, ui.res);
+        try gui.drawTexturedMesh(&worn, ui.shader, ui.textures.armor(piece.material, layer.second_texture));
+    }
+
     gl.Disable(gl.DEPTH_TEST);
 }
 
@@ -118,7 +141,7 @@ pub fn draw(
 ) !void {
     container.begin();
     try container.drawBackdrop(ui, ui.textures.inventory);
-    try drawPreview(ui, player_model);
+    try drawPreview(ui, player_model, inventory);
 
     const craft_result = game.crafting.findMatch(&crafting_grid, grid_size);
     const layout = slots();

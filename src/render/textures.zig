@@ -1,5 +1,6 @@
 const std = @import("std");
 const assets = @import("assets");
+const world = @import("world");
 
 const Atlas = @import("atlas.zig");
 const texture_pack = @import("texture_pack.zig");
@@ -20,6 +21,16 @@ particles: Atlas,
 pig: Atlas,
 saddle: Atlas,
 char: Atlas,
+armor_cloth_1: Atlas,
+armor_cloth_2: Atlas,
+armor_chain_1: Atlas,
+armor_chain_2: Atlas,
+armor_iron_1: Atlas,
+armor_iron_2: Atlas,
+armor_diamond_1: Atlas,
+armor_diamond_2: Atlas,
+armor_gold_1: Atlas,
+armor_gold_2: Atlas,
 sun: Atlas,
 moon: Atlas,
 clouds: Atlas,
@@ -49,6 +60,16 @@ fn resourceFor(comptime field: []const u8) Resource {
         .pig => .{ .path = "mob/pig.png", .bytes = assets.mob.pig_png },
         .saddle => .{ .path = "mob/saddle.png", .bytes = assets.mob.saddle_png },
         .char => .{ .path = "mob/char.png", .bytes = assets.mob.char_png },
+        .armor_cloth_1 => .{ .path = "armor/cloth_1.png", .bytes = assets.armor.cloth_1_png },
+        .armor_cloth_2 => .{ .path = "armor/cloth_2.png", .bytes = assets.armor.cloth_2_png },
+        .armor_chain_1 => .{ .path = "armor/chain_1.png", .bytes = assets.armor.chain_1_png },
+        .armor_chain_2 => .{ .path = "armor/chain_2.png", .bytes = assets.armor.chain_2_png },
+        .armor_iron_1 => .{ .path = "armor/iron_1.png", .bytes = assets.armor.iron_1_png },
+        .armor_iron_2 => .{ .path = "armor/iron_2.png", .bytes = assets.armor.iron_2_png },
+        .armor_diamond_1 => .{ .path = "armor/diamond_1.png", .bytes = assets.armor.diamond_1_png },
+        .armor_diamond_2 => .{ .path = "armor/diamond_2.png", .bytes = assets.armor.diamond_2_png },
+        .armor_gold_1 => .{ .path = "armor/gold_1.png", .bytes = assets.armor.gold_1_png },
+        .armor_gold_2 => .{ .path = "armor/gold_2.png", .bytes = assets.armor.gold_2_png },
         .sun => .{ .path = "terrain/sun.png", .bytes = assets.terrain.sun_png },
         .moon => .{ .path = "terrain/moon.png", .bytes = assets.terrain.moon_png },
         .clouds => .{ .path = "environment/clouds.png", .bytes = assets.environment.clouds_png, .wrap = .repeat },
@@ -91,6 +112,16 @@ pub fn openArchive(
 ) ?[]u8 {
     if (std.mem.eql(u8, pack_name, texture_pack.default_name)) return null;
     return texture_pack.readArchive(gpa, io, dir, pack_name) catch null;
+}
+
+pub fn armor(self: Textures, material: world.item.ArmorMaterial, second_texture: bool) Atlas {
+    return switch (material) {
+        .leather => if (second_texture) self.armor_cloth_2 else self.armor_cloth_1,
+        .chain => if (second_texture) self.armor_chain_2 else self.armor_chain_1,
+        .iron => if (second_texture) self.armor_iron_2 else self.armor_iron_1,
+        .diamond => if (second_texture) self.armor_diamond_2 else self.armor_diamond_1,
+        .gold => if (second_texture) self.armor_gold_2 else self.armor_gold_1,
+    };
 }
 
 pub fn deinit(self: Textures) void {

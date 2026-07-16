@@ -1,4 +1,5 @@
 const std = @import("std");
+const world = @import("world");
 
 const MeshBuilder = @import("mesh_builder.zig");
 
@@ -76,6 +77,63 @@ pub const biped: Model = .{
     .texture_width = 64,
     .texture_height = 32,
 };
+
+const armor_outer_inflate: f32 = 1.0;
+const armor_inner_inflate: f32 = 0.5;
+
+fn bipedInflated(comptime inflate: f32) [biped_parts.len]Part {
+    var parts = biped_parts;
+    for (&parts) |*part| part.box.inflate = inflate;
+    return parts;
+}
+
+const biped_armor_outer_parts = bipedInflated(armor_outer_inflate);
+const biped_armor_inner_parts = bipedInflated(armor_inner_inflate);
+
+const biped_armor_outer: Model = .{
+    .parts = &biped_armor_outer_parts,
+    .head_index = biped.head_index,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+const biped_armor_inner: Model = .{
+    .parts = &biped_armor_inner_parts,
+    .head_index = biped.head_index,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub const ArmorLayer = struct {
+    model: Model,
+    visible: [biped_parts.len]bool,
+    second_texture: bool,
+};
+
+pub fn bipedArmor(slot: world.item.ArmorSlot) ArmorLayer {
+    return switch (slot) {
+        .helmet => .{
+            .model = biped_armor_outer,
+            .visible = .{ false, false, false, false, false, true },
+            .second_texture = false,
+        },
+        .chestplate => .{
+            .model = biped_armor_outer,
+            .visible = .{ true, false, false, true, true, false },
+            .second_texture = false,
+        },
+        .leggings => .{
+            .model = biped_armor_inner,
+            .visible = .{ true, true, true, false, false, false },
+            .second_texture = true,
+        },
+        .boots => .{
+            .model = biped_armor_outer,
+            .visible = .{ false, true, true, false, false, false },
+            .second_texture = false,
+        },
+    };
+}
 
 const pixel_scale: f32 = 1.0 / 16.0;
 
@@ -215,4 +273,54 @@ test "appendPart emits 6 quads and flips the box into world space at yaw 0" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), max[1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), min[2], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), max[2], 1.0e-5);
+}
+
+test "each armour piece shows the parts setArmorModel shows for its slot" {
+    const body = 0;
+    const right_leg = 1;
+    const left_leg = 2;
+    const right_arm = 3;
+    const left_arm = 4;
+    const head = biped.head_index;
+
+    const helmet = bipedArmor(.helmet).visible;
+    try std.testing.expect(helmet[head]);
+    try std.testing.expect(!helmet[body]);
+
+    const chestplate = bipedArmor(.chestplate).visible;
+    try std.testing.expect(chestplate[body] and chestplate[right_arm] and chestplate[left_arm]);
+    try std.testing.expect(!chestplate[head] and !chestplate[right_leg] and !chestplate[left_leg]);
+
+    const leggings = bipedArmor(.leggings).visible;
+    try std.testing.expect(leggings[body] and leggings[right_leg] and leggings[left_leg]);
+    try std.testing.expect(!leggings[right_arm] and !leggings[left_arm]);
+
+    const boots = bipedArmor(.boots).visible;
+    try std.testing.expect(boots[right_leg] and boots[left_leg]);
+    try std.testing.expect(!boots[body]);
+}
+
+test "only the leggings wear the thin layer, and only they read the second texture" {
+    for ([_]world.item.ArmorSlot{ .helmet, .chestplate, .boots }) |slot| {
+        const layer = bipedArmor(slot);
+        try std.testing.expectEqual(armor_outer_inflate, layer.model.parts[0].box.inflate);
+        try std.testing.expect(!layer.second_texture);
+    }
+
+    const leggings = bipedArmor(.leggings);
+    try std.testing.expectEqual(armor_inner_inflate, leggings.model.parts[0].box.inflate);
+    try std.testing.expect(leggings.second_texture);
+}
+
+test "an armour layer keeps the base biped's boxes, only grown" {
+    const layer = bipedArmor(.chestplate);
+    try std.testing.expectEqual(biped.parts.len, layer.model.parts.len);
+    for (biped.parts, layer.model.parts) |base, worn| {
+        try std.testing.expectEqual(base.box.origin, worn.box.origin);
+        try std.testing.expectEqual(base.box.size, worn.box.size);
+        try std.testing.expectEqual(base.box.tex_u, worn.box.tex_u);
+        try std.testing.expectEqual(base.box.tex_v, worn.box.tex_v);
+        try std.testing.expectEqual(base.pivot, worn.pivot);
+        try std.testing.expect(worn.box.inflate > base.box.inflate);
+    }
 }
