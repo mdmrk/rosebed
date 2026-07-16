@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = @import("math");
 const world = @import("world");
 
 const MeshBuilder = @import("mesh_builder.zig");
@@ -16,12 +17,14 @@ pub const Part = struct {
     pivot: [3]f32,
     rotate_x: f32 = 0,
     rotate_y: f32 = 0,
+    rotate_z: f32 = 0,
 };
 
 pub const Pose = struct {
     position: [3]f32,
     yaw: f32,
     roll: f32 = 0,
+    scale: f32 = 1,
 };
 
 pub const Model = struct {
@@ -77,6 +80,91 @@ pub const biped: Model = .{
     .texture_width = 64,
     .texture_height = 32,
 };
+
+pub const BipedPose = struct {
+    limb_swing: f32,
+    limb_swing_amount: f32,
+    head_yaw: f32,
+    head_pitch: f32,
+    swing_progress: f32 = 0,
+    holding_item: bool = false,
+    sneaking: bool = false,
+};
+
+const body_index: usize = 0;
+const right_leg_index: usize = 1;
+const left_leg_index: usize = 2;
+const right_arm_index: usize = 3;
+const left_arm_index: usize = 4;
+
+pub fn bipedPosed(model: Model, pose: BipedPose) [biped_parts.len]Part {
+    const degrees = std.math.pi / 180.0;
+    const pi = std.math.pi;
+
+    var parts: [biped_parts.len]Part = model.parts[0..biped_parts.len].*;
+    const body = &parts[body_index];
+    const right_leg = &parts[right_leg_index];
+    const left_leg = &parts[left_leg_index];
+    const right_arm = &parts[right_arm_index];
+    const left_arm = &parts[left_arm_index];
+    const head = &parts[model.head_index];
+
+    head.rotate_y = pose.head_yaw * degrees;
+    head.rotate_x = pose.head_pitch * degrees;
+    right_arm.rotate_x = math.util.cos(pose.limb_swing * 0.6662 + pi) * 2.0 * pose.limb_swing_amount * 0.5;
+    left_arm.rotate_x = math.util.cos(pose.limb_swing * 0.6662) * 2.0 * pose.limb_swing_amount * 0.5;
+    right_arm.rotate_z = 0;
+    left_arm.rotate_z = 0;
+    right_leg.rotate_x = math.util.cos(pose.limb_swing * 0.6662) * 1.4 * pose.limb_swing_amount;
+    left_leg.rotate_x = math.util.cos(pose.limb_swing * 0.6662 + pi) * 1.4 * pose.limb_swing_amount;
+    right_leg.rotate_y = 0;
+    left_leg.rotate_y = 0;
+
+    if (pose.holding_item) right_arm.rotate_x = right_arm.rotate_x * 0.5 - pi * 0.1;
+
+    right_arm.rotate_y = 0;
+    left_arm.rotate_y = 0;
+
+    const swing = pose.swing_progress;
+    body.rotate_y = math.util.sin(@sqrt(swing) * pi * 2.0) * 0.2;
+    right_arm.pivot[2] = math.util.sin(body.rotate_y) * 5.0;
+    right_arm.pivot[0] = -math.util.cos(body.rotate_y) * 5.0;
+    left_arm.pivot[2] = -math.util.sin(body.rotate_y) * 5.0;
+    left_arm.pivot[0] = math.util.cos(body.rotate_y) * 5.0;
+    right_arm.rotate_y += body.rotate_y;
+    left_arm.rotate_y += body.rotate_y;
+    left_arm.rotate_x += body.rotate_y;
+
+    var eased = 1.0 - swing;
+    eased *= eased;
+    eased *= eased;
+    eased = 1.0 - eased;
+    const raise = math.util.sin(eased * pi);
+    const reach = math.util.sin(swing * pi) * -(head.rotate_x - 0.7) * (12.0 / 16.0);
+    right_arm.rotate_x -= raise * 1.2 + reach;
+    right_arm.rotate_y += body.rotate_y * 2.0;
+    right_arm.rotate_z = math.util.sin(swing * pi) * -0.4;
+
+    if (pose.sneaking) {
+        body.rotate_x = 0.5;
+        right_arm.rotate_x += 0.4;
+        left_arm.rotate_x += 0.4;
+        right_leg.pivot[2] = 4.0;
+        left_leg.pivot[2] = 4.0;
+        right_leg.pivot[1] = 9.0 - 24.0;
+        left_leg.pivot[1] = 9.0 - 24.0;
+        head.pivot[1] = 1.0 - 24.0;
+    } else {
+        body.rotate_x = 0;
+        right_leg.pivot[2] = 0;
+        left_leg.pivot[2] = 0;
+        right_leg.pivot[1] = -12.0;
+        left_leg.pivot[1] = -12.0;
+        head.pivot[1] = -24.0;
+    }
+
+    return parts;
+}
 
 const armor_outer_inflate: f32 = 1.0;
 const armor_inner_inflate: f32 = 0.5;
@@ -149,6 +237,13 @@ fn rotateY(p: [3]f32, angle: f32) [3]f32 {
     const c = @cos(angle);
     const s = @sin(angle);
     return .{ p[0] * c + p[2] * s, p[1], p[2] * c - p[0] * s };
+}
+
+fn rotateZAxis(p: [3]f32, angle: f32) [3]f32 {
+    if (angle == 0) return p;
+    const c = @cos(angle);
+    const s = @sin(angle);
+    return .{ p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2] };
 }
 
 fn rotateZ(x: f32, y: f32, angle: f32) [2]f32 {
@@ -231,9 +326,10 @@ pub fn appendPart(
     for (faceSpecs(part.box)) |face| {
         var positions: [4][3]f32 = undefined;
         for (face.corners, 0..) |c, i| {
-            var p = rotateY(rotateX(c, part.rotate_x), part.rotate_y);
+            var p = rotateZAxis(rotateY(rotateX(c, part.rotate_x), part.rotate_y), part.rotate_z);
             p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
-            const world_scale = .{ p[0] * pixel_scale, -p[1] * pixel_scale, p[2] * pixel_scale };
+            const unit = pixel_scale * pose.scale;
+            const world_scale = .{ p[0] * unit, -p[1] * unit, p[2] * unit };
             const rolled = rotateZ(world_scale[0], world_scale[1], pose.roll);
             const xz = rotateYaw(rolled[0], world_scale[2], pose.yaw);
             positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
@@ -322,5 +418,87 @@ test "an armour layer keeps the base biped's boxes, only grown" {
         try std.testing.expectEqual(base.box.tex_v, worn.box.tex_v);
         try std.testing.expectEqual(base.pivot, worn.pivot);
         try std.testing.expect(worn.box.inflate > base.box.inflate);
+    }
+}
+
+test "walking swings each arm against the leg on the same side" {
+    const parts = bipedPosed(biped, .{
+        .limb_swing = 3.0,
+        .limb_swing_amount = 1.0,
+        .head_yaw = 0,
+        .head_pitch = 0,
+    });
+
+    try std.testing.expect(parts[right_arm_index].rotate_x * parts[right_leg_index].rotate_x < 0);
+    try std.testing.expect(parts[left_arm_index].rotate_x * parts[left_leg_index].rotate_x < 0);
+    try std.testing.expect(parts[right_leg_index].rotate_x * parts[left_leg_index].rotate_x < 0);
+}
+
+test "standing still leaves the limbs hanging straight" {
+    const parts = bipedPosed(biped, .{
+        .limb_swing = 3.0,
+        .limb_swing_amount = 0,
+        .head_yaw = 0,
+        .head_pitch = 0,
+    });
+
+    for (parts) |part| {
+        try std.testing.expectApproxEqAbs(@as(f32, 0), part.rotate_x, 1.0e-6);
+        try std.testing.expectApproxEqAbs(@as(f32, 0), part.rotate_y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(@as(f32, 0), part.rotate_z, 1.0e-6);
+    }
+}
+
+test "the head carries the look angles, the body does not" {
+    const parts = bipedPosed(biped, .{
+        .limb_swing = 0,
+        .limb_swing_amount = 0,
+        .head_yaw = 30,
+        .head_pitch = -20,
+    });
+
+    const degrees = std.math.pi / 180.0;
+    try std.testing.expectApproxEqAbs(@as(f32, 30 * degrees), parts[biped.head_index].rotate_y, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -20 * degrees), parts[biped.head_index].rotate_x, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), parts[body_index].rotate_y, 1.0e-6);
+}
+
+test "sneaking tips the body forward, drops the head and lifts the leg joints" {
+    const upright = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
+    const crouched = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .sneaking = true });
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), crouched[body_index].rotate_x, 1.0e-6);
+    try std.testing.expect(crouched[biped.head_index].pivot[1] > upright[biped.head_index].pivot[1]);
+    try std.testing.expect(crouched[right_leg_index].pivot[1] < upright[right_leg_index].pivot[1]);
+    try std.testing.expectApproxEqAbs(@as(f32, 4), crouched[right_leg_index].pivot[2], 1.0e-6);
+}
+
+test "swinging lifts the right arm and leaves the left one alone" {
+    const resting = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
+    const swung = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .swing_progress = 0.5 });
+
+    try std.testing.expect(swung[right_arm_index].rotate_x < resting[right_arm_index].rotate_x);
+    try std.testing.expect(swung[right_arm_index].rotate_z != 0);
+    try std.testing.expectApproxEqAbs(resting[left_arm_index].rotate_x, swung[left_arm_index].rotate_x, 0.2);
+}
+
+test "holding an item lowers the right arm" {
+    const empty = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
+    const holding = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .holding_item = true });
+
+    try std.testing.expect(holding[right_arm_index].rotate_x < empty[right_arm_index].rotate_x);
+    try std.testing.expectApproxEqAbs(empty[left_arm_index].rotate_x, holding[left_arm_index].rotate_x, 1.0e-6);
+}
+
+test "an armour layer poses exactly like the skin under it" {
+    const pose: BipedPose = .{ .limb_swing = 2.0, .limb_swing_amount = 0.8, .head_yaw = 15, .head_pitch = 5 };
+    const skin = bipedPosed(biped, pose);
+    const worn = bipedPosed(bipedArmor(.chestplate).model, pose);
+
+    for (skin, worn) |base, layer| {
+        try std.testing.expectEqual(base.rotate_x, layer.rotate_x);
+        try std.testing.expectEqual(base.rotate_y, layer.rotate_y);
+        try std.testing.expectEqual(base.rotate_z, layer.rotate_z);
+        try std.testing.expectEqual(base.pivot, layer.pivot);
     }
 }

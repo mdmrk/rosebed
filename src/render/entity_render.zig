@@ -220,6 +220,70 @@ pub fn appendPigSaddle(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *c
     return appendPigModel(mesh, gpa, world_map, pig, partial_ticks, mob_model.pig_saddle);
 }
 
+pub const player_scale: f32 = 15.0 / 16.0;
+
+const all_biped_parts_shown: [mob_model.biped.parts.len]bool = @splat(true);
+
+pub fn appendPlayer(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: game.Player,
+    holding_item: bool,
+    partial_ticks: f32,
+) !void {
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, mob_model.biped, &all_biped_parts_shown);
+}
+
+pub fn appendPlayerArmor(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: game.Player,
+    holding_item: bool,
+    partial_ticks: f32,
+    layer: mob_model.ArmorLayer,
+) !void {
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible);
+}
+
+fn appendBiped(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: game.Player,
+    holding_item: bool,
+    partial_ticks: f32,
+    model: mob_model.Model,
+    shown: []const bool,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const pos = player.base.renderPosition(partial_ticks);
+
+    const parts = mob_model.bipedPosed(model, .{
+        .limb_swing = player.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = player.limbSwingAmount(partial_ticks),
+        .head_yaw = player.headYaw(partial_ticks),
+        .head_pitch = player.headPitch(partial_ticks),
+        .swing_progress = player.swingProgress(partial_ticks),
+        .holding_item = holding_item,
+        .sneaking = player.base.sneaking,
+    });
+
+    const pose: mob_model.Pose = .{
+        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
+        .yaw = player.renderYaw(partial_ticks) * to_radians,
+        .scale = player_scale,
+    };
+
+    for (parts, shown) |part, visible| {
+        if (!visible) continue;
+        try mob_model.appendPart(mesh, gpa, part, model.texture_width, model.texture_height, pose);
+    }
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
+}
+
 fn appendPigModel(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,

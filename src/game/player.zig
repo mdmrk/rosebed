@@ -3,6 +3,7 @@ const math = @import("math");
 const world = @import("world");
 const Entity = @import("entity.zig");
 const Inventory = @import("inventory.zig");
+const raycast = @import("raycast.zig");
 const game_physics = @import("physics.zig");
 
 const Player = @This();
@@ -10,6 +11,13 @@ const Player = @This();
 base: Entity,
 yaw: f32 = 0,
 pitch: f32 = 0,
+prev_yaw: f32 = 0,
+prev_pitch: f32 = 0,
+render_yaw: f32 = 0,
+prev_render_yaw: f32 = 0,
+limb_swing: f32 = 0,
+limb_swing_amount: f32 = 0,
+prev_limb_swing_amount: f32 = 0,
 health: i32 = 20,
 air: i32 = max_air,
 inventory: Inventory = .{},
@@ -65,6 +73,9 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     self.prev_distance_walked = self.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
+    self.prev_yaw = self.yaw;
+    self.prev_pitch = self.pitch;
+    self.prev_render_yaw = self.render_yaw;
 
     self.base.sneaking = sneak;
     self.prev_y_size = self.y_size;
@@ -133,6 +144,73 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     if (self.base.on_ground) dip = 0.0;
     self.camera_yaw += (swing - self.camera_yaw) * 0.4;
     self.camera_pitch += (dip - self.camera_pitch) * 0.8;
+
+    self.updateLimbSwing();
+    self.updateRenderYaw();
+}
+
+fn wrapDegrees(value: f32) f32 {
+    var wrapped = value;
+    while (wrapped < -180.0) wrapped += 360.0;
+    while (wrapped >= 180.0) wrapped -= 360.0;
+    return wrapped;
+}
+
+fn updateLimbSwing(self: *Player) void {
+    self.prev_limb_swing_amount = self.limb_swing_amount;
+    const dx = self.base.position.x - self.base.prev_position.x;
+    const dz = self.base.position.z - self.base.prev_position.z;
+    var swing: f32 = @floatCast(@sqrt(dx * dx + dz * dz) * 4.0);
+    if (swing > 1.0) swing = 1.0;
+    self.limb_swing_amount += (swing - self.limb_swing_amount) * 0.4;
+    self.limb_swing += self.limb_swing_amount;
+}
+
+fn updateRenderYaw(self: *Player) void {
+    const dx = self.base.position.x - self.base.prev_position.x;
+    const dz = self.base.position.z - self.base.prev_position.z;
+    const travelled: f32 = @floatCast(@sqrt(dx * dx + dz * dz));
+
+    var facing = self.render_yaw;
+    if (travelled > 0.05) {
+        facing = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
+    }
+
+    self.render_yaw += wrapDegrees(facing - self.render_yaw) * 0.3;
+
+    var offset = wrapDegrees(self.yaw - self.render_yaw);
+    offset = std.math.clamp(offset, -75.0, 75.0);
+    self.render_yaw = self.yaw - offset;
+    if (offset * offset > 2500.0) self.render_yaw += offset * 0.2;
+
+    while (self.yaw - self.prev_yaw < -180.0) self.prev_yaw -= 360.0;
+    while (self.yaw - self.prev_yaw >= 180.0) self.prev_yaw += 360.0;
+    while (self.render_yaw - self.prev_render_yaw < -180.0) self.prev_render_yaw -= 360.0;
+    while (self.render_yaw - self.prev_render_yaw >= 180.0) self.prev_render_yaw += 360.0;
+    while (self.pitch - self.prev_pitch < -180.0) self.prev_pitch -= 360.0;
+    while (self.pitch - self.prev_pitch >= 180.0) self.prev_pitch += 360.0;
+}
+
+pub fn renderYaw(self: Player, partial_ticks: f32) f32 {
+    return self.prev_render_yaw + (self.render_yaw - self.prev_render_yaw) * partial_ticks;
+}
+
+pub fn headYaw(self: Player, partial_ticks: f32) f32 {
+    const yaw = self.prev_yaw + (self.yaw - self.prev_yaw) * partial_ticks;
+    return yaw - self.renderYaw(partial_ticks);
+}
+
+pub fn headPitch(self: Player, partial_ticks: f32) f32 {
+    return self.prev_pitch + (self.pitch - self.prev_pitch) * partial_ticks;
+}
+
+pub fn limbSwingAmount(self: Player, partial_ticks: f32) f32 {
+    const amount = self.prev_limb_swing_amount + (self.limb_swing_amount - self.prev_limb_swing_amount) * partial_ticks;
+    return @min(amount, 1.0);
+}
+
+pub fn limbSwingPhase(self: Player, partial_ticks: f32) f32 {
+    return self.limb_swing - self.limb_swing_amount * (1.0 - partial_ticks);
 }
 
 pub fn isSubmerged(self: Player, world_map: *const world.World) bool {
@@ -252,6 +330,66 @@ pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const eye_z: f32 = @floatCast(render_position.z);
     return self.viewRotation()
         .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
+}
+
+const opaque_probe_eye: f64 = 0.12;
+
+pub fn isInsideOpaqueBlock(self: Player, world_map: *const world.World) bool {
+    for (0..8) |corner| {
+        const index: i32 = @intCast(corner);
+        const dx = (@as(f64, @floatFromInt(@rem(index, 2))) - 0.5) * width * 0.9;
+        const dy = (@as(f64, @floatFromInt(@rem(@divTrunc(index, 2), 2))) - 0.5) * 0.1;
+        const dz = (@as(f64, @floatFromInt(@rem(@divTrunc(index, 4), 2))) - 0.5) * width * 0.9;
+        const x = math.util.floorDouble(self.base.position.x + dx);
+        const y = math.util.floorDouble(self.base.position.y + eye_height + opaque_probe_eye + dy);
+        const z = math.util.floorDouble(self.base.position.z + dz);
+        if (world_map.getBlock(x, y, z).isOpaqueCube()) return true;
+    }
+    return false;
+}
+
+pub const third_person_distance: f64 = 4.0;
+const camera_probe_offset: f32 = 0.1;
+
+pub fn thirdPersonDistance(self: Player, world_map: *const world.World, partial_ticks: f32) f64 {
+    const degrees = std.math.pi / 180.0;
+    const eye = self.base.renderPosition(partial_ticks);
+    const eye_y = eye.y + eye_height;
+
+    const back_x = @as(f64, -math.util.sin(self.yaw * degrees) * math.util.cos(self.pitch * degrees)) * third_person_distance;
+    const back_z = @as(f64, math.util.cos(self.yaw * degrees) * math.util.cos(self.pitch * degrees)) * third_person_distance;
+    const back_y = @as(f64, -math.util.sin(self.pitch * degrees)) * third_person_distance;
+
+    var distance = third_person_distance;
+    for (0..8) |corner| {
+        const index: i32 = @intCast(corner);
+        const dx: f64 = @as(f64, @floatFromInt((index & 1) * 2 - 1)) * camera_probe_offset;
+        const dy: f64 = @as(f64, @floatFromInt((index >> 1 & 1) * 2 - 1)) * camera_probe_offset;
+        const dz: f64 = @as(f64, @floatFromInt((index >> 2 & 1) * 2 - 1)) * camera_probe_offset;
+
+        const from = math.Vec3.init(eye.x + dx, eye_y + dy, eye.z + dz);
+        const to = math.Vec3.init(eye.x - back_x + dx + dz, eye_y - back_y + dy, eye.z - back_z + dz);
+        const span = math.Vec3.init(to.x - from.x, to.y - from.y, to.z - from.z);
+        const length = @sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
+        if (length == 0.0) continue;
+
+        const direction = [3]f32{
+            @floatCast(span.x / length),
+            @floatCast(span.y / length),
+            @floatCast(span.z / length),
+        };
+        const hit = raycast.cast(world_map, from, direction, length) orelse continue;
+
+        const hit_x = from.x + span.x * (hit.distance / length);
+        const hit_y = from.y + span.y * (hit.distance / length);
+        const hit_z = from.z + span.z * (hit.distance / length);
+        const to_eye_x = hit_x - eye.x;
+        const to_eye_y = hit_y - eye_y;
+        const to_eye_z = hit_z - eye.z;
+        const reached = @sqrt(to_eye_x * to_eye_x + to_eye_y * to_eye_y + to_eye_z * to_eye_z);
+        if (reached < distance) distance = reached;
+    }
+    return distance;
 }
 
 pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
@@ -621,4 +759,82 @@ test "surfacing refills the air supply immediately" {
     player.base.position.y = 40;
     player.updateAir(&w);
     try std.testing.expectEqual(max_air, player.air);
+}
+
+test "the body turns to follow the direction of travel" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+
+    for (0..20) |_| player.tick(&w, 0, 1, false, false);
+
+    try std.testing.expect(player.base.position.z > 8.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), wrapDegrees(player.render_yaw), 1.0e-3);
+}
+
+test "the head never twists more than 75 degrees away from the body" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+
+    player.yaw = 170;
+    player.tick(&w, 0, 0, false, false);
+
+    try std.testing.expect(@abs(wrapDegrees(player.yaw - player.render_yaw)) <= 75.0 + 1.0e-3);
+}
+
+test "walking builds up the limb swing, standing still lets it fall away" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+
+    for (0..20) |_| player.tick(&w, 0, 1, false, false);
+    const walking = player.limb_swing_amount;
+    try std.testing.expect(walking > 0.3);
+
+    for (0..20) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(player.limb_swing_amount < walking * 0.1);
+}
+
+test "the third person camera sits four blocks back in the open" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+
+    try std.testing.expectApproxEqAbs(third_person_distance, player.thirdPersonDistance(&w, 0), 1.0e-9);
+}
+
+test "the third person camera stops short of a wall behind the player" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    const chunk = w.getChunk(0, 0).?;
+    for (0..6) |y| chunk.setBlock(8, @intCast(y), 5, world.Block.stone);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.yaw = 0;
+
+    const pulled = player.thirdPersonDistance(&w, 0);
+    try std.testing.expect(pulled < third_person_distance);
+    try std.testing.expect(pulled > 0.0);
+}
+
+test "standing in the open is not standing inside a block" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+
+    try std.testing.expect(!player.isInsideOpaqueBlock(&w));
+}
+
+test "a block at head height counts as being inside it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    const chunk = w.getChunk(0, 0).?;
+    chunk.setBlock(8, 2, 8, world.Block.stone);
+
+    const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try std.testing.expect(player.isInsideOpaqueBlock(&w));
 }

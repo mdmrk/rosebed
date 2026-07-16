@@ -7,6 +7,12 @@ pub const Hit = struct {
     y: i32,
     z: i32,
     face: world.Side,
+    distance: f64,
+};
+
+const BoundsHit = struct {
+    face: world.Side,
+    distance: f64,
 };
 
 const max_steps: u32 = 200;
@@ -20,7 +26,7 @@ fn boundsHit(
     origin: [3]f64,
     direction: [3]f64,
     max_distance: f64,
-) ?world.Side {
+) ?BoundsHit {
     var entry: f64 = 0;
     var exit = max_distance;
     var entry_face = world.Side.down;
@@ -54,7 +60,7 @@ fn boundsHit(
     }
 
     if (entry > exit) return null;
-    return if (entered) entry_face else exit_face;
+    return .{ .face = if (entered) entry_face else exit_face, .distance = entry };
 }
 
 pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32, max_distance: f64) ?Hit {
@@ -71,8 +77,8 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
         const id = world_map.getBlock(cell[0], cell[1], cell[2]);
         if (id != world.Block.air and !id.isLiquid()) {
             const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
-            if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |face| {
-                return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = face };
+            if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |hit| {
+                return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = hit.face, .distance = hit.distance };
             }
         }
 

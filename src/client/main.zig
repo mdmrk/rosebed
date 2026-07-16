@@ -108,6 +108,7 @@ const AppState = struct {
     controls_open: bool = false,
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
+    third_person: bool = false,
     frames_this_second: u32 = 0,
     chunk_updates_this_second: u32 = 0,
     debug_fps: u32 = 0,
@@ -895,6 +896,10 @@ fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
     app_state.player.base.prev_position = app_state.player.base.position;
     app_state.player.yaw = state.yaw;
     app_state.player.pitch = state.pitch;
+    app_state.player.prev_yaw = state.yaw;
+    app_state.player.prev_pitch = state.pitch;
+    app_state.player.render_yaw = state.yaw;
+    app_state.player.prev_render_yaw = state.yaw;
     app_state.player.base.on_ground = state.on_ground;
 
     app_state.player.inventory.loadSaveEntries(state.inventory);
@@ -1516,7 +1521,11 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         fov_y_radians;
     const proj = math.Mat4.perspective(fov, aspect, near_plane, far_plane);
     const partial = app_state.timer.render_partial_ticks;
-    const camera = app_state.player.viewMatrix(partial);
+    const eye_view = app_state.player.viewMatrix(partial);
+    const camera = if (app_state.third_person) pulled: {
+        const distance = app_state.player.thirdPersonDistance(&app_state.world_map, partial);
+        break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
+    } else eye_view;
     const view = if (app_state.settings.view_bobbing)
         app_state.player.bobMatrix(partial).mul(camera)
     else
@@ -1599,6 +1608,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    if (app_state.third_person) try drawPlayer(app_state, partial);
+
     try drawSelectionOutline(app_state);
     try drawBreakingCrack(app_state);
 
@@ -1611,7 +1622,33 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.Disable(gl.BLEND);
 
     try drawClouds(app_state, proj, partial);
-    try drawHeldItem(app_state, proj, partial);
+    if (!app_state.third_person) try drawHeldItem(app_state, proj, partial);
+}
+
+fn drawPlayer(app_state: *AppState, partial: f32) !void {
+    const player = app_state.player;
+    const holding_item = player.inventory.selectedStack() != null;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.world_map, player, holding_item, partial);
+    app_state.textures.char.bind();
+    drawEntityMesh(&mesh);
+
+    for (player.inventory.armor) |stack| {
+        const worn = stack orelse continue;
+        if (worn.id != .item) continue;
+        const piece = worn.id.item.armor() orelse continue;
+        const layer = render.mob_model.bipedArmor(piece.slot);
+
+        var armor_mesh: render.MeshBuilder = .{};
+        defer armor_mesh.deinit(app_state.frame);
+        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.world_map, player, holding_item, partial, layer);
+        app_state.textures.armor(piece.material, layer.second_texture).bind();
+        drawEntityMesh(&armor_mesh);
+    }
+
+    app_state.textures.terrain.bind();
 }
 
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
@@ -1827,6 +1864,10 @@ pub fn iterate(
     gl.ClearColor(horizon[0], horizon[1], horizon[2], 1.0);
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    if (app_state.third_person and app_state.player.isInsideOpaqueBlock(&app_state.world_map)) {
+        app_state.third_person = false;
+    }
+
     if (app_state.screen == .playing) try renderWorld(app_state, horizon);
 
     const ui = uiContext(app_state, gui);
@@ -1994,6 +2035,8 @@ pub fn event(
                 }
             } else if (k.key == .func3) {
                 app_state.show_debug = !app_state.show_debug;
+            } else if (k.key == .func5 and !k.repeat) {
+                app_state.third_person = !app_state.third_person;
             } else if (boundTo(app_state, .inventory, k.key) and !app_state.paused) {
                 try toggleInventory(app_state);
             } else if (boundTo(app_state, .drop, k.key) and worldFocused(app_state) and !k.repeat) {
