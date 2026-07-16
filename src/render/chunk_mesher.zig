@@ -538,6 +538,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures = world.block.FaceTextures.initFill(world.block.leafTile(metadata, options.fancy));
                 } else if (id == .wool) {
                     textures = world.block.FaceTextures.initFill(world.block.woolTile(metadata));
+                } else if (id == .furnace or id == .burning_furnace) {
+                    textures = world.block.furnaceTextures(id, metadata);
                 } else if (id == .grass) {
                     const above = neighborId(world_map, chunk, @intCast(lx), @as(i32, @intCast(ly)) + 1, @intCast(lz));
                     const side_tile = world.block.grassSideTile(above);

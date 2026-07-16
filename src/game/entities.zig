@@ -192,6 +192,38 @@ pub fn spawnTorchParticles(
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
 }
 
+pub const furnace_mouth_reach: f64 = 0.52;
+pub const furnace_mouth_height: f64 = 6.0 / 16.0;
+
+pub fn furnaceMouthPosition(x: i32, y: i32, z: i32, metadata: u4, rand: *world.JavaRandom) math.Vec3 {
+    const cx = @as(f64, @floatFromInt(x)) + 0.5;
+    const cy = @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat()) * furnace_mouth_height;
+    const cz = @as(f64, @floatFromInt(z)) + 0.5;
+    const along = @as(f64, rand.nextFloat()) * 0.6 - 0.3;
+
+    return switch (world.block.furnaceFacing(metadata)) {
+        .west => math.Vec3.init(cx - furnace_mouth_reach, cy, cz + along),
+        .east => math.Vec3.init(cx + furnace_mouth_reach, cy, cz + along),
+        .north => math.Vec3.init(cx + along, cy, cz - furnace_mouth_reach),
+        else => math.Vec3.init(cx + along, cy, cz + furnace_mouth_reach),
+    };
+}
+
+pub fn spawnFurnaceParticles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    metadata: u4,
+    rand: *world.JavaRandom,
+) !void {
+    const position = furnaceMouthPosition(x, y, z, metadata, rand);
+    const still = math.Vec3.init(0, 0, 0);
+    try self.particles.append(gpa, Particle.spawnSmoke(position, still, rand));
+    try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
+}
+
 pub fn tickParticles(
     self: *Entities,
     gpa: std.mem.Allocator,

@@ -152,6 +152,7 @@ pub fn draw(
             .craft_input => crafting_grid[slot.index],
             .craft_result => craft_result,
             .armor => inventory.armor[slot.index],
+            .furnace_input, .furnace_fuel, .furnace_output => unreachable,
         };
     }
 

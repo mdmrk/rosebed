@@ -102,6 +102,7 @@ const AppState = struct {
     mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
     workbench_open: bool = false,
+    furnace_open: ?world.World.BlockPos = null,
     paused: bool = false,
     options_open: bool = false,
     video_open: bool = false,
@@ -538,6 +539,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         &app_state.world_map.rand,
     );
     try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
+    try spillFurnace(app_state, x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state);
 
@@ -546,6 +548,20 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         if (block_id.drop(meta, &app_state.world_map.rand)) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
+    }
+}
+
+/// `BlockFurnace.onBlockRemoval` scatters what the furnace was holding.
+fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    var removed = app_state.world_map.removeFurnace(x, y, z) orelse return;
+
+    if (app_state.furnace_open) |open| {
+        if (open.x == x and open.y == y and open.z == z) try closeContainer(app_state);
+    }
+
+    for (0..world.furnace.slot_count) |index| {
+        const stack = removed.slot(index).* orelse continue;
+        try spawnDroppedItem(app_state, x, y, z, stack);
     }
 }
 
@@ -689,11 +705,38 @@ fn containerClickAt(
             click_type,
             .{ .armor = @enumFromInt(slot.index) },
         ),
+        .furnace_input, .furnace_fuel => {
+            const furnace = openedFurnace(app_state) orelse return;
+            slotClick(app_state, furnace.slot(slot.index), click_type, .{});
+        },
+        .furnace_output => try furnaceOutputClick(app_state, click_type),
     }
 }
 
+/// `SlotFurnace` takes but never accepts a stack, and what leaves it counts as crafted.
+fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
+    const furnace = openedFurnace(app_state) orelse return;
+    const output = furnace.output orelse return;
+
+    const taken = if (click_type == .left) output.count else (output.count + 1) / 2;
+    if (app_state.held_stack) |*held| {
+        if (!held.id.eql(output.id) or held.meta != output.meta) return;
+        if (@as(u16, held.count) + taken > output.id.maxStackSize()) return;
+        held.count += taken;
+    } else {
+        app_state.held_stack = .{ .id = output.id, .count = taken, .meta = output.meta };
+    }
+
+    furnace.output.?.count -= taken;
+    if (furnace.output.?.count == 0) furnace.output = null;
+    try app_state.stats.craft(app_state.gpa, output.id, taken);
+}
+
 fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
-    if (app_state.workbench_open) {
+    if (app_state.furnace_open != null) {
+        const layout = render.furnace_screen.slots();
+        try containerClickAt(app_state, &layout, &.{}, 0, click_type);
+    } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
         try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type);
     } else {
@@ -718,7 +761,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 }
 
 fn containerOpen(app_state: *const AppState) bool {
-    return app_state.inventory_open or app_state.workbench_open;
+    return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null;
 }
 
 fn worldFocused(app_state: *const AppState) bool {
@@ -732,6 +775,7 @@ fn updateMouseMode(app_state: *AppState) !void {
 fn closeContainer(app_state: *AppState) !void {
     app_state.inventory_open = false;
     app_state.workbench_open = false;
+    app_state.furnace_open = null;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
     try dropGrid(app_state, &app_state.crafting_grid);
@@ -741,6 +785,17 @@ fn closeContainer(app_state: *AppState) !void {
 fn openWorkbench(app_state: *AppState) !void {
     app_state.workbench_open = true;
     try updateMouseMode(app_state);
+}
+
+fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    _ = try app_state.world_map.addFurnace(x, y, z);
+    app_state.furnace_open = .{ .x = x, .y = y, .z = z };
+    try updateMouseMode(app_state);
+}
+
+fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
+    const pos = app_state.furnace_open orelse return null;
+    return app_state.world_map.furnaceAt(pos.x, pos.y, pos.z);
 }
 
 fn toggleInventory(app_state: *AppState) !void {
@@ -1288,9 +1343,16 @@ fn consumeSelectedStack(app_state: *AppState) void {
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
-    if (app_state.world_map.getBlock(hit.x, hit.y, hit.z) == .workbench) {
-        try openWorkbench(app_state);
-        return true;
+    switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
+        .workbench => {
+            try openWorkbench(app_state);
+            return true;
+        },
+        .furnace, .burning_furnace => {
+            try openFurnace(app_state, hit.x, hit.y, hit.z);
+            return true;
+        },
+        else => {},
     }
     return placeBlockAtTarget(app_state);
 }
@@ -1311,6 +1373,11 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return false;
     const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
+    if (placed == .furnace) {
+        const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
+        try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        _ = try app_state.world_map.addFurnace(px, py, pz);
+    }
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -1381,6 +1448,7 @@ fn tick(app_state: *AppState) !void {
     const player_chunk = playerChunkCoord(app_state);
     try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
     try app_state.world_map.tickUpdates();
+    try app_state.world_map.tickFurnaces();
     try applyBlockChanges(app_state);
     try app_state.entities.tickPigs(
         app_state.gpa,
@@ -1434,6 +1502,14 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 try app_state.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
             },
             .torch => try app_state.entities.spawnTorchParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            .burning_furnace => try app_state.entities.spawnFurnaceParticles(
                 app_state.gpa,
                 x,
                 y,
@@ -1959,6 +2035,13 @@ pub fn iterate(
         try render.loading_screen.draw(ui, app_state.loading.title, "Building terrain", progress);
     } else if (app_state.paused) {
         try render.menu.draw(ui);
+    } else if (openedFurnace(app_state)) |furnace| {
+        try render.furnace_screen.draw(
+            ui,
+            app_state.player.inventory,
+            furnace.*,
+            app_state.held_stack,
+        );
     } else if (app_state.workbench_open) {
         try render.crafting_screen.draw(
             ui,

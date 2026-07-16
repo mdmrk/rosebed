@@ -20,7 +20,7 @@ const tooltip_offset_y: f32 = -12;
 const tooltip_padding: f32 = 3;
 const tooltip_line_height: f32 = 8;
 
-pub const SlotKind = enum { inventory, craft_input, craft_result, armor };
+pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output };
 pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 pub const Label = struct { text: []const u8, x: f32, y: f32 };
 

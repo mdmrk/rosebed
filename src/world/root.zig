@@ -21,6 +21,7 @@ pub const Climate = @import("climate.zig");
 pub const light = @import("light.zig");
 pub const chunk_nbt = @import("chunk_nbt.zig");
 pub const entity_nbt = @import("entity_nbt.zig");
+pub const furnace = @import("furnace.zig");
 pub const caves = @import("caves.zig");
 pub const decorate = @import("decorate.zig");
 pub const lakes = @import("lakes.zig");
@@ -53,6 +54,7 @@ test {
     _ = light;
     _ = chunk_nbt;
     _ = entity_nbt;
+    _ = furnace;
     _ = caves;
     _ = decorate;
     _ = lakes;

@@ -266,6 +266,7 @@ pub const Save = struct {
         chunk_x: i32,
         chunk_z: i32,
         visitor: ?EntityVisitor,
+        tile_visitor: ?EntityVisitor,
     ) !?chunk_nbt.Loaded {
         const file = try self.region(gpa, io, chunk_x, chunk_z);
         const bytes = try file.readChunk(gpa, io, RegionFile.localCoord(chunk_x), RegionFile.localCoord(chunk_z)) orelse return null;
@@ -287,6 +288,14 @@ pub const Save = struct {
                 }
             }
         }
+        if (tile_visitor) |sink| {
+            for (loaded.tile_entities) |tile_entity| {
+                switch (tile_entity) {
+                    .compound => |compound| try sink.visit(sink.context, gpa, compound),
+                    else => {},
+                }
+            }
+        }
         return loaded;
     }
 
@@ -298,8 +307,9 @@ pub const Save = struct {
         world_time: i64,
         populated: bool,
         entities: []nbt.Tag,
+        tile_entities: []nbt.Tag,
     ) !void {
-        var tag = try chunk_nbt.store(gpa, chunk, world_time, populated, entities);
+        var tag = try chunk_nbt.store(gpa, chunk, world_time, populated, entities, tile_entities);
         defer nbt.deinit(gpa, &tag);
 
         var allocating: std.Io.Writer.Allocating = .init(gpa);
@@ -653,10 +663,10 @@ test "a chunk written through the save handler comes back with its blocks" {
     chunk.setBlockMetadata(1, 2, 3, 9);
 
     try std.testing.expect(!world.hasChunk(gpa, io, -40, 33));
-    try world.writeChunk(gpa, io, &chunk, 1234, true, try gpa.alloc(nbt.Tag, 0));
+    try world.writeChunk(gpa, io, &chunk, 1234, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
     try std.testing.expect(world.hasChunk(gpa, io, -40, 33));
 
-    const loaded = (try world.readChunk(gpa, io, -40, 33, null)).?;
+    const loaded = (try world.readChunk(gpa, io, -40, 33, null, null)).?;
     try std.testing.expectEqual(@as(i32, -40), loaded.chunk.x);
     try std.testing.expectEqual(@as(i32, 33), loaded.chunk.z);
     try std.testing.expect(loaded.populated);
@@ -664,7 +674,51 @@ test "a chunk written through the save handler comes back with its blocks" {
     try std.testing.expectEqual(Chunk.getBlock(&chunk, 15, 127, 15), loaded.chunk.getBlock(15, 127, 15));
     try std.testing.expectEqual(@as(u4, 9), loaded.chunk.getBlockMetadata(1, 2, 3));
 
-    try std.testing.expectEqual(@as(?chunk_nbt.Loaded, null), try world.readChunk(gpa, io, 0, 0, null));
+    try std.testing.expectEqual(@as(?chunk_nbt.Loaded, null), try world.readChunk(gpa, io, 0, 0, null, null));
+}
+
+const furnace = @import("furnace.zig");
+
+const FurnaceSink = struct {
+    found: ?furnace.Placed = null,
+
+    fn visit(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
+        _ = gpa;
+        const self: *FurnaceSink = @ptrCast(@alignCast(context));
+        self.found = furnace.load(compound);
+    }
+};
+
+test "a furnace written with its chunk comes back mid-smelt" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var world = try open(io, tmp.dir, "Smelty");
+    defer world.close(gpa, io);
+
+    const chunk = Chunk.init(2, -5);
+    const state: furnace.Furnace = .{
+        .input = .{ .id = .{ .block = .ore_iron }, .count = 6 },
+        .fuel = .{ .id = .{ .item = .coal }, .count = 2 },
+        .burn_time = 1200,
+        .item_burn_time = 1600,
+        .cook_time = 55,
+    };
+
+    const tile_entities = try gpa.alloc(nbt.Tag, 1);
+    tile_entities[0] = try furnace.store(gpa, 33, 64, -71, state);
+    try world.writeChunk(gpa, io, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), tile_entities);
+
+    var sink: FurnaceSink = .{};
+    _ = (try world.readChunk(gpa, io, 2, -5, null, .{ .context = &sink, .visit = FurnaceSink.visit })).?;
+
+    const found = sink.found.?;
+    try std.testing.expectEqual(@as(i32, 33), found.x);
+    try std.testing.expectEqual(@as(i32, 64), found.y);
+    try std.testing.expectEqual(@as(i32, -71), found.z);
+    try std.testing.expectEqual(state, found.state);
 }
 
 test "listing worlds returns them newest first and skips folders without a level.dat" {

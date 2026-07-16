@@ -9,6 +9,7 @@ const light = @import("light.zig");
 const fluid = @import("fluid.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const block_update = @import("block_update.zig");
+const furnace = @import("furnace.zig");
 const save = @import("save.zig");
 const nbt = @import("nbt.zig");
 const math = @import("math");
@@ -73,6 +74,8 @@ scheduled_updates_are_immediate: bool = false,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
+furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
+furnace_updates: std.ArrayList(BlockPos) = .empty,
 
 pub const ticks_per_day: i64 = 24000;
 
@@ -113,6 +116,8 @@ pub fn deinit(self: *World) void {
     self.dropped.deinit(self.allocator);
     self.falling.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
+    self.furnaces.deinit(self.allocator);
+    self.furnace_updates.deinit(self.allocator);
 }
 
 pub fn getChunk(self: *const World, chunk_x: i32, chunk_z: i32) ?*Chunk {
@@ -162,6 +167,7 @@ fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i
         chunk_x,
         chunk_z,
         self.entityVisitor(),
+        .{ .context = self, .visit = restoreTileEntity },
     ) catch return null;
     const stored = found orelse return null;
 
@@ -190,6 +196,13 @@ fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
     }
     if (self.entity_io) |io| try io.collect(io.context, self.allocator, coord.x, coord.z, &entities);
 
+    var tile_entities: std.ArrayList(nbt.Tag) = .empty;
+    errdefer {
+        for (tile_entities.items) |*tag| nbt.deinit(self.allocator, tag);
+        tile_entities.deinit(self.allocator);
+    }
+    try self.collectTileEntities(coord, &tile_entities);
+
     try persistence.handle.writeChunk(
         self.allocator,
         persistence.io,
@@ -197,6 +210,7 @@ fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
         self.time,
         self.isDecorated(coord.x, coord.z),
         try entities.toOwnedSlice(self.allocator),
+        try tile_entities.toOwnedSlice(self.allocator),
     );
 }
 
@@ -350,6 +364,70 @@ pub fn setBlockMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, meta: u4
     try self.notifyBlockChange(x, y, z);
 }
 
+pub fn furnaceAt(self: *World, x: i32, y: i32, z: i32) ?*furnace.Furnace {
+    return self.furnaces.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addFurnace(self: *World, x: i32, y: i32, z: i32) !*furnace.Furnace {
+    const entry = try self.furnaces.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeFurnace(self: *World, x: i32, y: i32, z: i32) ?furnace.Furnace {
+    const removed = self.furnaces.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
+fn isFurnaceBlock(id: Block) bool {
+    return id == .furnace or id == .burning_furnace;
+}
+
+/// `TileEntityFurnace.updateEntity` for every furnace held in memory. A furnace that
+/// catches or loses its fire swaps between the two block ids, keeping its facing.
+pub fn tickFurnaces(self: *World) !void {
+    self.furnace_updates.clearRetainingCapacity();
+
+    var it = self.furnaces.iterator();
+    while (it.next()) |entry| {
+        if (!isFurnaceBlock(self.getBlock(entry.key_ptr.x, entry.key_ptr.y, entry.key_ptr.z))) {
+            try self.furnace_updates.append(self.allocator, entry.key_ptr.*);
+            continue;
+        }
+        if (entry.value_ptr.tick()) try self.furnace_updates.append(self.allocator, entry.key_ptr.*);
+    }
+
+    for (self.furnace_updates.items) |pos| {
+        const state = self.furnaces.get(pos) orelse continue;
+        const id = self.getBlock(pos.x, pos.y, pos.z);
+        if (!isFurnaceBlock(id)) {
+            _ = self.furnaces.remove(pos);
+            continue;
+        }
+
+        const lit: Block = if (state.isBurning()) .burning_furnace else .furnace;
+        if (id == lit) continue;
+        const meta = self.getBlockMetadata(pos.x, pos.y, pos.z);
+        try self.setBlockAndMetadataWithNotify(pos.x, pos.y, pos.z, lit, meta);
+    }
+}
+
+fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.Tag)) !void {
+    var it = self.furnaces.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try furnace.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
+}
+
+fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
+    _ = gpa;
+    const self: *World = @ptrCast(@alignCast(context));
+    const placed = furnace.load(compound) orelse return;
+    (try self.addFurnace(placed.x, placed.y, placed.z)).* = placed.state;
+}
+
 pub fn notifyBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
     try self.markChanged(x, y, z);
     try self.notifyBlocksOfNeighborChange(x, y, z);
@@ -463,6 +541,56 @@ test "block access spans chunk boundaries using world coordinates" {
 
     try std.testing.expectEqual(Block.stone, w.getBlock(15, 5, 0));
     try std.testing.expectEqual(Block.dirt, w.getBlock(16, 5, 0));
+}
+
+test "a lit furnace swaps the block for its burning id, keeping its facing" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    const facing: u4 = @intFromEnum(block.Side.west);
+    try w.setBlockAndMetadataWithNotify(3, 10, 4, Block.furnace, facing);
+    const state = try w.addFurnace(3, 10, 4);
+    state.input = .{ .id = .{ .block = .sand }, .count = 1 };
+    state.fuel = .{ .id = .{ .item = .coal }, .count = 1 };
+
+    try w.tickFurnaces();
+    try std.testing.expectEqual(Block.burning_furnace, w.getBlock(3, 10, 4));
+    try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
+    try std.testing.expect(w.furnaceAt(3, 10, 4).?.isBurning());
+
+    w.furnaceAt(3, 10, 4).?.burn_time = 1;
+    w.furnaceAt(3, 10, 4).?.fuel = null;
+    try w.tickFurnaces();
+    try std.testing.expectEqual(Block.furnace, w.getBlock(3, 10, 4));
+    try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
+}
+
+test "a furnace whose block is gone is forgotten on the next tick" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    try w.setBlockAndMetadataWithNotify(1, 5, 1, Block.furnace, 3);
+    _ = try w.addFurnace(1, 5, 1);
+    w.setBlock(1, 5, 1, Block.air);
+
+    try w.tickFurnaces();
+    try std.testing.expect(w.furnaceAt(1, 5, 1) == null);
+}
+
+test "breaking a furnace hands back what it held" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    const state = try w.addFurnace(2, 6, 2);
+    state.output = .{ .id = .{ .item = .ingot_iron }, .count = 3 };
+
+    const removed = w.removeFurnace(2, 6, 2).?;
+    try std.testing.expectEqual(@as(u8, 3), removed.output.?.count);
+    try std.testing.expect(w.furnaceAt(2, 6, 2) == null);
+    try std.testing.expectEqual(@as(?furnace.Furnace, null), w.removeFurnace(2, 6, 2));
 }
 
 test "reading an unloaded chunk returns air" {

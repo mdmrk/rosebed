@@ -213,6 +213,8 @@ pub const Block = enum(u8) {
     ore_diamond = 56,
     block_diamond = 57,
     workbench = 58,
+    furnace = 61,
+    burning_furnace = 62,
     ore_redstone = 73,
     snow_layer = 78,
     ice = 79,
@@ -234,6 +236,7 @@ pub const Block = enum(u8) {
             .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner => .rock,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
             .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
+            .furnace, .burning_furnace => .rock,
             .block_gold, .block_iron, .block_diamond => .iron,
             .grass, .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
@@ -400,6 +403,7 @@ pub const Block = enum(u8) {
                 .west = 60,
                 .east = 59,
             }),
+            .furnace, .burning_furnace => furnaceTextures(self, furnace_default_facing),
             .ice => uniform(67),
             .snow_block => uniform(66),
             .jukebox => topAndSide(75, 74, 74),
@@ -480,6 +484,7 @@ pub const Block = enum(u8) {
             .torch => 0.0,
             .block_diamond => 5.0,
             .workbench => 2.5,
+            .furnace, .burning_furnace => 3.5,
             .ice => 0.5,
             .snow_block => 0.2,
             .jukebox => 2.0,
@@ -561,6 +566,7 @@ pub const Block = enum(u8) {
             .torch => "Torch",
             .block_diamond => "Block of Diamond",
             .workbench => "Crafting Table",
+            .furnace, .burning_furnace => "Furnace",
             .ice => "Ice",
             .snow_block => "Snow",
             .jukebox => "Jukebox",
@@ -594,6 +600,7 @@ pub const Block = enum(u8) {
             .snow_block => .{ .id = .{ .item = .snowball }, .count = 4 },
             .glowstone => .{ .id = .{ .item = .glowstone_dust }, .count = @intCast(2 + rand.nextIntBound(3)) },
             .wool => .{ .id = .{ .block = .wool }, .count = 1, .meta = meta },
+            .furnace, .burning_furnace => .{ .id = .{ .block = .furnace }, .count = 1 },
             .glass, .bookshelf, .ice => null,
             .mob_spawner => null,
             .flowing_water, .stationary_water, .flowing_lava, .stationary_lava => null,
@@ -630,6 +637,75 @@ pub fn logSideTile(metadata: u4) u8 {
         2 => 117,
         else => 20,
     };
+}
+
+const furnace_side_tile: u8 = 45;
+const furnace_top_tile: u8 = 62;
+const furnace_front_tile: u8 = 44;
+const furnace_front_lit_tile: u8 = 61;
+pub const furnace_default_facing: u4 = @intFromEnum(Side.south);
+
+pub fn furnaceFacing(metadata: u4) Side {
+    return switch (metadata) {
+        @intFromEnum(Side.north), @intFromEnum(Side.west), @intFromEnum(Side.east) => @enumFromInt(metadata),
+        else => .south,
+    };
+}
+
+/// `BlockFurnace.onBlockPlacedBy`: the front turns to face the player who placed it.
+pub fn furnaceFacingFromYaw(yaw: f32) u4 {
+    const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 0.5);
+    return switch (@as(u2, @intFromFloat(@mod(quarter, 4.0)))) {
+        0 => @intFromEnum(Side.north),
+        1 => @intFromEnum(Side.east),
+        2 => @intFromEnum(Side.south),
+        3 => @intFromEnum(Side.west),
+    };
+}
+
+pub fn furnaceTextures(id: Block, metadata: u4) FaceTextures {
+    var textures = FaceTextures.initFill(furnace_side_tile);
+    textures.set(.down, furnace_top_tile);
+    textures.set(.up, furnace_top_tile);
+    textures.set(
+        furnaceFacing(metadata),
+        if (id == .burning_furnace) furnace_front_lit_tile else furnace_front_tile,
+    );
+    return textures;
+}
+
+test "the furnace turns its face towards the side its metadata names" {
+    const idle = furnaceTextures(.furnace, @intFromEnum(Side.west));
+    try std.testing.expectEqual(@as(u8, 44), idle.get(.west));
+    try std.testing.expectEqual(@as(u8, 45), idle.get(.south));
+    try std.testing.expectEqual(@as(u8, 62), idle.get(.up));
+    try std.testing.expectEqual(@as(u8, 62), idle.get(.down));
+
+    const lit = furnaceTextures(.burning_furnace, @intFromEnum(Side.north));
+    try std.testing.expectEqual(@as(u8, 61), lit.get(.north));
+    try std.testing.expectEqual(@as(u8, 45), lit.get(.east));
+}
+
+test "a furnace faces the player who placed it, whichever way they were turned" {
+    try std.testing.expectEqual(@intFromEnum(Side.north), furnaceFacingFromYaw(0));
+    try std.testing.expectEqual(@intFromEnum(Side.east), furnaceFacingFromYaw(90));
+    try std.testing.expectEqual(@intFromEnum(Side.south), furnaceFacingFromYaw(180));
+    try std.testing.expectEqual(@intFromEnum(Side.west), furnaceFacingFromYaw(270));
+    try std.testing.expectEqual(@intFromEnum(Side.west), furnaceFacingFromYaw(-90));
+    try std.testing.expectEqual(@intFromEnum(Side.north), furnaceFacingFromYaw(-720));
+    try std.testing.expectEqual(@intFromEnum(Side.east), furnaceFacingFromYaw(3690));
+}
+
+test "a furnace with no facing yet still shows its front, as GuiFurnace's item does" {
+    try std.testing.expectEqual(@as(u8, 44), Block.furnace.faceTextures().get(.south));
+    try std.testing.expectEqual(@as(u8, 61), Block.burning_furnace.faceTextures().get(.south));
+    try std.testing.expectEqual(@as(u8, 45), Block.furnace.faceTextures().get(.north));
+}
+
+test "both furnace states drop the idle block" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(Id{ .block = .furnace }, Block.furnace.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .furnace }, Block.burning_furnace.drop(3, &rand).?.id);
 }
 
 test "leaf tiles follow the graphics level, and pine has its own" {

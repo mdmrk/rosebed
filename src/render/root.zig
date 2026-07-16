@@ -22,6 +22,7 @@ pub const Font = @import("font.zig");
 pub const container_screen = @import("container_screen.zig");
 pub const inventory_screen = @import("inventory_screen.zig");
 pub const crafting_screen = @import("crafting_screen.zig");
+pub const furnace_screen = @import("furnace_screen.zig");
 pub const button = @import("button.zig");
 pub const menu = @import("menu.zig");
 pub const stats_screen = @import("stats_screen.zig");
@@ -62,6 +63,7 @@ test {
     _ = container_screen;
     _ = inventory_screen;
     _ = crafting_screen;
+    _ = furnace_screen;
     _ = button;
     _ = menu;
     _ = stats_screen;

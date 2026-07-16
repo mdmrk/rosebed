@@ -1,7 +1,9 @@
 const std = @import("std");
 const Block = @import("block.zig").Block;
 
+pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
+pub const coal_meta_charcoal: u16 = 1;
 
 pub const ToolMaterial = enum {
     wood,
@@ -448,7 +450,7 @@ pub const Item = enum(u16) {
             .boots_gold => "Golden boots",
             .leather => "Leather",
             .apple => "Apple",
-            .coal => "Coal",
+            .coal => if (metadata == coal_meta_charcoal) "Charcoal" else "Coal",
             .diamond => "Diamond",
             .ingot_iron => "Iron Ingot",
             .ingot_gold => "Gold Ingot",

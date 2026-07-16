@@ -31,6 +31,7 @@ pub fn emission(id: Block) u4 {
     return switch (id) {
         Block.flowing_lava, Block.stationary_lava => 15,
         Block.torch => 14,
+        Block.burning_furnace => 13,
         else => 0,
     };
 }

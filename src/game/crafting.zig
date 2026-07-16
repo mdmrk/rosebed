@@ -123,6 +123,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(1, 3, &.{ b(.mushroom_red), b(.mushroom_brown), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(1, 3, &.{ b(.mushroom_brown), b(.mushroom_red), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(3, 3, &.{
+        b(.cobblestone), b(.cobblestone), b(.cobblestone),
+        b(.cobblestone), null,            b(.cobblestone),
+        b(.cobblestone), b(.cobblestone), b(.cobblestone),
+    }, .{ .block = .furnace }, 1),
+    shaped(3, 3, &.{
         b(.planks), b(.planks),  b(.planks),
         b(.planks), i(.diamond), b(.planks),
         b(.planks), b(.planks),  b(.planks),
@@ -383,6 +388,15 @@ test "a filled grid of planks crafts a workbench" {
     const result = findMatch(&grid, player_grid_size).?;
     try std.testing.expectEqual(world.Id{ .block = .workbench }, result.id);
     try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "a ring of cobblestone crafts a furnace, but a filled grid does not" {
+    var ring: [9]?Inventory.ItemStack = @splat(.{ .id = .{ .block = .cobblestone }, .count = 1 });
+    ring[4] = null;
+    try std.testing.expectEqual(world.Id{ .block = .furnace }, findMatch(&ring, workbench_grid_size).?.id);
+
+    var filled: [9]?Inventory.ItemStack = @splat(.{ .id = .{ .block = .cobblestone }, .count = 1 });
+    try std.testing.expect(findMatch(&filled, workbench_grid_size) == null);
 }
 
 test "the other filled-grid recipes each craft their block" {
