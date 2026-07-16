@@ -74,9 +74,12 @@ pub const FramerateLimit = enum(u2) {
         return frame_end_ns +% std.time.ns_per_s / self.targetFps();
     }
 
-    pub fn fpsCap(self: FramerateLimit) ?f32 {
-        if (self != .power_saver) return null;
-        return @floatFromInt(self.targetFps());
+    pub fn fpsCap(self: FramerateLimit, refresh_rate: ?f32) ?f32 {
+        return switch (self) {
+            .max => null,
+            .balanced => refresh_rate,
+            .power_saver => @floatFromInt(self.targetFps()),
+        };
     }
 };
 
@@ -171,10 +174,15 @@ test "difficulty cycles through all four and wraps" {
     try std.testing.expectEqual(Difficulty.peaceful, Difficulty.hard.next());
 }
 
-test "only power saver sleeps, and it sleeps down to forty" {
-    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.max.fpsCap());
-    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.balanced.fpsCap());
-    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap());
+test "balanced sleeps to the monitor, power saver to forty, max fps not at all" {
+    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.max.fpsCap(144));
+    try std.testing.expectEqual(@as(?f32, 144), FramerateLimit.balanced.fpsCap(144));
+    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap(144));
+}
+
+test "balanced runs uncapped when the monitor reports no refresh rate" {
+    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.balanced.fpsCap(null));
+    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap(null));
 }
 
 test "max fps leaves no time for distant chunks, the others budget a frame" {

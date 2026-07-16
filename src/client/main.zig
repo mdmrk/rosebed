@@ -1429,6 +1429,12 @@ fn drawableSize(app_state: *const AppState) struct { w: gl.sizei, h: gl.sizei } 
     return .{ .w = @intCast(@max(s[0], 1)), .h = @intCast(@max(s[1], 1)) };
 }
 
+fn refreshRate(app_state: *const AppState) ?f32 {
+    const display = app_state.window.getDisplayForWindow() catch return null;
+    const mode = display.getCurrentMode() catch return null;
+    return mode.refresh_rate;
+}
+
 fn guiSize(app_state: *const AppState) render.gui.Scaled {
     const px = drawableSize(app_state);
     return render.gui.scaledResolution(
@@ -1813,7 +1819,7 @@ pub fn iterate(
     gl.Viewport(0, 0, px.w, px.h);
     const gui = guiSize(app_state);
 
-    app_state.fps_capper.mode = if (app_state.settings.framerate_limit.fpsCap()) |cap|
+    app_state.fps_capper.mode = if (app_state.settings.framerate_limit.fpsCap(refreshRate(app_state))) |cap|
         .{ .limited = cap }
     else
         .{ .unlimited = {} };
