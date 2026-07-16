@@ -99,6 +99,20 @@ pub fn scrollbarThumb(res: gui.Scaled, count: usize, scroll: f32) ?struct { y: f
     return .{ .y = @max(y, list_top), .height = height };
 }
 
+pub fn scrollbarAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize) bool {
+    if (scrollbarThumb(res, count, 0) == null) return false;
+    const gx = mouse_x / res.factor;
+    const gy = mouse_y / res.factor;
+    const x = @floor(res.width / 2.0) + scrollbar_offset;
+    return gx >= x and gx <= x + scrollbar_width and gy >= list_top and gy <= listBottom(res);
+}
+
+pub fn dragScroll(res: gui.Scaled, count: usize, scroll: f32, dy: f32) f32 {
+    const thumb = scrollbarThumb(res, count, scroll) orelse return scroll;
+    const travel = listBottom(res) - list_top - thumb.height;
+    return clampScroll(res, count, scroll + dy * maxScroll(res, count) / travel);
+}
+
 fn appendScrollbar(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, count: usize, scroll: f32) !void {
     const thumb = scrollbarThumb(res, count, scroll) orelse return;
     const x = @floor(res.width / 2.0) + scrollbar_offset;
@@ -258,6 +272,18 @@ test "a list that fits needs no scrollbar, and one that overflows gets one" {
     const many = 40;
     try std.testing.expect(maxScroll(res, many) > 0);
     try std.testing.expect(scrollbarThumb(res, many, 0) != null);
+}
+
+test "dragging the thumb the length of its travel scrolls the whole list" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const x = (@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor;
+    try std.testing.expect(scrollbarAt(x, (list_top + 20) * res.factor, res, 40));
+    try std.testing.expect(!scrollbarAt(x, (list_top + 20) * res.factor, res, 2));
+
+    const thumb = scrollbarThumb(res, 40, 0).?;
+    const travel = listBottom(res) - list_top - thumb.height;
+    try std.testing.expectEqual(maxScroll(res, 40), dragScroll(res, 40, 0, travel));
+    try std.testing.expectEqual(@as(f32, 0), dragScroll(res, 40, 0, -10));
 }
 
 test "a row scrolled above the list is not clickable through the header" {

@@ -151,6 +151,32 @@ pub fn clampScroll(res: gui.Scaled, state: State, scroll: f32) f32 {
     return @min(@max(scroll, 0), scrollLimit(res, state));
 }
 
+pub fn scrollbarThumb(res: gui.Scaled, state: State) ?struct { y: f32, height: f32 } {
+    const overflow = scrollLimit(res, state);
+    if (overflow <= 0) return null;
+
+    const visible = listBottom(res) - list_top;
+    const content = @as(f32, @floatFromInt(state.count())) * rowHeight(state.tab) + headerHeight(state.tab);
+    var height = visible * visible / content;
+    height = std.math.clamp(height, 32, visible - 8);
+    const y = state.scrollOf() * (visible - height) / overflow + list_top;
+    return .{ .y = @max(y, list_top), .height = height };
+}
+
+pub fn scrollbarAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, state: State) bool {
+    if (scrollbarThumb(res, state) == null) return false;
+    const gx = mouse_x / res.factor;
+    const gy = mouse_y / res.factor;
+    const x = @floor(res.width / 2.0) + scrollbar_offset;
+    return gx >= x and gx <= x + scrollbar_width and gy >= list_top and gy <= listBottom(res);
+}
+
+pub fn dragScroll(res: gui.Scaled, state: State, dy: f32) f32 {
+    const thumb = scrollbarThumb(res, state) orelse return state.scrollOf();
+    const travel = listBottom(res) - list_top - thumb.height;
+    return clampScroll(res, state, state.scrollOf() + dy * scrollLimit(res, state) / travel);
+}
+
 pub fn applySort(state: *State, source: *const stats.Stats, column: usize) void {
     const current = state.sort.get(state.tab);
     const next: ?Sort = if (current) |sort|
@@ -440,20 +466,13 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
 }
 
 fn appendScrollbar(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, state: State) !void {
-    const bottom = listBottom(res);
-    const visible = bottom - list_top;
-    const content = @as(f32, @floatFromInt(state.count())) * rowHeight(state.tab) + headerHeight(state.tab);
-    const overflow = content - (visible - 4);
-    if (overflow <= 0) return;
-
-    var height = visible * visible / content;
-    height = std.math.clamp(height, 32, visible - 8);
-    const y = @max(list_top, state.scrollOf() * (visible - height) / overflow + list_top);
+    const thumb = scrollbarThumb(res, state) orelse return;
     const x = @floor(res.width / 2.0) + scrollbar_offset;
+    const visible = listBottom(res) - list_top;
 
     try gui.appendRectColor(mesh, gpa, x, list_top, scrollbar_width, visible, gui.opaque_texel, scrollbar_track, res);
-    try gui.appendRectColor(mesh, gpa, x, y, scrollbar_width, height, gui.opaque_texel, scrollbar_thumb, res);
-    try gui.appendRectColor(mesh, gpa, x, y, scrollbar_width - 1, height - 1, gui.opaque_texel, scrollbar_highlight, res);
+    try gui.appendRectColor(mesh, gpa, x, thumb.y, scrollbar_width, thumb.height, gui.opaque_texel, scrollbar_thumb, res);
+    try gui.appendRectColor(mesh, gpa, x, thumb.y, scrollbar_width - 1, thumb.height - 1, gui.opaque_texel, scrollbar_highlight, res);
 }
 
 test "the tab buttons stay disabled until their list has rows" {
@@ -478,6 +497,31 @@ test "done sits to the right of the tab row" {
     const cx = @floor(res.width / 2.0);
     const state: State = .{};
     try std.testing.expectEqual(@as(?Hit, .done), hitAt((cx + 80) * res.factor, (res.height - 28 + 10) * res.factor, res, state));
+}
+
+test "dragging the thumb the length of its travel scrolls the whole list" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    var many: [64]world.Id = @splat(.{ .block = .stone });
+    const filled: State = .{ .tab = .blocks, .blocks = &many };
+
+    const x = (@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor;
+    try std.testing.expect(scrollbarAt(x, (list_top + 20) * res.factor, res, filled));
+    try std.testing.expect(!scrollbarAt((@floor(res.width / 2.0)) * res.factor, (list_top + 20) * res.factor, res, filled));
+
+    const thumb = scrollbarThumb(res, filled).?;
+    const travel = listBottom(res) - list_top - thumb.height;
+    try std.testing.expectEqual(scrollLimit(res, filled), dragScroll(res, filled, travel));
+    try std.testing.expectEqual(@as(f32, 0), dragScroll(res, filled, -10));
+}
+
+test "a list too short for a scrollbar cannot be dragged" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    var one = [_]world.Id{.{ .block = .stone }};
+    const short: State = .{ .tab = .blocks, .blocks = &one };
+
+    try std.testing.expect(scrollbarThumb(res, short) == null);
+    try std.testing.expect(!scrollbarAt((@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor, (list_top + 20) * res.factor, res, short));
+    try std.testing.expectEqual(short.scrollOf(), dragScroll(res, short, 40));
 }
 
 test "the column headers only respond on the table tabs" {

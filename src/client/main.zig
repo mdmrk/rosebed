@@ -116,6 +116,7 @@ const AppState = struct {
     debug_latched_ms: u64 = 0,
     options_parent: OptionsParent = .title,
     dragging_slider: ?render.options_screen.Slider = null,
+    dragging_scrollbar: bool = false,
     settings: game.Settings = .{},
     held_stack: ?game.Inventory.ItemStack = null,
     crafting_grid: [game.crafting.player_grid_size * game.crafting.player_grid_size]?game.Inventory.ItemStack = @splat(null),
@@ -817,6 +818,11 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
 
 fn texturePacksClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
+    if (render.texture_packs_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+        app_state.dragging_scrollbar = true;
+        return;
+    }
+
     const hit = render.texture_packs_screen.hitAt(
         app_state.mouse_x,
         app_state.mouse_y,
@@ -1054,6 +1060,11 @@ fn closeOptions(app_state: *AppState) !void {
 
 fn selectWorldClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
+    if (render.select_world_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.summaries.len)) {
+        app_state.dragging_scrollbar = true;
+        return;
+    }
+
     const hit = render.select_world_screen.hitAt(
         app_state.mouse_x,
         app_state.mouse_y,
@@ -1168,6 +1179,20 @@ fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f
     }
 }
 
+fn dragScrollbar(app_state: *AppState, dy_pixels: f32) void {
+    const gui = guiSize(app_state);
+    const dy = dy_pixels / gui.factor;
+
+    if (app_state.stats_open) {
+        const view = &app_state.stats_view;
+        view.scroll.set(view.tab, render.stats_screen.dragScroll(gui, view.*, dy));
+    } else if (app_state.screen == .select_world) {
+        app_state.list_scroll = render.select_world_screen.dragScroll(gui, app_state.summaries.len, app_state.list_scroll, dy);
+    } else if (app_state.screen == .texture_packs) {
+        app_state.pack_scroll = render.texture_packs_screen.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy);
+    }
+}
+
 fn pauseMenuClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
@@ -1192,6 +1217,11 @@ fn closeStats(app_state: *AppState) void {
 
 fn statsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
+    if (render.stats_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view)) {
+        app_state.dragging_scrollbar = true;
+        return;
+    }
+
     const hit = render.stats_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view) orelse return;
     switch (hit) {
         .done => closeStats(app_state),
@@ -2050,7 +2080,9 @@ pub fn event(
         .mouse_motion => |m| {
             app_state.mouse_x = m.x;
             app_state.mouse_y = m.y;
-            if (app_state.dragging_slider) |s| {
+            if (app_state.dragging_scrollbar) {
+                dragScrollbar(app_state, m.y_rel);
+            } else if (app_state.dragging_slider) |s| {
                 const gui = guiSize(app_state);
                 setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui));
             } else if (worldFocused(app_state)) {
@@ -2122,6 +2154,7 @@ pub fn event(
                 app_state.mouse_left_down = false;
                 app_state.missed_click_cooldown = 0;
                 app_state.dragging_slider = null;
+                app_state.dragging_scrollbar = false;
                 app_state.stats_view.pressed = null;
             },
             else => {},
