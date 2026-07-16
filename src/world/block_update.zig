@@ -92,6 +92,26 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
     };
 }
 
+pub const Placement = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+    face: block.Side,
+};
+
+pub fn placementTarget(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) Placement {
+    if (world_map.getBlock(x, y, z) == .snow_layer) return .{ .x = x, .y = y, .z = z, .face = .down };
+
+    return switch (face) {
+        .down => .{ .x = x, .y = y - 1, .z = z, .face = face },
+        .up => .{ .x = x, .y = y + 1, .z = z, .face = face },
+        .north => .{ .x = x, .y = y, .z = z - 1, .face = face },
+        .south => .{ .x = x, .y = y, .z = z + 1, .face = face },
+        .west => .{ .x = x - 1, .y = y, .z = z, .face = face },
+        .east => .{ .x = x + 1, .y = y, .z = z, .face = face },
+    };
+}
+
 pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
         .sapling, .dandelion, .rose, .tall_grass, .dead_bush, .mushroom_brown, .mushroom_red => plantGrowsOn(id, world_map.getBlock(x, y - 1, z)),
@@ -397,4 +417,37 @@ test "a torch is no support for another torch, only a normal cube is" {
     try w.setBlockAndMetadataWithNotify(9, 13, 8, .torch, 1);
     try std.testing.expect(!canPlaceAt(&w, 10, 13, 8, .torch));
     try std.testing.expect(!canPlaceAt(&w, 9, 14, 8, .torch));
+}
+
+test "a block placed against a face lands in the cell beyond it" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 4, 8, .stone);
+
+    const on_top = placementTarget(&world_map, 8, 4, 8, .up);
+    try std.testing.expectEqual(@as(i32, 5), on_top.y);
+    try std.testing.expectEqual(block.Side.up, on_top.face);
+
+    const on_side = placementTarget(&world_map, 8, 4, 8, .east);
+    try std.testing.expectEqual(@as(i32, 9), on_side.x);
+    try std.testing.expectEqual(@as(i32, 4), on_side.y);
+}
+
+test "a block placed on a snow layer takes the snow's own cell" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 4, 8, .stone);
+    chunk.setBlock(8, 5, 8, .snow_layer);
+
+    const target = placementTarget(&world_map, 8, 5, 8, .up);
+    try std.testing.expectEqual(@as(i32, 8), target.x);
+    try std.testing.expectEqual(@as(i32, 5), target.y);
+    try std.testing.expectEqual(@as(i32, 8), target.z);
+    try std.testing.expectEqual(block.Side.down, target.face);
+
+    const from_side = placementTarget(&world_map, 8, 5, 8, .north);
+    try std.testing.expectEqual(@as(i32, 5), from_side.y);
+    try std.testing.expectEqual(@as(i32, 8), from_side.z);
 }

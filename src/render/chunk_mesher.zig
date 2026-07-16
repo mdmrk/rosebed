@@ -65,6 +65,20 @@ pub fn blockTint(colorizer: Colorizer, id: world.Block, metadata: u4, side: worl
     };
 }
 
+fn faceUvs(tile: u8, side: world.Side, height_scale: f32) [4][2]f32 {
+    const uv = Atlas.tileUv(tile);
+    const bottom_v = if (side == .up or side == .down)
+        uv.v1
+    else
+        uv.v0 + (uv.v1 - uv.v0) * height_scale;
+    return .{
+        .{ uv.u1, bottom_v },
+        .{ uv.u1, uv.v0 },
+        .{ uv.u0, uv.v0 },
+        .{ uv.u0, bottom_v },
+    };
+}
+
 fn stepAlong(axis: u2, corner: [3]f32) [3]i32 {
     var step: [3]i32 = .{ 0, 0, 0 };
     step[axis] = if (corner[axis] == 1) 1 else -1;
@@ -524,6 +538,13 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures = world.block.FaceTextures.initFill(world.block.leafTile(metadata, options.fancy));
                 } else if (id == .wool) {
                     textures = world.block.FaceTextures.initFill(world.block.woolTile(metadata));
+                } else if (id == .grass) {
+                    const above = neighborId(world_map, chunk, @intCast(lx), @as(i32, @intCast(ly)) + 1, @intCast(lz));
+                    const side_tile = world.block.grassSideTile(above);
+                    textures.set(.north, side_tile);
+                    textures.set(.south, side_tile);
+                    textures.set(.west, side_tile);
+                    textures.set(.east, side_tile);
                 }
 
                 const height_scale = id.heightScale();
@@ -535,7 +556,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     const nz: i32 = @as(i32, @intCast(lz)) + face.normal[2];
                     if (!id.shouldRenderFace(neighborId(world_map, chunk, nx, ny, nz), face.side, options.fancy)) continue;
 
-                    const uv = Atlas.tileUv(textures.get(face.side));
+                    const tile = textures.get(face.side);
                     var positions: [4][3]f32 = undefined;
                     for (face.corners, 0..) |corner, i| {
                         positions[i] = .{
@@ -544,14 +565,12 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                             pulledInward(bz + corner[2], face.normal[2], inset),
                         };
                     }
-                    const uvs = [4][2]f32{
-                        .{ uv.u1, uv.v1 },
-                        .{ uv.u1, uv.v0 },
-                        .{ uv.u0, uv.v0 },
-                        .{ uv.u0, uv.v1 },
-                    };
+                    const uvs = faceUvs(tile, face.side, height_scale);
 
                     const tint = blockTint(colorizer, id, metadata, face.side, column_temperature, column_humidity);
+                    const overlaid = options.fancy and id == .grass and tile == world.block.grass_side_tile;
+                    const overlay_uvs = faceUvs(world.block.grass_side_overlay_tile, face.side, height_scale);
+                    const overlay_tint = colorizer.grassColor(column_temperature, column_humidity);
 
                     if (options.smooth) {
                         const corner_brightness = smoothBrightness(world_map, face, world_x, world_y, world_z, emitted);
@@ -560,6 +579,14 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                             colors[i] = shadeColor(face.shade * brightness, tint);
                         }
                         try target.quadShaded(gpa, positions, uvs, colors);
+
+                        if (overlaid) {
+                            var overlay_colors: [4][4]u8 = undefined;
+                            for (corner_brightness, 0..) |brightness, i| {
+                                overlay_colors[i] = shadeColor(face.shade * brightness, overlay_tint);
+                            }
+                            try target.quadShaded(gpa, positions, overlay_uvs, overlay_colors);
+                        }
                         continue;
                     }
 
@@ -570,6 +597,10 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                         world.light.brightnessAt(world_map, world_x + face.normal[0], world_y + face.normal[1], world_z + face.normal[2], emitted);
 
                     try target.quad(gpa, positions, uvs, shadeColor(face.shade * brightness, tint));
+
+                    if (overlaid) {
+                        try target.quad(gpa, positions, overlay_uvs, shadeColor(face.shade * brightness, overlay_tint));
+                    }
                 }
             }
         }
@@ -1195,4 +1226,93 @@ test "a torch samples only its own tile, with the tip taking the flame end of it
         try std.testing.expect(v.u >= uv.u0 + 7.0 / 256.0 - 1.0e-6);
         try std.testing.expect(v.u <= uv.u0 + 9.0 / 256.0 + 1.0e-6);
     }
+}
+
+test "fancy graphics lays a biome-tinted overlay over each grass side" {
+    const gpa = std.testing.allocator;
+    const table = try gpa.alloc([3]u8, 256 * 256);
+    defer gpa.free(table);
+    @memset(table, .{ 100, 200, 50 });
+    const colorizer: Colorizer = .{ .grass = table, .foliage = table };
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.grass);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var plain = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
+    defer plain.deinit(gpa);
+    var fancy = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{ .fancy = true });
+    defer fancy.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), plain.solid.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 10 * 4), fancy.solid.vertices.items.len);
+
+    const overlay = Atlas.tileUv(world.block.grass_side_overlay_tile);
+    const first_overlay = fancy.solid.vertices.items[3 * 4];
+    try std.testing.expectApproxEqAbs(overlay.u1, first_overlay.u, 1.0e-6);
+    try std.testing.expectEqual(shadeColor(0.8, .{ 100, 200, 50 }), first_overlay.color);
+    try std.testing.expectEqual(shadeColor(0.8, Colorizer.white), fancy.solid.vertices.items[2 * 4].color);
+}
+
+test "snow on top swaps the grass sides for the snow side, overlay and all" {
+    const gpa = std.testing.allocator;
+    const table = try gpa.alloc([3]u8, 256 * 256);
+    defer gpa.free(table);
+    @memset(table, .{ 100, 200, 50 });
+    const colorizer: Colorizer = .{ .grass = table, .foliage = table };
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.grass);
+    chunk.setBlock(8, 1, 8, world.Block.snow_layer);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{ .fancy = true });
+    defer mesh.deinit(gpa);
+
+    const snow_side = Atlas.tileUv(world.block.grassSideTile(world.Block.snow_layer));
+    var sides: usize = 0;
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.v >= snow_side.v0 - 1.0e-6 and vertex.v <= snow_side.v1 + 1.0e-6 and
+            vertex.u >= snow_side.u0 - 1.0e-6 and vertex.u <= snow_side.u1 + 1.0e-6)
+        {
+            sides += 1;
+        }
+    }
+    try std.testing.expect(sides >= 4 * 4);
+
+    const overlay = Atlas.tileUv(world.block.grass_side_overlay_tile);
+    for (mesh.solid.vertices.items) |vertex| {
+        const on_overlay = vertex.u >= overlay.u0 - 1.0e-6 and vertex.u <= overlay.u1 + 1.0e-6 and
+            vertex.v >= overlay.v0 - 1.0e-6 and vertex.v <= overlay.v1 + 1.0e-6;
+        try std.testing.expect(!on_overlay);
+    }
+}
+
+test "a snow layer's sides show only the top slice of its texture" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(0, 1, 0, world.Block.stone);
+    chunk.setBlock(0, 2, 0, world.Block.snow_layer);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.Block.snow_layer.faceTextures().get(.north));
+    const slice = uv.v0 + (uv.v1 - uv.v0) * world.Block.snow_layer.heightScale();
+
+    var found_side = false;
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.y > 2.0 and vertex.y < 2.125) continue;
+        if (vertex.y != 2.0) continue;
+        found_side = true;
+        try std.testing.expect(vertex.v <= slice + 1.0e-6);
+    }
+    try std.testing.expect(found_side);
 }

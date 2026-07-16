@@ -203,9 +203,7 @@ pub fn drawClouds(frame: Clouds, fancy: bool) !void {
         gl.ColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.FALSE);
         gpu.draw();
         gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
-        gl.DepthFunc(gl.LEQUAL);
         gpu.draw();
-        gl.DepthFunc(gl.LESS);
     } else {
         gpu.draw();
     }

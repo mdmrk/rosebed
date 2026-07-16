@@ -613,6 +613,17 @@ pub fn woolTile(metadata: u4) u8 {
     return 113 + ((inverted & 8) >> 3) + (inverted & 7) * 16;
 }
 
+pub const grass_side_tile: u8 = 3;
+pub const grass_side_overlay_tile: u8 = 38;
+const snow_side_tile: u8 = 68;
+
+pub fn grassSideTile(above: Block) u8 {
+    return switch (above.material()) {
+        .snow, .built_snow => snow_side_tile,
+        else => grass_side_tile,
+    };
+}
+
 pub fn logSideTile(metadata: u4) u8 {
     return switch (metadata) {
         1 => 116,
@@ -1102,4 +1113,11 @@ test "only air, liquids and snow give way to a block placed on top of them" {
     try std.testing.expect(!Block.stone.isReplaceable());
     try std.testing.expect(!Block.tall_grass.isReplaceable());
     try std.testing.expect(!Block.rose.isReplaceable());
+}
+
+test "grass wears the snow side texture when snow is piled on it" {
+    try std.testing.expectEqual(grass_side_tile, grassSideTile(Block.air));
+    try std.testing.expectEqual(grass_side_tile, grassSideTile(Block.stone));
+    try std.testing.expectEqual(@as(u8, 68), grassSideTile(Block.snow_layer));
+    try std.testing.expectEqual(@as(u8, 68), grassSideTile(Block.snow_block));
 }

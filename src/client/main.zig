@@ -354,6 +354,7 @@ pub fn init(
     app_state.selected_pack.set(render.texture_pack.default_name);
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
+    gl.DepthFunc(gl.LEQUAL);
 
     app_state.stats = try game.stats_file.load(gpa, io, game.stats_file.default_username);
     errdefer app_state.stats.deinit(gpa);
@@ -384,17 +385,6 @@ pub fn init(
     errdefer app_state.generator.deinit(gpa);
 
     return .{ app_state, .run };
-}
-
-fn faceOffset(face: world.Side) [3]i32 {
-    return switch (face) {
-        .down => .{ 0, -1, 0 },
-        .up => .{ 0, 1, 0 },
-        .north => .{ 0, 0, -1 },
-        .south => .{ 0, 0, 1 },
-        .west => .{ -1, 0, 0 },
-        .east => .{ 1, 0, 0 },
-    };
 }
 
 const missed_click_ticks = 10;
@@ -1281,14 +1271,14 @@ fn placeBlockAtTarget(app_state: *AppState) !void {
         .item => return,
     };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
-    const offset = faceOffset(hit.face);
-    const px = hit.x + offset[0];
-    const py = hit.y + offset[1];
-    const pz = hit.z + offset[2];
+    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    const px = target.x;
+    const py = target.y;
+    const pz = target.z;
     if (py < 0 or py >= world.constants.chunk_height) return;
     if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return;
     if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return;
-    const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, hit.face, stack.blockMeta());
+    const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
