@@ -149,8 +149,8 @@ pub fn decode(gpa: std.mem.Allocator, text: []const u8) !?stats.Stats {
     return loaded;
 }
 
-pub fn load(gpa: std.mem.Allocator, io: std.Io, username: []const u8) !stats.Stats {
-    var dir = std.Io.Dir.cwd().openDir(io, dir_name, .{}) catch return .{};
+pub fn load(gpa: std.mem.Allocator, io: std.Io, base: std.Io.Dir, username: []const u8) !stats.Stats {
+    var dir = base.openDir(io, dir_name, .{}) catch return .{};
     defer dir.close(io);
 
     for ([_][]const u8{ ".dat", ".old", ".tmp" }) |extension| {
@@ -173,8 +173,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, username: []const u8) !stats.Sta
     return .{};
 }
 
-pub fn save(gpa: std.mem.Allocator, io: std.Io, username: []const u8, source: *const stats.Stats) !void {
-    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, dir_name, .{});
+pub fn save(gpa: std.mem.Allocator, io: std.Io, base: std.Io.Dir, username: []const u8, source: *const stats.Stats) !void {
+    var dir = try base.createDirPathOpen(io, dir_name, .{});
     defer dir.close(io);
 
     const text = try encode(gpa, username, source);

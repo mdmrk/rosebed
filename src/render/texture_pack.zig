@@ -163,8 +163,8 @@ fn nameLess(_: void, a: Pack, b: Pack) bool {
     return std.mem.lessThan(u8, a.name, b.name);
 }
 
-pub fn open(io: std.Io) !std.Io.Dir {
-    return std.Io.Dir.cwd().createDirPathOpen(io, folder_name, .{ .open_options = .{ .iterate = true } });
+pub fn open(io: std.Io, base: std.Io.Dir) !std.Io.Dir {
+    return base.createDirPathOpen(io, folder_name, .{ .open_options = .{ .iterate = true } });
 }
 
 pub fn scan(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) ![]Pack {

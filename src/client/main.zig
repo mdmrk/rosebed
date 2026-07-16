@@ -122,6 +122,8 @@ const AppState = struct {
     crafting_grid: [game.crafting.player_grid_size * game.crafting.player_grid_size]?game.Inventory.ItemStack = @splat(null),
     workbench_grid: [game.crafting.workbench_grid_size * game.crafting.workbench_grid_size]?game.Inventory.ItemStack = @splat(null),
     io: std.Io,
+    base_path: [:0]const u8,
+    base_dir: std.Io.Dir,
     saves_dir: std.Io.Dir,
     packs_dir: std.Io.Dir,
     packs: []render.texture_pack.Pack = &.{},
@@ -329,8 +331,10 @@ pub fn init(
     frame_arena = .init(gpa);
     io_threaded = .init(gpa, .{});
     const io = io_threaded.io();
-    const saves_dir = try world.save.openSavesDir(io);
-    const packs_dir = try render.texture_pack.open(io);
+    const base_path = try sdl3.filesystem.getBasePath();
+    const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
+    const saves_dir = try world.save.openSavesDir(io, base_dir);
+    const packs_dir = try render.texture_pack.open(io, base_dir);
 
     var app_state: AppState = .{
         .gpa = gpa,
@@ -349,6 +353,8 @@ pub fn init(
         .world_map = world.World.init(gpa),
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
         .io = io,
+        .base_path = base_path,
+        .base_dir = base_dir,
         .saves_dir = saves_dir,
         .packs_dir = packs_dir,
     };
@@ -357,7 +363,7 @@ pub fn init(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     gl.DepthFunc(gl.LEQUAL);
 
-    app_state.stats = try game.stats_file.load(gpa, io, game.stats_file.default_username);
+    app_state.stats = try game.stats_file.load(gpa, io, base_dir, game.stats_file.default_username);
     errdefer app_state.stats.deinit(gpa);
 
     app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
@@ -753,7 +759,7 @@ fn togglePause(app_state: *AppState) !void {
 
 fn quitToTitle(app_state: *AppState) !void {
     try app_state.stats.add(app_state.gpa, .{ .general = .leave_game }, 1);
-    game.stats_file.save(app_state.gpa, app_state.io, game.stats_file.default_username, &app_state.stats) catch {};
+    game.stats_file.save(app_state.gpa, app_state.io, app_state.base_dir, game.stats_file.default_username, &app_state.stats) catch {};
     if (app_state.save_handle != null) try saveWorld(app_state);
     closeWorld(app_state);
     app_state.screen = .title;
@@ -843,10 +849,7 @@ fn texturePacksClick(app_state: *AppState) !void {
 }
 
 fn openTexturePackFolder(app_state: *AppState) void {
-    const cwd = sdl3.filesystem.getCurrentDirectory() catch return;
-    defer sdl3.free(cwd.ptr);
-
-    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ cwd, render.texture_pack.folder_name }, 0) catch return;
+    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, render.texture_pack.folder_name }, 0) catch return;
     sdl3.openURL(url) catch {};
 }
 
@@ -2172,7 +2175,7 @@ pub fn quit(
 
     if (app_state) |state| {
         gl.makeProcTableCurrent(&state.gl_procs);
-        game.stats_file.save(state.gpa, state.io, game.stats_file.default_username, &state.stats) catch {};
+        game.stats_file.save(state.gpa, state.io, state.base_dir, game.stats_file.default_username, &state.stats) catch {};
         state.stats_view.deinit(state.gpa);
         state.stats.deinit(state.gpa);
         if (state.save_handle != null) saveWorld(state) catch {};
@@ -2181,6 +2184,7 @@ pub fn quit(
         freeTexturePacks(state);
         state.saves_dir.close(state.io);
         state.packs_dir.close(state.io);
+        state.base_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.entities.deinit(state.gpa);
         state.world_map.deinit();

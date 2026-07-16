@@ -94,8 +94,8 @@ pub fn sanitizeFolderName(buffer: []u8, name: []const u8) []u8 {
     return cleaned;
 }
 
-pub fn openSavesDir(io: std.Io) !std.Io.Dir {
-    return std.Io.Dir.cwd().createDirPathOpen(io, saves_dir_name, .{ .open_options = .{ .iterate = true } });
+pub fn openSavesDir(io: std.Io, base: std.Io.Dir) !std.Io.Dir {
+    return base.createDirPathOpen(io, saves_dir_name, .{ .open_options = .{ .iterate = true } });
 }
 
 pub fn folderTaken(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) bool {
