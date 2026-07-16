@@ -397,11 +397,25 @@ pub fn init(
 
 const missed_click_ticks = 10;
 
-fn clickLeft(app_state: *AppState) void {
+fn clickLeft(app_state: *AppState) !void {
     if (app_state.missed_click_cooldown > 0) return;
     app_state.player.swingItem();
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance);
-    if (hit == null) app_state.missed_click_cooldown = missed_click_ticks;
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+        app_state.missed_click_cooldown = missed_click_ticks;
+        return;
+    };
+    if (app_state.digging != null) return;
+    switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
+        .door_wood => {
+            try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try applyBlockChanges(app_state);
+        },
+        .trapdoor => {
+            try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try applyBlockChanges(app_state);
+        },
+        else => {},
+    }
 }
 
 fn digStep(app_state: *AppState) !void {
@@ -1352,16 +1366,43 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
             try openFurnace(app_state, hit.x, hit.y, hit.z);
             return true;
         },
+        .door_wood => {
+            try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try applyBlockChanges(app_state);
+            return true;
+        },
+        .door_iron => return true,
+        .trapdoor => {
+            try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try applyBlockChanges(app_state);
+            return true;
+        },
         else => {},
     }
     return placeBlockAtTarget(app_state);
+}
+
+fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
+    const placed: world.Block = switch (held) {
+        .door_wood => .door_wood,
+        .door_iron => .door_iron,
+        else => return false,
+    };
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+    if (hit.face != .up) return false;
+    if (!try world.block_update.placeDoor(&app_state.world_map, hit.x, hit.y + 1, hit.z, placed, app_state.player.yaw)) return false;
+
+    try app_state.stats.use(app_state.gpa, .{ .item = held });
+    consumeSelectedStack(app_state);
+    try applyBlockChanges(app_state);
+    return true;
 }
 
 fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
         .block => |b| b,
-        .item => return false,
+        .item => |held| return placeDoorAtTarget(app_state, held),
     };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
     const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
@@ -1370,7 +1411,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const pz = target.z;
     if (py < 0 or py >= world.constants.chunk_height) return false;
     if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return false;
-    if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return false;
+    if (!world.block_update.canPlaceOnSide(&app_state.world_map, px, py, pz, placed, target.face)) return false;
     const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     if (placed == .furnace) {
@@ -1437,7 +1478,7 @@ fn tick(app_state: *AppState) !void {
     }
     if (app_state.missed_click_cooldown > 0) app_state.missed_click_cooldown -= 1;
     if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
-        clickLeft(app_state);
+        try clickLeft(app_state);
         app_state.last_held_swing_tick = app_state.tick_count;
     }
     app_state.player.tickSwing();
@@ -2226,7 +2267,7 @@ pub fn event(
             } else {
                 app_state.mouse_left_down = true;
                 app_state.last_held_swing_tick = app_state.tick_count;
-                clickLeft(app_state);
+                try clickLeft(app_state);
             },
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);

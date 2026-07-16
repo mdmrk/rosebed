@@ -195,6 +195,9 @@ pub fn tracksMining(id: world.Id) bool {
         .leaves,
         .mob_spawner,
         .reed,
+        .door_wood,
+        .door_iron,
+        .trapdoor,
         => false,
         else => block.displayName().len > 0,
     };

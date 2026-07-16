@@ -229,4 +229,3 @@ test "standing inside a plant still targets it, by the face the ray leaves throu
     try std.testing.expectEqual(@as(i32, 5), hit.y);
     try std.testing.expectEqual(world.Side.down, hit.face);
 }
-

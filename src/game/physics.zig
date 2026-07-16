@@ -4,6 +4,25 @@ const world = @import("world");
 
 const max_colliding_boxes = 64;
 
+fn blockBox(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32) math.AABB {
+    const fx: f64 = @floatFromInt(x);
+    const fy: f64 = @floatFromInt(y);
+    const fz: f64 = @floatFromInt(z);
+    const bounds = switch (id.shape()) {
+        .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
+        .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
+        else => return math.AABB.init(fx, fy, fz, fx + 1, fy + 1, fz + 1),
+    };
+    return math.AABB.init(
+        fx + bounds.min[0],
+        fy + bounds.min[1],
+        fz + bounds.min[2],
+        fx + bounds.max[0],
+        fy + bounds.max[1],
+        fz + bounds.max[2],
+    );
+}
+
 fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_colliding_boxes]math.AABB) usize {
     const min_x = math.util.floorDouble(query.min_x);
     const max_x = math.util.floorDouble(query.max_x);
@@ -21,10 +40,7 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
             while (z <= max_z) : (z += 1) {
                 const id = world_map.getBlock(x, y, z);
                 if (id.isSolid() and count < max_colliding_boxes) {
-                    const fx: f64 = @floatFromInt(x);
-                    const fy: f64 = @floatFromInt(y);
-                    const fz: f64 = @floatFromInt(z);
-                    out[count] = math.AABB.init(fx, fy, fz, fx + 1, fy + 1, fz + 1);
+                    out[count] = blockBox(world_map, id, x, y, z);
                     count += 1;
                 }
             }
@@ -397,4 +413,57 @@ test "stepping out of water needs a free, dry space to move into" {
     const box = math.AABB.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3);
     try std.testing.expect(!isOffsetPositionInLiquid(&w, box, 0, 0, 0));
     try std.testing.expect(isOffsetPositionInLiquid(&w, box, 0, 4.0, 0));
+}
+
+test "a closed door stops an entity walking into it" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, world.Block.door_wood, 180));
+
+    const closed = world.block.doorBounds(w.getBlockMetadata(8, 1, 8));
+    const aabb = math.AABB.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
+    const blocked = moveEntity(&w, aabb, 0, 0, 2.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0) + @as(f64, closed.min[2]), blocked.aabb.max_z, 1.0e-9);
+}
+
+test "an open door leaves the doorway clear" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, world.Block.door_wood, 180));
+    try world.block_update.toggleDoor(&w, 8, 1, 8);
+
+    const aabb = math.AABB.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
+    const through = moveEntity(&w, aabb, 0, 0, 2.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), through.dz, 1.0e-9);
+}
+
+fn trapdoorWorld(metadata: u4) !world.World {
+    var w = try testWorldWithFloor(1);
+    errdefer w.deinit();
+    w.setBlock(8, 1, 9, world.Block.stone);
+    try w.setBlockAndMetadataWithNotify(8, 1, 8, world.Block.trapdoor, metadata);
+    return w;
+}
+
+test "a shut trapdoor is a floor an entity lands on" {
+    var w = try trapdoorWorld(0);
+    defer w.deinit();
+
+    const aabb = math.AABB.init(8.2, 2.0, 7.9, 8.8, 3.8, 8.5);
+    const landed = moveEntity(&w, aabb, 0, -1.0, 0);
+    try std.testing.expectApproxEqAbs(1.0 + @as(f64, world.block.trapdoor_thickness), landed.aabb.min_y, 1.0e-9);
+}
+
+test "an open trapdoor drops an entity through and bars the way instead" {
+    var w = try trapdoorWorld(world.block.trapdoor_open_bit);
+    defer w.deinit();
+
+    const above = math.AABB.init(8.2, 2.0, 7.9, 8.8, 3.8, 8.5);
+    const fell = moveEntity(&w, above, 0, -1.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), fell.aabb.min_y, 1.0e-9);
+
+    const beside = math.AABB.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
+    const blocked = moveEntity(&w, beside, 0, 0, 2.0);
+    const bounds = world.block.trapdoorBounds(world.block.trapdoor_open_bit);
+    try std.testing.expectApproxEqAbs(8.0 + @as(f64, bounds.min[2]), blocked.aabb.max_z, 1.0e-9);
 }

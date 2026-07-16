@@ -2,6 +2,7 @@ const std = @import("std");
 const World = @import("world_map.zig");
 const block = @import("block.zig");
 const Block = block.Block;
+const constants = @import("constants.zig");
 const light = @import("light.zig");
 
 const fall_check_radius: i32 = 32;
@@ -63,7 +64,87 @@ fn torchCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
     return torchHolds(world_map, x, y, z, metadata);
 }
 
+fn doorCanStay(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
+    if (block.doorIsTop(world_map.getBlockMetadata(x, y, z))) {
+        return world_map.getBlock(x, y - 1, z) == id;
+    }
+    return world_map.getBlock(x, y + 1, z) == id and world_map.getBlock(x, y - 1, z).isOpaqueCube();
+}
+
+fn normalCubesBeside(world_map: *const World, x: i32, y: i32, z: i32) u8 {
+    var count: u8 = 0;
+    if (world_map.getBlock(x, y, z).isOpaqueCube()) count += 1;
+    if (world_map.getBlock(x, y + 1, z).isOpaqueCube()) count += 1;
+    return count;
+}
+
+fn doorBeside(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
+    return world_map.getBlock(x, y, z) == id or world_map.getBlock(x, y + 1, z) == id;
+}
+
+pub fn canPlaceDoorAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    if (y < 1 or y + 1 >= constants.chunk_height) return false;
+    if (!world_map.getBlock(x, y - 1, z).isOpaqueCube()) return false;
+    return world_map.getBlock(x, y, z).isReplaceable() and world_map.getBlock(x, y + 1, z).isReplaceable();
+}
+
+pub fn placeDoor(world_map: *World, x: i32, y: i32, z: i32, id: Block, yaw: f32) !bool {
+    if (!canPlaceDoorAt(world_map, x, y, z)) return false;
+
+    const facing = block.doorFacingFromYaw(yaw);
+    const step = block.doorHingeStep(facing);
+    const behind_x = x - step[0];
+    const behind_z = z - step[1];
+    const ahead_x = x + step[0];
+    const ahead_z = z + step[1];
+
+    const behind_solid = normalCubesBeside(world_map, behind_x, y, behind_z);
+    const ahead_solid = normalCubesBeside(world_map, ahead_x, y, ahead_z);
+    const behind_door = doorBeside(world_map, behind_x, y, behind_z, id);
+    const ahead_door = doorBeside(world_map, ahead_x, y, ahead_z, id);
+
+    const hinged_right = (behind_door and !ahead_door) or ahead_solid > behind_solid;
+    const metadata: u4 = if (hinged_right)
+        (@as(u4, facing) -% 1 & 3) + block.door_open_bit
+    else
+        facing;
+
+    try world_map.setBlockAndMetadataWithNotify(x, y, z, id, metadata);
+    try world_map.setBlockAndMetadataWithNotify(x, y + 1, z, id, metadata + block.door_top_bit);
+    return true;
+}
+
+pub fn toggleDoor(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(x, y, z);
+    const metadata = world_map.getBlockMetadata(x, y, z);
+
+    if (block.doorIsTop(metadata)) {
+        if (world_map.getBlock(x, y - 1, z) == id) try toggleDoor(world_map, x, y - 1, z);
+        return;
+    }
+
+    if (world_map.getBlock(x, y + 1, z) == id) {
+        try world_map.setBlockMetadataWithNotify(x, y + 1, z, (metadata ^ block.door_open_bit) + block.door_top_bit);
+    }
+    try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.door_open_bit);
+}
+
+fn trapdoorHolds(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4) bool {
+    const step = block.trapdoorSupportStep(metadata);
+    return world_map.getBlock(x + step[0], y + step[1], z + step[2]).isOpaqueCube();
+}
+
+fn trapdoorCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return trapdoorHolds(world_map, x, y, z, world_map.getBlockMetadata(x, y, z));
+}
+
+pub fn toggleTrapdoor(world_map: *World, x: i32, y: i32, z: i32) !void {
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.trapdoor_open_bit);
+}
+
 pub fn placementMetadata(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side, metadata: u4) u4 {
+    if (id == .trapdoor) return block.trapdoorFacingFromFace(face) orelse 0;
     if (id != .torch) return metadata;
 
     const facing: u4 = switch (face) {
@@ -88,6 +169,8 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .cactus => cactusCanStay(world_map, x, y, z),
         .snow_layer => world_map.getBlock(x, y - 1, z).isOpaqueCube(),
         .torch => torchCanStay(world_map, x, y, z),
+        .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
+        .trapdoor => trapdoorCanStay(world_map, x, y, z),
         else => true,
     };
 }
@@ -118,6 +201,12 @@ pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bo
         .torch => torchAnySupport(world_map, x, y, z) != null,
         else => canStayAt(world_map, x, y, z, id),
     };
+}
+
+pub fn canPlaceOnSide(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side) bool {
+    if (id != .trapdoor) return canPlaceAt(world_map, x, y, z, id);
+    const facing = block.trapdoorFacingFromFace(face) orelse return false;
+    return trapdoorHolds(world_map, x, y, z, facing);
 }
 
 pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
@@ -417,6 +506,213 @@ test "a torch is no support for another torch, only a normal cube is" {
     try w.setBlockAndMetadataWithNotify(9, 13, 8, .torch, 1);
     try std.testing.expect(!canPlaceAt(&w, 10, 13, 8, .torch));
     try std.testing.expect(!canPlaceAt(&w, 9, 14, 8, .torch));
+}
+
+fn doorWorld() !World {
+    return testing_world.flatWorld(std.testing.allocator, 12);
+}
+
+test "a door goes up as two halves, the upper one flagged in its metadata" {
+    var w = try doorWorld();
+    defer w.deinit();
+
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+
+    try std.testing.expectEqual(Block.door_wood, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(Block.door_wood, w.getBlock(8, 13, 8));
+    const lower = w.getBlockMetadata(8, 12, 8);
+    try std.testing.expect(!block.doorIsTop(lower));
+    try std.testing.expectEqual(lower + block.door_top_bit, w.getBlockMetadata(8, 13, 8));
+    try std.testing.expectEqual(block.doorFacingFromYaw(0), @as(u2, @truncate(lower)));
+}
+
+test "a door needs a normal cube under it and two free cells above" {
+    var w = try doorWorld();
+    defer w.deinit();
+
+    try std.testing.expect(canPlaceDoorAt(&w, 8, 12, 8));
+
+    w.setBlock(8, 13, 8, .stone);
+    try std.testing.expect(!canPlaceDoorAt(&w, 8, 12, 8));
+    w.setBlock(8, 13, 8, .air);
+
+    w.setBlock(8, 11, 8, .glass);
+    try std.testing.expect(!canPlaceDoorAt(&w, 8, 12, 8));
+
+    w.setBlock(8, 11, 8, .air);
+    try std.testing.expect(!canPlaceDoorAt(&w, 8, 12, 8));
+    try std.testing.expect(!try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+}
+
+test "a door hung beside another one takes the opposite hinge" {
+    var w = try doorWorld();
+    defer w.deinit();
+
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+    const first = w.getBlockMetadata(8, 12, 8);
+
+    const step = block.doorHingeStep(block.doorFacingFromYaw(0));
+    const beside_x = 8 + step[0];
+    const beside_z = 8 + step[1];
+    try std.testing.expect(try placeDoor(&w, beside_x, 12, beside_z, .door_wood, 0));
+
+    const second = w.getBlockMetadata(beside_x, 12, beside_z);
+    try std.testing.expect(!block.doorIsOpen(first));
+    try std.testing.expect(block.doorIsOpen(second));
+    try std.testing.expectEqual(block.doorState(first), block.doorState(second));
+}
+
+test "a wall on one side of the doorway pushes the hinge to the other" {
+    var w = try doorWorld();
+    defer w.deinit();
+
+    const step = block.doorHingeStep(block.doorFacingFromYaw(0));
+    w.setBlock(8 + step[0], 12, 8 + step[1], .stone);
+    w.setBlock(8 + step[0], 13, 8 + step[1], .stone);
+
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+    try std.testing.expect(block.doorIsOpen(w.getBlockMetadata(8, 12, 8)));
+}
+
+test "opening a door from either half swings both of them" {
+    var w = try doorWorld();
+    defer w.deinit();
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+    const closed = w.getBlockMetadata(8, 12, 8);
+
+    try toggleDoor(&w, 8, 13, 8);
+    try std.testing.expectEqual(closed ^ block.door_open_bit, w.getBlockMetadata(8, 12, 8));
+    try std.testing.expectEqual((closed ^ block.door_open_bit) + block.door_top_bit, w.getBlockMetadata(8, 13, 8));
+
+    try toggleDoor(&w, 8, 12, 8);
+    try std.testing.expectEqual(closed, w.getBlockMetadata(8, 12, 8));
+    try std.testing.expectEqual(closed + block.door_top_bit, w.getBlockMetadata(8, 13, 8));
+}
+
+test "an open door stands across the doorway it filled when closed" {
+    var w = try doorWorld();
+    defer w.deinit();
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+
+    const closed = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+    try toggleDoor(&w, 8, 12, 8);
+    const opened = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+
+    try std.testing.expect(closed.max[0] - closed.min[0] != opened.max[0] - opened.min[0]);
+}
+
+test "breaking one half of a door takes the other, dropping a single door" {
+    var w = try doorWorld();
+    defer w.deinit();
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+
+    try w.setBlockWithNotify(8, 13, 8, .air);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expectEqual(block.Id{ .item = .door_wood }, w.dropped.items[0].stack.id);
+}
+
+test "breaking the lower half leaves nothing for the upper one to drop" {
+    var w = try doorWorld();
+    defer w.deinit();
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_iron, 0));
+
+    try w.setBlockWithNotify(8, 12, 8, .air);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
+}
+
+test "digging out the block under a door drops the door and clears both halves" {
+    var w = try doorWorld();
+    defer w.deinit();
+    try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
+
+    try w.setBlockWithNotify(8, 11, 8, .air);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expectEqual(block.Id{ .item = .door_wood }, w.dropped.items[0].stack.id);
+}
+
+fn trapdoorWorld() !World {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    errdefer w.deinit();
+    w.setBlock(8, 12, 9, .stone);
+    return w;
+}
+
+test "a trapdoor takes its hinge from the wall it was clicked onto" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(u4, 0), placementMetadata(&w, 8, 12, 8, .trapdoor, .north, 0));
+    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, 8, 12, 10, .trapdoor, .south, 0));
+    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, 7, 12, 9, .trapdoor, .west, 0));
+    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, 9, 12, 9, .trapdoor, .east, 0));
+}
+
+test "a trapdoor only goes on a wall, never on a floor or a ceiling" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+
+    try std.testing.expect(canPlaceOnSide(&w, 8, 12, 8, .trapdoor, .north));
+    try std.testing.expect(!canPlaceOnSide(&w, 8, 12, 8, .trapdoor, .up));
+    try std.testing.expect(!canPlaceOnSide(&w, 8, 12, 8, .trapdoor, .down));
+    try std.testing.expect(!canPlaceOnSide(&w, 8, 12, 8, .trapdoor, .south));
+
+    try std.testing.expect(canPlaceOnSide(&w, 8, 13, 8, .stone, .up));
+}
+
+test "a glass wall is no support for a trapdoor" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+    w.setBlock(8, 12, 9, .glass);
+
+    try std.testing.expect(!canPlaceOnSide(&w, 8, 12, 8, .trapdoor, .north));
+}
+
+test "swinging a trapdoor keeps the wall it hangs on" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .trapdoor, 0);
+
+    try toggleTrapdoor(&w, 8, 12, 8);
+    try std.testing.expectEqual(block.trapdoor_open_bit, w.getBlockMetadata(8, 12, 8));
+    try std.testing.expect(block.trapdoorIsOpen(w.getBlockMetadata(8, 12, 8)));
+    try std.testing.expectEqual(Block.trapdoor, w.getBlock(8, 12, 8));
+
+    try toggleTrapdoor(&w, 8, 12, 8);
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
+}
+
+test "a trapdoor pops when the wall behind it goes" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .trapdoor, 0);
+    try std.testing.expect(canStayAt(&w, 8, 12, 8, .trapdoor));
+
+    try w.setBlockWithNotify(8, 11, 8, .air);
+    try std.testing.expectEqual(Block.trapdoor, w.getBlock(8, 12, 8));
+
+    try w.setBlockWithNotify(8, 12, 9, .air);
+
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expectEqual(block.Id{ .block = .trapdoor }, w.dropped.items[0].stack.id);
+}
+
+test "an open trapdoor still watches the same wall" {
+    var w = try trapdoorWorld();
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .trapdoor, block.trapdoor_open_bit);
+
+    try std.testing.expect(canStayAt(&w, 8, 12, 8, .trapdoor));
+    try w.setBlockWithNotify(8, 12, 9, .air);
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
 }
 
 test "a block placed against a face lands in the cell beyond it" {

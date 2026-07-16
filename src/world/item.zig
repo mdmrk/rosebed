@@ -221,6 +221,8 @@ pub const Item = enum(u16) {
     flint = 318,
     pork_raw = 319,
     pork_cooked = 320,
+    door_wood = 324,
+    door_iron = 330,
     redstone = 331,
     snowball = 332,
     leather = 334,
@@ -305,6 +307,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
+        if (self == .door_wood or self == .door_iron) return 1;
         return if (self.isDamageable()) 1 else 64;
     }
 
@@ -385,6 +388,8 @@ pub const Item = enum(u16) {
             .flint => 6,
             .pork_raw => 5 * 16 + 7,
             .pork_cooked => 5 * 16 + 8,
+            .door_wood => 2 * 16 + 11,
+            .door_iron => 2 * 16 + 12,
             .redstone => 3 * 16 + 8,
             .snowball => 14,
             .brick => 1 * 16 + 6,
@@ -466,6 +471,8 @@ pub const Item = enum(u16) {
             .flint => "Flint",
             .pork_raw => "Raw Porkchop",
             .pork_cooked => "Cooked Porkchop",
+            .door_wood => "Wooden Door",
+            .door_iron => "Iron Door",
             .redstone => "Redstone",
             .snowball => "Snowball",
             .brick => "Brick",
@@ -579,4 +586,13 @@ test "dye icons step through items.png the way getIconFromDamage does" {
     try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
     try std.testing.expectEqual(@as(?u8, 142), Item.dye.iconTile(dye_meta_lapis));
     try std.testing.expectEqual(@as(?u8, 191), Item.dye.iconTile(15));
+}
+
+test "door items carry one to a stack and match their items.png coordinates" {
+    try std.testing.expectEqual(@as(u8, 1), Item.door_wood.maxStackSize());
+    try std.testing.expectEqual(@as(u8, 1), Item.door_iron.maxStackSize());
+    try std.testing.expectEqual(@as(?u8, 43), Item.door_wood.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 44), Item.door_iron.iconTile(0));
+    try std.testing.expectEqualStrings("Wooden Door", Item.door_wood.displayName(0));
+    try std.testing.expectEqualStrings("Iron Door", Item.door_iron.displayName(0));
 }

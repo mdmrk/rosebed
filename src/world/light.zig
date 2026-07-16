@@ -13,6 +13,7 @@ pub fn opacity(id: Block) u8 {
     return switch (id) {
         Block.flowing_water, Block.stationary_water, Block.ice => 3,
         Block.leaves => 1,
+        Block.door_wood, Block.door_iron, Block.trapdoor => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }
@@ -374,4 +375,26 @@ test "a torch lights the block it sits in and fades by one per step" {
     try std.testing.expectEqual(@as(u4, 13), world_map.getBlockLight(9, 12, 8));
     try std.testing.expectEqual(@as(u4, 12), world_map.getBlockLight(10, 12, 8));
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockLight(8, 11, 8));
+}
+
+test "a door casts no shadow, so daylight reaches the floor of the doorway" {
+    const gpa = std.testing.allocator;
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 13, 8, Block.door_wood);
+    chunk.setBlockMetadata(8, 13, 8, 1 | block.door_top_bit);
+    chunk.setBlock(8, 12, 8, Block.door_wood);
+    chunk.setBlockMetadata(8, 12, 8, 1);
+
+    try relightChunk(gpa, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u8, 0), opacity(Block.door_wood));
+    try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 12, 8));
+    try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 13, 8));
 }

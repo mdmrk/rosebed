@@ -326,6 +326,143 @@ fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4
     }, uvs, color);
 }
 
+fn boxCorner(origin: [3]f32, bounds: world.block.Bounds, corner: [3]f32) [3]f32 {
+    var out: [3]f32 = undefined;
+    for (0..3) |axis| {
+        out[axis] = origin[axis] + (if (corner[axis] == 0) bounds.min[axis] else bounds.max[axis]);
+    }
+    return out;
+}
+
+pub fn croppedUv(edge: f32, opposite: f32, bounds: world.block.Bounds, axis: u2, corner: f32) f32 {
+    const inset = if (corner == 0) bounds.min[axis] else 1.0 - bounds.max[axis];
+    return edge + inset * (opposite - edge);
+}
+
+fn reachesFace(bounds: world.block.Bounds, side: world.Side) bool {
+    return switch (side) {
+        .down => bounds.min[1] == 0.0,
+        .up => bounds.max[1] == 1.0,
+        .north => bounds.min[2] == 0.0,
+        .south => bounds.max[2] == 1.0,
+        .west => bounds.min[0] == 0.0,
+        .east => bounds.max[0] == 1.0,
+    };
+}
+
+const BoxQuad = struct { positions: [4][3]f32, uvs: [4][2]f32 };
+
+fn boxFaceQuad(bounds: world.block.Bounds, origin: [3]f32, face: FaceDir, tile: u8, mirrored: bool) BoxQuad {
+    const uv = Atlas.tileUv(tile);
+    const u_far = if (mirrored) uv.u0 else uv.u1;
+    const u_near = if (mirrored) uv.u1 else uv.u0;
+
+    var quad: BoxQuad = undefined;
+    for (face.corners, 0..) |corner, i| {
+        quad.positions[i] = boxCorner(origin, bounds, corner);
+        const u_edge = if (i < 2) u_far else u_near;
+        const v_edge = if (i == 0 or i == 3) uv.v1 else uv.v0;
+        quad.uvs[i] = .{
+            croppedUv(u_edge, if (i < 2) u_near else u_far, bounds, face.axis_u, corner[face.axis_u]),
+            croppedUv(v_edge, if (i == 0 or i == 3) uv.v0 else uv.v1, bounds, face.axis_v, corner[face.axis_v]),
+        };
+    }
+    return quad;
+}
+
+pub fn buildBoxCube(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    center: [3]f32,
+    size: f32,
+    bounds: world.block.Bounds,
+    face_textures: world.block.FaceTextures,
+    inset: f32,
+) !void {
+    for (faces) |face| {
+        const quad = boxFaceQuad(bounds, .{ 0, 0, 0 }, face, face_textures.get(face.side), false);
+        var positions = quad.positions;
+        for (&positions) |*position| {
+            for (0..3) |axis| position[axis] = center[axis] + (position[axis] - 0.5) * size;
+            position[0] = pulledInward(position[0], face.normal[0], inset);
+            position[2] = pulledInward(position[2], face.normal[2], inset);
+        }
+        try mesh.quad(gpa, positions, quad.uvs, shadeColor(face.shade, Colorizer.white));
+    }
+}
+
+fn buildDoor(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+) !void {
+    const bounds = world.block.doorBounds(metadata);
+    const emitted = world.light.emission(id);
+    const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
+
+    for (faces) |face| {
+        const door_face = world.block.doorFaceTile(id, face.side, metadata);
+        const quad = boxFaceQuad(bounds, origin, face, door_face.tile, door_face.mirrored);
+
+        const brightness = if (reachesFace(bounds, face.side))
+            world.light.brightnessAt(world_map, x + face.normal[0], y + face.normal[1], z + face.normal[2], emitted)
+        else
+            own_brightness;
+
+        try mesh.quad(gpa, quad.positions, quad.uvs, shadeColor(face.shade * brightness, Colorizer.white));
+    }
+}
+
+fn buildTrapdoor(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const bounds = world.block.trapdoorBounds(metadata);
+    const tile = id.faceTextures().get(.down);
+    const emitted = world.light.emission(id);
+    const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
+
+    for (faces) |face| {
+        const nx = x + face.normal[0];
+        const ny = y + face.normal[1];
+        const nz = z + face.normal[2];
+        const reaches = reachesFace(bounds, face.side);
+        if (reaches and !id.shouldRenderFace(world_map.getBlock(nx, ny, nz), face.side, options.fancy)) continue;
+
+        const quad = boxFaceQuad(bounds, origin, face, tile, false);
+
+        if (options.smooth and reaches) {
+            const corner_brightness = smoothBrightness(world_map, face, x, y, z, emitted);
+            var colors: [4][4]u8 = undefined;
+            for (corner_brightness, 0..) |brightness, i| {
+                colors[i] = shadeColor(face.shade * brightness, Colorizer.white);
+            }
+            try mesh.quadShaded(gpa, quad.positions, quad.uvs, colors);
+            continue;
+        }
+
+        const brightness = if (reaches)
+            world.light.brightnessAt(world_map, nx, ny, nz, emitted)
+        else
+            own_brightness;
+        try mesh.quad(gpa, quad.positions, quad.uvs, shadeColor(face.shade * brightness, Colorizer.white));
+    }
+}
+
 fn fluidBrightness(world_map: *const world.World, x: i32, y: i32, z: i32, minimum: u4) f32 {
     return @max(
         world.light.brightnessAt(world_map, x, y, z, minimum),
@@ -519,6 +656,16 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 
                 if (id.shape() == .torch) {
                     try buildTorch(target, gpa, id.faceTextures().get(.down), metadata, bx, by, bz);
+                    continue;
+                }
+
+                if (id.isDoor()) {
+                    try buildDoor(target, gpa, world_map, id, metadata, world_x, world_y, world_z, .{ bx, by, bz });
+                    continue;
+                }
+
+                if (id.isTrapdoor()) {
+                    try buildTrapdoor(target, gpa, world_map, id, metadata, world_x, world_y, world_z, .{ bx, by, bz }, options);
                     continue;
                 }
 
@@ -1107,7 +1254,6 @@ test "a flowing surface slopes across the block, a level one does not" {
     try std.testing.expect(highest < 2.0);
 }
 
-
 fn torchMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
     chunk.setBlock(8, 1, 8, world.Block.torch);
@@ -1317,4 +1463,264 @@ test "a snow layer's sides show only the top slice of its texture" {
         try std.testing.expect(vertex.v <= slice + 1.0e-6);
     }
     try std.testing.expect(found_side);
+}
+
+fn doorMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(8, 1, 8, world.Block.door_wood);
+    chunk.setBlockMetadata(8, 1, 8, metadata);
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+}
+
+test "a door keeps all six faces, thin across the way it hangs" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try doorMesh(gpa, &world_map, 1);
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
+
+    const across = spanOf(mesh, 2);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), across[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(8.0 + world.block.door_thickness, across[1], 1.0e-5);
+
+    const along = spanOf(mesh, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), along[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), along[1], 1.0e-5);
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), upright[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), upright[1], 1.0e-5);
+}
+
+test "opening a door swings its mesh onto the other axis" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try doorMesh(gpa, &world_map, 1 | world.block.door_open_bit);
+    defer mesh.deinit(gpa);
+
+    const across = spanOf(mesh, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0) - world.block.door_thickness, across[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), across[1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), spanOf(mesh, 2)[1] - spanOf(mesh, 2)[0], 1.0e-5);
+}
+
+test "a door's narrow sides sample only the slice of the tile they cover" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try doorMesh(gpa, &world_map, 1);
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
+    const slice = (uv.u1 - uv.u0) * world.block.door_thickness;
+
+    const west = mesh.solid.vertices.items[4 * 4 ..][0..4];
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (west) |vertex| {
+        try std.testing.expect(vertex.u >= uv.u0 - 1.0e-6 and vertex.u <= uv.u1 + 1.0e-6);
+        lowest = @min(lowest, vertex.u);
+        highest = @max(highest, vertex.u);
+    }
+    try std.testing.expectApproxEqAbs(slice, highest - lowest, 1.0e-6);
+}
+
+fn uvAtLowestX(quad: []const MeshBuilder.Vertex) f32 {
+    var lowest = quad[0];
+    for (quad) |vertex| {
+        if (vertex.x < lowest.x) lowest = vertex;
+    }
+    return lowest.u;
+}
+
+test "a door's two faces keep the same side of the tile facing the same way" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try doorMesh(gpa, &world_map, 1);
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
+    const north = uvAtLowestX(mesh.solid.vertices.items[2 * 4 ..][0..4]);
+    const south = uvAtLowestX(mesh.solid.vertices.items[3 * 4 ..][0..4]);
+
+    try std.testing.expectApproxEqAbs(uv.u1, north, 1.0e-6);
+    try std.testing.expectApproxEqAbs(uv.u1, south, 1.0e-6);
+}
+
+fn trapdoorMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, options: Options) !Mesh {
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(8, 1, 8, world.Block.trapdoor);
+    chunk.setBlockMetadata(8, 1, 8, metadata);
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, options);
+}
+
+test "a shut trapdoor is a slab across the floor of its block" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), upright[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(1.0 + world.block.trapdoor_thickness, upright[1], 1.0e-5);
+
+    for ([_]u2{ 0, 2 }) |axis| {
+        const across = spanOf(mesh, axis);
+        try std.testing.expectApproxEqAbs(@as(f32, 8.0), across[0], 1.0e-5);
+        try std.testing.expectApproxEqAbs(@as(f32, 9.0), across[1], 1.0e-5);
+    }
+}
+
+test "an open trapdoor stands upright against its wall" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try trapdoorMesh(gpa, &world_map, world.block.trapdoor_open_bit, .{});
+    defer mesh.deinit(gpa);
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), upright[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), upright[1], 1.0e-5);
+
+    const across = spanOf(mesh, 2);
+    try std.testing.expectApproxEqAbs(9.0 - world.block.trapdoor_thickness, across[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), across[1], 1.0e-5);
+}
+
+test "a trapdoor keeps the faces that stop short of the block, and culls the rest" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 0, 8, world.Block.stone);
+    chunk.setBlock(8, 2, 8, world.Block.stone);
+
+    var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, (6 + 6 + 5) * 4), mesh.solid.vertices.items.len);
+
+    var lowest: f32 = std.math.floatMax(f32);
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.y > 1.0 and vertex.y < 2.0) lowest = @min(lowest, vertex.y);
+    }
+    try std.testing.expectApproxEqAbs(1.0 + world.block.trapdoor_thickness, lowest, 1.0e-5);
+}
+
+test "a trapdoor's sides show only the slice of the tile they cover" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.Block.trapdoor.faceTextures().get(.north));
+    const slice = (uv.v1 - uv.v0) * world.block.trapdoor_thickness;
+
+    const north = mesh.solid.vertices.items[2 * 4 ..][0..4];
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (north) |vertex| {
+        lowest = @min(lowest, vertex.v);
+        highest = @max(highest, vertex.v);
+    }
+    try std.testing.expectApproxEqAbs(uv.v1, highest, 1.0e-6);
+    try std.testing.expectApproxEqAbs(slice, highest - lowest, 1.0e-6);
+}
+
+test "smooth lighting reaches a trapdoor, unlike a door" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(9, 2, 8, world.Block.stone);
+
+    var mesh = try trapdoorMesh(gpa, &world_map, 0, .{ .smooth = true });
+    defer mesh.deinit(gpa);
+
+    try std.testing.expect(!uniformQuads(mesh.solid));
+}
+
+fn expectSameMesh(want: MeshBuilder, got: MeshBuilder) !void {
+    try std.testing.expectEqual(want.vertices.items.len, got.vertices.items.len);
+    for (want.vertices.items, got.vertices.items) |a, b| {
+        try std.testing.expectApproxEqAbs(a.x, b.x, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.y, b.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.z, b.z, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.u, b.u, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.v, b.v, 1.0e-6);
+        try std.testing.expectEqual(a.color, b.color);
+    }
+}
+
+test "a box with full bounds is the cube the item renderers drew before" {
+    const gpa = std.testing.allocator;
+
+    for ([_]world.Block{ .workbench, .cactus }) |id| {
+        var cube: MeshBuilder = .{};
+        defer cube.deinit(gpa);
+        var box: MeshBuilder = .{};
+        defer box.deinit(gpa);
+
+        const textures = id.faceTextures();
+        const inset = id.sideInset();
+        try buildCube(&cube, gpa, .{ -0.5, -0.5, -0.5 }, .{ 0.5, 0.5, 0.5 }, textures, inset);
+        try buildBoxCube(&box, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBounds(), textures, inset);
+
+        try expectSameMesh(cube, box);
+    }
+}
+
+test "a trapdoor in hand is a plate through the middle of its block" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    const id = world.Block.trapdoor;
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBounds(), id.faceTextures(), 0.0);
+
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    var widest: f32 = 0;
+    for (mesh.vertices.items) |vertex| {
+        lowest = @min(lowest, vertex.y);
+        highest = @max(highest, vertex.y);
+        widest = @max(widest, @abs(vertex.x));
+    }
+    try std.testing.expectApproxEqAbs(-world.block.trapdoor_thickness / 2.0, lowest, 1.0e-6);
+    try std.testing.expectApproxEqAbs(world.block.trapdoor_thickness / 2.0, highest, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), widest, 1.0e-6);
+
+    const uv = Atlas.tileUv(id.faceTextures().get(.north));
+    const north = mesh.vertices.items[2 * 4 ..][0..4];
+    var v_low: f32 = std.math.floatMax(f32);
+    var v_high: f32 = -std.math.floatMax(f32);
+    for (north) |vertex| {
+        v_low = @min(v_low, vertex.v);
+        v_high = @max(v_high, vertex.v);
+    }
+    try std.testing.expectApproxEqAbs((uv.v1 - uv.v0) * world.block.trapdoor_thickness, v_high - v_low, 1.0e-6);
 }

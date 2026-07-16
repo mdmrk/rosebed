@@ -243,7 +243,6 @@ test "a block on a chunk corner dirties the diagonal chunk too" {
     try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = -1 }));
 }
 
-
 test "repeated edits to the same chunk collapse into one rebuild" {
     const gpa = std.testing.allocator;
     var renderer: ChunkRenderer = .{};

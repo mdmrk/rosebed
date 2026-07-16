@@ -4,6 +4,7 @@ const world = @import("world");
 const game = @import("game");
 
 const Atlas = @import("atlas.zig");
+const chunk_mesher = @import("chunk_mesher.zig");
 const Font = @import("font.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const GpuMesh = @import("gpu_mesh.zig");
@@ -359,6 +360,9 @@ fn appendIsoFace(
     gpa: std.mem.Allocator,
     corners: [4][3]f32,
     axis: usize,
+    axis_u: u2,
+    axis_v: u2,
+    bounds: world.block.Bounds,
     inset: f32,
     tile: u8,
     brightness: f32,
@@ -367,14 +371,22 @@ fn appendIsoFace(
     res: Scaled,
 ) !void {
     const uv = Atlas.tileUv(tile);
-    const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
+    var uvs: [4][2]f32 = undefined;
     var positions: [4][3]f32 = undefined;
     for (corners, 0..) |corner, i| {
         var c = corner;
+        for (0..3) |a| c[a] = if (corner[a] == 0) bounds.min[a] else bounds.max[a];
         c[axis] -= inset;
         const offset = isoOffset(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5);
         const ndc = toNdc(x + 8.0 + offset[0], y + 8.0 + offset[1], res);
         positions[i] = .{ ndc[0], ndc[1], 0 };
+
+        const u_edge = if (i < 2) uv.u0 else uv.u1;
+        const v_edge = if (i == 0 or i == 3) uv.v1 else uv.v0;
+        uvs[i] = .{
+            chunk_mesher.croppedUv(u_edge, if (i < 2) uv.u1 else uv.u0, bounds, axis_u, corner[axis_u]),
+            chunk_mesher.croppedUv(v_edge, if (i == 0 or i == 3) uv.v0 else uv.v1, bounds, axis_v, corner[axis_v]),
+        };
     }
     const shade: u8 = @intFromFloat(@round(brightness * 255.0));
     try mesh.quad(gpa, positions, uvs, .{ shade, shade, shade, 255 });
@@ -398,9 +410,10 @@ pub fn appendBlockIcon3d(
         textures = world.block.FaceTextures.initFill(world.block.woolTile(meta));
     }
     const inset = id.sideInset();
-    try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, textures.get(.up), iso_brightness_up, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_south_corners, 2, inset, textures.get(.south), iso_brightness_south, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_east_corners, 0, inset, textures.get(.east), iso_brightness_east, x, y, res);
+    const bounds = id.itemRenderBounds();
+    try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, 2, bounds, 0, textures.get(.up), iso_brightness_up, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_south_corners, 2, 0, 1, bounds, inset, textures.get(.south), iso_brightness_south, x, y, res);
+    try appendIsoFace(mesh, gpa, iso_east_corners, 0, 2, 1, bounds, inset, textures.get(.east), iso_brightness_east, x, y, res);
 }
 
 fn appendDurabilityBar(
@@ -471,4 +484,41 @@ test "the icon cube projects to the hexagon renderBlockOnInventory draws" {
     try std.testing.expectApproxEqAbs(@as(f32, 7.0711), upper_right[0], 1.0e-3);
     try std.testing.expectApproxEqAbs(@as(f32, -4.3301), upper_right[1], 1.0e-3);
     try std.testing.expectApproxEqAbs(@as(f32, 7.8657), bottom[1], 1.0e-3);
+}
+
+test "the trapdoor's inventory icon is a plate, not a cube" {
+    const gpa = std.testing.allocator;
+    const res = scaledResolution(640, 480, 1);
+
+    var stone: MeshBuilder = .{};
+    defer stone.deinit(gpa);
+    try appendBlockIcon3d(&stone, gpa, world.Block.stone, 0, 0, 0, res);
+
+    var trapdoor: MeshBuilder = .{};
+    defer trapdoor.deinit(gpa);
+    try appendBlockIcon3d(&trapdoor, gpa, world.Block.trapdoor, 0, 0, 0, res);
+
+    try std.testing.expectEqual(stone.vertices.items.len, trapdoor.vertices.items.len);
+    try std.testing.expect(iconHeight(trapdoor) < iconHeight(stone));
+    try std.testing.expectApproxEqAbs(iconWidth(stone), iconWidth(trapdoor), 1.0e-6);
+}
+
+fn iconHeight(mesh: MeshBuilder) f32 {
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |vertex| {
+        lowest = @min(lowest, vertex.y);
+        highest = @max(highest, vertex.y);
+    }
+    return highest - lowest;
+}
+
+fn iconWidth(mesh: MeshBuilder) f32 {
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |vertex| {
+        lowest = @min(lowest, vertex.x);
+        highest = @max(highest, vertex.x);
+    }
+    return highest - lowest;
 }

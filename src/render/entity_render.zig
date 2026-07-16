@@ -15,7 +15,6 @@ fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
     return world.light.brightnessAt(world_map, sample[0], sample[1], sample[2], 0);
 }
 
-
 pub const stack_copy_seed: i64 = 187;
 pub const block_scale: f32 = 0.25;
 pub const flat_scale: f32 = 0.5;
@@ -110,12 +109,13 @@ pub fn appendItem(
 
     const Cube = struct {
         var faces: world.block.FaceTextures = undefined;
+        var bounds: world.block.Bounds = undefined;
         var inset: f32 = 0.0;
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
-            const half = block_scale / 2.0;
-            try chunk_mesher.buildCube(target, gpa_inner, .{ -half, -half, -half }, .{ half, half, half }, faces, inset);
+            try chunk_mesher.buildBoxCube(target, gpa_inner, .{ 0, 0, 0 }, block_scale, bounds, faces, inset);
         }
     };
+    Cube.bounds = id.itemRenderBounds();
     Cube.faces = id.faceTextures();
     if (id == .log) {
         const side_tile = world.block.logSideTile(item.stack.blockMeta());
@@ -884,7 +884,6 @@ test "the two item paths never both claim the same stack" {
     try appendItem(&mesh, gpa, &world_map, coal, 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
-
 
 test "a fresh flame is drawn at full white and dims to the light around it" {
     const gpa = std.testing.allocator;

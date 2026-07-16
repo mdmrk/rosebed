@@ -630,7 +630,6 @@ test "the same seed and chunk position are deterministic" {
     }
 }
 
-
 test "a cold ocean freezes over at sea level" {
     const gpa = std.testing.allocator;
     const gen = try TerrainGenerator.init(gpa, 777);
