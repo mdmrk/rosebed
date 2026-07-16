@@ -1253,36 +1253,35 @@ fn consumeSelectedStack(app_state: *AppState) void {
     }
 }
 
-fn useBlockOrPlace(app_state: *AppState) !void {
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
-        return placeBlockAtTarget(app_state);
-    };
+fn useBlockOrPlace(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
     if (app_state.world_map.getBlock(hit.x, hit.y, hit.z) == .workbench) {
         try openWorkbench(app_state);
-        return;
+        return true;
     }
-    try placeBlockAtTarget(app_state);
+    return placeBlockAtTarget(app_state);
 }
 
-fn placeBlockAtTarget(app_state: *AppState) !void {
-    const stack = app_state.player.inventory.selectedStack() orelse return;
+fn placeBlockAtTarget(app_state: *AppState) !bool {
+    const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
         .block => |b| b,
-        .item => return,
+        .item => return false,
     };
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return;
+    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
     const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
     const px = target.x;
     const py = target.y;
     const pz = target.z;
-    if (py < 0 or py >= world.constants.chunk_height) return;
-    if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return;
-    if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return;
+    if (py < 0 or py >= world.constants.chunk_height) return false;
+    if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return false;
+    if (!world.block_update.canPlaceAt(&app_state.world_map, px, py, pz, placed)) return false;
     const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
+    return true;
 }
 
 fn centimetres(value: f64) i32 {
@@ -2103,8 +2102,7 @@ pub fn event(
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
             } else {
-                try useBlockOrPlace(app_state);
-                app_state.player.swingItem();
+                if (try useBlockOrPlace(app_state)) app_state.player.swingItem();
             },
             else => {},
         },
