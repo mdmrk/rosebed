@@ -65,6 +65,40 @@ pub const pig_saddle: Model = .{
     .texture_height = 32,
 };
 
+/// `ModelSheep2`: the body under the wool, a `ModelQuadruped(12, 0)` with its own head and torso.
+const sheep_parts = [6]Part{
+    .{ .box = .{ .origin = .{ -3, -4, -6 }, .size = .{ 6, 6, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -18, -8 } },
+    .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, -5 } },
+};
+
+pub const sheep: Model = .{
+    .parts = &sheep_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+/// `ModelSheep1`: the fleece, worn over the body as boxes grown by their own amounts.
+const sheep_fur_parts = [6]Part{
+    .{ .box = .{ .origin = .{ -3, -4, -4 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 0, .inflate = 0.6 }, .pivot = .{ 0, -18, -8 } },
+    .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8, .inflate = 1.75 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, 7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, -5 } },
+};
+
+pub const sheep_fur: Model = .{
+    .parts = &sheep_fur_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
 const biped_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },

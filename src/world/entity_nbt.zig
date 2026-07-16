@@ -2,10 +2,12 @@ const std = @import("std");
 const nbt = @import("nbt.zig");
 
 pub const pig_id = "Pig";
+pub const sheep_id = "Sheep";
 
 pub const max_stored_motion: f64 = 10.0;
 
-pub const Pig = struct {
+/// What `EntityLiving.writeEntityToNBT` writes for every mob.
+pub const Living = struct {
     position: [3]f64,
     motion: [3]f64 = .{ 0, 0, 0 },
     yaw: f32 = 0,
@@ -17,7 +19,17 @@ pub const Pig = struct {
     health: i16 = 10,
     hurt_time: i16 = 0,
     death_time: i16 = 0,
+};
+
+pub const Pig = struct {
+    living: Living,
     saddled: bool = false,
+};
+
+pub const Sheep = struct {
+    living: Living,
+    sheared: bool = false,
+    color: u4 = 0,
 };
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
@@ -36,6 +48,21 @@ fn floatList(gpa: std.mem.Allocator, values: [2]f32) !nbt.Tag {
     return .{ .list = .{ .element_type = .float, .items = items } };
 }
 
+fn storeLiving(gpa: std.mem.Allocator, compound: *nbt.Compound, id: []const u8, living: Living) !void {
+    try put(gpa, compound, "id", .{ .string = try gpa.dupe(u8, id) });
+    try put(gpa, compound, "Pos", try doubleList(gpa, living.position));
+    try put(gpa, compound, "Motion", try doubleList(gpa, living.motion));
+    try put(gpa, compound, "Rotation", try floatList(gpa, .{ living.yaw, living.pitch }));
+    try put(gpa, compound, "FallDistance", .{ .float = living.fall_distance });
+    try put(gpa, compound, "Fire", .{ .short = living.fire });
+    try put(gpa, compound, "Air", .{ .short = living.air });
+    try put(gpa, compound, "OnGround", .{ .byte = @intFromBool(living.on_ground) });
+    try put(gpa, compound, "Health", .{ .short = living.health });
+    try put(gpa, compound, "HurtTime", .{ .short = living.hurt_time });
+    try put(gpa, compound, "DeathTime", .{ .short = living.death_time });
+    try put(gpa, compound, "AttackTime", .{ .short = 0 });
+}
+
 pub fn storePig(gpa: std.mem.Allocator, pig: Pig) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -43,19 +70,22 @@ pub fn storePig(gpa: std.mem.Allocator, pig: Pig) !nbt.Tag {
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, pig_id) });
-    try put(gpa, &compound, "Pos", try doubleList(gpa, pig.position));
-    try put(gpa, &compound, "Motion", try doubleList(gpa, pig.motion));
-    try put(gpa, &compound, "Rotation", try floatList(gpa, .{ pig.yaw, pig.pitch }));
-    try put(gpa, &compound, "FallDistance", .{ .float = pig.fall_distance });
-    try put(gpa, &compound, "Fire", .{ .short = pig.fire });
-    try put(gpa, &compound, "Air", .{ .short = pig.air });
-    try put(gpa, &compound, "OnGround", .{ .byte = @intFromBool(pig.on_ground) });
-    try put(gpa, &compound, "Health", .{ .short = pig.health });
-    try put(gpa, &compound, "HurtTime", .{ .short = pig.hurt_time });
-    try put(gpa, &compound, "DeathTime", .{ .short = pig.death_time });
-    try put(gpa, &compound, "AttackTime", .{ .short = 0 });
+    try storeLiving(gpa, &compound, pig_id, pig.living);
     try put(gpa, &compound, "Saddle", .{ .byte = @intFromBool(pig.saddled) });
+
+    return .{ .compound = compound };
+}
+
+pub fn storeSheep(gpa: std.mem.Allocator, sheep: Sheep) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, sheep_id, sheep.living);
+    try put(gpa, &compound, "Sheared", .{ .byte = @intFromBool(sheep.sheared) });
+    try put(gpa, &compound, "Color", .{ .byte = sheep.color });
 
     return .{ .compound = compound };
 }
@@ -81,6 +111,14 @@ fn boolField(compound: nbt.Compound, key: []const u8) bool {
     return switch (tag) {
         .byte => |value| value != 0,
         else => false,
+    };
+}
+
+fn nibbleField(compound: nbt.Compound, key: []const u8) u4 {
+    const tag = compound.get(key) orelse return 0;
+    return switch (tag) {
+        .byte => |value| @truncate(@as(u8, @bitCast(value))),
+        else => 0,
     };
 }
 
@@ -117,57 +155,79 @@ fn floatsField(compound: nbt.Compound, key: []const u8, out: *[2]f32) void {
     }
 }
 
-pub fn isPig(compound: nbt.Compound) bool {
+fn hasId(compound: nbt.Compound, id: []const u8) bool {
     const tag = compound.get("id") orelse return false;
     return switch (tag) {
-        .string => |value| std.mem.eql(u8, value, pig_id),
+        .string => |value| std.mem.eql(u8, value, id),
         else => false,
     };
 }
 
-pub fn loadPig(compound: nbt.Compound) ?Pig {
-    if (!isPig(compound)) return null;
+pub fn isPig(compound: nbt.Compound) bool {
+    return hasId(compound, pig_id);
+}
 
-    var pig: Pig = .{ .position = .{ 0, 0, 0 } };
-    if (!doublesField(compound, "Pos", &pig.position)) return null;
-    _ = doublesField(compound, "Motion", &pig.motion);
-    for (&pig.motion) |*component| {
+pub fn isSheep(compound: nbt.Compound) bool {
+    return hasId(compound, sheep_id);
+}
+
+fn loadLiving(compound: nbt.Compound) ?Living {
+    var living: Living = .{ .position = .{ 0, 0, 0 } };
+    if (!doublesField(compound, "Pos", &living.position)) return null;
+    _ = doublesField(compound, "Motion", &living.motion);
+    for (&living.motion) |*component| {
         if (@abs(component.*) > max_stored_motion) component.* = 0;
     }
 
     var rotation = [2]f32{ 0, 0 };
     floatsField(compound, "Rotation", &rotation);
-    pig.yaw = rotation[0];
-    pig.pitch = rotation[1];
+    living.yaw = rotation[0];
+    living.pitch = rotation[1];
 
-    pig.fall_distance = floatField(compound, "FallDistance", 0);
-    pig.fire = shortField(compound, "Fire", 0);
-    pig.air = shortField(compound, "Air", 300);
-    pig.on_ground = boolField(compound, "OnGround");
-    pig.health = shortField(compound, "Health", 10);
-    pig.hurt_time = shortField(compound, "HurtTime", 0);
-    pig.death_time = shortField(compound, "DeathTime", 0);
-    pig.saddled = boolField(compound, "Saddle");
+    living.fall_distance = floatField(compound, "FallDistance", 0);
+    living.fire = shortField(compound, "Fire", 0);
+    living.air = shortField(compound, "Air", 300);
+    living.on_ground = boolField(compound, "OnGround");
+    living.health = shortField(compound, "Health", 10);
+    living.hurt_time = shortField(compound, "HurtTime", 0);
+    living.death_time = shortField(compound, "DeathTime", 0);
 
-    return pig;
+    return living;
 }
+
+pub fn loadPig(compound: nbt.Compound) ?Pig {
+    if (!isPig(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{ .living = living, .saddled = boolField(compound, "Saddle") };
+}
+
+pub fn loadSheep(compound: nbt.Compound) ?Sheep {
+    if (!isSheep(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{
+        .living = living,
+        .sheared = boolField(compound, "Sheared"),
+        .color = nibbleField(compound, "Color"),
+    };
+}
+
+const sample_living = Living{
+    .position = .{ 12.5, 64.0, -3.25 },
+    .motion = .{ 0.1, -0.2, 0.3 },
+    .yaw = 137.5,
+    .pitch = -12.0,
+    .fall_distance = 2.5,
+    .fire = 40,
+    .air = 280,
+    .on_ground = true,
+    .health = 7,
+    .hurt_time = 4,
+    .death_time = 0,
+};
 
 test "a pig survives a round trip through its NBT compound" {
     const gpa = std.testing.allocator;
-    const original = Pig{
-        .position = .{ 12.5, 64.0, -3.25 },
-        .motion = .{ 0.1, -0.2, 0.3 },
-        .yaw = 137.5,
-        .pitch = -12.0,
-        .fall_distance = 2.5,
-        .fire = 40,
-        .air = 280,
-        .on_ground = true,
-        .health = 7,
-        .hurt_time = 4,
-        .death_time = 0,
-        .saddled = true,
-    };
+    const original = Pig{ .living = sample_living, .saddled = true };
 
     var tag = try storePig(gpa, original);
     defer nbt.deinit(gpa, &tag);
@@ -176,14 +236,40 @@ test "a pig survives a round trip through its NBT compound" {
     try std.testing.expectEqual(original, loaded);
 }
 
-test "an entity of another kind is not read as a pig" {
+test "a sheep survives a round trip through its NBT compound" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .position = .{ 0, 0, 0 } });
+    const original = Sheep{ .living = sample_living, .sheared = true, .color = 15 };
+
+    var tag = try storeSheep(gpa, original);
     defer nbt.deinit(gpa, &tag);
+
+    const loaded = loadSheep(tag.compound).?;
+    try std.testing.expectEqual(original, loaded);
+}
+
+test "a sheep is stored under the id the original writes, and colours survive it" {
+    const gpa = std.testing.allocator;
+
+    for (0..16) |color| {
+        var tag = try storeSheep(gpa, .{ .living = .{ .position = .{ 0, 64, 0 } }, .color = @intCast(color) });
+        defer nbt.deinit(gpa, &tag);
+
+        try std.testing.expectEqualStrings("Sheep", tag.compound.get("id").?.string);
+        try std.testing.expectEqual(@as(u4, @intCast(color)), loadSheep(tag.compound).?.color);
+    }
+}
+
+test "an entity of another kind is not read as a pig or a sheep" {
+    const gpa = std.testing.allocator;
+    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 0, 0, 0 } } });
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expect(!isSheep(tag.compound));
+    try std.testing.expect(loadSheep(tag.compound) == null);
 
     const id = tag.compound.getPtr("id").?;
     gpa.free(id.string);
-    id.string = try gpa.dupe(u8, "Sheep");
+    id.string = try gpa.dupe(u8, "Cow");
 
     try std.testing.expect(!isPig(tag.compound));
     try std.testing.expect(loadPig(tag.compound) == null);
@@ -191,18 +277,18 @@ test "an entity of another kind is not read as a pig" {
 
 test "absurd stored motion is discarded rather than launching the pig" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .position = .{ 0, 64, 0 }, .motion = .{ 99.0, -50.0, 0.5 } });
+    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 0, 64, 0 }, .motion = .{ 99.0, -50.0, 0.5 } } });
     defer nbt.deinit(gpa, &tag);
 
     const loaded = loadPig(tag.compound).?;
-    try std.testing.expectEqual(@as(f64, 0), loaded.motion[0]);
-    try std.testing.expectEqual(@as(f64, 0), loaded.motion[1]);
-    try std.testing.expectEqual(@as(f64, 0.5), loaded.motion[2]);
+    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion[0]);
+    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion[1]);
+    try std.testing.expectEqual(@as(f64, 0.5), loaded.living.motion[2]);
 }
 
 test "a pig compound missing its position is rejected" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .position = .{ 1, 2, 3 } });
+    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 1, 2, 3 } } });
     defer nbt.deinit(gpa, &tag);
 
     var removed = tag.compound.fetchOrderedRemove("Pos").?;

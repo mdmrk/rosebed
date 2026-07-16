@@ -1491,7 +1491,7 @@ fn tick(app_state: *AppState) !void {
     try app_state.world_map.tickUpdates();
     try app_state.world_map.tickFurnaces();
     try applyBlockChanges(app_state);
-    try app_state.entities.tickPigs(
+    try app_state.entities.tickAnimals(
         app_state.gpa,
         &app_state.world_map,
         &app_state.player,
@@ -1730,6 +1730,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig, partial);
         }
     }
+    var sheep_mesh: render.MeshBuilder = .{};
+    defer sheep_mesh.deinit(app_state.frame);
+    var fleece_mesh: render.MeshBuilder = .{};
+    defer fleece_mesh.deinit(app_state.frame);
+    for (app_state.entities.sheep.items) |sheep| {
+        try render.entity_render.appendSheep(&sheep_mesh, app_state.frame, &app_state.world_map, sheep, partial);
+        if (!sheep.sheared) {
+            try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep, partial);
+        }
+    }
     var icon_mesh: render.MeshBuilder = .{};
     defer icon_mesh.deinit(app_state.frame);
     for (app_state.entities.items.items) |item| {
@@ -1750,6 +1760,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (saddle_mesh.vertices.items.len > 0) {
         app_state.textures.saddle.bind();
         drawEntityMesh(&saddle_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (sheep_mesh.vertices.items.len > 0) {
+        app_state.textures.sheep.bind();
+        drawEntityMesh(&sheep_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (fleece_mesh.vertices.items.len > 0) {
+        app_state.textures.sheep_fur.bind();
+        drawEntityMesh(&fleece_mesh);
         app_state.textures.terrain.bind();
     }
 

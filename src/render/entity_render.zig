@@ -212,12 +212,42 @@ pub const hurt_tint: f32 = 0.4;
 
 const to_radians: f32 = std.math.pi / 180.0;
 
+const untinted = [3]f32{ 1, 1, 1 };
+
+/// `EntitySheep.fleeceColorTable`: the wool layer is drawn white and coloured by the fleece.
+pub const fleece_colors = [16][3]f32{
+    .{ 1.0, 1.0, 1.0 },
+    .{ 0.95, 0.7, 0.2 },
+    .{ 0.9, 0.5, 0.85 },
+    .{ 0.6, 0.7, 0.95 },
+    .{ 0.9, 0.9, 0.2 },
+    .{ 0.5, 0.8, 0.1 },
+    .{ 0.95, 0.7, 0.8 },
+    .{ 0.3, 0.3, 0.3 },
+    .{ 0.6, 0.6, 0.6 },
+    .{ 0.3, 0.6, 0.7 },
+    .{ 0.7, 0.4, 0.9 },
+    .{ 0.2, 0.4, 0.8 },
+    .{ 0.5, 0.4, 0.3 },
+    .{ 0.4, 0.5, 0.2 },
+    .{ 0.8, 0.3, 0.3 },
+    .{ 0.1, 0.1, 0.1 },
+};
+
 pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
-    return appendPigModel(mesh, gpa, world_map, pig, partial_ticks, mob_model.pig);
+    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig, untinted);
 }
 
 pub fn appendPigSaddle(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
-    return appendPigModel(mesh, gpa, world_map, pig, partial_ticks, mob_model.pig_saddle);
+    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig_saddle, untinted);
+}
+
+pub fn appendSheep(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, sheep: game.Sheep, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep, untinted);
+}
+
+pub fn appendSheepFur(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, sheep: game.Sheep, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep_fur, fleece_colors[sheep.fleece_color]);
 }
 
 pub const player_scale: f32 = 15.0 / 16.0;
@@ -284,39 +314,49 @@ fn appendBiped(
     mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
 }
 
-fn appendPigModel(
+fn appendAnimal(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    pig: game.Pig,
+    animal: game.Animal,
     partial_ticks: f32,
     model: mob_model.Model,
+    tint: [3]f32,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    const pos = pig.base.renderPosition(partial_ticks);
+    const pos = animal.base.renderPosition(partial_ticks);
 
     const pose: mob_model.Pose = .{
         .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
-        .yaw = pig.renderYaw(partial_ticks) * to_radians,
-        .roll = pig.deathTilt(partial_ticks) * to_radians,
+        .yaw = animal.renderYaw(partial_ticks) * to_radians,
+        .roll = animal.deathTilt(partial_ticks) * to_radians,
     };
 
-    const stride = @cos(pig.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * pig.limbSwingAmount(partial_ticks);
+    const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
 
     for (model.parts, 0..) |part, i| {
         var p = part;
         if (i == model.head_index) {
-            p.rotate_y = pig.headYaw(partial_ticks) * to_radians;
-            p.rotate_x = pig.headPitch(partial_ticks) * to_radians;
+            p.rotate_y = animal.headYaw(partial_ticks) * to_radians;
+            p.rotate_x = animal.headPitch(partial_ticks) * to_radians;
         } else if (i >= 2) {
             p.rotate_x = if (i == 2 or i == 5) stride else -stride;
         }
         try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose);
     }
 
-    const brightness = brightnessOf(world_map, pig.base);
+    const brightness = brightnessOf(world_map, animal.base);
     mesh.scaleColors(first_vertex, brightness);
-    if (pig.hurt_time > 0 or pig.death_time > 0) tintRed(mesh, first_vertex, brightness);
+    tintColors(mesh, first_vertex, tint);
+    if (animal.hurt_time > 0 or animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
+}
+
+fn tintColors(mesh: *MeshBuilder, first_vertex: usize, tint: [3]f32) void {
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        for (0..3) |channel| {
+            vertex.color[channel] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[channel])) * tint[channel]);
+        }
+    }
 }
 
 fn tintRed(mesh: *MeshBuilder, first_vertex: usize, brightness: f32) void {
@@ -660,9 +700,9 @@ test "a walking pig swings diagonal legs together and opposite legs apart" {
     defer world_map.deinit();
 
     var pig = game.Pig.spawn(.{ .x = 0, .y = 0, .z = 0 });
-    pig.limb_swing = 1.0;
-    pig.limb_swing_amount = 1.0;
-    pig.prev_limb_swing_amount = 1.0;
+    pig.animal.limb_swing = 1.0;
+    pig.animal.limb_swing_amount = 1.0;
+    pig.animal.prev_limb_swing_amount = 1.0;
 
     var walking: MeshBuilder = .{};
     defer walking.deinit(gpa);
@@ -720,8 +760,8 @@ test "turning the head moves the head without moving the body" {
     try appendPig(&straight, gpa, &world_map, pig, 0);
 
     var looking = pig;
-    looking.yaw = 60;
-    looking.prev_yaw = 60;
+    looking.animal.yaw = 60;
+    looking.animal.prev_yaw = 60;
     try appendPig(&turned, gpa, &world_map, looking, 0);
 
     const per_part = 6 * 4;
@@ -756,7 +796,7 @@ test "a hurt pig flashes red and a healthy one does not" {
     try appendPig(&healthy, gpa, &world_map, pig, 0);
 
     var wounded = pig;
-    wounded.hurt_time = 10;
+    wounded.animal.hurt_time = 10;
     try appendPig(&hurt, gpa, &world_map, wounded, 0);
 
     const healthy_red: u32 = healthy.vertices.items[0].color[0];
@@ -807,13 +847,127 @@ test "a dying pig rolls onto its side" {
     try appendPig(&upright, gpa, &world_map, pig, 0);
 
     var dying = pig;
-    dying.death_time = game.Pig.death_ticks;
+    dying.animal.death_time = game.Animal.death_ticks;
     try appendPig(&toppled, gpa, &world_map, dying, 1.0);
 
     const upright_bounds = meshBounds(upright);
     const toppled_bounds = meshBounds(toppled);
     try std.testing.expect(toppled_bounds[1][1] < upright_bounds[1][1]);
     try std.testing.expect(toppled_bounds[1][0] - toppled_bounds[0][0] > upright_bounds[1][0] - upright_bounds[0][0]);
+}
+
+fn testSheep(position: math.Vec3, color: u4) game.Sheep {
+    var rand = world.JavaRandom.init(0);
+    var sheep = game.Sheep.spawn(position, &rand);
+    sheep.fleece_color = color;
+    return sheep;
+}
+
+test "a sheep is drawn taller than a pig and stands on its own feet" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var body: MeshBuilder = .{};
+    defer body.deinit(gpa);
+    var pig: MeshBuilder = .{};
+    defer pig.deinit(gpa);
+
+    try appendSheep(&body, gpa, &world_map, testSheep(.{ .x = 0, .y = 64, .z = 0 }, 0), 0);
+    try appendPig(&pig, gpa, &world_map, game.Pig.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 6 * 4), body.vertices.items.len);
+
+    const sheep_bounds = meshBounds(body);
+    const pig_bounds = meshBounds(pig);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), sheep_bounds[0][1], 1.0e-5);
+    try std.testing.expect(sheep_bounds[1][1] > pig_bounds[1][1]);
+    try std.testing.expect(sheep_bounds[1][1] < 64.0 + game.Sheep.height + 0.2);
+}
+
+test "the fleece is worn outside the body it covers" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const sheep = testSheep(.{ .x = 0, .y = 0, .z = 0 }, 0);
+
+    var body: MeshBuilder = .{};
+    defer body.deinit(gpa);
+    var fur: MeshBuilder = .{};
+    defer fur.deinit(gpa);
+    try appendSheep(&body, gpa, &world_map, sheep, 0);
+    try appendSheepFur(&fur, gpa, &world_map, sheep, 0);
+
+    const body_bounds = meshBounds(body);
+    const fur_bounds = meshBounds(fur);
+
+    // The fleece is grown around the flanks, stops short of the muzzle, and only reaches
+    // halfway down the legs.
+    try std.testing.expect(fur_bounds[1][0] > body_bounds[1][0]);
+    try std.testing.expect(fur_bounds[0][0] < body_bounds[0][0]);
+    try std.testing.expect(fur_bounds[1][2] < body_bounds[1][2]);
+    try std.testing.expect(fur_bounds[0][1] > body_bounds[0][1]);
+}
+
+test "the fleece takes the sheep's colour and the body underneath stays white" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
+    }
+
+    var white_fur: MeshBuilder = .{};
+    defer white_fur.deinit(gpa);
+    var black_fur: MeshBuilder = .{};
+    defer black_fur.deinit(gpa);
+    var black_body: MeshBuilder = .{};
+    defer black_body.deinit(gpa);
+
+    const position = math.Vec3{ .x = 8, .y = 1, .z = 8 };
+    try appendSheepFur(&white_fur, gpa, &world_map, testSheep(position, 0), 0);
+    try appendSheepFur(&black_fur, gpa, &world_map, testSheep(position, 15), 0);
+    try appendSheep(&black_body, gpa, &world_map, testSheep(position, 15), 0);
+
+    try std.testing.expectEqual(@as(u8, 255), white_fur.vertices.items[0].color[0]);
+    try std.testing.expect(black_fur.vertices.items[0].color[0] < 40);
+    try std.testing.expectEqual(@as(u8, 255), black_body.vertices.items[0].color[0]);
+}
+
+test "every wool colour has a fleece tint to draw it with" {
+    try std.testing.expectEqual(@as(usize, 16), fleece_colors.len);
+    for (fleece_colors) |color| {
+        for (color) |channel| try std.testing.expect(channel > 0.0 and channel <= 1.0);
+    }
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, fleece_colors[0]);
+}
+
+test "a hurt sheep flashes red through its fleece" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
+    }
+
+    var calm: MeshBuilder = .{};
+    defer calm.deinit(gpa);
+    var hurt: MeshBuilder = .{};
+    defer hurt.deinit(gpa);
+
+    const sheep = testSheep(.{ .x = 8, .y = 1, .z = 8 }, 15);
+    try appendSheepFur(&calm, gpa, &world_map, sheep, 0);
+
+    var wounded = sheep;
+    wounded.animal.hurt_time = 10;
+    try appendSheepFur(&hurt, gpa, &world_map, wounded, 0);
+
+    try std.testing.expect(hurt.vertices.items[0].color[0] > calm.vertices.items[0].color[0]);
 }
 
 test "an entity in the open is lit brighter than one sealed in the dark" {
@@ -844,11 +998,11 @@ test "an entity in the open is lit brighter than one sealed in the dark" {
 
 test "an entity samples light two thirds of the way up its own box" {
     const pig = game.Pig.spawn(.{ .x = 3.7, .y = 64.0, .z = -2.2 });
-    const sample = pig.base.lightSamplePosition();
+    const sample = pig.animal.base.lightSamplePosition();
     try std.testing.expectEqual(@as(i32, 3), sample[0]);
     try std.testing.expectEqual(@as(i32, -3), sample[2]);
     try std.testing.expectEqual(@as(i32, 64), sample[1]);
-    try std.testing.expect(pig.base.height * 0.66 < 1.0);
+    try std.testing.expect(pig.animal.base.height * 0.66 < 1.0);
 }
 
 test "a true item stack renders from the items atlas" {

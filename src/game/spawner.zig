@@ -1,8 +1,10 @@
 const std = @import("std");
 const math = @import("math");
 const world = @import("world");
+const Animal = @import("animal.zig");
 const Entities = @import("entities.zig");
 const Pig = @import("pig.zig");
+const Sheep = @import("sheep.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;
@@ -15,13 +17,17 @@ const pack_attempts: usize = 3;
 const placement_attempts: usize = 4;
 const pack_spread: i32 = 6;
 
-const Creature = struct { weight: i32, pig: bool };
+/// The kinds we can put in the world; the rest of the biome's creature list still takes its turn.
+pub const Kind = enum { sheep, pig };
 
+const Creature = struct { weight: i32, kind: ?Kind };
+
+/// `SpawnerAnimals`: sheep, pig, chicken, cow.
 const creature_list = [_]Creature{
-    .{ .weight = 12, .pig = false },
-    .{ .weight = 10, .pig = true },
-    .{ .weight = 10, .pig = false },
-    .{ .weight = 8, .pig = false },
+    .{ .weight = 12, .kind = .sheep },
+    .{ .weight = 10, .kind = .pig },
+    .{ .weight = 10, .kind = null },
+    .{ .weight = 8, .kind = null },
 };
 
 fn totalWeight() i32 {
@@ -66,7 +72,8 @@ pub fn performSpawning(
     spawn_point: [3]i32,
     rand: *world.JavaRandom,
 ) !u32 {
-    if (@as(i32, @intCast(entities.pigs.items.len)) > populationCap()) return 0;
+    const population = entities.pigs.items.len + entities.sheep.items.len;
+    if (@as(i32, @intCast(population)) > populationCap()) return 0;
 
     const center_x = math.util.floorDouble(player_position.x / 16.0);
     const center_z = math.util.floorDouble(player_position.z / 16.0);
@@ -133,15 +140,29 @@ fn spawnInChunk(
             const from_spawn = from_spawn_x * from_spawn_x + from_spawn_y * from_spawn_y + from_spawn_z * from_spawn_z;
             if (from_spawn < spawn_clearance_squared) continue;
 
-            var pig = Pig.spawn(math.Vec3.init(at_x, at_y, at_z));
-            pig.yaw = rand.nextFloat() * 360.0;
-            pig.prev_yaw = pig.yaw;
-            pig.render_yaw = pig.yaw;
-            pig.prev_render_yaw = pig.yaw;
+            const kind = creature.kind orelse {
+                // The creature we cannot make yet still turns where it stands.
+                _ = rand.nextFloat();
+                continue;
+            };
 
-            if (!creature.pig or !pig.canSpawnHere(world_map)) continue;
+            // The mob is built first (a sheep rolls its fleece there), then turned, then asked.
+            const position = math.Vec3.init(at_x, at_y, at_z);
+            switch (kind) {
+                .pig => {
+                    var pig = Pig.spawn(position);
+                    pig.animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!pig.animal.canSpawnHere(world_map)) continue;
+                    try entities.pigs.append(gpa, pig);
+                },
+                .sheep => {
+                    var sheep = Sheep.spawn(position, rand);
+                    sheep.animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!sheep.animal.canSpawnHere(world_map)) continue;
+                    try entities.sheep.append(gpa, sheep);
+                },
+            }
 
-            try entities.pigs.append(gpa, pig);
             spawned += 1;
             if (spawned >= max_per_chunk) return spawned;
         }
@@ -173,7 +194,7 @@ fn grassPlateau(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, surf
 
 const surface: u32 = 63;
 
-fn spawnUntilFirstPig(
+fn spawnUntilFirstAnimal(
     gpa: std.mem.Allocator,
     entities: *Entities,
     world_map: *const world.World,
@@ -190,7 +211,16 @@ fn spawnUntilFirstPig(
     return total;
 }
 
-test "pigs spawn onto lit grass away from the player" {
+fn expectStandingOnGrass(world_map: *const world.World, animal: Animal) !void {
+    try std.testing.expectApproxEqAbs(@as(f64, surface + 1), animal.base.position.y, 1.0e-9);
+    try std.testing.expectEqual(world.Block.grass, world_map.getBlock(
+        math.util.floorDouble(animal.base.position.x),
+        surface,
+        math.util.floorDouble(animal.base.position.z),
+    ));
+}
+
+test "animals spawn onto lit grass away from the player" {
     const gpa = std.testing.allocator;
     var w = try grassPlateau(gpa, 3, 5, surface);
     defer w.deinit();
@@ -200,17 +230,30 @@ test "pigs spawn onto lit grass away from the player" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    const total = try spawnUntilFirstPig(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
+    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
     try std.testing.expect(total > 0);
-    for (entities.pigs.items) |pig| {
-        try std.testing.expectApproxEqAbs(@as(f64, surface + 1), pig.base.position.y, 1.0e-9);
-        try std.testing.expectEqual(world.Block.grass, w.getBlock(
-            math.util.floorDouble(pig.base.position.x),
-            surface,
-            math.util.floorDouble(pig.base.position.z),
-        ));
+    for (entities.pigs.items) |pig| try expectStandingOnGrass(&w, pig.animal);
+    for (entities.sheep.items) |sheep| try expectStandingOnGrass(&w, sheep.animal);
+}
+
+test "both pigs and sheep find their way into a grassy world" {
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..4000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand);
+        if (entities.pigs.items.len > 0 and entities.sheep.items.len > 0) break;
     }
+
+    try std.testing.expect(entities.pigs.items.len > 0);
+    try std.testing.expect(entities.sheep.items.len > 0);
 }
 
 test "nothing spawns on bare stone" {
@@ -232,7 +275,7 @@ test "nothing spawns on bare stone" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    const total = try spawnUntilFirstPig(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
+    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
     try std.testing.expectEqual(@as(u32, 0), total);
 }
@@ -256,7 +299,7 @@ test "nothing spawns in the dark" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    const total = try spawnUntilFirstPig(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
+    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
     try std.testing.expectEqual(@as(u32, 0), total);
 }
@@ -271,7 +314,7 @@ test "nothing spawns within twenty-four blocks of the player" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(8, surface + 1, 8);
-    const total = try spawnUntilFirstPig(gpa, &entities, &w, player, .{ 0, 0, 0 }, &rand, 4000);
+    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 0, 0 }, &rand, 4000);
 
     try std.testing.expectEqual(@as(u32, 0), total);
 }
@@ -287,14 +330,17 @@ test "nothing spawns within twenty-four blocks of the world spawn point" {
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
     const spawn_point = [3]i32{ 64, @intCast(surface + 1), 8 };
-    _ = try spawnUntilFirstPig(gpa, &entities, &w, player, spawn_point, &rand, 4000);
+    _ = try spawnUntilFirstAnimal(gpa, &entities, &w, player, spawn_point, &rand, 4000);
 
-    for (entities.pigs.items) |pig| {
-        const dx = pig.base.position.x - @as(f64, @floatFromInt(spawn_point[0]));
-        const dy = pig.base.position.y - @as(f64, @floatFromInt(spawn_point[1]));
-        const dz = pig.base.position.z - @as(f64, @floatFromInt(spawn_point[2]));
-        try std.testing.expect(dx * dx + dy * dy + dz * dz >= spawn_clearance_squared);
-    }
+    for (entities.pigs.items) |pig| try expectClearOf(spawn_point, pig.animal);
+    for (entities.sheep.items) |sheep| try expectClearOf(spawn_point, sheep.animal);
+}
+
+fn expectClearOf(spawn_point: [3]i32, animal: Animal) !void {
+    const dx = animal.base.position.x - @as(f64, @floatFromInt(spawn_point[0]));
+    const dy = animal.base.position.y - @as(f64, @floatFromInt(spawn_point[1]));
+    const dz = animal.base.position.z - @as(f64, @floatFromInt(spawn_point[2]));
+    try std.testing.expect(dx * dx + dy * dy + dz * dz >= spawn_clearance_squared);
 }
 
 test "spawning stops once the population cap is reached" {
@@ -312,7 +358,7 @@ test "spawning stops once the population cap is reached" {
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
     const before = entities.pigs.items.len;
-    const total = try spawnUntilFirstPig(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 500);
+    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 500);
 
     try std.testing.expectEqual(@as(u32, 0), total);
     try std.testing.expectEqual(before, entities.pigs.items.len);
@@ -322,12 +368,19 @@ test "the population cap follows the vanilla per-chunk allowance" {
     try std.testing.expectEqual(@as(i32, 16), populationCap());
 }
 
-test "a pig is picked a quarter of the time from the biome's creature list" {
+test "the biome's creature list picks a sheep more often than a pig" {
     var rand = world.JavaRandom.init(4);
-    var pigs: u32 = 0;
-    for (0..4000) |_| {
-        if (pickCreature(&rand).pig) pigs += 1;
+    var rolls = [_]u32{ 0, 0 };
+    const total = 4000;
+    for (0..total) |_| {
+        const kind = pickCreature(&rand).kind orelse continue;
+        rolls[@intFromEnum(kind)] += 1;
     }
 
-    try std.testing.expect(pigs > 850 and pigs < 1150);
+    // Sheep take 12 of the list's 40 weight, pigs 10.
+    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > total * 25 / 100);
+    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] < total * 35 / 100);
+    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] > total * 21 / 100);
+    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] < total * 29 / 100);
+    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > rolls[@intFromEnum(Kind.pig)]);
 }
