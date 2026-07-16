@@ -68,7 +68,7 @@ pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i
     if (offset_x != 0 and offset_z != 0) try self.markDirty(gpa, chunk_x + offset_x, chunk_z + offset_z);
 }
 
-pub const rebuild_budget_ns = 8 * std.time.ns_per_ms;
+const distant_rebuilds_per_batch = 2;
 const max_rebuilds_per_flush = 64;
 const immediate_rebuild_distance = 16.0;
 
@@ -94,6 +94,7 @@ pub fn flush(
     options: chunk_mesher.Options,
     eye_x: f64,
     eye_z: f64,
+    deadline_ns: u64,
 ) !u32 {
     if (self.dirty.count() == 0) return 0;
 
@@ -114,12 +115,14 @@ pub fn flush(
 
     var rebuilt: u32 = 0;
     var attempts: usize = 0;
-    const started = sdl3.timer.getNanosecondsSinceInit();
+    var distant: usize = 0;
 
     for (pending.items) |entry| {
         if (entry.distance > immediate_rebuild_distance * immediate_rebuild_distance) {
             if (attempts == max_rebuilds_per_flush) break;
-            if (attempts > 0 and sdl3.timer.getNanosecondsSinceInit() -% started >= rebuild_budget_ns) break;
+            if (distant >= distant_rebuilds_per_batch and
+                (deadline_ns == 0 or sdl3.timer.getNanosecondsSinceInit() >= deadline_ns)) break;
+            distant += 1;
         }
         attempts += 1;
         _ = self.dirty.remove(entry.coord);
@@ -273,9 +276,44 @@ test "a flush consumes at most its cap and leaves the rest dirty" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 100_000, 100_000);
+    const deadline = sdl3.timer.getNanosecondsSinceInit() + std.time.ns_per_s;
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 100_000, 100_000, deadline);
     try std.testing.expect(renderer.dirty.count() >= 5);
     try std.testing.expect(renderer.dirty.count() < max_rebuilds_per_flush + 5);
+}
+
+test "a flush without a deadline rebuilds a single batch of distant chunks" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    var coord: i32 = 0;
+    while (coord < 10) : (coord += 1) {
+        try renderer.markDirty(gpa, coord, 0);
+    }
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 100_000, 100_000, 0);
+    try std.testing.expectEqual(@as(usize, 10 - distant_rebuilds_per_batch), renderer.dirty.count());
+}
+
+test "a flush past its deadline still rebuilds a batch of distant chunks" {
+    const gpa = std.testing.allocator;
+    var renderer: ChunkRenderer = .{};
+    defer renderer.deinit(gpa);
+
+    var coord: i32 = 0;
+    while (coord < 10) : (coord += 1) {
+        try renderer.markDirty(gpa, coord, 0);
+    }
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 100_000, 100_000, 1);
+    try std.testing.expectEqual(@as(usize, 10 - distant_rebuilds_per_batch), renderer.dirty.count());
 }
 
 test "a flush drains the nearest chunks first and never starves the one underfoot" {
@@ -292,7 +330,7 @@ test "a flush drains the nearest chunks first and never starves the one underfoo
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 8);
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 8, 0);
 
     try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 0 }));
     try std.testing.expect(renderer.dirty.contains(.{ .x = max_rebuilds_per_flush * 4, .z = 0 }));
@@ -313,7 +351,7 @@ test "a chunk within the immediate radius is rebuilt even past the attempt cap" 
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 20);
+    _ = try renderer.flush(gpa, &world_map, Colorizer.untinted, .{}, 8, 20, 0);
 
     try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 0 }));
     try std.testing.expect(!renderer.dirty.contains(.{ .x = 0, .z = 1 }));

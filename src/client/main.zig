@@ -11,7 +11,6 @@ const core = @import("core");
 const Timer = core.Timer;
 const world = @import("world");
 
-const fps = 60;
 const ticks_per_second = 20.0;
 const screen_width = 854;
 const screen_height = 480;
@@ -76,6 +75,7 @@ const AppState = struct {
     entities: game.Entities = .{},
     timer: Timer,
     tick_count: u64 = 0,
+    frame_end_ns: u64 = 0,
     cloud_offset: u64 = 0,
     chunks_drawn: u32 = 0,
     equip: render.held_item.Equip = .{},
@@ -334,7 +334,7 @@ pub fn init(
     var app_state: AppState = .{
         .gpa = gpa,
         .frame = frame_arena.allocator(),
-        .fps_capper = .{ .mode = .{ .limited = fps } },
+        .fps_capper = .{ .mode = .{ .unlimited = {} } },
         .window = window,
         .gl_context = gl_context,
         .gl_procs = undefined,
@@ -1500,7 +1500,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer, .{
         .smooth = app_state.settings.ambient_occlusion,
         .fancy = app_state.settings.fancy_graphics,
-    }, app_state.player.base.position.x, app_state.player.base.position.z);
+    }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_end_ns));
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
@@ -1813,6 +1813,10 @@ pub fn iterate(
     gl.Viewport(0, 0, px.w, px.h);
     const gui = guiSize(app_state);
 
+    app_state.fps_capper.mode = if (app_state.settings.framerate_limit.fpsCap()) |cap|
+        .{ .limited = cap }
+    else
+        .{ .unlimited = {} };
     const dt = app_state.fps_capper.delay();
     _ = dt;
 
@@ -1858,6 +1862,7 @@ pub fn iterate(
     }
 
     if (app_state.screen == .playing) try renderWorld(app_state, horizon);
+    app_state.frame_end_ns = sdl3.timer.getNanosecondsSinceInit();
 
     const ui = uiContext(app_state, gui);
     const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;

@@ -60,6 +60,24 @@ pub const FramerateLimit = enum(u2) {
             .power_saver => .max,
         };
     }
+
+    fn targetFps(self: FramerateLimit) u32 {
+        return switch (self) {
+            .max => 200,
+            .balanced => 120,
+            .power_saver => 40,
+        };
+    }
+
+    pub fn rebuildDeadlineNs(self: FramerateLimit, frame_end_ns: u64) u64 {
+        if (self == .max) return 0;
+        return frame_end_ns +% std.time.ns_per_s / self.targetFps();
+    }
+
+    pub fn fpsCap(self: FramerateLimit) ?f32 {
+        if (self != .power_saver) return null;
+        return @floatFromInt(self.targetFps());
+    }
 };
 
 pub const GuiScale = enum(u2) {
@@ -151,6 +169,24 @@ test "difficulty cycles through all four and wraps" {
     try std.testing.expectEqual(Difficulty.easy, Difficulty.peaceful.next());
     try std.testing.expectEqual(Difficulty.hard, Difficulty.normal.next());
     try std.testing.expectEqual(Difficulty.peaceful, Difficulty.hard.next());
+}
+
+test "only power saver sleeps, and it sleeps down to forty" {
+    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.max.fpsCap());
+    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.balanced.fpsCap());
+    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap());
+}
+
+test "max fps leaves no time for distant chunks, the others budget a frame" {
+    try std.testing.expectEqual(@as(u64, 0), FramerateLimit.max.rebuildDeadlineNs(1_000));
+    try std.testing.expectEqual(
+        @as(u64, 1_000 + std.time.ns_per_s / 120),
+        FramerateLimit.balanced.rebuildDeadlineNs(1_000),
+    );
+    try std.testing.expectEqual(
+        @as(u64, 1_000 + std.time.ns_per_s / 40),
+        FramerateLimit.power_saver.rebuildDeadlineNs(1_000),
+    );
 }
 
 test "bindings default to the vanilla layout" {
