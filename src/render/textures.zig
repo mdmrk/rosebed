@@ -23,6 +23,8 @@ pig: Atlas,
 saddle: Atlas,
 sheep: Atlas,
 sheep_fur: Atlas,
+cow: Atlas,
+chicken: Atlas,
 char: Atlas,
 armor_cloth_1: Atlas,
 armor_cloth_2: Atlas,
@@ -65,6 +67,8 @@ fn resourceFor(comptime field: []const u8) Resource {
         .saddle => .{ .path = "mob/saddle.png", .bytes = assets.mob.saddle_png },
         .sheep => .{ .path = "mob/sheep.png", .bytes = assets.mob.sheep_png },
         .sheep_fur => .{ .path = "mob/sheep_fur.png", .bytes = assets.mob.sheep_fur_png },
+        .cow => .{ .path = "mob/cow.png", .bytes = assets.mob.cow_png },
+        .chicken => .{ .path = "mob/chicken.png", .bytes = assets.mob.chicken_png },
         .char => .{ .path = "mob/char.png", .bytes = assets.mob.char_png },
         .armor_cloth_1 => .{ .path = "armor/cloth_1.png", .bytes = assets.armor.cloth_1_png },
         .armor_cloth_2 => .{ .path = "armor/cloth_2.png", .bytes = assets.armor.cloth_2_png },
@@ -147,6 +151,7 @@ test "every atlas names the jar path a texture pack would override it with" {
 }
 
 test "the paths are the ones the original reads, and none is claimed twice" {
+    @setEvalBranchQuota(10000);
     const fields = @typeInfo(Textures).@"struct".fields;
     inline for (fields, 0..) |field, index| {
         inline for (fields, 0..) |other, other_index| {

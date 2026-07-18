@@ -12,12 +12,17 @@ pub const Box = struct {
     inflate: f32 = 0,
 };
 
+/// How a quadruped's part moves. A `ModelRenderer` holding several boxes — the cow's horns on its
+/// head, its udder under its body — is written here as one part per box, sharing a pivot and a role.
+pub const Role = enum { still, head, leg_ahead, leg_behind, wing_right, wing_left };
+
 pub const Part = struct {
     box: Box,
     pivot: [3]f32,
     rotate_x: f32 = 0,
     rotate_y: f32 = 0,
     rotate_z: f32 = 0,
+    role: Role = .still,
 };
 
 pub const Pose = struct {
@@ -35,12 +40,12 @@ pub const Model = struct {
 };
 
 const pig_parts = [6]Part{
-    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -12, -6 } },
+    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -12, -6 }, .role = .head },
     .{ .box = .{ .origin = .{ -5, -10, -7 }, .size = .{ 10, 16, 8 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, -13, 2 }, .rotate_x = std.math.pi * 0.5 },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, -5 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, 7 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, 7 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -6, -5 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -6, -5 }, .role = .leg_ahead },
 };
 
 pub const pig: Model = .{
@@ -67,12 +72,12 @@ pub const pig_saddle: Model = .{
 
 /// `ModelSheep2`: the body under the wool, a `ModelQuadruped(12, 0)` with its own head and torso.
 const sheep_parts = [6]Part{
-    .{ .box = .{ .origin = .{ -3, -4, -6 }, .size = .{ 6, 6, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -18, -8 } },
+    .{ .box = .{ .origin = .{ -3, -4, -6 }, .size = .{ 6, 6, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -18, -8 }, .role = .head },
     .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, -5 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, 7 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, 7 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -3, -12, -5 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 3, -12, -5 }, .role = .leg_ahead },
 };
 
 pub const sheep: Model = .{
@@ -84,16 +89,57 @@ pub const sheep: Model = .{
 
 /// `ModelSheep1`: the fleece, worn over the body as boxes grown by their own amounts.
 const sheep_fur_parts = [6]Part{
-    .{ .box = .{ .origin = .{ -3, -4, -4 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 0, .inflate = 0.6 }, .pivot = .{ 0, -18, -8 } },
+    .{ .box = .{ .origin = .{ -3, -4, -4 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 0, .inflate = 0.6 }, .pivot = .{ 0, -18, -8 }, .role = .head },
     .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8, .inflate = 1.75 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, 7 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, -5 } },
-    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, -5 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, 7 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, 7 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ -3, -12, -5 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16, .inflate = 0.5 }, .pivot = .{ 3, -12, -5 }, .role = .leg_ahead },
 };
 
 pub const sheep_fur: Model = .{
     .parts = &sheep_fur_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+/// `ModelCow`: a `ModelQuadruped(12, 0)` given a snout, a pair of horns, a deeper barrel with an
+/// udder slung under it, and legs pushed out to the corners.
+const cow_parts = [9]Part{
+    .{ .box = .{ .origin = .{ -4, -4, -6 }, .size = .{ 8, 8, 6 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -20, -8 }, .role = .head },
+    .{ .box = .{ .origin = .{ -5, -5, -4 }, .size = .{ 1, 3, 1 }, .tex_u = 22, .tex_v = 0 }, .pivot = .{ 0, -20, -8 }, .role = .head },
+    .{ .box = .{ .origin = .{ 4, -5, -4 }, .size = .{ 1, 3, 1 }, .tex_u = 22, .tex_v = 0 }, .pivot = .{ 0, -20, -8 }, .role = .head },
+    .{ .box = .{ .origin = .{ -6, -10, -7 }, .size = .{ 12, 18, 10 }, .tex_u = 18, .tex_v = 4 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 2, -8 }, .size = .{ 4, 6, 1 }, .tex_u = 52, .tex_v = 0 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -4, -12, 7 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 4, -12, 7 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -4, -12, -6 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 4, -12, -6 }, .role = .leg_ahead },
+};
+
+pub const cow: Model = .{
+    .parts = &cow_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+/// `ModelChicken`: a bird small enough to model whole, with a bill and a chin on its head and a
+/// wing to each side. Its boxes reach well above the little box it walks around in.
+const chicken_parts = [8]Part{
+    .{ .box = .{ .origin = .{ -2, -6, -2 }, .size = .{ 4, 6, 3 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -9, -4 }, .role = .head },
+    .{ .box = .{ .origin = .{ -2, -4, -4 }, .size = .{ 4, 2, 2 }, .tex_u = 14, .tex_v = 0 }, .pivot = .{ 0, -9, -4 }, .role = .head },
+    .{ .box = .{ .origin = .{ -1, -2, -3 }, .size = .{ 2, 2, 2 }, .tex_u = 14, .tex_v = 4 }, .pivot = .{ 0, -9, -4 }, .role = .head },
+    .{ .box = .{ .origin = .{ -3, -4, -3 }, .size = .{ 6, 8, 6 }, .tex_u = 0, .tex_v = 9 }, .pivot = .{ 0, -8, 0 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = .{ .origin = .{ -1, 0, -3 }, .size = .{ 3, 5, 3 }, .tex_u = 26, .tex_v = 0 }, .pivot = .{ -2, -5, 1 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -1, 0, -3 }, .size = .{ 3, 5, 3 }, .tex_u = 26, .tex_v = 0 }, .pivot = .{ 1, -5, 1 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ 0, 0, -3 }, .size = .{ 1, 4, 6 }, .tex_u = 24, .tex_v = 13 }, .pivot = .{ -4, -11, 0 }, .role = .wing_right },
+    .{ .box = .{ .origin = .{ -1, 0, -3 }, .size = .{ 1, 4, 6 }, .tex_u = 24, .tex_v = 13 }, .pivot = .{ 4, -11, 0 }, .role = .wing_left },
+};
+
+pub const chicken: Model = .{
+    .parts = &chicken_parts,
     .head_index = 0,
     .texture_width = 64,
     .texture_height = 32,

@@ -8,6 +8,8 @@ pub const ItemEntity = @import("item_entity.zig");
 pub const Particle = @import("particle.zig");
 pub const FallingBlock = @import("falling_block.zig");
 pub const Animal = @import("animal.zig");
+pub const Chicken = @import("chicken.zig");
+pub const Cow = @import("cow.zig");
 pub const Pig = @import("pig.zig");
 pub const Sheep = @import("sheep.zig");
 pub const spawner = @import("spawner.zig");
@@ -27,6 +29,8 @@ test {
     _ = Particle;
     _ = FallingBlock;
     _ = Animal;
+    _ = Chicken;
+    _ = Cow;
     _ = Pig;
     _ = Sheep;
     _ = spawner;

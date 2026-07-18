@@ -1730,6 +1730,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig, partial);
         }
     }
+    var cow_mesh: render.MeshBuilder = .{};
+    defer cow_mesh.deinit(app_state.frame);
+    for (app_state.entities.cows.items) |cow| {
+        try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.world_map, cow, partial);
+    }
+    var chicken_mesh: render.MeshBuilder = .{};
+    defer chicken_mesh.deinit(app_state.frame);
+    for (app_state.entities.chickens.items) |chicken| {
+        try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.world_map, chicken, partial);
+    }
     var sheep_mesh: render.MeshBuilder = .{};
     defer sheep_mesh.deinit(app_state.frame);
     var fleece_mesh: render.MeshBuilder = .{};
@@ -1772,6 +1782,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (fleece_mesh.vertices.items.len > 0) {
         app_state.textures.sheep_fur.bind();
         drawEntityMesh(&fleece_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (cow_mesh.vertices.items.len > 0) {
+        app_state.textures.cow.bind();
+        drawEntityMesh(&cow_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (chicken_mesh.vertices.items.len > 0) {
+        app_state.textures.chicken.bind();
+        drawEntityMesh(&chicken_mesh);
         app_state.textures.terrain.bind();
     }
 

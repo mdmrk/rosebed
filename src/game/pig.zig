@@ -26,6 +26,16 @@ pub fn deinit(self: *Pig, gpa: std.mem.Allocator) void {
     self.animal.deinit(gpa);
 }
 
+pub fn tick(
+    self: *Pig,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: ?Animal.PlayerView,
+    rand: *world.JavaRandom,
+) !void {
+    try self.animal.tick(gpa, world_map, player, rand);
+}
+
 /// `EntityPig.dropFewItems`: nought to two porkchops, cooked if the pig died alight.
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
     const self: *Pig = @fieldParentPtr("animal", animal);

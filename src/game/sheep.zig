@@ -40,6 +40,16 @@ pub fn deinit(self: *Sheep, gpa: std.mem.Allocator) void {
     self.animal.deinit(gpa);
 }
 
+pub fn tick(
+    self: *Sheep,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: ?Animal.PlayerView,
+    rand: *world.JavaRandom,
+) !void {
+    try self.animal.tick(gpa, world_map, player, rand);
+}
+
 /// `EntitySheep.getRandomFleeceColor`: mostly white, with a rare pink among the greys and browns.
 pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     const roll = rand.nextIntBound(100);

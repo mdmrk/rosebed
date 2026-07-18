@@ -3,6 +3,8 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Chicken = @import("chicken.zig");
+const Cow = @import("cow.zig");
 const Entity = @import("entity.zig");
 const FallingBlock = @import("falling_block.zig");
 const Particle = @import("particle.zig");
@@ -18,21 +20,36 @@ items: std.ArrayList(ItemEntity) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
 pigs: std.ArrayList(Pig) = .empty,
 sheep: std.ArrayList(Sheep) = .empty,
+cows: std.ArrayList(Cow) = .empty,
+chickens: std.ArrayList(Chicken) = .empty,
 particles: std.ArrayList(Particle) = .empty,
+
+/// Every herd of animals, in the order they are ticked and drawn.
+fn herds(self: *Entities) struct {
+    *std.ArrayList(Pig),
+    *std.ArrayList(Sheep),
+    *std.ArrayList(Cow),
+    *std.ArrayList(Chicken),
+} {
+    return .{ &self.pigs, &self.sheep, &self.cows, &self.chickens };
+}
 
 pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
-    for (self.pigs.items) |*pig| pig.deinit(gpa);
-    self.pigs.deinit(gpa);
-    for (self.sheep.items) |*sheep| sheep.deinit(gpa);
-    self.sheep.deinit(gpa);
+    inline for (self.herds()) |herd| {
+        for (herd.items) |*animal| animal.deinit(gpa);
+        herd.deinit(gpa);
+    }
+}
+
+pub fn animalCount(self: *const Entities) usize {
+    return self.pigs.items.len + self.sheep.items.len + self.cows.items.len + self.chickens.items.len;
 }
 
 pub fn count(self: *const Entities) usize {
-    return self.items.items.len + self.falling_blocks.items.len +
-        self.pigs.items.len + self.sheep.items.len;
+    return self.items.items.len + self.falling_blocks.items.len + self.animalCount();
 }
 
 pub fn dropStack(
@@ -281,6 +298,14 @@ pub fn spawnSheep(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
     try self.sheep.append(gpa, Sheep.spawn(position, rand));
 }
 
+pub fn spawnCow(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    try self.cows.append(gpa, Cow.spawn(position));
+}
+
+pub fn spawnChicken(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
+    try self.chickens.append(gpa, Chicken.spawn(position, rand));
+}
+
 const pickup_reach: f64 = 1.0;
 
 pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player) void {
@@ -328,6 +353,14 @@ fn collectChunkEntities(
         if (chunkOf(sheep.animal.base.position.x) != chunk_x or chunkOf(sheep.animal.base.position.z) != chunk_z) continue;
         try out.append(gpa, try world.entity_nbt.storeSheep(gpa, sheep.toRecord()));
     }
+    for (self.cows.items) |cow| {
+        if (chunkOf(cow.animal.base.position.x) != chunk_x or chunkOf(cow.animal.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeCow(gpa, cow.toRecord()));
+    }
+    for (self.chickens.items) |chicken| {
+        if (chunkOf(chicken.animal.base.position.x) != chunk_x or chunkOf(chicken.animal.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeChicken(gpa, chicken.toRecord()));
+    }
 }
 
 fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!void {
@@ -336,6 +369,10 @@ fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world
         try self.pigs.append(gpa, Pig.fromRecord(record));
     } else if (world.entity_nbt.loadSheep(entity)) |record| {
         try self.sheep.append(gpa, Sheep.fromRecord(record));
+    } else if (world.entity_nbt.loadCow(entity)) |record| {
+        try self.cows.append(gpa, Cow.fromRecord(record));
+    } else if (world.entity_nbt.loadChicken(entity)) |record| {
+        try self.chickens.append(gpa, Chicken.fromRecord(record));
     }
 }
 
@@ -373,15 +410,12 @@ fn pushApart(pusher: *Animal, pushed: *Animal) void {
 
 fn pushNeighbours(self: *Entities, animal: *Animal) void {
     const reach = animal.base.boundingBox().expand(mob_push_reach, 0, mob_push_reach);
-    for (self.pigs.items) |*other| {
-        if (&other.animal == animal) continue;
-        if (!other.animal.base.boundingBox().intersects(reach)) continue;
-        pushApart(&other.animal, animal);
-    }
-    for (self.sheep.items) |*other| {
-        if (&other.animal == animal) continue;
-        if (!other.animal.base.boundingBox().intersects(reach)) continue;
-        pushApart(&other.animal, animal);
+    inline for (self.herds()) |herd| {
+        for (herd.items) |*other| {
+            if (&other.animal == animal) continue;
+            if (!other.animal.base.boundingBox().intersects(reach)) continue;
+            pushApart(&other.animal, animal);
+        }
     }
 }
 
@@ -396,10 +430,11 @@ fn tickHerd(
     var i: usize = 0;
     while (i < herd.items.len) {
         const mob = &herd.items[i];
-        try mob.animal.tick(gpa, world_map, view, rand);
+        try mob.tick(gpa, world_map, view, rand);
         self.pushNeighbours(&mob.animal);
 
-        if (mob.takeDrops()) |drops| {
+        // A chicken can owe both the egg it just laid and the feathers it died leaving.
+        while (mob.takeDrops()) |drops| {
             const position = mob.animal.base.position;
             for (0..drops.count) |_| {
                 try self.items.append(gpa, ItemEntity.spawn(position, drops.stack(), rand));
@@ -428,8 +463,9 @@ pub fn tickAnimals(
         .alive = player.health > 0,
     };
 
-    try self.tickHerd(gpa, world_map, view, rand, &self.pigs);
-    try self.tickHerd(gpa, world_map, view, rand, &self.sheep);
+    inline for (self.herds()) |herd| {
+        try self.tickHerd(gpa, world_map, view, rand, herd);
+    }
 }
 
 test "a pig is written into the chunk it stands in and comes back on reload" {
@@ -464,6 +500,12 @@ test "a pig is written into the chunk it stands in and comes back on reload" {
         entities.sheep.items[0].fleece_color = 15;
         entities.sheep.items[0].sheared = true;
 
+        try entities.spawnCow(gpa, math.Vec3.init(10.5, 1, 10.5));
+        entities.cows.items[0].animal.health = 5;
+
+        try entities.spawnChicken(gpa, math.Vec3.init(11.5, 1, 11.5), &rand);
+        entities.chickens.items[0].animal.health = 3;
+
         try w.saveLoadedChunks();
     }
 
@@ -491,6 +533,16 @@ test "a pig is written into the chunk it stands in and comes back on reload" {
     try std.testing.expectApproxEqAbs(@as(f64, 9.5), sheep.animal.base.position.x, 1.0e-9);
     try std.testing.expectEqual(@as(u4, 15), sheep.fleece_color);
     try std.testing.expect(sheep.sheared);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.cows.items.len);
+    const cow = restored.cows.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 10.5), cow.animal.base.position.x, 1.0e-9);
+    try std.testing.expectEqual(@as(i32, 5), cow.animal.health);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.chickens.items.len);
+    const chicken = restored.chickens.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 11.5), chicken.animal.base.position.x, 1.0e-9);
+    try std.testing.expectEqual(@as(i32, 3), chicken.animal.health);
 }
 
 test "a pig is only written into the chunk it is standing in" {
@@ -616,8 +668,61 @@ test "count sums every kind of entity" {
     try entities.spawnFallingBlock(gpa, 0, 5, 0, .sand);
     try entities.spawnPig(gpa, math.Vec3.init(0, 1, 0));
     try entities.spawnSheep(gpa, math.Vec3.init(0, 1, 0), &w.rand);
+    try entities.spawnCow(gpa, math.Vec3.init(0, 1, 0));
+    try entities.spawnChicken(gpa, math.Vec3.init(0, 1, 0), &w.rand);
 
-    try std.testing.expectEqual(@as(usize, 4), entities.count());
+    try std.testing.expectEqual(@as(usize, 4), entities.animalCount());
+    try std.testing.expectEqual(@as(usize, 6), entities.count());
+}
+
+test "a chicken hands over both the egg it laid and the feathers it died leaving" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnChicken(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    entities.chickens.items[0].pending_eggs = 1;
+    entities.chickens.items[0].pending_feathers = 2;
+
+    const player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickAnimals(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(@as(usize, 3), entities.items.items.len);
+
+    var eggs: u32 = 0;
+    var feathers: u32 = 0;
+    for (entities.items.items) |item| {
+        if (item.stack.id.eql(.{ .item = .egg })) eggs += 1;
+        if (item.stack.id.eql(.{ .item = .feather })) feathers += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 1), eggs);
+    try std.testing.expectEqual(@as(u32, 2), feathers);
+}
+
+test "a cow killed by the world leaves its hide behind" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnCow(gpa, math.Vec3.init(8.5, 1, 8.5));
+    entities.cows.items[0].pending_drops = 2;
+
+    const player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickAnimals(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(@as(usize, 2), entities.items.items.len);
+    for (entities.items.items) |item| {
+        try std.testing.expectEqual(world.Id{ .item = .leather }, item.stack.id);
+        try std.testing.expectEqual(@as(u8, 1), item.stack.count);
+    }
 }
 
 test "the wool a punched sheep loses is left on the ground in its own colour" {

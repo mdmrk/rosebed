@@ -2,6 +2,8 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 const Animal = @import("animal.zig");
+const Chicken = @import("chicken.zig");
+const Cow = @import("cow.zig");
 const Entities = @import("entities.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
@@ -17,17 +19,16 @@ const pack_attempts: usize = 3;
 const placement_attempts: usize = 4;
 const pack_spread: i32 = 6;
 
-/// The kinds we can put in the world; the rest of the biome's creature list still takes its turn.
-pub const Kind = enum { sheep, pig };
+pub const Kind = enum { sheep, pig, chicken, cow };
 
-const Creature = struct { weight: i32, kind: ?Kind };
+const Creature = struct { weight: i32, kind: Kind };
 
 /// `SpawnerAnimals`: sheep, pig, chicken, cow.
 const creature_list = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
     .{ .weight = 10, .kind = .pig },
-    .{ .weight = 10, .kind = null },
-    .{ .weight = 8, .kind = null },
+    .{ .weight = 10, .kind = .chicken },
+    .{ .weight = 8, .kind = .cow },
 };
 
 fn totalWeight() i32 {
@@ -72,8 +73,7 @@ pub fn performSpawning(
     spawn_point: [3]i32,
     rand: *world.JavaRandom,
 ) !u32 {
-    const population = entities.pigs.items.len + entities.sheep.items.len;
-    if (@as(i32, @intCast(population)) > populationCap()) return 0;
+    if (@as(i32, @intCast(entities.animalCount())) > populationCap()) return 0;
 
     const center_x = math.util.floorDouble(player_position.x / 16.0);
     const center_z = math.util.floorDouble(player_position.z / 16.0);
@@ -140,15 +140,10 @@ fn spawnInChunk(
             const from_spawn = from_spawn_x * from_spawn_x + from_spawn_y * from_spawn_y + from_spawn_z * from_spawn_z;
             if (from_spawn < spawn_clearance_squared) continue;
 
-            const kind = creature.kind orelse {
-                // The creature we cannot make yet still turns where it stands.
-                _ = rand.nextFloat();
-                continue;
-            };
-
-            // The mob is built first (a sheep rolls its fleece there), then turned, then asked.
+            // The mob is built first (a sheep rolls its fleece there, a chicken its first clutch),
+            // then turned, then asked whether it can stand where it was put.
             const position = math.Vec3.init(at_x, at_y, at_z);
-            switch (kind) {
+            switch (creature.kind) {
                 .pig => {
                     var pig = Pig.spawn(position);
                     pig.animal.faceYaw(rand.nextFloat() * 360.0);
@@ -160,6 +155,18 @@ fn spawnInChunk(
                     sheep.animal.faceYaw(rand.nextFloat() * 360.0);
                     if (!sheep.animal.canSpawnHere(world_map)) continue;
                     try entities.sheep.append(gpa, sheep);
+                },
+                .cow => {
+                    var cow = Cow.spawn(position);
+                    cow.animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!cow.animal.canSpawnHere(world_map)) continue;
+                    try entities.cows.append(gpa, cow);
+                },
+                .chicken => {
+                    var chicken = Chicken.spawn(position, rand);
+                    chicken.animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!chicken.animal.canSpawnHere(world_map)) continue;
+                    try entities.chickens.append(gpa, chicken);
                 },
             }
 
@@ -235,9 +242,11 @@ test "animals spawn onto lit grass away from the player" {
     try std.testing.expect(total > 0);
     for (entities.pigs.items) |pig| try expectStandingOnGrass(&w, pig.animal);
     for (entities.sheep.items) |sheep| try expectStandingOnGrass(&w, sheep.animal);
+    for (entities.cows.items) |cow| try expectStandingOnGrass(&w, cow.animal);
+    for (entities.chickens.items) |chicken| try expectStandingOnGrass(&w, chicken.animal);
 }
 
-test "both pigs and sheep find their way into a grassy world" {
+test "every kind we can make finds its way into a grassy world" {
     const gpa = std.testing.allocator;
     var w = try grassPlateau(gpa, 3, 5, surface);
     defer w.deinit();
@@ -247,13 +256,22 @@ test "both pigs and sheep find their way into a grassy world" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
+    var seen = [_]bool{false} ** std.enums.values(Kind).len;
+
     for (0..4000) |_| {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand);
-        if (entities.pigs.items.len > 0 and entities.sheep.items.len > 0) break;
+
+        // Empty the fields between rounds, so the population cap never ends the run early.
+        inline for (.{ &entities.pigs, &entities.sheep, &entities.chickens, &entities.cows }, 0..) |herd, kind| {
+            if (herd.items.len > 0) seen[kind] = true;
+            for (herd.items) |*animal| animal.deinit(gpa);
+            herd.clearRetainingCapacity();
+        }
+
+        if (std.mem.allEqual(bool, &seen, true)) break;
     }
 
-    try std.testing.expect(entities.pigs.items.len > 0);
-    try std.testing.expect(entities.sheep.items.len > 0);
+    for (seen) |kind_seen| try std.testing.expect(kind_seen);
 }
 
 test "nothing spawns on bare stone" {
@@ -334,6 +352,8 @@ test "nothing spawns within twenty-four blocks of the world spawn point" {
 
     for (entities.pigs.items) |pig| try expectClearOf(spawn_point, pig.animal);
     for (entities.sheep.items) |sheep| try expectClearOf(spawn_point, sheep.animal);
+    for (entities.cows.items) |cow| try expectClearOf(spawn_point, cow.animal);
+    for (entities.chickens.items) |chicken| try expectClearOf(spawn_point, chicken.animal);
 }
 
 fn expectClearOf(spawn_point: [3]i32, animal: Animal) !void {
@@ -368,19 +388,21 @@ test "the population cap follows the vanilla per-chunk allowance" {
     try std.testing.expectEqual(@as(i32, 16), populationCap());
 }
 
-test "the biome's creature list picks a sheep more often than a pig" {
+test "the biome's creature list picks each kind by its own weight" {
     var rand = world.JavaRandom.init(4);
-    var rolls = [_]u32{ 0, 0 };
+    var rolls = [_]u32{0} ** std.enums.values(Kind).len;
     const total = 4000;
     for (0..total) |_| {
-        const kind = pickCreature(&rand).kind orelse continue;
-        rolls[@intFromEnum(kind)] += 1;
+        rolls[@intFromEnum(pickCreature(&rand).kind)] += 1;
     }
 
-    // Sheep take 12 of the list's 40 weight, pigs 10.
-    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > total * 25 / 100);
-    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] < total * 35 / 100);
-    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] > total * 21 / 100);
-    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] < total * 29 / 100);
+    // Of the list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
+    const expected = [_]u32{ 30, 25, 25, 20 };
+    for (expected, 0..) |percent, kind| {
+        const share = rolls[kind] * 100 / total;
+        try std.testing.expect(share > percent - 4 and share < percent + 4);
+    }
+
     try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > rolls[@intFromEnum(Kind.pig)]);
+    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] > rolls[@intFromEnum(Kind.cow)]);
 }

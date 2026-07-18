@@ -235,19 +235,31 @@ pub const fleece_colors = [16][3]f32{
 };
 
 pub fn appendPig(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
-    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig, untinted);
+    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig, .{});
 }
 
 pub fn appendPigSaddle(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, pig: game.Pig, partial_ticks: f32) !void {
-    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig_saddle, untinted);
+    return appendAnimal(mesh, gpa, world_map, pig.animal, partial_ticks, mob_model.pig_saddle, .{});
 }
 
 pub fn appendSheep(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, sheep: game.Sheep, partial_ticks: f32) !void {
-    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep, untinted);
+    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep, .{});
+}
+
+pub fn appendCow(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, cow: game.Cow, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, cow.animal, partial_ticks, mob_model.cow, .{});
+}
+
+pub fn appendChicken(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, chicken: game.Chicken, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, chicken.animal, partial_ticks, mob_model.chicken, .{
+        .wing_flap = chicken.wingFlap(partial_ticks),
+    });
 }
 
 pub fn appendSheepFur(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, sheep: game.Sheep, partial_ticks: f32) !void {
-    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep_fur, fleece_colors[sheep.fleece_color]);
+    return appendAnimal(mesh, gpa, world_map, sheep.animal, partial_ticks, mob_model.sheep_fur, .{
+        .tint = fleece_colors[sheep.fleece_color],
+    });
 }
 
 pub const player_scale: f32 = 15.0 / 16.0;
@@ -314,6 +326,12 @@ fn appendBiped(
     mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
 }
 
+/// What a species adds on top of the pose every animal shares.
+const Trim = struct {
+    tint: [3]f32 = untinted,
+    wing_flap: f32 = 0,
+};
+
 fn appendAnimal(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -321,7 +339,7 @@ fn appendAnimal(
     animal: game.Animal,
     partial_ticks: f32,
     model: mob_model.Model,
-    tint: [3]f32,
+    trim: Trim,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
     const pos = animal.base.renderPosition(partial_ticks);
@@ -334,20 +352,25 @@ fn appendAnimal(
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
 
-    for (model.parts, 0..) |part, i| {
+    for (model.parts) |part| {
         var p = part;
-        if (i == model.head_index) {
-            p.rotate_y = animal.headYaw(partial_ticks) * to_radians;
-            p.rotate_x = animal.headPitch(partial_ticks) * to_radians;
-        } else if (i >= 2) {
-            p.rotate_x = if (i == 2 or i == 5) stride else -stride;
+        switch (part.role) {
+            .head => {
+                p.rotate_y = animal.headYaw(partial_ticks) * to_radians;
+                p.rotate_x = animal.headPitch(partial_ticks) * to_radians;
+            },
+            .leg_ahead => p.rotate_x = stride,
+            .leg_behind => p.rotate_x = -stride,
+            .wing_right => p.rotate_z = trim.wing_flap,
+            .wing_left => p.rotate_z = -trim.wing_flap,
+            .still => {},
         }
         try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose);
     }
 
     const brightness = brightnessOf(world_map, animal.base);
     mesh.scaleColors(first_vertex, brightness);
-    tintColors(mesh, first_vertex, tint);
+    tintColors(mesh, first_vertex, trim.tint);
     if (animal.hurt_time > 0 or animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
 }
 
@@ -968,6 +991,213 @@ test "a hurt sheep flashes red through its fleece" {
     try appendSheepFur(&hurt, gpa, &world_map, wounded, 0);
 
     try std.testing.expect(hurt.vertices.items[0].color[0] > calm.vertices.items[0].color[0]);
+}
+
+fn partVertices(mesh: MeshBuilder, part_index: usize) []const MeshBuilder.Vertex {
+    const per_part = 6 * 4;
+    return mesh.vertices.items[part_index * per_part ..][0..per_part];
+}
+
+fn partBounds(mesh: MeshBuilder, part_index: usize) [2][3]f32 {
+    var min: [3]f32 = .{ 1.0e9, 1.0e9, 1.0e9 };
+    var max: [3]f32 = .{ -1.0e9, -1.0e9, -1.0e9 };
+    for (partVertices(mesh, part_index)) |v| {
+        min = .{ @min(min[0], v.x), @min(min[1], v.y), @min(min[2], v.z) };
+        max = .{ @max(max[0], v.x), @max(max[1], v.y), @max(max[2], v.z) };
+    }
+    return .{ min, max };
+}
+
+const cow_head = 0;
+const cow_horn_left = 1;
+const cow_horn_right = 2;
+const cow_body = 3;
+const cow_udder = 4;
+
+test "a cow renders its head, both horns, its body, its udder and four legs" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendCow(&mesh, gpa, &world_map, game.Cow.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 9 * 6 * 4), mesh.vertices.items.len);
+
+    // The cow stands on its own feet, and — as in the original — its horns reach above the
+    // collision box it walks around in.
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 25.0 / 16.0), bounds[1][1], 1.0e-5);
+    try std.testing.expect(bounds[1][1] > 64.0 + game.Cow.height);
+}
+
+test "a cow's horns sit above its head, one to each side" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendCow(&mesh, gpa, &world_map, game.Cow.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    const head = partBounds(mesh, cow_head);
+    const left = partBounds(mesh, cow_horn_left);
+    const right = partBounds(mesh, cow_horn_right);
+
+    try std.testing.expect(left[1][1] > head[1][1]);
+    try std.testing.expect(right[1][1] > head[1][1]);
+    try std.testing.expect(left[0][0] < head[0][0]);
+    try std.testing.expect(right[1][0] > head[1][0]);
+    try std.testing.expectApproxEqAbs(left[1][1], right[1][1], 1.0e-6);
+}
+
+test "a cow's horns turn with the head they grow from" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var straight: MeshBuilder = .{};
+    defer straight.deinit(gpa);
+    var turned: MeshBuilder = .{};
+    defer turned.deinit(gpa);
+
+    const cow = game.Cow.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    try appendCow(&straight, gpa, &world_map, cow, 0);
+
+    var looking = cow;
+    looking.animal.yaw = 60;
+    looking.animal.prev_yaw = 60;
+    try appendCow(&turned, gpa, &world_map, looking, 0);
+
+    for ([_]usize{ cow_horn_left, cow_horn_right }) |horn| {
+        var moved = false;
+        for (partVertices(straight, horn), partVertices(turned, horn)) |a, b| {
+            if (@abs(a.x - b.x) > 1.0e-4) moved = true;
+        }
+        try std.testing.expect(moved);
+    }
+
+    for (partVertices(straight, cow_body), partVertices(turned, cow_body)) |a, b| {
+        try std.testing.expectApproxEqAbs(a.x, b.x, 1.0e-5);
+    }
+}
+
+test "a cow's udder hangs under its belly and stays there as it walks" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var standing: MeshBuilder = .{};
+    defer standing.deinit(gpa);
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+
+    var cow = game.Cow.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    try appendCow(&standing, gpa, &world_map, cow, 0);
+
+    cow.animal.limb_swing = 1.0;
+    cow.animal.limb_swing_amount = 1.0;
+    cow.animal.prev_limb_swing_amount = 1.0;
+    try appendCow(&walking, gpa, &world_map, cow, 1.0);
+
+    const body = partBounds(standing, cow_body);
+    const udder = partBounds(standing, cow_udder);
+    try std.testing.expect(udder[1][1] <= body[0][1] + 1.0e-5);
+    try std.testing.expect(udder[0][0] > body[0][0] and udder[1][0] < body[1][0]);
+
+    for (partVertices(standing, cow_udder), partVertices(walking, cow_udder)) |a, b| {
+        try std.testing.expectApproxEqAbs(a.y, b.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(a.z, b.z, 1.0e-6);
+    }
+}
+
+test "a walking cow swings diagonal legs together, on legs pushed out to the corners" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var cow = game.Cow.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    cow.animal.limb_swing = 1.0;
+    cow.animal.limb_swing_amount = 1.0;
+    cow.animal.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendCow(&walking, gpa, &world_map, cow, 1.0);
+
+    const first_leg = 5;
+    var reach: [4]f32 = undefined;
+    for (&reach, 0..) |*value, leg| {
+        const part = first_leg + leg;
+        value.* = partBounds(walking, part)[1][2] + mob_model.cow.parts[part].pivot[2] / 16.0;
+    }
+
+    try std.testing.expect(reach[0] != reach[1]);
+    try std.testing.expectApproxEqAbs(reach[0], reach[3], 1.0e-5);
+    try std.testing.expectApproxEqAbs(reach[1], reach[2], 1.0e-5);
+
+    const body = partBounds(walking, cow_body);
+    for ([_]usize{ 5, 6, 7, 8 }) |leg| {
+        const bounds = partBounds(walking, leg);
+        try std.testing.expect(bounds[0][0] >= body[0][0] and bounds[1][0] <= body[1][0]);
+    }
+}
+
+test "a chicken renders its head, bill, chin, body, two legs and two wings" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    try appendChicken(&mesh, gpa, &world_map, game.Chicken.spawn(.{ .x = 0, .y = 64, .z = 0 }, &rand), 0);
+
+    try std.testing.expectEqual(@as(usize, 8 * 6 * 4), mesh.vertices.items.len);
+
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expect(bounds[1][1] > 64.0 + game.Chicken.height);
+}
+
+test "a chicken's wings throw out to opposite sides as they beat" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var chicken = game.Chicken.spawn(.{ .x = 0, .y = 0, .z = 0 }, &rand);
+
+    var folded: MeshBuilder = .{};
+    defer folded.deinit(gpa);
+    try appendChicken(&folded, gpa, &world_map, chicken, 0);
+
+    // Mid-beat, off the ground: the wings are thrown as far out as they go.
+    chicken.wing_rotation = std.math.pi / 2.0;
+    chicken.prev_wing_rotation = chicken.wing_rotation;
+    chicken.wing_reach = 1.0;
+    chicken.prev_wing_reach = 1.0;
+    try std.testing.expect(chicken.wingFlap(1.0) > 1.0);
+
+    var beating: MeshBuilder = .{};
+    defer beating.deinit(gpa);
+    try appendChicken(&beating, gpa, &world_map, chicken, 1.0);
+
+    const right_wing = 6;
+    const left_wing = 7;
+    const folded_right = partBounds(folded, right_wing);
+    const beating_right = partBounds(beating, right_wing);
+    const folded_left = partBounds(folded, left_wing);
+    const beating_left = partBounds(beating, left_wing);
+
+    try std.testing.expect(beating_right[0][1] != folded_right[0][1]);
+    try std.testing.expect(beating_left[0][1] != folded_left[0][1]);
+
+    // The two wings mirror one another about the body.
+    try std.testing.expectApproxEqAbs(beating_right[0][1], beating_left[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(-beating_right[1][0], beating_left[0][0], 1.0e-5);
 }
 
 test "an entity in the open is lit brighter than one sealed in the dark" {

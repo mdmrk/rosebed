@@ -8,6 +8,7 @@ const Animal = @This();
 
 base: Entity,
 max_health: i32,
+takes_fall_damage: bool = true,
 yaw: f32 = 0,
 prev_yaw: f32 = 0,
 pitch: f32 = 0,
@@ -44,6 +45,8 @@ pub const Spec = struct {
     height: f64,
     max_health: i32 = default_max_health,
     step_height: f64 = default_step_height,
+    /// A chicken overrides `fall` with an empty body and lands from any height unhurt.
+    takes_fall_damage: bool = true,
 };
 
 pub const default_max_health: i32 = 10;
@@ -95,7 +98,12 @@ fn leaveNothing(_: *Animal, _: *world.JavaRandom) void {}
 pub fn spawn(position: math.Vec3, spec: Spec) Animal {
     var base = Entity.init(position, spec.width, spec.height);
     base.step_height = spec.step_height;
-    return .{ .base = base, .max_health = spec.max_health, .health = spec.max_health };
+    return .{
+        .base = base,
+        .max_health = spec.max_health,
+        .health = spec.max_health,
+        .takes_fall_damage = spec.takes_fall_damage,
+    };
 }
 
 pub fn deinit(self: *Animal, gpa: std.mem.Allocator) void {
@@ -239,6 +247,7 @@ fn knockBack(self: *Animal, dx: f64, dz: f64) void {
 }
 
 fn fall(self: *Animal, distance: f32, rand: *world.JavaRandom) void {
+    if (!self.takes_fall_damage) return;
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage > 0) _ = self.hurt(damage, null, rand);
 }
@@ -808,6 +817,29 @@ test "a long fall hurts by the distance beyond three blocks" {
 
     try std.testing.expect(animal.base.on_ground);
     try std.testing.expect(animal.health < animal.max_health);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), animal.fall_distance, 1.0e-6);
+}
+
+test "an animal that takes no fall damage lands from any height unhurt" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var animal = Animal.spawn(math.Vec3.init(8.5, 60, 8.5), .{
+        .width = 0.3,
+        .height = 0.4,
+        .takes_fall_damage = false,
+    });
+    defer animal.deinit(gpa);
+
+    for (0..300) |_| {
+        try animal.tick(gpa, &w, null, &rand);
+        if (animal.base.on_ground) break;
+    }
+
+    try std.testing.expect(animal.base.on_ground);
+    try std.testing.expectEqual(animal.max_health, animal.health);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), animal.fall_distance, 1.0e-6);
 }
 
