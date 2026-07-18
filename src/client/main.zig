@@ -385,6 +385,8 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
+    try app_state.texture_fx.loadCompassBase(assets.gui.items_png);
+
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
@@ -920,7 +922,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .{ .id = give.id, .count = give.count },
                 &app_state.world_map.rand,
             );
-            reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
+            reply(app_state, "Giving {s} some {d}", .{ give.user, give.id });
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
@@ -1856,6 +1858,13 @@ fn cameraSubmerged(app_state: *const AppState) bool {
     return app_state.player.isSubmerged(&app_state.world_map);
 }
 
+fn compassAngle(app_state: *const AppState) f64 {
+    if (app_state.screen != .playing) return 0.0;
+    const to_spawn_x = @as(f64, @floatFromInt(app_state.spawn[0])) - app_state.player.base.position.x;
+    const to_spawn_z = @as(f64, @floatFromInt(app_state.spawn[2])) - app_state.player.base.position.z;
+    return @as(f64, app_state.player.yaw - 90.0) * std.math.pi / 180.0 - std.math.atan2(to_spawn_z, to_spawn_x);
+}
+
 fn horizonColor(app_state: *const AppState) render.sky.Color {
     if (cameraSubmerged(app_state)) return underwater_fog_color;
     const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
@@ -2289,8 +2298,8 @@ pub fn iterate(
     }
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
-        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick();
-        app_state.texture_fx.upload(app_state.textures.terrain);
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state));
+        app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items);
     }
 
     if (app_state.screen == .loading) try stepLoading(app_state);
