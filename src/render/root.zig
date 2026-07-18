@@ -1,5 +1,6 @@
 pub const Atlas = @import("atlas.zig");
 pub const button = @import("button.zig");
+pub const chat = @import("chat.zig");
 pub const chunk_mesher = @import("chunk_mesher.zig");
 pub const ChunkRenderer = @import("chunk_renderer.zig");
 pub const Colorizer = @import("colorizer.zig");
@@ -77,4 +78,5 @@ test {
     _ = confirm_screen;
     _ = loading_screen;
     _ = debug_overlay;
+    _ = chat;
 }

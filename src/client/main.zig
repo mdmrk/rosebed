@@ -144,6 +144,7 @@ const AppState = struct {
     stats: game.stats.Stats = .{},
     stats_open: bool = false,
     stats_view: render.stats_screen.State = .{},
+    chat: render.chat.State = .{},
 };
 
 const Screen = enum { title, select_world, create_world, texture_packs, confirm_delete, loading, playing };
@@ -809,7 +810,7 @@ fn containerOpen(app_state: *const AppState) bool {
 }
 
 fn worldFocused(app_state: *const AppState) bool {
-    return app_state.screen == .playing and !containerOpen(app_state) and !app_state.paused and !app_state.options_open;
+    return app_state.screen == .playing and !containerOpen(app_state) and !app_state.paused and !app_state.options_open and !app_state.chat.open;
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
@@ -856,11 +857,35 @@ fn togglePause(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn openChat(app_state: *AppState) !void {
+    app_state.chat.openInput();
+    app_state.keys = .{};
+    try sdl3.keyboard.startTextInput(app_state.window);
+    try updateMouseMode(app_state);
+}
+
+fn closeChat(app_state: *AppState) !void {
+    app_state.chat.closeInput();
+    try sdl3.keyboard.stopTextInput(app_state.window);
+    try updateMouseMode(app_state);
+}
+
+fn sendChat(app_state: *AppState) !void {
+    const trimmed = std.mem.trim(u8, app_state.chat.message(), " ");
+    if (trimmed.len > 0) {
+        var buf: [render.chat.max_message_length + 32]u8 = undefined;
+        const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
+        app_state.chat.addMessage(app_state.font, line);
+    }
+    try closeChat(app_state);
+}
+
 fn quitToTitle(app_state: *AppState) !void {
     try app_state.stats.add(app_state.gpa, .{ .general = .leave_game }, 1);
     game.stats_file.save(app_state.gpa, app_state.io, app_state.base_dir, game.stats_file.default_username, &app_state.stats) catch {};
     if (app_state.save_handle != null) try saveWorld(app_state);
     closeWorld(app_state);
+    app_state.chat.clear();
     app_state.screen = .title;
     app_state.paused = false;
     app_state.splash = pickSplash(&app_state.world_map.rand);
@@ -1555,6 +1580,7 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
 
 fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
+    app_state.chat.tick();
 
     const moving_allowed = !containerOpen(app_state);
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
@@ -2177,6 +2203,7 @@ pub fn iterate(
         }
         try render.hud.draw(ui, app_state.player.inventory, app_state.player.health);
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
+        try render.chat.draw(ui, &app_state.chat);
     }
 
     if (app_state.controls_open) {
@@ -2324,7 +2351,15 @@ pub fn event(
         } else if (app_state.screen == .confirm_delete) {
             if (k.key == .escape) app_state.screen = .select_world;
         } else if (app_state.screen == .playing) {
-            if (k.key == .escape) {
+            if (app_state.chat.open) {
+                if (k.key == .escape) {
+                    try closeChat(app_state);
+                } else if (k.key == .return_key or k.key == .kp_enter) {
+                    try sendChat(app_state);
+                } else if (k.key == .backspace) {
+                    app_state.chat.backspace();
+                }
+            } else if (k.key == .escape) {
                 if (containerOpen(app_state)) {
                     try closeContainer(app_state);
                 } else {
@@ -2338,6 +2373,8 @@ pub fn event(
                 try toggleInventory(app_state);
             } else if (boundTo(app_state, .drop, k.key) and worldFocused(app_state) and !k.repeat) {
                 try dropSelectedItem(app_state);
+            } else if (boundTo(app_state, .chat, k.key) and worldFocused(app_state) and !k.repeat) {
+                try openChat(app_state);
             } else {
                 setKeyState(app_state, k.key, true);
                 selectHotbarFromKey(app_state, k.key);
@@ -2372,6 +2409,8 @@ pub fn event(
         .text_input => |t| if (app_state.screen == .create_world) {
             app_state.create_state.typeText(t.text);
             updateCreateFolder(app_state);
+        } else if (app_state.chat.open) {
+            app_state.chat.typeText(t.text);
         },
         .mouse_button_down => |m| switch (m.button) {
             .left => if (app_state.controls_open) {
@@ -2402,14 +2441,14 @@ pub fn event(
                 // the loading screen swallows clicks until the spawn area is ready
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
-            } else if (containerOpen(app_state)) {
+            } else if (app_state.chat.open) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
                 app_state.last_held_swing_tick = app_state.tick_count;
                 try clickLeft(app_state);
             },
-            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused) {} else if (containerOpen(app_state)) {
+            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.chat.open) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
             } else {
                 if (try useBlockOrPlace(app_state)) app_state.player.swingItem();
