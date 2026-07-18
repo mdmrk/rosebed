@@ -137,6 +137,7 @@ const AppState = struct {
     last_list_click_ms: u64 = 0,
     list_scroll: f32 = 0,
     create_state: render.create_world_screen.State = undefined,
+    multiplayer_state: render.multiplayer_screen.State = undefined,
     loading: Loading = .{},
     needs_spawn: bool = false,
     spawn: [3]i32 = .{ 0, 64, 0 },
@@ -147,7 +148,7 @@ const AppState = struct {
     chat: render.chat.State = .{},
 };
 
-const Screen = enum { title, select_world, create_world, texture_packs, confirm_delete, loading, playing };
+const Screen = enum { title, select_world, create_world, multiplayer, texture_packs, confirm_delete, loading, playing };
 
 const NameBuffer = struct {
     bytes: [64]u8 = undefined,
@@ -971,6 +972,42 @@ fn freeTexturePacks(app_state: *AppState) void {
 
     render.texture_pack.deinitAll(app_state.gpa, app_state.packs);
     app_state.packs = &.{};
+}
+
+fn openMultiplayer(app_state: *AppState) !void {
+    app_state.multiplayer_state = render.multiplayer_screen.init(app_state.settings.last_server.text());
+    app_state.screen = .multiplayer;
+    try sdl3.keyboard.startTextInput(app_state.window);
+}
+
+fn closeMultiplayer(app_state: *AppState) !void {
+    try sdl3.keyboard.stopTextInput(app_state.window);
+    app_state.screen = .title;
+}
+
+fn connectToServer(app_state: *AppState) !void {
+    if (!app_state.multiplayer_state.canConnect()) return;
+
+    var stored: [128]u8 = undefined;
+    const typed = app_state.multiplayer_state.address.text();
+    app_state.settings.last_server.set(render.multiplayer_screen.storedName(typed, &stored));
+
+    _ = render.multiplayer_screen.parseAddress(typed);
+}
+
+fn multiplayerClick(app_state: *AppState) !void {
+    const hit = render.multiplayer_screen.hitAt(
+        app_state.mouse_x,
+        app_state.mouse_y,
+        guiSize(app_state),
+        &app_state.multiplayer_state,
+    ) orelse return;
+
+    switch (hit) {
+        .address_field => app_state.multiplayer_state.address.focused = true,
+        .connect => try connectToServer(app_state),
+        .cancel => try closeMultiplayer(app_state),
+    }
 }
 
 fn openTexturePacks(app_state: *AppState) !void {
@@ -2241,6 +2278,8 @@ pub fn iterate(
         }
     } else if (app_state.screen == .create_world) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.create_state.tick();
+    } else if (app_state.screen == .multiplayer) {
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.multiplayer_state.tick();
     }
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
@@ -2299,6 +2338,8 @@ pub fn iterate(
         try render.select_world_screen.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
     } else if (app_state.screen == .create_world) {
         try render.create_world_screen.draw(ui, &app_state.create_state);
+    } else if (app_state.screen == .multiplayer) {
+        try render.multiplayer_screen.draw(ui, &app_state.multiplayer_state);
     } else if (app_state.screen == .texture_packs) {
         app_state.pack_scroll = render.texture_packs_screen.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
         try render.texture_packs_screen.draw(
@@ -2418,6 +2459,14 @@ pub fn event(
             } else if (k.key == .return_key or k.key == .kp_enter) {
                 try confirmCreateWorld(app_state);
             }
+        } else if (app_state.screen == .multiplayer) {
+            if (k.key == .escape) {
+                try closeMultiplayer(app_state);
+            } else if (k.key == .backspace) {
+                app_state.multiplayer_state.backspace();
+            } else if (k.key == .return_key or k.key == .kp_enter) {
+                try connectToServer(app_state);
+            }
         } else if (app_state.screen == .texture_packs) {
             if (k.key == .escape) {
                 freeTexturePacks(app_state);
@@ -2485,6 +2534,8 @@ pub fn event(
         .text_input => |t| if (app_state.screen == .create_world) {
             app_state.create_state.typeText(t.text);
             updateCreateFolder(app_state);
+        } else if (app_state.screen == .multiplayer) {
+            app_state.multiplayer_state.typeText(t.text);
         } else if (app_state.chat.open) {
             app_state.chat.typeText(t.text);
         },
@@ -2501,6 +2552,7 @@ pub fn event(
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
                     .singleplayer => try openSelectWorld(app_state),
+                    .multiplayer => try openMultiplayer(app_state),
                     .texture_packs => try openTexturePacks(app_state),
                     .options => try openOptions(app_state, .title),
                     .quit => return .success,
@@ -2509,6 +2561,8 @@ pub fn event(
                 try selectWorldClick(app_state);
             } else if (app_state.screen == .create_world) {
                 try createWorldClick(app_state);
+            } else if (app_state.screen == .multiplayer) {
+                try multiplayerClick(app_state);
             } else if (app_state.screen == .texture_packs) {
                 try texturePacksClick(app_state);
             } else if (app_state.screen == .confirm_delete) {

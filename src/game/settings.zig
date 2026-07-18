@@ -137,6 +137,20 @@ pub const Binding = enum {
 
 pub const KeyBindings = std.EnumArray(Binding, u32);
 
+pub const LastServer = struct {
+    bytes: [128]u8 = undefined,
+    len: usize = 0,
+
+    pub fn text(self: *const LastServer) []const u8 {
+        return self.bytes[0..self.len];
+    }
+
+    pub fn set(self: *LastServer, value: []const u8) void {
+        self.len = @min(value.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], value[0..self.len]);
+    }
+};
+
 const scancode_mask: u32 = 1 << 30;
 const left_shift: u32 = scancode_mask | 225;
 
@@ -155,6 +169,7 @@ anaglyph: bool = false,
 view_bobbing: bool = true,
 gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
+last_server: LastServer = .{},
 keys: KeyBindings = .init(.{
     .forward = 'w',
     .left = 'a',

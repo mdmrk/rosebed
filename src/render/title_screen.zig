@@ -19,7 +19,7 @@ const splash_offset_x: f32 = 90;
 const splash_y: f32 = 70;
 const splash_rotation: f32 = -20.0 * std.math.pi / 180.0;
 
-pub const Action = enum { singleplayer, texture_packs, options, quit };
+pub const Action = enum { singleplayer, multiplayer, texture_packs, options, quit };
 
 const Entry = struct { button: button.Button, action: ?Action };
 
@@ -28,7 +28,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     const top = @floor(scaled_height / 4.0) + 48.0;
     return .{
         .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer },
-        .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = false }, .action = null },
+        .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = true }, .action = .multiplayer },
         .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = true }, .action = .texture_packs },
         .{ .button = .{ .x = cx - 100, .y = top + 84, .w = 98, .label = "Options...", .enabled = true }, .action = .options },
         .{ .button = .{ .x = cx + 2, .y = top + 84, .w = 98, .label = "Quit Game", .enabled = true }, .action = .quit },
@@ -107,6 +107,6 @@ test "quit game is clickable" {
     try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, gui.scaledResolution(640, 480, 1000)));
 }
 
-test "multiplayer is disabled offline" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(320, 288, gui.scaledResolution(640, 480, 1000)));
+test "multiplayer sits between singleplayer and the texture packs" {
+    try std.testing.expectEqual(@as(?Action, .multiplayer), actionAt(320, 288, gui.scaledResolution(640, 480, 1000)));
 }

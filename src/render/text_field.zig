@@ -1,12 +1,32 @@
 const std = @import("std");
 
+const chat = @import("chat.zig");
 const Font = @import("font.zig");
 const gui = @import("gui.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 
 pub const height: f32 = 20;
-pub const max_length = 32;
+pub const max_length = 128;
 pub const cursor_blink_ticks = 6;
+
+pub const Charset = enum {
+    name,
+    address,
+
+    pub fn limit(self: Charset) usize {
+        return switch (self) {
+            .name => 32,
+            .address => 128,
+        };
+    }
+
+    pub fn allows(self: Charset, c: u8) bool {
+        return switch (self) {
+            .name => isAllowed(c),
+            .address => chat.isAllowed(c),
+        };
+    }
+};
 
 const border_color: [4]u8 = .{ 160, 160, 160, 255 };
 const fill_color: [4]u8 = .{ 0, 0, 0, 255 };
@@ -23,20 +43,21 @@ pub const TextField = struct {
     len: usize = 0,
     focused: bool = false,
     blink: u32 = 0,
+    charset: Charset = .name,
 
     pub fn text(self: *const TextField) []const u8 {
         return self.buffer[0..self.len];
     }
 
     pub fn setText(self: *TextField, value: []const u8) void {
-        self.len = @min(value.len, max_length);
+        self.len = @min(value.len, self.charset.limit());
         @memcpy(self.buffer[0..self.len], value[0..self.len]);
     }
 
     pub fn insert(self: *TextField, value: []const u8) void {
         for (value) |c| {
-            if (self.len == max_length) return;
-            if (!isAllowed(c)) continue;
+            if (self.len == self.charset.limit()) return;
+            if (!self.charset.allows(c)) continue;
             self.buffer[self.len] = c;
             self.len += 1;
         }
@@ -114,7 +135,7 @@ test "backspace removes the last character and stops at empty" {
 test "a field never takes more than its maximum length" {
     var field: TextField = .{};
     field.insert("x" ** (max_length * 2));
-    try std.testing.expectEqual(max_length, field.text().len);
+    try std.testing.expectEqual(Charset.name.limit(), field.text().len);
 }
 
 test "setText replaces the contents and truncates overlong input" {
@@ -122,7 +143,7 @@ test "setText replaces the contents and truncates overlong input" {
     field.setText("hello");
     try std.testing.expectEqualStrings("hello", field.text());
     field.setText("y" ** (max_length + 5));
-    try std.testing.expectEqual(max_length, field.text().len);
+    try std.testing.expectEqual(Charset.name.limit(), field.text().len);
 }
 
 test "the cursor blinks only while the field is focused" {
@@ -142,4 +163,21 @@ test "contains hits inside the box the caller lays out" {
     try std.testing.expect(contains(rect, 150, 70));
     try std.testing.expect(!contains(rect, 150, 90));
     try std.testing.expect(!contains(rect, 90, 70));
+}
+
+test "an address field takes a colon and a longer name than a world does" {
+    var field: TextField = .{ .charset = .address };
+    field.insert("localhost:25565");
+    try std.testing.expectEqualStrings("localhost:25565", field.text());
+
+    field.setText("");
+    field.insert("h" ** 200);
+    try std.testing.expectEqual(Charset.address.limit(), field.text().len);
+}
+
+test "a world name still refuses what would break a folder name" {
+    var field: TextField = .{};
+    field.insert("My World");
+    field.insert(":/\\\"");
+    try std.testing.expectEqualStrings("My World", field.text());
 }

@@ -24,6 +24,7 @@ pub const menu = @import("menu.zig");
 pub const MeshBuilder = @import("mesh_builder.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const mojang_screen = @import("mojang_screen.zig");
+pub const multiplayer_screen = @import("multiplayer_screen.zig");
 pub const options_screen = @import("options_screen.zig");
 pub const select_world_screen = @import("select_world_screen.zig");
 pub const selection = @import("selection.zig");
@@ -78,5 +79,6 @@ test {
     _ = confirm_screen;
     _ = loading_screen;
     _ = debug_overlay;
+    _ = multiplayer_screen;
     _ = chat;
 }
