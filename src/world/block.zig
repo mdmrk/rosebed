@@ -67,6 +67,7 @@ pub const Shape = union(enum) {
     torch,
     door,
     trapdoor,
+    stairs,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -78,6 +79,8 @@ pub const Shape = union(enum) {
 };
 
 pub const Bounds = struct { min: [3]f32, max: [3]f32 };
+
+const full_cube_box = [1]Bounds{.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }};
 
 pub const FaceTextures = std.EnumArray(Side, u8);
 
@@ -211,6 +214,7 @@ pub const Block = enum(u8) {
     obsidian = 49,
     torch = 50,
     mob_spawner = 52,
+    stairs_wood = 53,
     chest = 54,
     ore_diamond = 56,
     block_diamond = 57,
@@ -218,6 +222,7 @@ pub const Block = enum(u8) {
     furnace = 61,
     burning_furnace = 62,
     door_wood = 64,
+    stairs_cobblestone = 67,
     door_iron = 71,
     ore_redstone = 73,
     snow_layer = 78,
@@ -238,14 +243,14 @@ pub const Block = enum(u8) {
     pub fn material(self: Block) Material {
         return switch (self) {
             .air => .air,
-            .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner => .rock,
+            .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner, .stairs_cobblestone => .rock,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
             .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
             .furnace, .burning_furnace => .rock,
             .block_gold, .block_iron, .block_diamond, .door_iron => .iron,
             .grass, .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
-            .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor => .wood,
+            .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor, .stairs_wood => .wood,
             .leaves => .leaves,
             .sponge => .sponge,
             .wool => .cloth,
@@ -271,6 +276,7 @@ pub const Block = enum(u8) {
             .torch => .torch,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
+            .stairs_wood, .stairs_cobblestone => .stairs,
             .snow_layer => .{ .partial = 0.125 },
             else => .cube,
         };
@@ -286,6 +292,10 @@ pub const Block = enum(u8) {
 
     pub fn isTrapdoor(self: Block) bool {
         return self.shape() == .trapdoor;
+    }
+
+    pub fn isStairs(self: Block) bool {
+        return self.shape() == .stairs;
     }
 
     pub fn heightScale(self: Block) f32 {
@@ -323,6 +333,7 @@ pub const Block = enum(u8) {
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor => false,
+            .stairs_wood, .stairs_cobblestone => false,
             else => self.isOpaque() and !self.isLiquid(),
         };
     }
@@ -361,13 +372,11 @@ pub const Block = enum(u8) {
         };
     }
 
-    pub fn itemRenderBounds(self: Block) Bounds {
+    pub fn itemRenderBoxes(self: Block) []const Bounds {
         return switch (self) {
-            .trapdoor => .{
-                .min = .{ 0, 0.5 - trapdoor_thickness / 2.0, 0 },
-                .max = .{ 1, 0.5 + trapdoor_thickness / 2.0, 1 },
-            },
-            else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
+            .trapdoor => &trapdoor_item_boxes,
+            .stairs_wood, .stairs_cobblestone => &stairs_item_boxes,
+            else => &full_cube_box,
         };
     }
 
@@ -434,6 +443,8 @@ pub const Block = enum(u8) {
             .door_wood => uniform(door_bottom_tile),
             .door_iron => uniform(door_bottom_tile + 1),
             .trapdoor => uniform(trapdoor_tile),
+            .stairs_wood => uniform(4),
+            .stairs_cobblestone => uniform(16),
             .ice => uniform(67),
             .snow_block => uniform(66),
             .jukebox => topAndSide(75, 74, 74),
@@ -498,6 +509,7 @@ pub const Block = enum(u8) {
             .pumpkin => 1.0,
             .snow_layer => 0.1,
             .cobblestone, .cobblestone_mossy => 2.0,
+            .stairs_wood, .stairs_cobblestone => 2.0,
             .mob_spawner => 5.0,
             .sponge => 0.6,
             .glass => 0.3,
@@ -601,6 +613,8 @@ pub const Block = enum(u8) {
             .furnace, .burning_furnace => "Furnace",
             .door_wood => "Wooden Door",
             .trapdoor => "Trapdoor",
+            .stairs_wood => "Wooden Stairs",
+            .stairs_cobblestone => "Stone Stairs",
             .door_iron => "Iron Door",
             .ice => "Ice",
             .snow_block => "Snow",
@@ -617,6 +631,8 @@ pub const Block = enum(u8) {
         return switch (self) {
             .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .grass => .{ .id = .{ .block = .dirt }, .count = 1 },
+            .stairs_wood => .{ .id = .{ .block = .planks }, .count = 1 },
+            .stairs_cobblestone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .gravel => if (rand.nextIntBound(10) == 0)
                 .{ .id = .{ .item = .flint }, .count = 1 }
             else
@@ -765,6 +781,11 @@ pub const trapdoor_open_bit: u4 = 4;
 pub const trapdoor_thickness: f32 = 3.0 / 16.0;
 const trapdoor_tile: u8 = 84;
 
+const trapdoor_item_boxes = [1]Bounds{.{
+    .min = .{ 0, 0.5 - trapdoor_thickness / 2.0, 0 },
+    .max = .{ 1, 0.5 + trapdoor_thickness / 2.0, 1 },
+}};
+
 pub fn trapdoorIsOpen(metadata: u4) bool {
     return metadata & trapdoor_open_bit != 0;
 }
@@ -797,6 +818,44 @@ pub fn trapdoorFacingFromFace(face: Side) ?u4 {
         .west => 2,
         .east => 3,
         .up, .down => null,
+    };
+}
+
+const stairs_item_boxes = [2]Bounds{
+    .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 0.5 } },
+    .{ .min = .{ 0, 0, 0.5 }, .max = .{ 1, 0.5, 1 } },
+};
+
+/// `BlockStairs.getCollidingBoundingBoxes`: the tall half comes first, then the tread.
+pub fn stairsBoxes(metadata: u4) [2]Bounds {
+    return switch (@as(u2, @truncate(metadata))) {
+        0 => .{
+            .{ .min = .{ 0, 0, 0 }, .max = .{ 0.5, 0.5, 1 } },
+            .{ .min = .{ 0.5, 0, 0 }, .max = .{ 1, 1, 1 } },
+        },
+        1 => .{
+            .{ .min = .{ 0, 0, 0 }, .max = .{ 0.5, 1, 1 } },
+            .{ .min = .{ 0.5, 0, 0 }, .max = .{ 1, 0.5, 1 } },
+        },
+        2 => .{
+            .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 0.5, 0.5 } },
+            .{ .min = .{ 0, 0, 0.5 }, .max = .{ 1, 1, 1 } },
+        },
+        3 => .{
+            .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 0.5 } },
+            .{ .min = .{ 0, 0, 0.5 }, .max = .{ 1, 0.5, 1 } },
+        },
+    };
+}
+
+/// `BlockStairs.onBlockPlacedBy`: the tall half turns to face away from the player who placed it.
+pub fn stairsFacingFromYaw(yaw: f32) u4 {
+    const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 0.5);
+    return switch (@as(u2, @intFromFloat(@mod(quarter, 4.0)))) {
+        0 => 2,
+        1 => 1,
+        2 => 3,
+        3 => 0,
     };
 }
 
@@ -1443,6 +1502,66 @@ test "a door is solid to walk into but never culls the face beside it" {
     try std.testing.expect(!Block.planks.isDoor());
 }
 
+test "a stair splits into a half-height tread and a full-height back" {
+    for (0..4) |facing| {
+        const boxes = stairsBoxes(@intCast(facing));
+        var half_count: usize = 0;
+        for (boxes) |box| {
+            try std.testing.expectEqual(@as(f32, 0.0), box.min[1]);
+            if (box.max[1] == 0.5) half_count += 1 else try std.testing.expectEqual(@as(f32, 1.0), box.max[1]);
+
+            const width = (box.max[0] - box.min[0]) * (box.max[2] - box.min[2]);
+            try std.testing.expectApproxEqAbs(@as(f32, 0.5), width, 1.0e-6);
+        }
+        try std.testing.expectEqual(@as(usize, 1), half_count);
+    }
+}
+
+test "the two halves of a stair meet without a gap or an overlap" {
+    for (0..4) |facing| {
+        const boxes = stairsBoxes(@intCast(facing));
+        const split_axis: usize = if (facing < 2) 0 else 2;
+        const low = if (boxes[0].min[split_axis] == 0.0) boxes[0] else boxes[1];
+        const high = if (boxes[0].min[split_axis] == 0.0) boxes[1] else boxes[0];
+        try std.testing.expectEqual(@as(f32, 0.5), low.max[split_axis]);
+        try std.testing.expectEqual(@as(f32, 0.5), high.min[split_axis]);
+        try std.testing.expectEqual(@as(f32, 1.0), high.max[split_axis]);
+    }
+}
+
+test "a stair's tall half turns away from the player who placed it" {
+    try std.testing.expectEqual(@as(u4, 2), stairsFacingFromYaw(0));
+    try std.testing.expectEqual(@as(u4, 1), stairsFacingFromYaw(90));
+    try std.testing.expectEqual(@as(u4, 3), stairsFacingFromYaw(180));
+    try std.testing.expectEqual(@as(u4, 0), stairsFacingFromYaw(270));
+    try std.testing.expectEqual(@as(u4, 0), stairsFacingFromYaw(-90));
+    try std.testing.expectEqual(@as(u4, 2), stairsFacingFromYaw(-720));
+
+    const facing_north = stairsBoxes(stairsFacingFromYaw(0));
+    try std.testing.expectEqual(@as(f32, 1.0), facing_north[1].max[1]);
+    try std.testing.expectEqual(@as(f32, 0.5), facing_north[1].min[2]);
+}
+
+test "a stair keeps its neighbours' faces and is selected as a whole block" {
+    for ([_]Block{ .stairs_wood, .stairs_cobblestone }) |id| {
+        try std.testing.expect(id.isStairs());
+        try std.testing.expect(id.isSolid());
+        try std.testing.expect(!id.isOpaqueCube());
+        try std.testing.expect(Block.stone.shouldRenderFace(id, .north, true));
+
+        const cube: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
+        try std.testing.expectEqual(cube, id.selectionBounds(0));
+        try std.testing.expectEqual(cube, id.selectionBounds(3));
+    }
+    try std.testing.expect(!Block.planks.isStairs());
+}
+
+test "a stair drops the block it was cut from, not itself" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(Id{ .block = .planks }, Block.stairs_wood.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .cobblestone }, Block.stairs_cobblestone.drop(0, &rand).?.id);
+}
+
 test "a shut trapdoor is the bottom three sixteenths of its block" {
     const shut = Block.trapdoor.selectionBounds(0);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, shut.min);
@@ -1513,10 +1632,10 @@ test "grass wears the snow side texture when snow is piled on it" {
 test "only the trapdoor shrinks its model when held, dropped or drawn in a slot" {
     const cube: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
     for ([_]Block{ .stone, .snow_layer, .door_wood, .cactus, .torch }) |id| {
-        try std.testing.expectEqual(cube, id.itemRenderBounds());
+        try std.testing.expectEqualSlices(Bounds, &.{cube}, id.itemRenderBoxes());
     }
 
-    const plate = Block.trapdoor.itemRenderBounds();
+    const plate = Block.trapdoor.itemRenderBoxes()[0];
     try std.testing.expectEqual([2]f32{ 0, 0 }, [2]f32{ plate.min[0], plate.min[2] });
     try std.testing.expectEqual([2]f32{ 1, 1 }, [2]f32{ plate.max[0], plate.max[2] });
     try std.testing.expectApproxEqAbs(trapdoor_thickness, plate.max[1] - plate.min[1], 1.0e-6);

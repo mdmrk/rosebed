@@ -109,13 +109,15 @@ pub fn appendItem(
 
     const Cube = struct {
         var faces: world.block.FaceTextures = undefined;
-        var bounds: world.block.Bounds = undefined;
+        var boxes: []const world.block.Bounds = undefined;
         var inset: f32 = 0.0;
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
-            try chunk_mesher.buildBoxCube(target, gpa_inner, .{ 0, 0, 0 }, block_scale, bounds, faces, inset);
+            for (boxes) |bounds| {
+                try chunk_mesher.buildBoxCube(target, gpa_inner, .{ 0, 0, 0 }, block_scale, bounds, faces, inset);
+            }
         }
     };
-    Cube.bounds = id.itemRenderBounds();
+    Cube.boxes = id.itemRenderBoxes();
     Cube.faces = id.faceTextures();
     if (id == .log) {
         const side_tile = world.block.logSideTile(item.stack.blockMeta());

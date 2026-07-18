@@ -410,10 +410,11 @@ pub fn appendBlockIcon3d(
         textures = world.block.FaceTextures.initFill(world.block.woolTile(meta));
     }
     const inset = id.sideInset();
-    const bounds = id.itemRenderBounds();
-    try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, 2, bounds, 0, textures.get(.up), iso_brightness_up, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_south_corners, 2, 0, 1, bounds, inset, textures.get(.south), iso_brightness_south, x, y, res);
-    try appendIsoFace(mesh, gpa, iso_east_corners, 0, 2, 1, bounds, inset, textures.get(.east), iso_brightness_east, x, y, res);
+    for (id.itemRenderBoxes()) |bounds| {
+        try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, 2, bounds, 0, textures.get(.up), iso_brightness_up, x, y, res);
+        try appendIsoFace(mesh, gpa, iso_south_corners, 2, 0, 1, bounds, inset, textures.get(.south), iso_brightness_south, x, y, res);
+        try appendIsoFace(mesh, gpa, iso_east_corners, 0, 2, 1, bounds, inset, textures.get(.east), iso_brightness_east, x, y, res);
+    }
 }
 
 fn appendDurabilityBar(

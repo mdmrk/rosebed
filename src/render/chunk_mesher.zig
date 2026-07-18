@@ -419,20 +419,19 @@ fn buildDoor(
     }
 }
 
-fn buildTrapdoor(
+fn buildBoundedBox(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
     id: world.Block,
-    metadata: u4,
+    bounds: world.block.Bounds,
     x: i32,
     y: i32,
     z: i32,
     origin: [3]f32,
     options: Options,
 ) !void {
-    const bounds = world.block.trapdoorBounds(metadata);
-    const tile = id.faceTextures().get(.down);
+    const textures = id.faceTextures();
     const emitted = world.light.emission(id);
     const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
 
@@ -443,7 +442,7 @@ fn buildTrapdoor(
         const reaches = reachesFace(bounds, face.side);
         if (reaches and !id.shouldRenderFace(world_map.getBlock(nx, ny, nz), face.side, options.fancy)) continue;
 
-        const quad = boxFaceQuad(bounds, origin, face, tile, false);
+        const quad = boxFaceQuad(bounds, origin, face, textures.get(face.side), false);
 
         if (options.smooth and reaches) {
             const corner_brightness = smoothBrightness(world_map, face, x, y, z, emitted);
@@ -665,7 +664,15 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 }
 
                 if (id.isTrapdoor()) {
-                    try buildTrapdoor(target, gpa, world_map, id, metadata, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    const bounds = world.block.trapdoorBounds(metadata);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    continue;
+                }
+
+                if (id.isStairs()) {
+                    for (world.block.stairsBoxes(metadata)) |bounds| {
+                        try buildBoundedBox(target, gpa, world_map, id, bounds, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    }
                     continue;
                 }
 
@@ -1651,6 +1658,91 @@ test "a trapdoor's sides show only the slice of the tile they cover" {
     try std.testing.expectApproxEqAbs(slice, highest - lowest, 1.0e-6);
 }
 
+fn stairsMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, options: Options) !Mesh {
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(8, 1, 8, world.Block.stairs_cobblestone);
+    chunk.setBlockMetadata(8, 1, 8, metadata);
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, options);
+}
+
+test "a stair in the open draws both of its halves" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try stairsMesh(gpa, &world_map, 3, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 12 * 4), mesh.solid.vertices.items.len);
+
+    var tread: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.y > 1.0) tread = @min(tread, vertex.y);
+        highest = @max(highest, vertex.y);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), tread, 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), highest, 1.0e-5);
+}
+
+test "a stair turns its tall half to the side its metadata names" {
+    const gpa = std.testing.allocator;
+
+    for ([_]struct { meta: u4, axis: usize, near: bool }{
+        .{ .meta = 0, .axis = 0, .near = false },
+        .{ .meta = 1, .axis = 0, .near = true },
+        .{ .meta = 2, .axis = 2, .near = false },
+        .{ .meta = 3, .axis = 2, .near = true },
+    }) |turn| {
+        var world_map = world.World.init(gpa);
+        defer world_map.deinit();
+        _ = try world_map.createChunk(0, 0);
+
+        var mesh = try stairsMesh(gpa, &world_map, turn.meta, .{});
+        defer mesh.deinit(gpa);
+
+        var lowest: f32 = std.math.floatMax(f32);
+        var highest: f32 = -std.math.floatMax(f32);
+        for (mesh.solid.vertices.items) |vertex| {
+            if (vertex.y != 2.0) continue;
+            const along = if (turn.axis == 0) vertex.x else vertex.z;
+            lowest = @min(lowest, along);
+            highest = @max(highest, along);
+        }
+        const base: f32 = if (turn.near) 8.0 else 8.5;
+        try std.testing.expectApproxEqAbs(base, lowest, 1.0e-5);
+        try std.testing.expectApproxEqAbs(base + 0.5, highest, 1.0e-5);
+    }
+}
+
+test "a stair buried on every side still draws the faces that stop short of the block" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for ([_][3]u8{ .{ 8, 0, 8 }, .{ 8, 2, 8 }, .{ 7, 1, 8 }, .{ 9, 1, 8 }, .{ 8, 1, 7 }, .{ 8, 1, 9 } }) |cell| {
+        chunk.setBlock(cell[0], cell[1], cell[2], world.Block.stone);
+    }
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var walled = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer walled.deinit(gpa);
+
+    var mesh = try stairsMesh(gpa, &world_map, 3, .{});
+    defer mesh.deinit(gpa);
+
+    const stair_vertices = mesh.solid.vertices.items.len - walled.solid.vertices.items.len;
+    try std.testing.expectEqual(@as(usize, 3 * 4), stair_vertices);
+
+    var interior: usize = 0;
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.z == 8.5 or vertex.y == 1.5) interior += 1;
+    }
+    try std.testing.expectEqual(stair_vertices, interior);
+}
+
 test "smooth lighting reaches a trapdoor, unlike a door" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
@@ -1688,7 +1780,7 @@ test "a box with full bounds is the cube the item renderers drew before" {
         const textures = id.faceTextures();
         const inset = id.sideInset();
         try buildCube(&cube, gpa, .{ -0.5, -0.5, -0.5 }, .{ 0.5, 0.5, 0.5 }, textures, inset);
-        try buildBoxCube(&box, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBounds(), textures, inset);
+        try buildBoxCube(&box, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], textures, inset);
 
         try expectSameMesh(cube, box);
     }
@@ -1700,7 +1792,7 @@ test "a trapdoor in hand is a plate through the middle of its block" {
     defer mesh.deinit(gpa);
 
     const id = world.Block.trapdoor;
-    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBounds(), id.faceTextures(), 0.0);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], id.faceTextures(), 0.0);
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);

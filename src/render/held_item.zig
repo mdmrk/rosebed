@@ -64,15 +64,17 @@ pub fn handMatrix(swing: f32, equipped: f32) math.Mat4 {
 
 pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, brightness: f32) !void {
     const first_vertex = mesh.vertices.items.len;
-    try chunk_mesher.buildBoxCube(
-        mesh,
-        gpa,
-        .{ 0, 0, 0 },
-        1.0,
-        id.itemRenderBounds(),
-        id.faceTextures(),
-        id.sideInset(),
-    );
+    for (id.itemRenderBoxes()) |bounds| {
+        try chunk_mesher.buildBoxCube(
+            mesh,
+            gpa,
+            .{ 0, 0, 0 },
+            1.0,
+            bounds,
+            id.faceTextures(),
+            id.sideInset(),
+        );
+    }
     mesh.scaleColors(first_vertex, brightness);
 }
 

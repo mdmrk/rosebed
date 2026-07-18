@@ -1419,6 +1419,10 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
         _ = try app_state.world_map.addFurnace(px, py, pz);
     }
+    if (placed.isStairs()) {
+        const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
+        try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+    }
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);

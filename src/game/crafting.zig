@@ -134,6 +134,16 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
         b(.planks), b(.planks), b(.planks),
     }, .{ .block = .trapdoor }, 2),
+    shaped(3, 3, &.{
+        b(.planks), null,       null,
+        b(.planks), b(.planks), null,
+        b(.planks), b(.planks), b(.planks),
+    }, .{ .block = .stairs_wood }, 4),
+    shaped(3, 3, &.{
+        b(.cobblestone), null,            null,
+        b(.cobblestone), b(.cobblestone), null,
+        b(.cobblestone), b(.cobblestone), b(.cobblestone),
+    }, .{ .block = .stairs_cobblestone }, 4),
     shaped(1, 3, &.{ b(.mushroom_red), b(.mushroom_brown), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(1, 3, &.{ b(.mushroom_brown), b(.mushroom_red), i(.bowl) }, .{ .item = .mushroom_stew }, 1),
     shaped(3, 3, &.{
@@ -759,6 +769,29 @@ test "six planks in two rows craft a pair of trapdoors" {
     const result = findMatch(&grid, workbench_grid_size).?;
     try std.testing.expectEqual(world.Id{ .block = .trapdoor }, result.id);
     try std.testing.expectEqual(@as(u8, 2), result.count);
+}
+
+test "a staircase of six blocks crafts four stairs of that block" {
+    for ([_]struct { cut: world.Block, out: world.Block }{
+        .{ .cut = .planks, .out = .stairs_wood },
+        .{ .cut = .cobblestone, .out = .stairs_cobblestone },
+    }) |pair| {
+        var grid: [9]?Inventory.ItemStack = @splat(null);
+        for ([_]usize{ 0, 3, 4, 6, 7, 8 }) |cell| {
+            grid[cell] = .{ .id = .{ .block = pair.cut }, .count = 1 };
+        }
+        const result = findMatch(&grid, workbench_grid_size).?;
+        try std.testing.expectEqual(world.Id{ .block = pair.out }, result.id);
+        try std.testing.expectEqual(@as(u8, 4), result.count);
+    }
+}
+
+test "a staircase climbing the other way still crafts stairs, since shapes match mirrored" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 2, 4, 5, 6, 7, 8 }) |cell| {
+        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
+    }
+    try std.testing.expectEqual(world.Id{ .block = .stairs_wood }, findMatch(&grid, workbench_grid_size).?.id);
 }
 
 test "the same six planks turned on their side craft a door instead" {

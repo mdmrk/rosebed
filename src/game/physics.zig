@@ -4,15 +4,10 @@ const world = @import("world");
 
 const max_colliding_boxes = 64;
 
-fn blockBox(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32) math.AABB {
+fn offsetBox(bounds: world.block.Bounds, x: i32, y: i32, z: i32) math.AABB {
     const fx: f64 = @floatFromInt(x);
     const fy: f64 = @floatFromInt(y);
     const fz: f64 = @floatFromInt(z);
-    const bounds = switch (id.shape()) {
-        .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
-        .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
-        else => return math.AABB.init(fx, fy, fz, fx + 1, fy + 1, fz + 1),
-    };
     return math.AABB.init(
         fx + bounds.min[0],
         fy + bounds.min[1],
@@ -21,6 +16,23 @@ fn blockBox(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i
         fy + bounds.max[1],
         fz + bounds.max[2],
     );
+}
+
+/// `Block.getCollidingBoundingBoxes`: one box per block, except stairs, which split into two.
+fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, out: *[2]math.AABB) usize {
+    const bounds = switch (id.shape()) {
+        .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
+        .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
+        .stairs => {
+            for (world.block.stairsBoxes(world_map.getBlockMetadata(x, y, z)), out) |bounds, *box| {
+                box.* = offsetBox(bounds, x, y, z);
+            }
+            return 2;
+        },
+        else => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
+    };
+    out[0] = offsetBox(bounds, x, y, z);
+    return 1;
 }
 
 fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_colliding_boxes]math.AABB) usize {
@@ -39,8 +51,12 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
             var z = min_z;
             while (z <= max_z) : (z += 1) {
                 const id = world_map.getBlock(x, y, z);
-                if (id.isSolid() and count < max_colliding_boxes) {
-                    out[count] = blockBox(world_map, id, x, y, z);
+                if (!id.isSolid()) continue;
+                var boxes: [2]math.AABB = undefined;
+                const emitted = blockBoxes(world_map, id, x, y, z, &boxes);
+                for (boxes[0..emitted]) |box| {
+                    if (count == max_colliding_boxes) break;
+                    out[count] = box;
                     count += 1;
                 }
             }
@@ -316,6 +332,22 @@ test "open air applies the full requested movement" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.dy, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dz, 1.0e-9);
+}
+
+test "a stair's tread is walked onto while its tall half blocks the way" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(2, 1, 0, world.Block.stairs_cobblestone);
+    w.setBlockMetadata(2, 1, 0, 0);
+
+    const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
+    const onto_tread = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_tread.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_tread.aabb.min_y, 1.0e-9);
+
+    const into_back = moveEntity(&w, onto_tread.aabb, 0.4, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.3), into_back.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), into_back.aabb.max_x, 1.0e-9);
 }
 
 test "a rise of half a block is stepped over when the entity has step height" {
