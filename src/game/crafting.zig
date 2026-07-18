@@ -134,6 +134,10 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
         b(.planks), b(.planks), b(.planks),
     }, .{ .block = .trapdoor }, 2),
+    shaped(3, 2, &.{
+        i(.ingot_iron), null,           i(.ingot_iron),
+        null,           i(.ingot_iron), null,
+    }, .{ .item = .bucket }, 1),
     shapedMeta(3, 1, &.{ b(.cobblestone), b(.cobblestone), b(.cobblestone) }, .{ .block = .slab }, 3, world.block.slab_cobblestone),
     shapedMeta(3, 1, &.{ b(.stone), b(.stone), b(.stone) }, .{ .block = .slab }, 3, world.block.slab_stone),
     shapedMeta(3, 1, &.{ b(.sandstone), b(.sandstone), b(.sandstone) }, .{ .block = .slab }, 3, world.block.slab_sandstone),
@@ -830,4 +834,22 @@ test "the same six planks turned on their side craft a door instead" {
         grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
     }
     try std.testing.expectEqual(world.Id{ .item = .door_wood }, findMatch(&grid, workbench_grid_size).?.id);
+}
+
+test "three iron ingots in a v craft a bucket" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 0, 2, 4 }) |cell| {
+        grid[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+    }
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .bucket }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the bucket's iron must be in a v, not a row or a full square" {
+    var row: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 0, 1, 2 }) |cell| {
+        row[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+    }
+    try std.testing.expect(findMatch(&row, workbench_grid_size) == null);
 }

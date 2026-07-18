@@ -44,6 +44,30 @@ pub const ToolMaterial = enum {
 
 pub const ToolKind = enum { sword, shovel, pickaxe, axe, hoe };
 
+pub const Fill = enum {
+    empty,
+    water,
+    lava,
+    milk,
+
+    pub fn poured(self: Fill) ?Block {
+        return switch (self) {
+            .water => .flowing_water,
+            .lava => .flowing_lava,
+            .empty, .milk => null,
+        };
+    }
+
+    pub fn bucketItem(self: Fill) Item {
+        return switch (self) {
+            .empty => .bucket,
+            .water => .bucket_water,
+            .lava => .bucket_lava,
+            .milk => .bucket_milk,
+        };
+    }
+};
+
 pub const Tool = struct {
     kind: ToolKind,
     material: ToolMaterial,
@@ -222,10 +246,14 @@ pub const Item = enum(u16) {
     pork_raw = 319,
     pork_cooked = 320,
     door_wood = 324,
+    bucket = 325,
+    bucket_water = 326,
+    bucket_lava = 327,
     door_iron = 330,
     redstone = 331,
     snowball = 332,
     leather = 334,
+    bucket_milk = 335,
     brick = 336,
     clay_ball = 337,
     reed = 338,
@@ -308,7 +336,18 @@ pub const Item = enum(u16) {
 
     pub fn maxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron) return 1;
+        if (self.bucketFill() != null) return 1;
         return if (self.isDamageable()) 1 else 64;
+    }
+
+    pub fn bucketFill(self: Item) ?Fill {
+        return switch (self) {
+            .bucket => .empty,
+            .bucket_water => .water,
+            .bucket_lava => .lava,
+            .bucket_milk => .milk,
+            else => null,
+        };
     }
 
     pub fn strVsBlock(self: Item, target: Block) f32 {
@@ -325,6 +364,10 @@ pub const Item = enum(u16) {
         const dye_color: u8 = @as(u4, @truncate(damage));
         return switch (self) {
             .dye => 4 * 16 + 14 + dye_color % 8 * 16 + dye_color / 8,
+            .bucket => 4 * 16 + 10,
+            .bucket_water => 4 * 16 + 11,
+            .bucket_lava => 4 * 16 + 12,
+            .bucket_milk => 4 * 16 + 13,
             .sword_wood => 4 * 16 + 0,
             .shovel_wood => 5 * 16 + 0,
             .pickaxe_wood => 6 * 16 + 0,
@@ -408,6 +451,10 @@ pub const Item = enum(u16) {
 
     pub fn displayName(self: Item, metadata: u16) []const u8 {
         return switch (self) {
+            .bucket => "Bucket",
+            .bucket_water => "Water Bucket",
+            .bucket_lava => "Lava bucket",
+            .bucket_milk => "Milk",
             .sword_wood => "Wooden Sword",
             .shovel_wood => "Wooden Shovel",
             .pickaxe_wood => "Wooden Pickaxe",
@@ -595,4 +642,37 @@ test "door items carry one to a stack and match their items.png coordinates" {
     try std.testing.expectEqual(@as(?u8, 44), Item.door_iron.iconTile(0));
     try std.testing.expectEqualStrings("Wooden Door", Item.door_wood.displayName(0));
     try std.testing.expectEqualStrings("Iron Door", Item.door_iron.displayName(0));
+}
+
+test "buckets do not stack, and each names the liquid it carries" {
+    for ([_]Item{ .bucket, .bucket_water, .bucket_lava, .bucket_milk }) |id| {
+        try std.testing.expectEqual(@as(u8, 1), id.maxStackSize());
+        try std.testing.expect(id.bucketFill() != null);
+    }
+    try std.testing.expect(Item.ingot_iron.bucketFill() == null);
+
+    try std.testing.expectEqualStrings("Bucket", Item.bucket.displayName(0));
+    try std.testing.expectEqualStrings("Water Bucket", Item.bucket_water.displayName(0));
+    try std.testing.expectEqualStrings("Lava bucket", Item.bucket_lava.displayName(0));
+    try std.testing.expectEqualStrings("Milk", Item.bucket_milk.displayName(0));
+}
+
+test "bucket icons sit along row four of items.png" {
+    try std.testing.expectEqual(@as(?u8, 74), Item.bucket.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 75), Item.bucket_water.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 76), Item.bucket_lava.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 77), Item.bucket_milk.iconTile(0));
+}
+
+test "a fill and its bucket item name each other both ways" {
+    for ([_]Item{ .bucket, .bucket_water, .bucket_lava, .bucket_milk }) |id| {
+        try std.testing.expectEqual(id, id.bucketFill().?.bucketItem());
+    }
+}
+
+test "only a filled bucket pours, and milk pours nothing" {
+    try std.testing.expectEqual(Block.flowing_water, Fill.water.poured().?);
+    try std.testing.expectEqual(Block.flowing_lava, Fill.lava.poured().?);
+    try std.testing.expect(Fill.empty.poured() == null);
+    try std.testing.expect(Fill.milk.poured() == null);
 }

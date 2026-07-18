@@ -64,6 +64,24 @@ fn boundsHit(
 }
 
 pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32, max_distance: f64) ?Hit {
+    return castWith(world_map, origin, direction, max_distance, false);
+}
+
+/// `Block.canCollideCheck`: a ray stops at any ordinary block, and at a liquid only when it is
+/// asked to see liquids and the cell holds a source, as `BlockFluid` allows.
+fn stopsRay(id: world.Block, metadata: u4, hit_liquids: bool) bool {
+    if (id == .air) return false;
+    if (id.isLiquid()) return hit_liquids and metadata == 0;
+    return true;
+}
+
+pub fn castWith(
+    world_map: *const world.World,
+    origin: math.Vec3,
+    direction: [3]f32,
+    max_distance: f64,
+    hit_liquids: bool,
+) ?Hit {
     const start = [3]f64{ origin.x, origin.y, origin.z };
     const along = [3]f64{ direction[0], direction[1], direction[2] };
 
@@ -75,8 +93,8 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
 
     for (0..max_steps) |_| {
         const id = world_map.getBlock(cell[0], cell[1], cell[2]);
-        if (id != world.Block.air and !id.isLiquid()) {
-            const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
+        const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
+        if (stopsRay(id, metadata, hit_liquids)) {
             if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |hit| {
                 return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = hit.face, .distance = hit.distance };
             }

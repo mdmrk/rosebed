@@ -4,6 +4,7 @@ const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
 const light = @import("light.zig");
+const item = @import("item.zig");
 
 const fall_check_radius: i32 = 32;
 
@@ -153,6 +154,27 @@ pub fn mergeSlabBelow(world_map: *World, x: i32, y: i32, z: i32) !bool {
 
     try world_map.setBlockWithNotify(x, y, z, .air);
     try world_map.setBlockAndMetadataWithNotify(x, y - 1, z, .slab_double, metadata);
+    return true;
+}
+
+/// `ItemBucket.onItemRightClick`: an empty bucket only scoops a still source, never flowing liquid.
+pub fn scoopLiquid(world_map: *World, x: i32, y: i32, z: i32) !?item.Fill {
+    if (world_map.getBlockMetadata(x, y, z) != 0) return null;
+    const filled: item.Fill = switch (world_map.getBlock(x, y, z).material()) {
+        .water => .water,
+        .lava => .lava,
+        else => return null,
+    };
+    try world_map.setBlockWithNotify(x, y, z, .air);
+    return filled;
+}
+
+/// `ItemBucket.onItemRightClick`: a full bucket pours into air or anything else that is not solid.
+pub fn pourLiquid(world_map: *World, x: i32, y: i32, z: i32, fill: item.Fill) !bool {
+    const poured = fill.poured() orelse return false;
+    const target = world_map.getBlock(x, y, z);
+    if (target != .air and target.material().isSolid()) return false;
+    try world_map.setBlockAndMetadataWithNotify(x, y, z, poured, 0);
     return true;
 }
 
@@ -798,4 +820,81 @@ test "a slab merges only downwards, and never into a double slab" {
     try std.testing.expect(try mergeSlabBelow(&w, 8, 14, 8));
     try std.testing.expectEqual(Block.slab_double, w.getBlock(8, 13, 8));
     try std.testing.expectEqual(Block.air, w.getBlock(8, 14, 8));
+}
+
+test "an empty bucket scoops a still source and leaves air behind" {
+    for ([_]struct { id: Block, fill: item.Fill }{
+        .{ .id = .stationary_water, .fill = .water },
+        .{ .id = .flowing_water, .fill = .water },
+        .{ .id = .stationary_lava, .fill = .lava },
+        .{ .id = .flowing_lava, .fill = .lava },
+    }) |source| {
+        var w = try testing_world.flatWorld(std.testing.allocator, 1);
+        defer w.deinit();
+        try w.setBlockAndMetadataWithNotify(8, 2, 8, source.id, 0);
+
+        const scooped = try scoopLiquid(&w, 8, 2, 8);
+        try std.testing.expectEqual(source.fill, scooped.?);
+        try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+    }
+}
+
+test "an empty bucket cannot scoop flowing liquid or dry land" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 2, 8, .flowing_water, 1);
+    try std.testing.expect(try scoopLiquid(&w, 8, 2, 8) == null);
+    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 2, 8));
+
+    try std.testing.expect(try scoopLiquid(&w, 8, 0, 8) == null);
+    try std.testing.expectEqual(Block.stone, w.getBlock(8, 0, 8));
+
+    try std.testing.expect(try scoopLiquid(&w, 8, 5, 8) == null);
+}
+
+test "a full bucket pours a source into air but not into stone" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    try std.testing.expect(try pourLiquid(&w, 8, 2, 8, .water));
+    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 2, 8));
+
+    try std.testing.expect(try pourLiquid(&w, 8, 3, 8, .lava));
+    try std.testing.expectEqual(Block.flowing_lava, w.getBlock(8, 3, 8));
+
+    try std.testing.expect(!try pourLiquid(&w, 8, 0, 8, .water));
+    try std.testing.expectEqual(Block.stone, w.getBlock(8, 0, 8));
+}
+
+test "a full bucket pours through a plant, which is not solid" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 1, 8, .tall_grass, 1);
+
+    try std.testing.expect(try pourLiquid(&w, 8, 1, 8, .water));
+    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 1, 8));
+}
+
+test "an empty or milk bucket pours nothing" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    try std.testing.expect(!try pourLiquid(&w, 8, 2, 8, .empty));
+    try std.testing.expect(!try pourLiquid(&w, 8, 2, 8, .milk));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+}
+
+test "scooping and pouring return the world to where it started" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 2, 8, .stationary_water, 0);
+
+    const scooped = (try scoopLiquid(&w, 8, 2, 8)).?;
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+    try std.testing.expect(try pourLiquid(&w, 8, 2, 8, scooped));
+
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 2, 8));
+    try std.testing.expectEqual(block.Material.water, w.getBlock(8, 2, 8).material());
 }

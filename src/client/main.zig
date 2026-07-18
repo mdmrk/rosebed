@@ -20,6 +20,7 @@ const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
 const reach_distance = 4.5;
+const bucket_reach = 5.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
 
@@ -1356,30 +1357,78 @@ fn consumeSelectedStack(app_state: *AppState) void {
 }
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
-    switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
-        .workbench => {
-            try openWorkbench(app_state);
-            return true;
-        },
-        .furnace, .burning_furnace => {
-            try openFurnace(app_state, hit.x, hit.y, hit.z);
-            return true;
-        },
-        .door_wood => {
-            try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
-            try applyBlockChanges(app_state);
-            return true;
-        },
-        .door_iron => return true,
-        .trapdoor => {
-            try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
-            try applyBlockChanges(app_state);
-            return true;
-        },
-        else => {},
+    if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+        switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
+            .workbench => {
+                try openWorkbench(app_state);
+                return true;
+            },
+            .furnace, .burning_furnace => {
+                try openFurnace(app_state, hit.x, hit.y, hit.z);
+                return true;
+            },
+            .door_wood => {
+                try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
+                try applyBlockChanges(app_state);
+                return true;
+            },
+            .door_iron => return true,
+            .trapdoor => {
+                try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
+                try applyBlockChanges(app_state);
+                return true;
+            },
+            else => {},
+        }
     }
     return placeBlockAtTarget(app_state);
+}
+
+fn holdStack(app_state: *AppState, held: world.Item) void {
+    app_state.player.inventory.slots[app_state.player.inventory.selected] =
+        .{ .id = .{ .item = held }, .count = 1 };
+}
+
+/// `ItemBucket.onItemRightClick` runs its own five block trace, and only an empty bucket sees liquid.
+fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !bool {
+    const hit = game.raycast.castWith(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        bucket_reach,
+        fill == .empty,
+    ) orelse return false;
+
+    switch (fill) {
+        .empty => {
+            const scooped = try world.block_update.scoopLiquid(&app_state.world_map, hit.x, hit.y, hit.z) orelse return false;
+            holdStack(app_state, scooped.bucketItem());
+        },
+        .milk => holdStack(app_state, .bucket),
+        .water, .lava => {
+            const step = bucketPourStep(hit.face);
+            const px = hit.x + step[0];
+            const py = hit.y + step[1];
+            const pz = hit.z + step[2];
+            if (!try world.block_update.pourLiquid(&app_state.world_map, px, py, pz, fill)) return false;
+            holdStack(app_state, .bucket);
+        },
+    }
+
+    try app_state.stats.use(app_state.gpa, .{ .item = held });
+    try applyBlockChanges(app_state);
+    return true;
+}
+
+fn bucketPourStep(face: world.Side) [3]i32 {
+    return switch (face) {
+        .down => .{ 0, -1, 0 },
+        .up => .{ 0, 1, 0 },
+        .north => .{ 0, 0, -1 },
+        .south => .{ 0, 0, 1 },
+        .west => .{ -1, 0, 0 },
+        .east => .{ 1, 0, 0 },
+    };
 }
 
 fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
@@ -1402,7 +1451,10 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
         .block => |b| b,
-        .item => |held| return placeDoorAtTarget(app_state, held),
+        .item => |held| {
+            if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
+            return placeDoorAtTarget(app_state, held);
+        },
     };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
     const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
