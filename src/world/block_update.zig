@@ -622,9 +622,9 @@ test "an open door stands across the doorway it filled when closed" {
     defer w.deinit();
     try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
 
-    const closed = .door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+    const closed = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
     try toggleDoor(&w, 8, 12, 8);
-    const opened = .door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+    const opened = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
 
     try std.testing.expect(closed.max[0] - closed.min[0] != opened.max[0] - opened.min[0]);
 }

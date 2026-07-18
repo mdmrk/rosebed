@@ -1375,7 +1375,7 @@ test "a torch samples only its own tile, with the tip taking the flame end of it
     var mesh = try torchMesh(gpa, &world_map, 5);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(.torch.faceTextures().get(.down));
+    const uv = Atlas.tileUv(world.Block.torch.faceTextures().get(.down));
     for (mesh.solid.vertices.items) |v| {
         try std.testing.expect(v.u >= uv.u0 - 1.0e-6 and v.u <= uv.u1 + 1.0e-6);
         try std.testing.expect(v.v >= uv.v0 - 1.0e-6 and v.v <= uv.v1 + 1.0e-6);
@@ -1462,8 +1462,8 @@ test "a snow layer's sides show only the bottom slice of its texture" {
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(.snow_layer.faceTextures().get(.north));
-    const slice = uv.v1 - (uv.v1 - uv.v0) * .snow_layer.heightScale();
+    const uv = Atlas.tileUv(world.Block.snow_layer.faceTextures().get(.north));
+    const slice = uv.v1 - (uv.v1 - uv.v0) * world.Block.snow_layer.heightScale();
 
     var sides: usize = 0;
     var quad: usize = 0;
@@ -1543,7 +1543,7 @@ test "a door's narrow sides sample only the slice of the tile they cover" {
     var mesh = try doorMesh(gpa, &world_map, 1);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(.door_wood.faceTextures().get(.north));
+    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
     const slice = (uv.u1 - uv.u0) * world.block.door_thickness;
 
     const west = mesh.solid.vertices.items[4 * 4 ..][0..4];
@@ -1574,7 +1574,7 @@ test "a door's two faces keep the same side of the tile facing the same way" {
     var mesh = try doorMesh(gpa, &world_map, 1);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(.door_wood.faceTextures().get(.north));
+    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
     const north = uvAtLowestX(mesh.solid.vertices.items[2 * 4 ..][0..4]);
     const south = uvAtLowestX(mesh.solid.vertices.items[3 * 4 ..][0..4]);
 
@@ -1659,7 +1659,7 @@ test "a trapdoor's sides show only the slice of the tile they cover" {
     var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(.trapdoor.faceTextures().get(.north));
+    const uv = Atlas.tileUv(world.Block.trapdoor.faceTextures().get(.north));
     const slice = (uv.v1 - uv.v0) * world.block.trapdoor_thickness;
 
     const north = mesh.solid.vertices.items[2 * 4 ..][0..4];
@@ -1764,18 +1764,18 @@ test "a slab's sides show the bottom half of the tile, as the double slab's seam
 }
 
 test "a slab in hand is the bottom half of its block, not a whole cube" {
-    const boxes = .slab.itemRenderBoxes();
+    const boxes = world.Block.slab.itemRenderBoxes();
     try std.testing.expectEqual(@as(usize, 1), boxes.len);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, boxes[0].min);
     try std.testing.expectEqual([3]f32{ 1, 0.5, 1 }, boxes[0].max);
 
     const whole: world.block.Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
-    try std.testing.expectEqualSlices(world.block.Bounds, &.{whole}, .slab_double.itemRenderBoxes());
+    try std.testing.expectEqualSlices(world.block.Bounds, &.{whole}, world.Block.slab_double.itemRenderBoxes());
 
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], .slab.faceTextures(), 0.0);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], world.Block.slab.faceTextures(), 0.0);
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);
@@ -1981,7 +1981,7 @@ test "a trapdoor in hand is a plate through the middle of its block" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    const id = .trapdoor;
+    const id = world.Block.trapdoor;
     try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], id.faceTextures(), 0.0);
 
     var lowest: f32 = std.math.floatMax(f32);

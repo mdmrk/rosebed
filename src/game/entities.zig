@@ -1000,7 +1000,7 @@ test "a standing torch burns at its own centre, a wall torch out over its bracke
 }
 
 test "a torch flame sits above the tip of the model it belongs to" {
-    const bounds = .torch.selectionBounds(5);
+    const bounds = world.Block.torch.selectionBounds(5);
     const flame = torchFlamePosition(0, 0, 0, 5);
     try std.testing.expect(flame.y > bounds.max[1]);
     try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);

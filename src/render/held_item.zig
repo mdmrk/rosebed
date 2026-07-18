@@ -291,7 +291,7 @@ test "each held stack picks the shape and atlas the original gives it" {
     try std.testing.expectEqual(.stone, stone.cube);
 
     const rose = heldShape(.{ .id = .{ .block = .rose }, .count = 1 }).?;
-    try std.testing.expectEqual(.rose.crossTile(0), rose.sprite.tile);
+    try std.testing.expectEqual(world.Block.rose.crossTile(0), rose.sprite.tile);
     try std.testing.expectEqual(.terrain, rose.sprite.atlas);
 
     const coal = heldShape(.{ .id = .{ .item = .coal }, .count = 1 }).?;
