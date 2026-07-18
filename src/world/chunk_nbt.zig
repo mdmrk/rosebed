@@ -1,7 +1,10 @@
 const std = @import("std");
+
+const block = @import("block.zig");
+const Block = @import("block.zig").Block;
+const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const nbt = @import("nbt.zig");
-const Chunk = @import("chunk.zig");
 
 pub const level_key = "Level";
 
@@ -117,15 +120,12 @@ pub fn load(root: nbt.Tag) !Loaded {
     };
 }
 
-const block = @import("block.zig");
-const Block = @import("block.zig").Block;
-
 fn sampleChunk() Chunk {
     var chunk = Chunk.init(-3, 7);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.bedrock);
-            chunk.setBlock(@intCast(x), 1, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .bedrock);
+            chunk.setBlock(@intCast(x), 1, @intCast(z), .stone);
             chunk.setBlockMetadata(@intCast(x), 1, @intCast(z), @intCast(x % 16));
             chunk.setSkyLight(@intCast(x), 2, @intCast(z), 15);
             chunk.setBlockLight(@intCast(x), 1, @intCast(z), @intCast(z % 16));

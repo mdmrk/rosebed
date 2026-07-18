@@ -1,6 +1,7 @@
 const std = @import("std");
-const sdl3 = @import("sdl3");
+
 const assets = @import("assets");
+const sdl3 = @import("sdl3");
 
 const Colorizer = @This();
 

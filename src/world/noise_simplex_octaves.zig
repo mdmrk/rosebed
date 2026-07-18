@@ -1,6 +1,10 @@
 const std = @import("std");
+
 const JavaRandom = @import("java_random.zig");
 const NoiseGenerator2 = @import("noise_simplex.zig");
+pub const Size = NoiseGenerator2.BatchSize;
+pub const Offset = NoiseGenerator2.BatchOffset;
+pub const Scale = NoiseGenerator2.BatchScale;
 
 const NoiseGeneratorOctaves2 = @This();
 
@@ -15,10 +19,6 @@ pub fn init(gpa: std.mem.Allocator, rand: *JavaRandom, octaves: usize) !NoiseGen
 pub fn deinit(self: NoiseGeneratorOctaves2, gpa: std.mem.Allocator) void {
     gpa.free(self.generators);
 }
-
-pub const Size = NoiseGenerator2.BatchSize;
-pub const Offset = NoiseGenerator2.BatchOffset;
-pub const Scale = NoiseGenerator2.BatchScale;
 
 pub fn generate(
     self: NoiseGeneratorOctaves2,

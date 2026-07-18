@@ -1,12 +1,15 @@
 const std = @import("std");
-const gl = @import("gl");
+
 const game = @import("game");
+const grid_size = game.crafting.player_grid_size;
+const armor_size = game.Inventory.armor_size;
+const gl = @import("gl");
 const world = @import("world");
 
-const MeshBuilder = @import("mesh_builder.zig");
-const MobModel = @import("mob_model.zig");
 const container = @import("container_screen.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
+const MobModel = @import("mob_model.zig");
 
 const label_x: f32 = 86;
 const label_y: f32 = 16;
@@ -25,8 +28,6 @@ const craft_result_y: f32 = 36;
 const armor_x: f32 = 8;
 const armor_y: f32 = 8;
 
-const grid_size = game.crafting.player_grid_size;
-const armor_size = game.Inventory.armor_size;
 pub const slot_count = 1 + grid_size * grid_size + armor_size + container.player_slot_count;
 
 pub fn slots() [slot_count]container.Slot {

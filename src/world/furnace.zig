@@ -1,10 +1,10 @@
 const std = @import("std");
-const block = @import("block.zig");
-const item = @import("item.zig");
-const nbt = @import("nbt.zig");
 
+const block = @import("block.zig");
 const Block = block.Block;
 const Stack = block.Stack;
+const item = @import("item.zig");
+const nbt = @import("nbt.zig");
 
 pub const id_key = "Furnace";
 pub const cook_ticks: i16 = 200;
@@ -82,8 +82,6 @@ pub const Furnace = struct {
         if (self.input.?.count == 0) self.input = null;
     }
 
-    /// One `TileEntityFurnace.updateEntity`. Returns whether the fire went out or caught,
-    /// which is what swaps the block between its idle and burning ids.
     pub fn tick(self: *Furnace) bool {
         const was_burning = self.isBurning();
         if (self.burn_time > 0) self.burn_time -= 1;

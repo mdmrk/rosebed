@@ -1,21 +1,21 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const assets = @import("assets");
+const font_png = assets.font.default_png;
+const core = @import("core");
+const Timer = core.Timer;
 const game = @import("game");
 const gl = @import("gl");
 const math = @import("math");
 const render = @import("render");
 const sdl3 = @import("sdl3");
-const core = @import("core");
-const Timer = core.Timer;
 const world = @import("world");
 
 const ticks_per_second = 20.0;
 const screen_width = 854;
 const screen_height = 480;
 const init_flags = sdl3.InitFlags{ .video = true };
-const font_png = assets.font.default_png;
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -401,8 +401,6 @@ pub fn init(
 
 const missed_click_ticks = 10;
 
-/// `EntityRenderer.getMouseOver`: an entity is only picked in front of whatever block the
-/// crosshair found, and never past three blocks.
 fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
     var reach: f64 = reach_distance;
     if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
@@ -412,7 +410,6 @@ fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
     return app_state.entities.pick(app_state.player.eyePosition(), app_state.player.lookVector(), reach);
 }
 
-/// `EntityPlayer.attackTargetEntityWithCurrentItem`: a bare hand deals one, and a fall adds one more.
 fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
     var damage: i32 = 1;
     if (app_state.player.inventory.selectedStack()) |stack| {
@@ -499,7 +496,7 @@ fn digStep(app_state: *AppState) !void {
 }
 
 fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: i32) [3]u8 {
-    if (id == world.Block.grass) return .{ 255, 255, 255 };
+    if (id == .grass) return .{ 255, 255, 255 };
     const width = world.constants.chunk_width;
     const chunk = app_state.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
     const lx: u32 = @intCast(@mod(x, width));
@@ -587,7 +584,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         particleTint(app_state, block_id, x, y, z),
         &app_state.world_map.rand,
     );
-    try app_state.world_map.setBlockWithNotify(x, y, z, world.Block.air);
+    try app_state.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state);
@@ -600,7 +597,6 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     }
 }
 
-/// `BlockFurnace.onBlockRemoval` scatters what the furnace was holding.
 fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     var removed = app_state.world_map.removeFurnace(x, y, z) orelse return;
 
@@ -762,7 +758,6 @@ fn containerClickAt(
     }
 }
 
-/// `SlotFurnace` takes but never accepts a stack, and what leaves it counts as crafted.
 fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
     const furnace = openedFurnace(app_state) orelse return;
     const output = furnace.output orelse return;
@@ -1416,7 +1411,6 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
     return placeBlockAtTarget(app_state);
 }
 
-/// `EntityCow.interact`: an empty bucket in hand leaves with milk in it. No other animal answers.
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
     if (target != .cow) return false;
     const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
@@ -1435,7 +1429,6 @@ fn holdStack(app_state: *AppState, held: world.Item) void {
         .{ .id = .{ .item = held }, .count = 1 };
 }
 
-/// `ItemBucket.onItemRightClick` runs its own five block trace, and only an empty bucket sees liquid.
 fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !bool {
     const hit = game.raycast.castWith(
         &app_state.world_map,
@@ -2056,7 +2049,7 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     if (digging.progress <= 0.0) return;
 
     const id = app_state.world_map.getBlock(digging.x, digging.y, digging.z);
-    if (id == world.Block.air) return;
+    if (id == .air) return;
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);

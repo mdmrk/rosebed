@@ -1,5 +1,7 @@
 const std = @import("std");
+
 const assets = @import("assets");
+
 const stats = @import("stats.zig");
 
 pub const dir_name = "stats";

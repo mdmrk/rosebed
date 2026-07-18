@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
 
@@ -772,7 +773,7 @@ test "a cross-shaped plant emits both faces of both diagonals so culling keeps i
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 0, 0, world.Block.tall_grass);
+    chunk.setBlock(0, 0, 0, .tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -786,8 +787,8 @@ test "a solid neighbor does not cull a cross-shaped plant" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 0, 0, world.Block.stone);
-    chunk.setBlock(1, 0, 0, world.Block.tall_grass);
+    chunk.setBlock(0, 0, 0, .stone);
+    chunk.setBlock(1, 0, 0, .tall_grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -801,8 +802,8 @@ test "a snow layer renders as a thin partial-height cube" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 1, 0, world.Block.stone);
-    chunk.setBlock(0, 2, 0, world.Block.snow_layer);
+    chunk.setBlock(0, 1, 0, .stone);
+    chunk.setBlock(0, 2, 0, .snow_layer);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -820,7 +821,7 @@ test "a cactus pulls its four sides in by a sixteenth and keeps its top and bott
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.cactus);
+    chunk.setBlock(8, 0, 8, .cactus);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -848,8 +849,8 @@ test "a cactus leaves the top face of the sand under it visible" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.sand);
-    chunk.setBlock(8, 1, 8, world.Block.cactus);
+    chunk.setBlock(8, 0, 8, .sand);
+    chunk.setBlock(8, 1, 8, .cactus);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -863,7 +864,7 @@ test "a lone block emits all 6 faces" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 0, 0, world.Block.stone);
+    chunk.setBlock(0, 0, 0, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -878,7 +879,7 @@ test "each cube face carries its own directional shade" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -897,7 +898,7 @@ test "a cross-shaped plant is not directionally shaded" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 0, 0, world.Block.rose);
+    chunk.setBlock(0, 0, 0, .rose);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -913,8 +914,8 @@ test "adjacent blocks cull their shared face" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 0, 0, world.Block.stone);
-    chunk.setBlock(1, 0, 0, world.Block.stone);
+    chunk.setBlock(0, 0, 0, .stone);
+    chunk.setBlock(1, 0, 0, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -941,9 +942,9 @@ test "a block at a chunk boundary culls its face against a loaded neighbor chunk
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const a = try world_map.createChunk(0, 0);
-    a.setBlock(15, 0, 0, world.Block.stone);
+    a.setBlock(15, 0, 0, .stone);
     const b = try world_map.createChunk(1, 0);
-    b.setBlock(0, 0, 0, world.Block.stone);
+    b.setBlock(0, 0, 0, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -962,7 +963,7 @@ test "only the grass block's top face takes the biome tint" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.grass);
+    chunk.setBlock(8, 0, 8, .grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
@@ -982,9 +983,9 @@ test "birch leaves take the fixed foliage color instead of the biome lookup" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.leaves);
+    chunk.setBlock(8, 0, 8, .leaves);
     chunk.setBlockMetadata(8, 0, 8, 2);
-    chunk.setBlock(11, 0, 11, world.Block.leaves);
+    chunk.setBlock(11, 0, 11, .leaves);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
@@ -1001,7 +1002,7 @@ test "water builds into the translucent pass, not the solid one" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stationary_water);
+    chunk.setBlock(8, 0, 8, .stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1016,8 +1017,8 @@ test "touching water faces are culled but the surface between water and air is n
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stationary_water);
-    chunk.setBlock(8, 1, 8, world.Block.stationary_water);
+    chunk.setBlock(8, 0, 8, .stationary_water);
+    chunk.setBlock(8, 1, 8, .stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1031,8 +1032,8 @@ test "a solid block keeps the face it shares with water" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(8, 1, 8, world.Block.stationary_water);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(8, 1, 8, .stationary_water);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1046,8 +1047,8 @@ test "fancy leaves keep the face two leaf blocks share, fast leaves cull it" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.leaves);
-    chunk.setBlock(9, 0, 8, world.Block.leaves);
+    chunk.setBlock(8, 0, 8, .leaves);
+    chunk.setBlock(9, 0, 8, .leaves);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var fast = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1064,8 +1065,8 @@ test "leaves never cull a neighbouring block's face" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(9, 0, 8, world.Block.leaves);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(9, 0, 8, .leaves);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{ .fancy = true });
@@ -1079,7 +1080,7 @@ test "an unobstructed face lights all four corners the same" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
@@ -1091,8 +1092,8 @@ test "a block beside the face darkens the two corners nearest it" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(9, 1, 8, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(9, 1, 8, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
@@ -1109,8 +1110,8 @@ test "a diagonal block darkens only the corner it touches" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(9, 1, 9, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(9, 1, 9, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
@@ -1127,9 +1128,9 @@ test "two solid edges hide whatever is diagonally behind them" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(9, 1, 8, world.Block.stone);
-    chunk.setBlock(8, 1, 9, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(9, 1, 8, .stone);
+    chunk.setBlock(8, 1, 9, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
@@ -1148,8 +1149,8 @@ test "a seam face needs its neighbour lit before it shades correctly" {
     const far = try world_map.createChunk(1, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
-            near.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
-            far.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
+            near.setBlock(@intCast(x), 0, @intCast(z), .stone);
+            far.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }
 
@@ -1172,8 +1173,8 @@ test "smooth lighting varies a face's vertex colors, flat lighting does not" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(9, 1, 8, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(9, 1, 8, .stone);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var flat = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1203,7 +1204,7 @@ test "a water surface surrounded by sources sits one ninth below the block top" 
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
     for (7..10) |x| {
-        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stationary_water);
+        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), .stationary_water);
     }
 
     const height = fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water);
@@ -1215,8 +1216,8 @@ test "water under more water fills its block completely" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stationary_water);
-    chunk.setBlock(8, 1, 8, world.Block.stationary_water);
+    chunk.setBlock(8, 0, 8, .stationary_water);
+    chunk.setBlock(8, 1, 8, .stationary_water);
 
     try std.testing.expectEqual(@as(f32, 1.0), fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water));
 }
@@ -1227,7 +1228,7 @@ test "a shallower flowing block pulls the surface corner it shares down" {
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
     for (7..10) |x| {
-        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stationary_water);
+        for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), .stationary_water);
     }
     chunk.setBlockMetadata(9, 0, 9, 6);
 
@@ -1241,10 +1242,10 @@ test "a flowing surface slopes across the block, a level one does not" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(7, 1, 8, world.Block.stone);
+    chunk.setBlock(7, 1, 8, .stone);
     for (8..12) |x| {
-        chunk.setBlock(@intCast(x), 0, 8, world.Block.stone);
-        chunk.setBlock(@intCast(x), 1, 8, world.Block.stationary_water);
+        chunk.setBlock(@intCast(x), 0, 8, .stone);
+        chunk.setBlock(@intCast(x), 1, 8, .stationary_water);
         chunk.setBlockMetadata(@intCast(x), 1, 8, @intCast(x - 8));
     }
 
@@ -1265,7 +1266,7 @@ test "a flowing surface slopes across the block, a level one does not" {
 
 fn torchMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
-    chunk.setBlock(8, 1, 8, world.Block.torch);
+    chunk.setBlock(8, 1, 8, .torch);
     chunk.setBlockMetadata(8, 1, 8, metadata);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1374,7 +1375,7 @@ test "a torch samples only its own tile, with the tip taking the flame end of it
     var mesh = try torchMesh(gpa, &world_map, 5);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(world.Block.torch.faceTextures().get(.down));
+    const uv = Atlas.tileUv(.torch.faceTextures().get(.down));
     for (mesh.solid.vertices.items) |v| {
         try std.testing.expect(v.u >= uv.u0 - 1.0e-6 and v.u <= uv.u1 + 1.0e-6);
         try std.testing.expect(v.v >= uv.v0 - 1.0e-6 and v.v <= uv.v1 + 1.0e-6);
@@ -1395,7 +1396,7 @@ test "fancy graphics lays a biome-tinted overlay over each grass side" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.grass);
+    chunk.setBlock(8, 0, 8, .grass);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var plain = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{});
@@ -1423,14 +1424,14 @@ test "snow on top swaps the grass sides for the snow side, overlay and all" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.grass);
-    chunk.setBlock(8, 1, 8, world.Block.snow_layer);
+    chunk.setBlock(8, 0, 8, .grass);
+    chunk.setBlock(8, 1, 8, .snow_layer);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, colorizer, .{ .fancy = true });
     defer mesh.deinit(gpa);
 
-    const snow_side = Atlas.tileUv(world.block.grassSideTile(world.Block.snow_layer));
+    const snow_side = Atlas.tileUv(world.block.grassSideTile(.snow_layer));
     var sides: usize = 0;
     for (mesh.solid.vertices.items) |vertex| {
         if (vertex.v >= snow_side.v0 - 1.0e-6 and vertex.v <= snow_side.v1 + 1.0e-6 and
@@ -1454,15 +1455,15 @@ test "a snow layer's sides show only the bottom slice of its texture" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(0, 1, 0, world.Block.stone);
-    chunk.setBlock(0, 2, 0, world.Block.snow_layer);
+    chunk.setBlock(0, 1, 0, .stone);
+    chunk.setBlock(0, 2, 0, .snow_layer);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(world.Block.snow_layer.faceTextures().get(.north));
-    const slice = uv.v1 - (uv.v1 - uv.v0) * world.Block.snow_layer.heightScale();
+    const uv = Atlas.tileUv(.snow_layer.faceTextures().get(.north));
+    const slice = uv.v1 - (uv.v1 - uv.v0) * .snow_layer.heightScale();
 
     var sides: usize = 0;
     var quad: usize = 0;
@@ -1488,7 +1489,7 @@ test "a snow layer's sides show only the bottom slice of its texture" {
 
 fn doorMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
-    chunk.setBlock(8, 1, 8, world.Block.door_wood);
+    chunk.setBlock(8, 1, 8, .door_wood);
     chunk.setBlockMetadata(8, 1, 8, metadata);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
@@ -1542,7 +1543,7 @@ test "a door's narrow sides sample only the slice of the tile they cover" {
     var mesh = try doorMesh(gpa, &world_map, 1);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
+    const uv = Atlas.tileUv(.door_wood.faceTextures().get(.north));
     const slice = (uv.u1 - uv.u0) * world.block.door_thickness;
 
     const west = mesh.solid.vertices.items[4 * 4 ..][0..4];
@@ -1573,7 +1574,7 @@ test "a door's two faces keep the same side of the tile facing the same way" {
     var mesh = try doorMesh(gpa, &world_map, 1);
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(world.Block.door_wood.faceTextures().get(.north));
+    const uv = Atlas.tileUv(.door_wood.faceTextures().get(.north));
     const north = uvAtLowestX(mesh.solid.vertices.items[2 * 4 ..][0..4]);
     const south = uvAtLowestX(mesh.solid.vertices.items[3 * 4 ..][0..4]);
 
@@ -1583,7 +1584,7 @@ test "a door's two faces keep the same side of the tile facing the same way" {
 
 fn trapdoorMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, options: Options) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
-    chunk.setBlock(8, 1, 8, world.Block.trapdoor);
+    chunk.setBlock(8, 1, 8, .trapdoor);
     chunk.setBlockMetadata(8, 1, 8, metadata);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, options);
@@ -1634,8 +1635,8 @@ test "a trapdoor keeps the faces that stop short of the block, and culls the res
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, world.Block.stone);
-    chunk.setBlock(8, 2, 8, world.Block.stone);
+    chunk.setBlock(8, 0, 8, .stone);
+    chunk.setBlock(8, 2, 8, .stone);
 
     var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
     defer mesh.deinit(gpa);
@@ -1658,7 +1659,7 @@ test "a trapdoor's sides show only the slice of the tile they cover" {
     var mesh = try trapdoorMesh(gpa, &world_map, 0, .{});
     defer mesh.deinit(gpa);
 
-    const uv = Atlas.tileUv(world.Block.trapdoor.faceTextures().get(.north));
+    const uv = Atlas.tileUv(.trapdoor.faceTextures().get(.north));
     const slice = (uv.v1 - uv.v0) * world.block.trapdoor_thickness;
 
     const north = mesh.solid.vertices.items[2 * 4 ..][0..4];
@@ -1677,7 +1678,7 @@ test "a slab stands half a block tall and keeps its top face when buried" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 1, 8, world.Block.slab);
+    chunk.setBlock(8, 1, 8, .slab);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var open = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
@@ -1688,7 +1689,7 @@ test "a slab stands half a block tall and keeps its top face when buried" {
     for (open.solid.vertices.items) |vertex| highest = @max(highest, vertex.y);
     try std.testing.expectApproxEqAbs(@as(f32, 1.5), highest, 1.0e-5);
 
-    chunk.setBlock(8, 2, 8, world.Block.stone);
+    chunk.setBlock(8, 2, 8, .stone);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var buried = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
     defer buried.deinit(gpa);
@@ -1714,15 +1715,15 @@ test "slabs of one id hide the sides they share, unlike a slab beside a double s
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 1, 8, world.Block.slab);
-    chunk.setBlock(9, 1, 8, world.Block.slab);
+    chunk.setBlock(8, 1, 8, .slab);
+    chunk.setBlock(9, 1, 8, .slab);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var paired = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
     defer paired.deinit(gpa);
     try std.testing.expectEqual(@as(usize, 10 * 4), paired.solid.vertices.items.len);
 
-    chunk.setBlock(9, 1, 8, world.Block.slab_double);
+    chunk.setBlock(9, 1, 8, .slab_double);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     var mixed = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
     defer mixed.deinit(gpa);
@@ -1734,7 +1735,7 @@ test "a slab's sides show the bottom half of the tile, as the double slab's seam
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 1, 8, world.Block.slab);
+    chunk.setBlock(8, 1, 8, .slab);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var mesh = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
@@ -1763,18 +1764,18 @@ test "a slab's sides show the bottom half of the tile, as the double slab's seam
 }
 
 test "a slab in hand is the bottom half of its block, not a whole cube" {
-    const boxes = world.Block.slab.itemRenderBoxes();
+    const boxes = .slab.itemRenderBoxes();
     try std.testing.expectEqual(@as(usize, 1), boxes.len);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, boxes[0].min);
     try std.testing.expectEqual([3]f32{ 1, 0.5, 1 }, boxes[0].max);
 
     const whole: world.block.Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
-    try std.testing.expectEqualSlices(world.block.Bounds, &.{whole}, world.Block.slab_double.itemRenderBoxes());
+    try std.testing.expectEqualSlices(world.block.Bounds, &.{whole}, .slab_double.itemRenderBoxes());
 
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], world.Block.slab.faceTextures(), 0.0);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], .slab.faceTextures(), 0.0);
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);
@@ -1791,7 +1792,7 @@ test "a slab's metadata reaches the mesh as the texture it was cut from" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(8, 1, 8, world.Block.slab);
+    chunk.setBlock(8, 1, 8, .slab);
     chunk.setBlockMetadata(8, 1, 8, world.block.slab_wood);
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
@@ -1808,7 +1809,7 @@ test "a slab's metadata reaches the mesh as the texture it was cut from" {
 
 fn stairsMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, options: Options) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
-    chunk.setBlock(8, 1, 8, world.Block.stairs_cobblestone);
+    chunk.setBlock(8, 1, 8, .stairs_cobblestone);
     chunk.setBlockMetadata(8, 1, 8, metadata);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, options);
@@ -1820,7 +1821,7 @@ test "a stair's inner faces are lit like the air around it, not black" {
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
     for (0..16) |x| {
-        for (0..16) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
+        for (0..16) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
     }
 
     var mesh = try stairsMesh(gpa, &world_map, 3, .{});
@@ -1912,7 +1913,7 @@ test "a stair buried on every side still draws the faces that stop short of the 
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
     for ([_][3]u8{ .{ 8, 0, 8 }, .{ 8, 2, 8 }, .{ 7, 1, 8 }, .{ 9, 1, 8 }, .{ 8, 1, 7 }, .{ 8, 1, 9 } }) |cell| {
-        chunk.setBlock(cell[0], cell[1], cell[2], world.Block.stone);
+        chunk.setBlock(cell[0], cell[1], cell[2], .stone);
     }
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
@@ -1937,7 +1938,7 @@ test "smooth lighting reaches a trapdoor, unlike a door" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
     const chunk = try world_map.createChunk(0, 0);
-    chunk.setBlock(9, 2, 8, world.Block.stone);
+    chunk.setBlock(9, 2, 8, .stone);
 
     var mesh = try trapdoorMesh(gpa, &world_map, 0, .{ .smooth = true });
     defer mesh.deinit(gpa);
@@ -1980,7 +1981,7 @@ test "a trapdoor in hand is a plate through the middle of its block" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    const id = world.Block.trapdoor;
+    const id = .trapdoor;
     try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], id.faceTextures(), 0.0);
 
     var lowest: f32 = std.math.floatMax(f32);

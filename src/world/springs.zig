@@ -1,21 +1,22 @@
 const std = @import("std");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const World = @import("world_map.zig");
 
 pub fn generate(world_map: *World, x: i32, y: i32, z: i32, liquid_id: Block) !void {
-    if (world_map.getBlock(x, y + 1, z) != Block.stone) return;
-    if (world_map.getBlock(x, y - 1, z) != Block.stone) return;
+    if (world_map.getBlock(x, y + 1, z) != .stone) return;
+    if (world_map.getBlock(x, y - 1, z) != .stone) return;
 
     const current = world_map.getBlock(x, y, z);
-    if (current != Block.air and current != Block.stone) return;
+    if (current != .air and current != .stone) return;
 
     var stone_sides: u32 = 0;
     var open_sides: u32 = 0;
     for ([_][2]i32{ .{ -1, 0 }, .{ 1, 0 }, .{ 0, -1 }, .{ 0, 1 } }) |offset| {
         const neighbor = world_map.getBlock(x + offset[0], y, z + offset[1]);
-        if (neighbor == Block.stone) stone_sides += 1;
-        if (neighbor == Block.air) open_sides += 1;
+        if (neighbor == .stone) stone_sides += 1;
+        if (neighbor == .air) open_sides += 1;
     }
 
     if (stone_sides != 3 or open_sides != 1) return;
@@ -35,14 +36,14 @@ fn stoneWorldWithOpening(opening_x: i32, opening_z: i32) !World {
             for (0..16) |x| {
                 for (0..16) |z| {
                     for (30..40) |y| {
-                        chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                        chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
                     }
                 }
             }
         }
     }
-    w.setBlock(8, 35, 8, Block.air);
-    w.setBlock(opening_x, 35, opening_z, Block.air);
+    w.setBlock(8, 35, 8, .air);
+    w.setBlock(opening_x, 35, opening_z, .air);
     return w;
 }
 
@@ -50,7 +51,7 @@ test "a spring forms in a stone wall with a single open side" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
 
-    try generate(&w, 8, 35, 8, Block.flowing_water);
+    try generate(&w, 8, 35, 8, .flowing_water);
     try std.testing.expectEqual(block.Material.water, w.getBlock(8, 35, 8).material());
 }
 
@@ -58,10 +59,10 @@ test "a water spring has already run its course when generation returns" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
     for (30..35) |y| {
-        w.setBlock(9, @intCast(y), 8, Block.air);
+        w.setBlock(9, @intCast(y), 8, .air);
     }
 
-    try generate(&w, 8, 35, 8, Block.flowing_water);
+    try generate(&w, 8, 35, 8, .flowing_water);
 
     try std.testing.expectEqual(block.Material.water, w.getBlock(9, 30, 8).material());
     try std.testing.expectEqual(@as(usize, 0), w.scheduled.items.len);
@@ -72,10 +73,10 @@ test "a lava spring has already run its course when generation returns" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
     for (30..35) |y| {
-        w.setBlock(9, @intCast(y), 8, Block.air);
+        w.setBlock(9, @intCast(y), 8, .air);
     }
 
-    try generate(&w, 8, 35, 8, Block.flowing_lava);
+    try generate(&w, 8, 35, 8, .flowing_lava);
 
     try std.testing.expectEqual(block.Material.lava, w.getBlock(9, 30, 8).material());
     try std.testing.expectEqual(@as(usize, 0), w.scheduled.items.len);
@@ -84,17 +85,17 @@ test "a lava spring has already run its course when generation returns" {
 test "a spring does not form where two sides are open" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
-    w.setBlock(7, 35, 8, Block.air);
+    w.setBlock(7, 35, 8, .air);
 
-    try generate(&w, 8, 35, 8, Block.flowing_water);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 35, 8));
+    try generate(&w, 8, 35, 8, .flowing_water);
+    try std.testing.expectEqual(.air, w.getBlock(8, 35, 8));
 }
 
 test "a spring does not form without stone above and below" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
-    w.setBlock(8, 36, 8, Block.air);
+    w.setBlock(8, 36, 8, .air);
 
-    try generate(&w, 8, 35, 8, Block.flowing_water);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 35, 8));
+    try generate(&w, 8, 35, 8, .flowing_water);
+    try std.testing.expectEqual(.air, w.getBlock(8, 35, 8));
 }

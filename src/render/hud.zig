@@ -1,8 +1,8 @@
-const gl = @import("gl");
 const game = @import("game");
+const gl = @import("gl");
 
-const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 const hotbar_width: f32 = 182;
 const hotbar_height: f32 = 22;

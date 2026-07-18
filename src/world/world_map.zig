@@ -1,18 +1,20 @@
 const std = @import("std");
-const Chunk = @import("chunk.zig");
-const constants = @import("constants.zig");
+
+const math = @import("math");
+
 const block = @import("block.zig");
 const Block = block.Block;
-const TerrainGenerator = @import("terrain_gen.zig");
-const JavaRandom = @import("java_random.zig");
-const light = @import("light.zig");
-const fluid = @import("fluid.zig");
-const leaf_decay = @import("leaf_decay.zig");
 const block_update = @import("block_update.zig");
+const Chunk = @import("chunk.zig");
+const constants = @import("constants.zig");
+const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
-const save = @import("save.zig");
+const JavaRandom = @import("java_random.zig");
+const leaf_decay = @import("leaf_decay.zig");
+const light = @import("light.zig");
 const nbt = @import("nbt.zig");
-const math = @import("math");
+const save = @import("save.zig");
+const TerrainGenerator = @import("terrain_gen.zig");
 
 const World = @This();
 
@@ -269,8 +271,8 @@ fn floorMod(value: i32, divisor: i32) i32 {
 }
 
 pub fn getBlock(self: *const World, x: i32, y: i32, z: i32) Block {
-    if (y < 0 or y >= constants.chunk_height) return Block.air;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return Block.air;
+    if (y < 0 or y >= constants.chunk_height) return .air;
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return .air;
     return chunk.getBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
 }
 
@@ -383,8 +385,6 @@ fn isFurnaceBlock(id: Block) bool {
     return id == .furnace or id == .burning_furnace;
 }
 
-/// `TileEntityFurnace.updateEntity` for every furnace held in memory. A furnace that
-/// catches or loses its fire swaps between the two block ids, keeping its facing.
 pub fn tickFurnaces(self: *World) !void {
     self.furnace_updates.clearRetainingCapacity();
 
@@ -535,12 +535,12 @@ test "block access spans chunk boundaries using world coordinates" {
     defer w.deinit();
 
     const a = try w.createChunk(0, 0);
-    a.setBlock(15, 5, 0, Block.stone);
+    a.setBlock(15, 5, 0, .stone);
     const b = try w.createChunk(1, 0);
-    b.setBlock(0, 5, 0, Block.dirt);
+    b.setBlock(0, 5, 0, .dirt);
 
-    try std.testing.expectEqual(Block.stone, w.getBlock(15, 5, 0));
-    try std.testing.expectEqual(Block.dirt, w.getBlock(16, 5, 0));
+    try std.testing.expectEqual(.stone, w.getBlock(15, 5, 0));
+    try std.testing.expectEqual(.dirt, w.getBlock(16, 5, 0));
 }
 
 test "a lit furnace swaps the block for its burning id, keeping its facing" {
@@ -549,20 +549,20 @@ test "a lit furnace swaps the block for its burning id, keeping its facing" {
     _ = try w.createChunk(0, 0);
 
     const facing: u4 = @intFromEnum(block.Side.west);
-    try w.setBlockAndMetadataWithNotify(3, 10, 4, Block.furnace, facing);
+    try w.setBlockAndMetadataWithNotify(3, 10, 4, .furnace, facing);
     const state = try w.addFurnace(3, 10, 4);
     state.input = .{ .id = .{ .block = .sand }, .count = 1 };
     state.fuel = .{ .id = .{ .item = .coal }, .count = 1 };
 
     try w.tickFurnaces();
-    try std.testing.expectEqual(Block.burning_furnace, w.getBlock(3, 10, 4));
+    try std.testing.expectEqual(.burning_furnace, w.getBlock(3, 10, 4));
     try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
     try std.testing.expect(w.furnaceAt(3, 10, 4).?.isBurning());
 
     w.furnaceAt(3, 10, 4).?.burn_time = 1;
     w.furnaceAt(3, 10, 4).?.fuel = null;
     try w.tickFurnaces();
-    try std.testing.expectEqual(Block.furnace, w.getBlock(3, 10, 4));
+    try std.testing.expectEqual(.furnace, w.getBlock(3, 10, 4));
     try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
 }
 
@@ -571,9 +571,9 @@ test "a furnace whose block is gone is forgotten on the next tick" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try w.setBlockAndMetadataWithNotify(1, 5, 1, Block.furnace, 3);
+    try w.setBlockAndMetadataWithNotify(1, 5, 1, .furnace, 3);
     _ = try w.addFurnace(1, 5, 1);
-    w.setBlock(1, 5, 1, Block.air);
+    w.setBlock(1, 5, 1, .air);
 
     try w.tickFurnaces();
     try std.testing.expect(w.furnaceAt(1, 5, 1) == null);
@@ -596,24 +596,24 @@ test "breaking a furnace hands back what it held" {
 test "reading an unloaded chunk returns air" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    try std.testing.expectEqual(Block.air, w.getBlock(1000, 5, 1000));
+    try std.testing.expectEqual(.air, w.getBlock(1000, 5, 1000));
 }
 
 test "negative coordinates resolve to the correct chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     const neg = try w.createChunk(-1, -1);
-    neg.setBlock(15, 5, 15, Block.stone);
-    try std.testing.expectEqual(Block.stone, w.getBlock(-1, 5, -1));
-    try std.testing.expectEqual(Block.air, w.getBlock(-2, 5, -1));
+    neg.setBlock(15, 5, 15, .stone);
+    try std.testing.expectEqual(.stone, w.getBlock(-1, 5, -1));
+    try std.testing.expectEqual(.air, w.getBlock(-2, 5, -1));
 }
 
 test "setBlock writes through to the owning chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     _ = try w.createChunk(0, 0);
-    w.setBlock(3, 10, 4, Block.stone);
-    try std.testing.expectEqual(Block.stone, w.getBlock(3, 10, 4));
+    w.setBlock(3, 10, 4, .stone);
+    try std.testing.expectEqual(.stone, w.getBlock(3, 10, 4));
 }
 
 test "ensureDecorated shape-generates the full 3x3 neighbor block" {
@@ -733,7 +733,7 @@ test "a world with a save reloads its chunks from disk instead of regenerating t
         world_map.persistence = .{ .handle = &handle, .io = io };
 
         try world_map.ensureDecorated(generator, 0, 0);
-        world_map.setBlock(4, 100, 6, Block.glowstone);
+        world_map.setBlock(4, 100, 6, .glowstone);
         try world_map.saveLoadedChunks();
     }
 
@@ -742,7 +742,7 @@ test "a world with a save reloads its chunks from disk instead of regenerating t
     reloaded.persistence = .{ .handle = &handle, .io = io };
 
     const chunk = try reloaded.getOrGenerateChunk(generator, 0, 0);
-    try std.testing.expectEqual(Block.glowstone, chunk.getBlock(4, 100, 6));
+    try std.testing.expectEqual(.glowstone, chunk.getBlock(4, 100, 6));
     try std.testing.expect(reloaded.isDecorated(0, 0));
 }
 
@@ -755,7 +755,7 @@ test "a world without a save still generates chunks" {
     defer world_map.deinit();
 
     const chunk = try world_map.getOrGenerateChunk(generator, 0, 0);
-    try std.testing.expectEqual(Block.bedrock, chunk.getBlock(0, 0, 0));
+    try std.testing.expectEqual(.bedrock, chunk.getBlock(0, 0, 0));
     try world_map.saveLoadedChunks();
 }
 
@@ -779,7 +779,7 @@ test "an incremental save round writes every loaded chunk a few at a time" {
         var cx: i32 = 0;
         while (cx < 2) : (cx += 1) {
             _ = try world_map.getOrGenerateChunk(generator, cx, 0);
-            world_map.setBlock(cx * 16 + 1, 90, 1, Block.glowstone);
+            world_map.setBlock(cx * 16 + 1, 90, 1, .glowstone);
         }
 
         try world_map.beginSaveRound();
@@ -797,6 +797,6 @@ test "an incremental save round writes every loaded chunk a few at a time" {
     var cx: i32 = 0;
     while (cx < 2) : (cx += 1) {
         _ = try reloaded.getOrGenerateChunk(generator, cx, 0);
-        try std.testing.expectEqual(Block.glowstone, reloaded.getBlock(cx * 16 + 1, 90, 1));
+        try std.testing.expectEqual(.glowstone, reloaded.getBlock(cx * 16 + 1, 90, 1));
     }
 }

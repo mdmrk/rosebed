@@ -1,5 +1,4 @@
 const std = @import("std");
-
 pub const Container = std.compress.flate.Container;
 
 pub fn compressAlloc(gpa: std.mem.Allocator, container: Container, data: []const u8) ![]u8 {

@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Animal = @import("animal.zig");
 
 const Pig = @This();
@@ -36,7 +38,6 @@ pub fn tick(
     try self.animal.tick(gpa, world_map, player, rand);
 }
 
-/// `EntityPig.dropFewItems`: nought to two porkchops, cooked if the pig died alight.
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
     const self: *Pig = @fieldParentPtr("animal", animal);
     self.pending_drops = @intCast(rand.nextIntBound(3));

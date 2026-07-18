@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const physics = @import("physics.zig");
 
 const Entity = @This();

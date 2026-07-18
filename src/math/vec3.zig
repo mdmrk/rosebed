@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("mathutil.zig");
 
 const Vec3 = @This();

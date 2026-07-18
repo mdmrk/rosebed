@@ -1,17 +1,18 @@
 const std = @import("std");
-const gl = @import("gl");
-const game = @import("game");
 
-const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const game = @import("game");
+const gl = @import("gl");
+
 const button = @import("button.zig");
+const Font = @import("font.zig");
 const gui = @import("gui.zig");
+pub const Backdrop = gui.Backdrop;
+const MeshBuilder = @import("mesh_builder.zig");
 
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
-pub const Backdrop = gui.Backdrop;
 pub const Slider = enum { music, sound, sensitivity };
 pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, controls, done };
 

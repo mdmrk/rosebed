@@ -1,9 +1,11 @@
 const std = @import("std");
+
 const math = @import("math");
-const JavaRandom = @import("java_random.zig");
-const Chunk = @import("chunk.zig");
+
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const Chunk = @import("chunk.zig");
+const JavaRandom = @import("java_random.zig");
 
 const chunk_radius: i32 = 8;
 
@@ -112,7 +114,7 @@ fn carveTunnel(
                 const on_shell = bx == x0 or bx == x1 - 1 or bz == z0 or bz == z1 - 1;
                 var by = y1 + 1;
                 while (by >= y0 - 1) : (by -= 1) {
-                    if (chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == Block.stationary_water) {
+                    if (chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == .stationary_water) {
                         found_water = true;
                         break :water_scan;
                     }
@@ -137,14 +139,14 @@ fn carveTunnel(
                     if (ny <= -0.7 or nx * nx + ny * ny + nz * nz >= 1.0) continue;
 
                     const id = chunk.getBlock(@intCast(bx), @intCast(by + 1), @intCast(bz));
-                    if (id == Block.grass) was_grass = true;
-                    if (id == Block.stone or id == Block.dirt or id == Block.grass) {
+                    if (id == .grass) was_grass = true;
+                    if (id == .stone or id == .dirt or id == .grass) {
                         if (by < 10) {
-                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), Block.flowing_lava);
+                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), .flowing_lava);
                         } else {
-                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), Block.air);
-                            if (was_grass and chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == Block.dirt) {
-                                chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), Block.grass);
+                            chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), .air);
+                            if (was_grass and chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == .dirt) {
+                                chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), .grass);
                             }
                         }
                     }
@@ -205,7 +207,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -214,7 +216,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.air) solid_before += 1;
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != .air) solid_before += 1;
             }
         }
     }
@@ -225,7 +227,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.air) solid_after += 1;
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) != .air) solid_after += 1;
             }
         }
     }
@@ -239,8 +241,8 @@ test "the same seed and chunk position carve identical caves" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..100) |y| {
-                chunk_a.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
-                chunk_b.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk_a.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
+                chunk_b.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }

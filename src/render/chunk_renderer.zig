@@ -1,11 +1,12 @@
 const std = @import("std");
+
 const math = @import("math");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
-const GpuMesh = @import("gpu_mesh.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
 const Colorizer = @import("colorizer.zig");
+const GpuMesh = @import("gpu_mesh.zig");
 
 const ChunkRenderer = @This();
 

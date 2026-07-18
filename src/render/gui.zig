@@ -1,13 +1,14 @@
 const std = @import("std");
+
+const game = @import("game");
 const gl = @import("gl");
 const world = @import("world");
-const game = @import("game");
 
 const Atlas = @import("atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
 const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const GpuMesh = @import("gpu_mesh.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 const Shader = @import("shader.zig");
 const Textures = @import("textures.zig");
 
@@ -495,11 +496,11 @@ test "the trapdoor's inventory icon is a plate, not a cube" {
 
     var stone: MeshBuilder = .{};
     defer stone.deinit(gpa);
-    try appendBlockIcon3d(&stone, gpa, world.Block.stone, 0, 0, 0, res);
+    try appendBlockIcon3d(&stone, gpa, .stone, 0, 0, 0, res);
 
     var trapdoor: MeshBuilder = .{};
     defer trapdoor.deinit(gpa);
-    try appendBlockIcon3d(&trapdoor, gpa, world.Block.trapdoor, 0, 0, 0, res);
+    try appendBlockIcon3d(&trapdoor, gpa, .trapdoor, 0, 0, 0, res);
 
     try std.testing.expectEqual(stone.vertices.items.len, trapdoor.vertices.items.len);
     try std.testing.expect(iconHeight(trapdoor) < iconHeight(stone));

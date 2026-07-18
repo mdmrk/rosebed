@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Animal = @import("animal.zig");
 
 const Cow = @This();
@@ -14,7 +16,6 @@ pub const max_health: i32 = 10;
 
 pub const spec: Animal.Spec = .{ .width = width, .height = height, .max_health = max_health };
 
-/// `EntityCow.interact`: an empty bucket in hand leaves with milk in it, and nothing else answers.
 pub fn interact(held: ?world.Item) ?world.Item {
     const item = held orelse return null;
     return if (item == .bucket) .bucket_milk else null;

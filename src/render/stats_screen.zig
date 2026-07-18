@@ -1,15 +1,15 @@
 const std = @import("std");
-const gl = @import("gl");
+
 const game = @import("game");
+const stats = game.stats;
+const gl = @import("gl");
 const world = @import("world");
 
 const Atlas = @import("atlas.zig");
-const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
+const Font = @import("font.zig");
 const gui = @import("gui.zig");
-
-const stats = game.stats;
+const MeshBuilder = @import("mesh_builder.zig");
 
 const dirt_tile_scale: f32 = 32;
 const list_dirt_tint: [4]u8 = .{ 32, 32, 32, 255 };

@@ -1,10 +1,11 @@
 const std = @import("std");
-const gl = @import("gl");
+
 const game = @import("game");
+const gl = @import("gl");
 
 const Atlas = @import("atlas.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 pub const width: f32 = 176;
 pub const height: f32 = 166;
@@ -26,7 +27,6 @@ pub const Label = struct { text: []const u8, x: f32, y: f32 };
 
 pub const player_slot_count = 36;
 
-/// The 27 storage slots and 9 hotbar slots every container screen shares.
 pub fn appendPlayerSlots(out: []Slot) void {
     var n: usize = 0;
     for (0..3) |row| {
@@ -53,7 +53,6 @@ pub fn origin(res: gui.Scaled) [2]f32 {
     return .{ @floor((res.width - width) / 2.0), @floor((res.height - height) / 2.0) };
 }
 
-/// Returns the index of the slot under the given window-pixel mouse position, if any.
 pub fn slotAt(slots: []const Slot, mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?usize {
     const org = origin(res);
     const gx = mouse_x / res.factor - org[0];
@@ -68,7 +67,6 @@ pub fn slotAt(slots: []const Slot, mouse_x: f32, mouse_y: f32, res: gui.Scaled) 
     return null;
 }
 
-/// Whether the given window-pixel mouse position falls outside the screen's background rect.
 pub fn isOutside(mouse_x: f32, mouse_y: f32, res: gui.Scaled) bool {
     const org = origin(res);
     const gx = mouse_x / res.factor;
@@ -101,8 +99,6 @@ pub fn drawBackdrop(ui: gui.Ui, texture: Atlas) !void {
     try gui.drawTexturedMesh(&background, ui.shader, texture);
 }
 
-/// Draws the slot contents, hover highlight, cursor stack, labels and tooltip, in
-/// `GuiContainer.drawScreen`'s order. `stacks` runs parallel to `slots`.
 pub fn drawContents(
     ui: gui.Ui,
     slots: []const Slot,

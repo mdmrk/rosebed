@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Animal = @import("animal.zig");
 
 const Sheep = @This();
@@ -50,7 +52,6 @@ pub fn tick(
     try self.animal.tick(gpa, world_map, player, rand);
 }
 
-/// `EntitySheep.getRandomFleeceColor`: mostly white, with a rare pink among the greys and browns.
 pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     const roll = rand.nextIntBound(100);
     if (roll < 5) return black;
@@ -60,8 +61,6 @@ pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     return if (rand.nextIntBound(500) == 0) pink else white;
 }
 
-/// `EntitySheep.attackEntityFrom`: a hit from something living shears the sheep and scatters its wool.
-/// Drowning, fire and falls carry no attacker, and so leave the fleece on.
 pub fn hurt(self: *Sheep, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
     if (source != null and !self.sheared) {
         self.sheared = true;

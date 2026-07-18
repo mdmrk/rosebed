@@ -1,9 +1,12 @@
 const std = @import("std");
+
 const math = @import("math");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
+const testing = @import("testing.zig");
+const World = @import("world_map.zig");
 
 pub const Point = struct {
     x: i32,
@@ -195,7 +198,7 @@ const Finder = struct {
                 var z = base.z;
                 while (z < base.z + size.z) : (z += 1) {
                     const id = self.world_map.getBlock(x, y, z);
-                    if (id == Block.air) continue;
+                    if (id == .air) continue;
                     const material = id.material();
                     if (material.isSolid()) return .blocked;
                     if (material == .water) return .water;
@@ -374,8 +377,6 @@ pub fn toBlock(
     );
 }
 
-const testing = @import("testing.zig");
-
 fn pigAt(x: f64, y: f64, z: f64) Mob {
     return .{ .min_x = x - 0.45, .min_y = y, .min_z = z - 0.45, .width = 0.9, .height = 0.9 };
 }
@@ -389,8 +390,8 @@ fn walledWorld(gpa: std.mem.Allocator, floor_height: u32) !World {
     while (x < constants.chunk_width) : (x += 1) {
         var z: i32 = 0;
         while (z < constants.chunk_width) : (z += 1) {
-            w.setBlock(x, top, z, Block.stone);
-            w.setBlock(x, top + 1, z, Block.stone);
+            w.setBlock(x, top, z, .stone);
+            w.setBlock(x, top + 1, z, .stone);
         }
     }
     return w;
@@ -401,8 +402,8 @@ fn carve(w: *World, top: i32, x0: i32, x1: i32, z0: i32, z1: i32) void {
     while (x <= x1) : (x += 1) {
         var z = z0;
         while (z <= z1) : (z += 1) {
-            w.setBlock(x, top, z, Block.air);
-            w.setBlock(x, top + 1, z, Block.air);
+            w.setBlock(x, top, z, .air);
+            w.setBlock(x, top + 1, z, .air);
         }
     }
 }
@@ -428,8 +429,8 @@ test "a wall in the way is routed around through the gap" {
     carve(&w, 1, 2, 12, 2, 14);
     var z: i32 = 2;
     while (z <= 12) : (z += 1) {
-        w.setBlock(7, 1, z, Block.stone);
-        w.setBlock(7, 2, z, Block.stone);
+        w.setBlock(7, 1, z, .stone);
+        w.setBlock(7, 2, z, .stone);
     }
 
     var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 10, 1, 8, 16.0)).?;
@@ -453,7 +454,7 @@ test "a one-block rise is stepped up onto" {
     var x: i32 = 6;
     while (x <= 10) : (x += 1) {
         var z: i32 = 6;
-        while (z <= 10) : (z += 1) w.setBlock(x, 1, z, Block.stone);
+        while (z <= 10) : (z += 1) w.setBlock(x, 1, z, .stone);
     }
 
     var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 8, 2, 8, 16.0)).?;
@@ -469,7 +470,7 @@ test "a lava moat is never crossed" {
 
     carve(&w, 1, 2, 13, 7, 9);
     var z: i32 = 7;
-    while (z <= 9) : (z += 1) w.setBlock(7, 1, z, Block.stationary_lava);
+    while (z <= 9) : (z += 1) w.setBlock(7, 1, z, .stationary_lava);
 
     const path = try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 12, 1, 8, 16.0);
     if (path) |found| {
@@ -490,7 +491,7 @@ test "a drop of more than three blocks is not taken" {
         var z: i32 = 7;
         while (z <= 9) : (z += 1) {
             var y: i32 = 1;
-            while (y < 9) : (y += 1) w.setBlock(x, y, z, Block.air);
+            while (y < 9) : (y += 1) w.setBlock(x, y, z, .air);
         }
     }
 

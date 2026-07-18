@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const nbt = @import("nbt.zig");
 
 pub const pig_id = "Pig";
@@ -8,7 +9,6 @@ pub const chicken_id = "Chicken";
 
 pub const max_stored_motion: f64 = 10.0;
 
-/// What `EntityLiving.writeEntityToNBT` writes for every mob.
 pub const Living = struct {
     position: [3]f64,
     motion: [3]f64 = .{ 0, 0, 0 },

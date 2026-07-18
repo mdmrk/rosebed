@@ -1,10 +1,11 @@
 const std = @import("std");
+
 const gl = @import("gl");
 const math = @import("math");
 
-const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 const logo_texture_size: f32 = 256;
 const logo_piece_width: f32 = 155;

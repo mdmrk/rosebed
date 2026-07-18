@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
 
@@ -12,8 +13,6 @@ pub const Box = struct {
     inflate: f32 = 0,
 };
 
-/// How a quadruped's part moves. A `ModelRenderer` holding several boxes — the cow's horns on its
-/// head, its udder under its body — is written here as one part per box, sharing a pivot and a role.
 pub const Role = enum { still, head, leg_ahead, leg_behind, wing_right, wing_left };
 
 pub const Part = struct {
@@ -70,7 +69,6 @@ pub const pig_saddle: Model = .{
     .texture_height = 32,
 };
 
-/// `ModelSheep2`: the body under the wool, a `ModelQuadruped(12, 0)` with its own head and torso.
 const sheep_parts = [6]Part{
     .{ .box = .{ .origin = .{ -3, -4, -6 }, .size = .{ 6, 6, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -18, -8 }, .role = .head },
     .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
@@ -87,7 +85,6 @@ pub const sheep: Model = .{
     .texture_height = 32,
 };
 
-/// `ModelSheep1`: the fleece, worn over the body as boxes grown by their own amounts.
 const sheep_fur_parts = [6]Part{
     .{ .box = .{ .origin = .{ -3, -4, -4 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 0, .inflate = 0.6 }, .pivot = .{ 0, -18, -8 }, .role = .head },
     .{ .box = .{ .origin = .{ -4, -10, -7 }, .size = .{ 8, 16, 6 }, .tex_u = 28, .tex_v = 8, .inflate = 1.75 }, .pivot = .{ 0, -19, 2 }, .rotate_x = std.math.pi * 0.5 },
@@ -104,8 +101,6 @@ pub const sheep_fur: Model = .{
     .texture_height = 32,
 };
 
-/// `ModelCow`: a `ModelQuadruped(12, 0)` given a snout, a pair of horns, a deeper barrel with an
-/// udder slung under it, and legs pushed out to the corners.
 const cow_parts = [9]Part{
     .{ .box = .{ .origin = .{ -4, -4, -6 }, .size = .{ 8, 8, 6 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -20, -8 }, .role = .head },
     .{ .box = .{ .origin = .{ -5, -5, -4 }, .size = .{ 1, 3, 1 }, .tex_u = 22, .tex_v = 0 }, .pivot = .{ 0, -20, -8 }, .role = .head },
@@ -125,8 +120,6 @@ pub const cow: Model = .{
     .texture_height = 32,
 };
 
-/// `ModelChicken`: a bird small enough to model whole, with a bill and a chin on its head and a
-/// wing to each side. Its boxes reach well above the little box it walks around in.
 const chicken_parts = [8]Part{
     .{ .box = .{ .origin = .{ -2, -6, -2 }, .size = .{ 4, 6, 3 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -9, -4 }, .role = .head },
     .{ .box = .{ .origin = .{ -2, -4, -4 }, .size = .{ 4, 2, 2 }, .tex_u = 14, .tex_v = 0 }, .pivot = .{ 0, -9, -4 }, .role = .head },

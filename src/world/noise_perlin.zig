@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const JavaRandom = @import("java_random.zig");
 
 const NoiseGeneratorPerlin = @This();

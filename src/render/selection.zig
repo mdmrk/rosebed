@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const world = @import("world");
 
 const MeshBuilder = @import("mesh_builder.zig");
@@ -67,7 +68,7 @@ test "an outline is twelve edges expanded past the block's own bounds" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.stone, 0, 3, 4, 5);
+    try appendOutline(&mesh, gpa, .stone, 0, 3, 4, 5);
 
     try std.testing.expectEqual(@as(usize, 12 * 2), mesh.vertices.items.len);
     try std.testing.expectEqual(@as(usize, 12 * 2), mesh.indices.items.len);
@@ -87,7 +88,7 @@ test "a snow layer's outline is only as tall as the layer" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.snow_layer, 0, 0, 0, 0);
+    try appendOutline(&mesh, gpa, .snow_layer, 0, 0, 0, 0);
 
     var highest: f32 = -std.math.floatMax(f32);
     for (mesh.vertices.items) |v| highest = @max(highest, v.y);
@@ -99,7 +100,7 @@ test "a cactus outline hugs the inset sides but stands a full block tall" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.cactus, 0, 0, 0, 0);
+    try appendOutline(&mesh, gpa, .cactus, 0, 0, 0, 0);
 
     var lowest_x: f32 = std.math.floatMax(f32);
     var highest_y: f32 = -std.math.floatMax(f32);
@@ -116,7 +117,7 @@ test "a flower's outline is the narrow plant box, not a full cube" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendOutline(&mesh, gpa, world.Block.rose, 0, 0, 0, 0);
+    try appendOutline(&mesh, gpa, .rose, 0, 0, 0, 0);
 
     var lowest_x: f32 = std.math.floatMax(f32);
     var highest_y: f32 = -std.math.floatMax(f32);

@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
 
@@ -67,8 +68,6 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
     return castWith(world_map, origin, direction, max_distance, false);
 }
 
-/// `Block.canCollideCheck`: a ray stops at any ordinary block, and at a liquid only when it is
-/// asked to see liquids and the cell holds a source, as `BlockFluid` allows.
 fn stopsRay(id: world.Block, metadata: u4, hit_liquids: bool) bool {
     if (id == .air) return false;
     if (id.isLiquid()) return hit_liquids and metadata == 0;
@@ -124,7 +123,7 @@ fn testWorldWithFloor() !world.World {
     const chunk = try w.createChunk(0, 0);
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
-            chunk.setBlock(@intCast(x), 5, @intCast(z), world.Block.stone);
+            chunk.setBlock(@intCast(x), 5, @intCast(z), .stone);
         }
     }
     return w;
@@ -151,7 +150,7 @@ test "approaching a wall from the side hits its facing side face" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(10, 5, 8, world.Block.stone);
+    chunk.setBlock(10, 5, 8, .stone);
     const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 10), hit.x);
     try std.testing.expectEqual(world.Side.west, hit.face);
@@ -168,7 +167,7 @@ test "a cross-shaped plant is still targetable despite having no collision" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, world.Block.tall_grass);
+    chunk.setBlock(8, 5, 8, .tall_grass);
 
     const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), hit.y);
@@ -178,8 +177,8 @@ test "aiming past a wall torch targets the wall behind it" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(10, 5, 8, world.Block.stone);
-    chunk.setBlock(9, 5, 8, world.Block.torch);
+    chunk.setBlock(10, 5, 8, .stone);
+    chunk.setBlock(9, 5, 8, .torch);
     chunk.setBlockMetadata(9, 5, 8, 2);
 
     const on_torch = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
@@ -198,8 +197,8 @@ test "a standing torch is only targetable down its own narrow column" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, world.Block.stone);
-    chunk.setBlock(8, 6, 8, world.Block.torch);
+    chunk.setBlock(8, 5, 8, .stone);
+    chunk.setBlock(8, 6, 8, .torch);
     chunk.setBlockMetadata(8, 6, 8, 5);
 
     const centred = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
@@ -215,8 +214,8 @@ test "a snow layer is only hit within its eighth of a block" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(10, 5, 8, world.Block.stone);
-    chunk.setBlock(9, 5, 8, world.Block.snow_layer);
+    chunk.setBlock(10, 5, 8, .stone);
+    chunk.setBlock(9, 5, 8, .snow_layer);
 
     const low = cast(&w, math.Vec3.init(5, 5.05, 8.5), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 9), low.x);
@@ -229,7 +228,7 @@ test "looking down onto a snow layer reports its own top, not the block's" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, world.Block.snow_layer);
+    chunk.setBlock(8, 5, 8, .snow_layer);
 
     const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), hit.y);
@@ -240,7 +239,7 @@ test "standing inside a plant still targets it, by the face the ray leaves throu
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, world.Block.tall_grass);
+    chunk.setBlock(8, 5, 8, .tall_grass);
 
     const hit = cast(&w, math.Vec3.init(8.5, 5.4, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 8), hit.x);

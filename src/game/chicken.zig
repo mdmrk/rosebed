@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Animal = @import("animal.zig");
 
 const Chicken = @This();
@@ -11,7 +13,7 @@ prev_wing_rotation: f32 = 0,
 wing_reach: f32 = 0,
 prev_wing_reach: f32 = 0,
 wing_speed: f32 = 1.0,
-/// Rolled by the constructor, and so by the first tick of a chicken read back from the save.
+
 egg_timer: ?i32 = null,
 pending_eggs: u8 = 0,
 pending_feathers: u8 = 0,
@@ -58,8 +60,6 @@ fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
     self.pending_feathers = @intCast(rand.nextIntBound(3));
 }
 
-/// `EntityChicken.onLivingUpdate`, which runs after the movement the animal shares with the rest:
-/// the wings beat while the chicken is off the ground and slow its fall, and it lays as it goes.
 pub fn tick(
     self: *Chicken,
     gpa: std.mem.Allocator,
@@ -114,14 +114,12 @@ pub fn takeDrops(self: *Chicken) ?Drops {
     return null;
 }
 
-/// How far the wings are thrown out, for the renderer to rotate them by.
 pub fn wingFlap(self: Chicken, partial_ticks: f32) f32 {
     const rotation = self.prev_wing_rotation + (self.wing_rotation - self.prev_wing_rotation) * partial_ticks;
     const reach = self.prev_wing_reach + (self.wing_reach - self.prev_wing_reach) * partial_ticks;
     return (math.util.sin(rotation) + 1.0) * reach;
 }
 
-/// The original keeps no egg timer in the save, so a reloaded chicken starts a fresh clutch.
 pub fn toRecord(self: Chicken) world.entity_nbt.Chicken {
     return .{ .living = self.animal.toRecord() };
 }
@@ -171,7 +169,6 @@ test "a dying chicken drops nought to two feathers" {
     try std.testing.expect(dropped_something);
 }
 
-/// A floor wide enough that a chicken left to wander for a full clutch stays on it.
 fn grassField(gpa: std.mem.Allocator, radius: i32) !world.World {
     var w = world.World.init(gpa);
     errdefer w.deinit();
@@ -183,7 +180,7 @@ fn grassField(gpa: std.mem.Allocator, radius: i32) !world.World {
             const chunk = try w.createChunk(chunk_x, chunk_z);
             for (0..world.constants.chunk_width) |x| {
                 for (0..world.constants.chunk_width) |z| {
-                    chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.grass);
+                    chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
                     chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
                 }
             }

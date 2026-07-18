@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
 
@@ -7,12 +8,12 @@ const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Entity = @import("entity.zig");
 const FallingBlock = @import("falling_block.zig");
-const Particle = @import("particle.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
+const Particle = @import("particle.zig");
 const Pig = @import("pig.zig");
-const Sheep = @import("sheep.zig");
 const Player = @import("player.zig");
+const Sheep = @import("sheep.zig");
 
 const Entities = @This();
 
@@ -24,7 +25,6 @@ cows: std.ArrayList(Cow) = .empty,
 chickens: std.ArrayList(Chicken) = .empty,
 particles: std.ArrayList(Particle) = .empty,
 
-/// Every herd of animals, in the order they are ticked and drawn.
 fn herds(self: *Entities) struct {
     *std.ArrayList(Pig),
     *std.ArrayList(Sheep),
@@ -41,8 +41,6 @@ pub const Target = union(enum) {
     chicken: usize,
 };
 
-/// `EntityRenderer.getMouseOver` never looks past three blocks for an entity, however far the
-/// crosshair reaches, and grows each entity's box by `Entity.getCollisionBorderSize` before testing.
 pub const entity_reach: f64 = 3.0;
 const collision_border: f64 = 0.1;
 
@@ -110,7 +108,6 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
     return found;
 }
 
-/// Only `EntitySheep` overrides `attackEntityFrom`, to scatter its fleece when something living hits it.
 pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec3, rand: *world.JavaRandom) void {
     switch (target) {
         .pig => |index| _ = self.pigs.items[index].animal.hurt(amount, source, rand),
@@ -1003,7 +1000,7 @@ test "a standing torch burns at its own centre, a wall torch out over its bracke
 }
 
 test "a torch flame sits above the tip of the model it belongs to" {
-    const bounds = world.Block.torch.selectionBounds(5);
+    const bounds = .torch.selectionBounds(5);
     const flame = torchFlamePosition(0, 0, 0, 5);
     try std.testing.expect(flame.y > bounds.max[1]);
     try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);

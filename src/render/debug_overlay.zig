@@ -1,8 +1,9 @@
 const std = @import("std");
+
 const gl = @import("gl");
 
-const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 const white: [4]u8 = .{ 255, 255, 255, 255 };
 const grey: [4]u8 = .{ 224, 224, 224, 255 };

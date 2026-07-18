@@ -1,11 +1,12 @@
 const std = @import("std");
+
 const game = @import("game");
 const math = @import("math");
 const world = @import("world");
 
 const Atlas = @import("atlas.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 const mob_model = @import("mob_model.zig");
 
 const white = [4]u8{ 255, 255, 255, 255 };
@@ -218,7 +219,6 @@ const to_radians: f32 = std.math.pi / 180.0;
 
 const untinted = [3]f32{ 1, 1, 1 };
 
-/// `EntitySheep.fleeceColorTable`: the wool layer is drawn white and coloured by the fleece.
 pub const fleece_colors = [16][3]f32{
     .{ 1.0, 1.0, 1.0 },
     .{ 0.95, 0.7, 0.2 },
@@ -330,7 +330,6 @@ fn appendBiped(
     mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
 }
 
-/// What a species adds on top of the pose every animal shares.
 const Trim = struct {
     tint: [3]f32 = untinted,
     wing_flap: f32 = 0,
@@ -654,7 +653,7 @@ test "a falling block renders as a full cube" {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
 
-    const block = game.FallingBlock.spawn(.{ .x = 0, .y = 0, .z = 0 }, world.Block.sand);
+    const block = game.FallingBlock.spawn(.{ .x = 0, .y = 0, .z = 0 }, .sand);
     try appendFallingBlock(&mesh, gpa, &world_map, block, 0);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
@@ -1212,8 +1211,8 @@ test "an entity in the open is lit brighter than one sealed in the dark" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..world.Chunk.width) |x| {
         for (0..world.Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
-            if (x >= 8) chunk.setBlock(@intCast(x), 4, @intCast(z), world.Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+            if (x >= 8) chunk.setBlock(@intCast(x), 4, @intCast(z), .stone);
         }
     }
     try world.light.relightChunk(gpa, &world_map, 0, 0);

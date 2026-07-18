@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Animal = @import("animal.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
@@ -23,7 +25,6 @@ pub const Kind = enum { sheep, pig, chicken, cow };
 
 const Creature = struct { weight: i32, kind: Kind };
 
-/// `SpawnerAnimals`: sheep, pig, chicken, cow.
 const creature_list = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
     .{ .weight = 10, .kind = .pig },
@@ -189,9 +190,9 @@ fn grassPlateau(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, surf
             for (0..world.constants.chunk_width) |z| {
                 var y: u32 = 0;
                 while (y <= surface_y) : (y += 1) {
-                    chunk.setBlock(@intCast(x), y, @intCast(z), world.Block.stone);
+                    chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
                 }
-                chunk.setBlock(@intCast(x), surface_y, @intCast(z), world.Block.grass);
+                chunk.setBlock(@intCast(x), surface_y, @intCast(z), .grass);
                 chunk.setSkyLight(@intCast(x), surface_y + 1, @intCast(z), 15);
             }
         }
@@ -220,7 +221,7 @@ fn spawnUntilFirstAnimal(
 
 fn expectStandingOnGrass(world_map: *const world.World, animal: Animal) !void {
     try std.testing.expectApproxEqAbs(@as(f64, surface + 1), animal.base.position.y, 1.0e-9);
-    try std.testing.expectEqual(world.Block.grass, world_map.getBlock(
+    try std.testing.expectEqual(.grass, world_map.getBlock(
         math.util.floorDouble(animal.base.position.x),
         surface,
         math.util.floorDouble(animal.base.position.z),
@@ -283,7 +284,7 @@ test "nothing spawns on bare stone" {
         const chunk = w.getChunk(@intCast(chunk_x), 0).?;
         for (0..world.constants.chunk_width) |x| {
             for (0..world.constants.chunk_width) |z| {
-                chunk.setBlock(@intCast(x), surface, @intCast(z), world.Block.stone);
+                chunk.setBlock(@intCast(x), surface, @intCast(z), .stone);
             }
         }
     }

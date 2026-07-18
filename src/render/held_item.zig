@@ -1,10 +1,11 @@
 const std = @import("std");
+
 const game = @import("game");
 const math = @import("math");
 const world = @import("world");
 
-const MeshBuilder = @import("mesh_builder.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 const mob_model = @import("mob_model.zig");
 
 const degrees = std.math.pi / 180.0;
@@ -287,10 +288,10 @@ test "the sprite samples only its own tile" {
 
 test "each held stack picks the shape and atlas the original gives it" {
     const stone = heldShape(.{ .id = .{ .block = .stone }, .count = 1 }).?;
-    try std.testing.expectEqual(world.Block.stone, stone.cube);
+    try std.testing.expectEqual(.stone, stone.cube);
 
     const rose = heldShape(.{ .id = .{ .block = .rose }, .count = 1 }).?;
-    try std.testing.expectEqual(world.Block.rose.crossTile(0), rose.sprite.tile);
+    try std.testing.expectEqual(.rose.crossTile(0), rose.sprite.tile);
     try std.testing.expectEqual(.terrain, rose.sprite.atlas);
 
     const coal = heldShape(.{ .id = .{ .item = .coal }, .count = 1 }).?;

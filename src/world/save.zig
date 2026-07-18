@@ -1,9 +1,11 @@
 const std = @import("std");
-const nbt = @import("nbt.zig");
-const chunk_nbt = @import("chunk_nbt.zig");
+
 const Chunk = @import("chunk.zig");
-const RegionFile = @import("region.zig");
+const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
+const furnace = @import("furnace.zig");
+const nbt = @import("nbt.zig");
+const RegionFile = @import("region.zig");
 
 pub const saves_dir_name = "saves";
 pub const region_dir_name = "region";
@@ -676,8 +678,6 @@ test "a chunk written through the save handler comes back with its blocks" {
 
     try std.testing.expectEqual(@as(?chunk_nbt.Loaded, null), try world.readChunk(gpa, io, 0, 0, null, null));
 }
-
-const furnace = @import("furnace.zig");
 
 const FurnaceSink = struct {
     found: ?furnace.Placed = null,

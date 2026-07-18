@@ -1,12 +1,13 @@
 const std = @import("std");
+
 const gl = @import("gl");
 const math = @import("math");
 
 const GpuMesh = @import("gpu_mesh.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const Shader = @import("shader.zig");
-const Textures = @import("textures.zig");
 const sky = @import("sky.zig");
+const Textures = @import("textures.zig");
 
 const SkyRenderer = @This();
 

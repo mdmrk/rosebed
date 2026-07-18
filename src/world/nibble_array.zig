@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const constants = @import("constants.zig");
 
 const NibbleArray = @This();

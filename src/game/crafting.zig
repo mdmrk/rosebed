@@ -1,5 +1,8 @@
 const std = @import("std");
+
 const world = @import("world");
+const dye_blue: u16 = world.item.dye_meta_lapis;
+
 const Inventory = @import("inventory.zig");
 
 pub const player_grid_size: u8 = 2;
@@ -211,7 +214,6 @@ fn dyeFrom(ingredients: []const ?Ingredient, count: u8, meta: u16) ShapelessReci
 const dye_black: u16 = 0;
 const dye_red: u16 = 1;
 const dye_green: u16 = 2;
-const dye_blue: u16 = world.item.dye_meta_lapis;
 const dye_purple: u16 = 5;
 const dye_cyan: u16 = 6;
 const dye_light_gray: u16 = 7;

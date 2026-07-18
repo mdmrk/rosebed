@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Entity = @import("entity.zig");
 const Inventory = @import("inventory.zig");
 

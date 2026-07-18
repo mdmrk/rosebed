@@ -1,6 +1,9 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+const testing_world = world.testing;
+
 const Entity = @import("entity.zig");
 const physics = @import("physics.zig");
 
@@ -39,13 +42,11 @@ looking_at_player: bool = false,
 path: ?world.pathfinder.Path = null,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
 
-/// What separates one animal from another: `EntityAnimal`'s own state is the same for all of them.
 pub const Spec = struct {
     width: f64,
     height: f64,
     max_health: i32 = default_max_health,
     step_height: f64 = default_step_height,
-    /// A chicken overrides `fall` with an empty body and lands from any height unhurt.
     takes_fall_damage: bool = true,
 };
 
@@ -110,7 +111,6 @@ pub fn deinit(self: *Animal, gpa: std.mem.Allocator) void {
     self.clearPath(gpa);
 }
 
-/// `Entity.setLocationAndAngles`: the body starts out pointing wherever the head does.
 pub fn faceYaw(self: *Animal, yaw: f32) void {
     self.yaw = yaw;
     self.prev_yaw = yaw;
@@ -179,7 +179,7 @@ fn isInsideOpaqueBlock(self: Animal, world_map: *const world.World) bool {
 }
 
 pub fn blockPathWeight(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
-    if (world_map.getBlock(x, y - 1, z) == world.Block.grass) return 10.0;
+    if (world_map.getBlock(x, y - 1, z) == .grass) return 10.0;
     return world.light.brightnessAt(world_map, x, y, z, 0) - 0.5;
 }
 
@@ -189,7 +189,7 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
     const y = math.util.floorDouble(box.min_y);
     const z = math.util.floorDouble(self.base.position.z);
 
-    if (world_map.getBlock(x, y - 1, z) != world.Block.grass) return false;
+    if (world_map.getBlock(x, y - 1, z) != .grass) return false;
     if (@max(world_map.getSkyLight(x, y, z), world_map.getBlockLight(x, y, z)) <= 8) return false;
     if (blockPathWeight(world_map, x, y, z) < 0.0) return false;
 
@@ -584,7 +584,6 @@ pub fn tick(
     self.updateRenderYaw();
 }
 
-/// The fields `EntityLiving.writeEntityToNBT` writes; the species adds its own on top.
 pub fn toRecord(self: Animal) world.entity_nbt.Living {
     return .{
         .position = .{
@@ -605,7 +604,6 @@ pub fn toRecord(self: Animal) world.entity_nbt.Living {
     };
 }
 
-/// The counterpart of `toRecord`: the position comes from `spawn`, the rest from the record.
 pub fn restore(self: *Animal, record: world.entity_nbt.Living) void {
     self.base.motion = math.Vec3.init(record.motion[0], record.motion[1], record.motion[2]);
     self.base.on_ground = record.on_ground;
@@ -651,8 +649,6 @@ pub fn deathTilt(self: Animal, partial_ticks: f32) f32 {
     return @min(@sqrt(progress), 1.0) * 90.0;
 }
 
-const testing_world = world.testing;
-
 const test_spec: Spec = .{ .width = 0.9, .height = 0.9 };
 
 fn testAnimal(position: math.Vec3) Animal {
@@ -670,7 +666,7 @@ fn grassWorld(gpa: std.mem.Allocator) !world.World {
             const chunk = try w.createChunk(chunk_x, chunk_z);
             for (0..world.constants.chunk_width) |x| {
                 for (0..world.constants.chunk_width) |z| {
-                    chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.grass);
+                    chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
                     chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
                 }
             }
@@ -866,7 +862,7 @@ test "an animal held under water drowns once its air runs out" {
     var w = try testing_world.flatWorld(gpa, 6);
     defer w.deinit();
 
-    w.setBlock(8, 1, 8, world.Block.stationary_water);
+    w.setBlock(8, 1, 8, .stationary_water);
 
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
@@ -889,7 +885,7 @@ test "an animal in open water swims up and never drowns" {
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 1;
-            while (y < 6) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), world.Block.stationary_water);
+            while (y < 6) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
         }
     }
 
@@ -924,7 +920,7 @@ test "an animal standing in lava catches fire and burns" {
     const chunk = w.getChunk(0, 0).?;
     for (0..world.constants.chunk_width) |x| {
         for (0..world.constants.chunk_width) |z| {
-            chunk.setBlock(@intCast(x), 1, @intCast(z), world.Block.stationary_lava);
+            chunk.setBlock(@intCast(x), 1, @intCast(z), .stationary_lava);
         }
     }
 
@@ -996,7 +992,7 @@ test "grass is the preferred ground to wander onto" {
     var w = try testing_world.flatWorld(gpa, 1);
     defer w.deinit();
 
-    w.getChunk(0, 0).?.setBlock(4, 0, 8, world.Block.grass);
+    w.getChunk(0, 0).?.setBlock(4, 0, 8, .grass);
 
     try std.testing.expectEqual(@as(f32, 10.0), blockPathWeight(&w, 4, 1, 8));
     try std.testing.expect(blockPathWeight(&w, 12, 1, 8) < 10.0);
@@ -1010,10 +1006,10 @@ test "an animal only spawns on lit grass" {
     const on_grass = testAnimal(math.Vec3.init(8.5, 1, 8.5));
     try std.testing.expect(on_grass.canSpawnHere(&w));
 
-    w.getChunk(0, 0).?.setBlock(8, 0, 8, world.Block.stone);
+    w.getChunk(0, 0).?.setBlock(8, 0, 8, .stone);
     try std.testing.expect(!on_grass.canSpawnHere(&w));
 
-    w.getChunk(0, 0).?.setBlock(8, 0, 8, world.Block.grass);
+    w.getChunk(0, 0).?.setBlock(8, 0, 8, .grass);
     w.getChunk(0, 0).?.setSkyLight(8, 1, 8, 4);
     try std.testing.expect(!on_grass.canSpawnHere(&w));
 }
@@ -1023,7 +1019,7 @@ test "a taller animal needs the headroom its own height asks for" {
     var w = try grassWorld(gpa);
     defer w.deinit();
 
-    w.setBlock(8, 2, 8, world.Block.stone);
+    w.setBlock(8, 2, 8, .stone);
 
     const short = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.9, .height = 0.9 });
     const tall = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.9, .height = 1.3 });

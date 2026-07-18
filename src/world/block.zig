@@ -1,7 +1,8 @@
 const std = @import("std");
-const JavaRandom = @import("java_random.zig");
+
 const item = @import("item.zig");
 const Item = item.Item;
+const JavaRandom = @import("java_random.zig");
 
 pub const Side = enum(u3) {
     down,
@@ -748,7 +749,6 @@ pub fn furnaceFacing(metadata: u4) Side {
     };
 }
 
-/// `BlockFurnace.onBlockPlacedBy`: the front turns to face the player who placed it.
 pub fn furnaceFacingFromYaw(yaw: f32) u4 {
     const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 0.5);
     return switch (@as(u2, @intFromFloat(@mod(quarter, 4.0)))) {
@@ -869,7 +869,6 @@ const stairs_item_boxes = [2]Bounds{
     .{ .min = .{ 0, 0, 0.5 }, .max = .{ 1, 0.5, 1 } },
 };
 
-/// `BlockStairs.getCollidingBoundingBoxes`: the tall half comes first, then the tread.
 pub fn stairsBoxes(metadata: u4) [2]Bounds {
     return switch (@as(u2, @truncate(metadata))) {
         0 => .{
@@ -891,7 +890,6 @@ pub fn stairsBoxes(metadata: u4) [2]Bounds {
     };
 }
 
-/// `BlockStairs.onBlockPlacedBy`: the tall half turns to face away from the player who placed it.
 pub fn stairsFacingFromYaw(yaw: f32) u4 {
     const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 0.5);
     return switch (@as(u2, @intFromFloat(@mod(quarter, 4.0)))) {
@@ -952,15 +950,15 @@ test "a furnace faces the player who placed it, whichever way they were turned" 
 }
 
 test "a furnace with no facing yet still shows its front, as GuiFurnace's item does" {
-    try std.testing.expectEqual(@as(u8, 44), Block.furnace.faceTextures().get(.south));
-    try std.testing.expectEqual(@as(u8, 61), Block.burning_furnace.faceTextures().get(.south));
-    try std.testing.expectEqual(@as(u8, 45), Block.furnace.faceTextures().get(.north));
+    try std.testing.expectEqual(@as(u8, 44), .furnace.faceTextures().get(.south));
+    try std.testing.expectEqual(@as(u8, 61), .burning_furnace.faceTextures().get(.south));
+    try std.testing.expectEqual(@as(u8, 45), .furnace.faceTextures().get(.north));
 }
 
 test "both furnace states drop the idle block" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .block = .furnace }, Block.furnace.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .block = .furnace }, Block.burning_furnace.drop(3, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .furnace }, .furnace.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .furnace }, .burning_furnace.drop(3, &rand).?.id);
 }
 
 test "leaf tiles follow the graphics level, and pine has its own" {
@@ -973,16 +971,16 @@ test "leaf tiles follow the graphics level, and pine has its own" {
 }
 
 test "leaves are not an opaque cube, so they never cull a neighbour" {
-    try std.testing.expect(!Block.leaves.isOpaqueCube());
-    try std.testing.expect(Block.leaves.isOpaque());
-    try std.testing.expect(Block.stone.shouldRenderFace(.leaves, .up, true));
-    try std.testing.expect(Block.stone.shouldRenderFace(.leaves, .up, false));
+    try std.testing.expect(!.leaves.isOpaqueCube());
+    try std.testing.expect(.leaves.isOpaque());
+    try std.testing.expect(.stone.shouldRenderFace(.leaves, .up, true));
+    try std.testing.expect(.stone.shouldRenderFace(.leaves, .up, false));
 }
 
 test "only fast graphics culls the face between two leaf blocks" {
-    try std.testing.expect(Block.leaves.shouldRenderFace(.leaves, .up, true));
-    try std.testing.expect(!Block.leaves.shouldRenderFace(.leaves, .up, false));
-    try std.testing.expect(!Block.leaves.shouldRenderFace(.stone, .up, true));
+    try std.testing.expect(.leaves.shouldRenderFace(.leaves, .up, true));
+    try std.testing.expect(!.leaves.shouldRenderFace(.leaves, .up, false));
+    try std.testing.expect(!.leaves.shouldRenderFace(.stone, .up, true));
 }
 
 test "a material decides whether its blocks are opaque and liquid" {
@@ -996,10 +994,10 @@ test "a material decides whether its blocks are opaque and liquid" {
 }
 
 test "shape carries the partial height instead of a separate lookup" {
-    try std.testing.expectEqual(Shape.cube, Block.stone.shape());
-    try std.testing.expectEqual(Shape.cross, Block.tall_grass.shape());
-    try std.testing.expectEqual(@as(f32, 0.125), Block.snow_layer.shape().heightScale());
-    try std.testing.expectEqual(@as(f32, 1.0), Block.stone.heightScale());
+    try std.testing.expectEqual(Shape.cube, .stone.shape());
+    try std.testing.expectEqual(Shape.cross, .tall_grass.shape());
+    try std.testing.expectEqual(@as(f32, 0.125), .snow_layer.shape().heightScale());
+    try std.testing.expectEqual(@as(f32, 1.0), .stone.heightScale());
 }
 
 fn digTicks(id: Block, held: ?Stack) f32 {
@@ -1014,8 +1012,8 @@ test "bare hands take hardness*30 ticks on a hand-harvestable block" {
 test "bare hands take hardness*100 on a block that needs a tool, and drop nothing" {
     try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, null), 1.0e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 300.0), digTicks(.ore_diamond, null), 1.0e-4);
-    try std.testing.expect(!Block.stone.harvestableWith(null));
-    try std.testing.expect(!Block.ore_diamond.harvestableWith(null));
+    try std.testing.expect(!.stone.harvestableWith(null));
+    try std.testing.expect(!.ore_diamond.harvestableWith(null));
 }
 
 test "an effective tool divides the dig time by its material's efficiency" {
@@ -1027,7 +1025,7 @@ test "an effective tool divides the dig time by its material's efficiency" {
 
 test "the wrong tool still harvests rock, only no faster than a hand" {
     const shovel: Stack = .{ .id = .{ .item = .shovel_iron }, .count = 1 };
-    try std.testing.expect(!Block.stone.harvestableWith(shovel));
+    try std.testing.expect(!.stone.harvestableWith(shovel));
     try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, shovel), 1.0e-4);
 
     const axe: Stack = .{ .id = .{ .item = .axe_diamond }, .count = 1 };
@@ -1040,46 +1038,46 @@ test "an ore only drops for a pickaxe at or above its harvest level" {
     const iron: Stack = .{ .id = .{ .item = .pickaxe_iron }, .count = 1 };
     const diamond: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
 
-    try std.testing.expect(Block.stone.harvestableWith(wood));
-    try std.testing.expect(Block.ore_coal.harvestableWith(wood));
-    try std.testing.expect(!Block.ore_iron.harvestableWith(wood));
-    try std.testing.expect(Block.ore_iron.harvestableWith(stone));
-    try std.testing.expect(!Block.ore_diamond.harvestableWith(stone));
-    try std.testing.expect(Block.ore_diamond.harvestableWith(iron));
-    try std.testing.expect(!Block.obsidian.harvestableWith(iron));
-    try std.testing.expect(Block.obsidian.harvestableWith(diamond));
+    try std.testing.expect(.stone.harvestableWith(wood));
+    try std.testing.expect(.ore_coal.harvestableWith(wood));
+    try std.testing.expect(!.ore_iron.harvestableWith(wood));
+    try std.testing.expect(.ore_iron.harvestableWith(stone));
+    try std.testing.expect(!.ore_diamond.harvestableWith(stone));
+    try std.testing.expect(.ore_diamond.harvestableWith(iron));
+    try std.testing.expect(!.obsidian.harvestableWith(iron));
+    try std.testing.expect(.obsidian.harvestableWith(diamond));
 }
 
 test "swimming or airborne slows a tool down, but not a bare-handed dig" {
     const pickaxe: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
-    try std.testing.expectApproxEqAbs(@as(f32, 28.125), 1.0 / Block.stone.strength(pickaxe, 0.2), 1.0e-4);
-    try std.testing.expectApproxEqAbs(@as(f32, 150.0), 1.0 / Block.stone.strength(null, 0.2), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 28.125), 1.0 / .stone.strength(pickaxe, 0.2), 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 150.0), 1.0 / .stone.strength(null, 0.2), 1.0e-4);
 }
 
 test "a gold pickaxe digs fastest but harvests least, matching its level of zero" {
     const gold: Stack = .{ .id = .{ .item = .pickaxe_gold }, .count = 1 };
     try std.testing.expectApproxEqAbs(@as(f32, 3.75), digTicks(.stone, gold), 1.0e-4);
-    try std.testing.expect(!Block.ore_iron.harvestableWith(gold));
+    try std.testing.expect(!.ore_iron.harvestableWith(gold));
 }
 
 test "snow only drops for a shovel, which is the one thing a shovel harvests" {
     const shovel: Stack = .{ .id = .{ .item = .shovel_wood }, .count = 1 };
     const pickaxe: Stack = .{ .id = .{ .item = .pickaxe_diamond }, .count = 1 };
-    try std.testing.expect(!Block.snow_layer.harvestableWith(null));
-    try std.testing.expect(!Block.snow_block.harvestableWith(pickaxe));
-    try std.testing.expect(Block.snow_layer.harvestableWith(shovel));
-    try std.testing.expect(Block.snow_block.harvestableWith(shovel));
+    try std.testing.expect(!.snow_layer.harvestableWith(null));
+    try std.testing.expect(!.snow_block.harvestableWith(pickaxe));
+    try std.testing.expect(.snow_layer.harvestableWith(shovel));
+    try std.testing.expect(.snow_block.harvestableWith(shovel));
 }
 
 test "a sword digs everything at 1.5x, but not what it cannot harvest" {
     const sword: Stack = .{ .id = .{ .item = .sword_diamond }, .count = 1 };
     try std.testing.expectApproxEqAbs(@as(f32, 10.0), digTicks(.dirt, sword), 1.0e-4);
-    try std.testing.expect(!Block.stone.harvestableWith(sword));
+    try std.testing.expect(!.stone.harvestableWith(sword));
     try std.testing.expectApproxEqAbs(@as(f32, 150.0), digTicks(.stone, sword), 1.0e-4);
 }
 
 test "bedrock is unbreakable" {
-    try std.testing.expectEqual(@as(f32, 0.0), Block.bedrock.strength(null, 1.0));
+    try std.testing.expectEqual(@as(f32, 0.0), .bedrock.strength(null, 1.0));
 }
 
 test "a stack wears out after exactly its material's uses" {
@@ -1107,13 +1105,13 @@ test "only tools and armour stack alone" {
 }
 
 test "snow layers are thin and non-opaque, unlike regular blocks" {
-    try std.testing.expectEqual(@as(f32, 0.125), Block.snow_layer.heightScale());
-    try std.testing.expectEqual(@as(f32, 1.0), Block.stone.heightScale());
-    try std.testing.expect(!Block.snow_layer.isOpaque());
+    try std.testing.expectEqual(@as(f32, 0.125), .snow_layer.heightScale());
+    try std.testing.expectEqual(@as(f32, 1.0), .stone.heightScale());
+    try std.testing.expect(!.snow_layer.isOpaque());
 }
 
 test "grass has a distinct top, bottom and side texture" {
-    const textures = Block.grass.faceTextures();
+    const textures = .grass.faceTextures();
     try std.testing.expectEqual(@as(u8, 0), textures.get(.up));
     try std.testing.expectEqual(@as(u8, 2), textures.get(.down));
     try std.testing.expectEqual(@as(u8, 3), textures.get(.north));
@@ -1121,15 +1119,15 @@ test "grass has a distinct top, bottom and side texture" {
 }
 
 test "air and cross-shaped plants are the only non-opaque blocks" {
-    try std.testing.expect(!Block.air.isOpaque());
-    try std.testing.expect(!Block.tall_grass.isOpaque());
-    try std.testing.expect(Block.stone.isOpaque());
-    try std.testing.expect(Block.bedrock.isOpaque());
+    try std.testing.expect(!.air.isOpaque());
+    try std.testing.expect(!.tall_grass.isOpaque());
+    try std.testing.expect(.stone.isOpaque());
+    try std.testing.expect(.bedrock.isOpaque());
 }
 
 test "tall grass picks the fern tile only at metadata 2" {
-    try std.testing.expectEqual(@as(u8, 39), Block.tall_grass.crossTile(1));
-    try std.testing.expectEqual(@as(u8, 56), Block.tall_grass.crossTile(2));
+    try std.testing.expectEqual(@as(u8, 39), .tall_grass.crossTile(1));
+    try std.testing.expectEqual(@as(u8, 56), .tall_grass.crossTile(2));
 }
 
 test "log side texture varies by wood type metadata" {
@@ -1140,32 +1138,32 @@ test "log side texture varies by wood type metadata" {
 
 test "stone drops cobblestone, not itself" {
     var rand = JavaRandom.init(0);
-    const dropped = Block.stone.drop(0, &rand).?;
+    const dropped = .stone.drop(0, &rand).?;
     try std.testing.expectEqual(Id{ .block = .cobblestone }, dropped.id);
     try std.testing.expectEqual(@as(u8, 1), dropped.count);
 }
 
 test "grass drops dirt" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .block = .dirt }, Block.grass.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .dirt }, .grass.drop(0, &rand).?.id);
 }
 
 test "ore blocks drop their raw item form" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .item = .coal }, Block.ore_coal.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .item = .diamond }, Block.ore_diamond.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .coal }, .ore_coal.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .diamond }, .ore_diamond.drop(0, &rand).?.id);
 }
 
 test "gold and iron ore self-drop, unlike coal/diamond/lapis/redstone" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .block = .ore_gold }, Block.ore_gold.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .block = .ore_iron }, Block.ore_iron.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .ore_gold }, .ore_gold.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .ore_iron }, .ore_iron.drop(0, &rand).?.id);
 }
 
 test "lapis ore drops 4-8 lapis dye" {
     var rand = JavaRandom.init(0);
     for (0..50) |_| {
-        const dropped = Block.ore_lapis.drop(0, &rand).?;
+        const dropped = .ore_lapis.drop(0, &rand).?;
         try std.testing.expectEqual(Id{ .item = .dye }, dropped.id);
         try std.testing.expectEqual(item.dye_meta_lapis, dropped.meta);
         try std.testing.expect(dropped.count >= 4 and dropped.count <= 8);
@@ -1175,7 +1173,7 @@ test "lapis ore drops 4-8 lapis dye" {
 test "redstone ore drops 4-5 redstone" {
     var rand = JavaRandom.init(0);
     for (0..50) |_| {
-        const dropped = Block.ore_redstone.drop(0, &rand).?;
+        const dropped = .ore_redstone.drop(0, &rand).?;
         try std.testing.expectEqual(Id{ .item = .redstone }, dropped.id);
         try std.testing.expect(dropped.count >= 4 and dropped.count <= 5);
     }
@@ -1183,7 +1181,7 @@ test "redstone ore drops 4-5 redstone" {
 
 test "log preserves its wood-type metadata when dropped" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(@as(u4, 1), Block.log.drop(1, &rand).?.meta);
+    try std.testing.expectEqual(@as(u4, 1), .log.drop(1, &rand).?.meta);
 }
 
 test "gravel occasionally drops flint instead of itself" {
@@ -1191,7 +1189,7 @@ test "gravel occasionally drops flint instead of itself" {
     var saw_flint = false;
     var saw_gravel = false;
     for (0..200) |_| {
-        const dropped = Block.gravel.drop(0, &rand).?;
+        const dropped = .gravel.drop(0, &rand).?;
         try std.testing.expectEqual(@as(u8, 1), dropped.count);
         if (dropped.id.eql(.{ .item = .flint })) saw_flint = true;
         if (dropped.id.eql(.{ .block = .gravel })) saw_gravel = true;
@@ -1205,7 +1203,7 @@ test "leaves rarely drop a sapling, preserving wood type in its metadata" {
     var saw_sapling = false;
     var saw_nothing = false;
     for (0..200) |_| {
-        if (Block.leaves.drop(1, &rand)) |dropped| {
+        if (.leaves.drop(1, &rand)) |dropped| {
             try std.testing.expectEqual(Id{ .block = .sapling }, dropped.id);
             try std.testing.expectEqual(@as(u4, 1), dropped.meta);
             saw_sapling = true;
@@ -1222,7 +1220,7 @@ test "tall grass rarely drops seeds, otherwise nothing" {
     var saw_seeds = false;
     var saw_nothing = false;
     for (0..200) |_| {
-        if (Block.tall_grass.drop(0, &rand)) |dropped| {
+        if (.tall_grass.drop(0, &rand)) |dropped| {
             try std.testing.expectEqual(Id{ .item = .seeds }, dropped.id);
             saw_seeds = true;
         } else {
@@ -1235,57 +1233,57 @@ test "tall grass rarely drops seeds, otherwise nothing" {
 
 test "dead bush, the mob spawner and liquids never drop anything" {
     var rand = JavaRandom.init(0);
-    try std.testing.expect(Block.dead_bush.drop(0, &rand) == null);
-    try std.testing.expect(Block.mob_spawner.drop(0, &rand) == null);
-    try std.testing.expect(Block.stationary_water.drop(0, &rand) == null);
-    try std.testing.expect(Block.flowing_lava.drop(0, &rand) == null);
+    try std.testing.expect(.dead_bush.drop(0, &rand) == null);
+    try std.testing.expect(.mob_spawner.drop(0, &rand) == null);
+    try std.testing.expect(.stationary_water.drop(0, &rand) == null);
+    try std.testing.expect(.flowing_lava.drop(0, &rand) == null);
 }
 
 test "clay always drops 4 clay balls" {
     var rand = JavaRandom.init(0);
-    const dropped = Block.clay.drop(0, &rand).?;
+    const dropped = .clay.drop(0, &rand).?;
     try std.testing.expectEqual(Id{ .item = .clay_ball }, dropped.id);
     try std.testing.expectEqual(@as(u8, 4), dropped.count);
 }
 
 test "reed drops its item form and snow drops a snowball" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .item = .reed }, Block.reed.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .item = .snowball }, Block.snow_layer.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .reed }, .reed.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .snowball }, .snow_layer.drop(0, &rand).?.id);
 }
 
 test "blocks without a special drop rule self-drop with metadata reset to 0" {
     var rand = JavaRandom.init(0);
-    const dropped = Block.pumpkin.drop(3, &rand).?;
+    const dropped = .pumpkin.drop(3, &rand).?;
     try std.testing.expectEqual(Id{ .block = .pumpkin }, dropped.id);
     try std.testing.expectEqual(@as(u4, 0), dropped.meta);
 }
 
 test "only sand and gravel are falling blocks" {
-    try std.testing.expect(Block.sand.isFalling());
-    try std.testing.expect(Block.gravel.isFalling());
-    try std.testing.expect(!Block.stone.isFalling());
-    try std.testing.expect(!Block.dirt.isFalling());
+    try std.testing.expect(.sand.isFalling());
+    try std.testing.expect(.gravel.isFalling());
+    try std.testing.expect(!.stone.isFalling());
+    try std.testing.expect(!.dirt.isFalling());
 }
 
 test "a falling block can fall into air or liquid, not solid ground" {
-    try std.testing.expect(Block.air.canFallInto());
-    try std.testing.expect(Block.stationary_water.canFallInto());
-    try std.testing.expect(Block.flowing_lava.canFallInto());
-    try std.testing.expect(!Block.stone.canFallInto());
+    try std.testing.expect(.air.canFallInto());
+    try std.testing.expect(.stationary_water.canFallInto());
+    try std.testing.expect(.flowing_lava.canFallInto());
+    try std.testing.expect(!.stone.canFallInto());
 }
 
 test "display names come from the real en_US lang keys, not the enum names" {
-    try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName(0));
-    try std.testing.expectEqualStrings("Wooden Planks", Block.planks.displayName(0));
-    try std.testing.expectEqualStrings("Wood", Block.log.displayName(0));
-    try std.testing.expectEqualStrings("Flower", Block.dandelion.displayName(0));
-    try std.testing.expectEqualStrings("Moss Stone", Block.cobblestone_mossy.displayName(0));
+    try std.testing.expectEqualStrings("Cobblestone", .cobblestone.displayName(0));
+    try std.testing.expectEqualStrings("Wooden Planks", .planks.displayName(0));
+    try std.testing.expectEqualStrings("Wood", .log.displayName(0));
+    try std.testing.expectEqualStrings("Flower", .dandelion.displayName(0));
+    try std.testing.expectEqualStrings("Moss Stone", .cobblestone_mossy.displayName(0));
 }
 
 test "blocks with no lang entry have no display name" {
-    try std.testing.expectEqualStrings("", Block.tall_grass.displayName(0));
-    try std.testing.expectEqualStrings("", Block.dead_bush.displayName(0));
+    try std.testing.expectEqualStrings("", .tall_grass.displayName(0));
+    try std.testing.expectEqualStrings("", .dead_bush.displayName(0));
 }
 
 test "log wood types all share one display name" {
@@ -1308,8 +1306,8 @@ test "breakable blocks hide only the face they share with their own kind" {
         try std.testing.expect(id.shouldRenderFace(.air, .up, true));
         try std.testing.expect(!id.isOpaqueCube());
     }
-    try std.testing.expect(Block.glass.shouldRenderFace(.ice, .up, true));
-    try std.testing.expect(Block.stone.shouldRenderFace(.glass, .up, true));
+    try std.testing.expect(.glass.shouldRenderFace(.ice, .up, true));
+    try std.testing.expect(.stone.shouldRenderFace(.glass, .up, true));
 }
 
 test "glass, bookshelves and ice drop nothing when broken" {
@@ -1321,15 +1319,15 @@ test "glass, bookshelves and ice drop nothing when broken" {
 
 test "snow blocks and glowstone drop their item form, wool keeps its colour" {
     var rand = JavaRandom.init(0);
-    const snow = Block.snow_block.drop(0, &rand).?;
+    const snow = .snow_block.drop(0, &rand).?;
     try std.testing.expectEqual(Id{ .item = .snowball }, snow.id);
     try std.testing.expectEqual(@as(u8, 4), snow.count);
 
-    const dust = Block.glowstone.drop(0, &rand).?;
+    const dust = .glowstone.drop(0, &rand).?;
     try std.testing.expectEqual(Id{ .item = .glowstone_dust }, dust.id);
     try std.testing.expect(dust.count >= 2 and dust.count <= 4);
 
-    const wool = Block.wool.drop(9, &rand).?;
+    const wool = .wool.drop(9, &rand).?;
     try std.testing.expectEqual(Id{ .block = .wool }, wool.id);
     try std.testing.expectEqual(@as(u16, 9), wool.meta);
 }
@@ -1341,126 +1339,126 @@ test "rock and iron blocks need a tool, other new blocks do not" {
 }
 
 test "liquids and plants are not solid, so nothing collides with them" {
-    try std.testing.expect(!Block.stationary_water.isSolid());
-    try std.testing.expect(!Block.flowing_water.isSolid());
-    try std.testing.expect(!Block.flowing_lava.isSolid());
-    try std.testing.expect(!Block.air.isSolid());
-    try std.testing.expect(!Block.rose.isSolid());
-    try std.testing.expect(!Block.snow_layer.isSolid());
-    try std.testing.expect(Block.stone.isSolid());
-    try std.testing.expect(Block.leaves.isSolid());
+    try std.testing.expect(!.stationary_water.isSolid());
+    try std.testing.expect(!.flowing_water.isSolid());
+    try std.testing.expect(!.flowing_lava.isSolid());
+    try std.testing.expect(!.air.isSolid());
+    try std.testing.expect(!.rose.isSolid());
+    try std.testing.expect(!.snow_layer.isSolid());
+    try std.testing.expect(.stone.isSolid());
+    try std.testing.expect(.leaves.isSolid());
 }
 
 test "both water blocks share one material, texture and tick rate" {
-    try std.testing.expectEqual(Material.water, Block.flowing_water.material());
-    try std.testing.expectEqual(Material.water, Block.stationary_water.material());
-    try std.testing.expectEqual(Block.stationary_water.faceTextures(), Block.flowing_water.faceTextures());
-    try std.testing.expectEqual(@as(u32, 5), Block.flowing_water.tickRate());
-    try std.testing.expectEqual(@as(u32, 30), Block.flowing_lava.tickRate());
-    try std.testing.expect(Block.flowing_water.isTranslucent());
+    try std.testing.expectEqual(Material.water, .flowing_water.material());
+    try std.testing.expectEqual(Material.water, .stationary_water.material());
+    try std.testing.expectEqual(.stationary_water.faceTextures(), .flowing_water.faceTextures());
+    try std.testing.expectEqual(@as(u32, 5), .flowing_water.tickRate());
+    try std.testing.expectEqual(@as(u32, 30), .flowing_lava.tickRate());
+    try std.testing.expect(.flowing_water.isTranslucent());
 }
 
 test "a liquid culls the face it shares with its own material or with ice" {
-    try std.testing.expect(!Block.flowing_water.shouldRenderFace(.stationary_water, .north, true));
-    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.flowing_water, .north, true));
-    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.ice, .north, true));
-    try std.testing.expect(Block.stationary_water.shouldRenderFace(.flowing_lava, .north, true));
-    try std.testing.expect(Block.stationary_water.shouldRenderFace(.air, .north, true));
+    try std.testing.expect(!.flowing_water.shouldRenderFace(.stationary_water, .north, true));
+    try std.testing.expect(!.stationary_water.shouldRenderFace(.flowing_water, .north, true));
+    try std.testing.expect(!.stationary_water.shouldRenderFace(.ice, .north, true));
+    try std.testing.expect(.stationary_water.shouldRenderFace(.flowing_lava, .north, true));
+    try std.testing.expect(.stationary_water.shouldRenderFace(.air, .north, true));
 }
 
 test "a liquid always draws its top face unless the same liquid sits above it" {
-    try std.testing.expect(Block.stationary_water.shouldRenderFace(.stone, .up, true));
-    try std.testing.expect(!Block.stationary_water.shouldRenderFace(.stationary_water, .up, true));
+    try std.testing.expect(.stationary_water.shouldRenderFace(.stone, .up, true));
+    try std.testing.expect(!.stationary_water.shouldRenderFace(.stationary_water, .up, true));
 }
 
 test "saplings draw as a cross, with a tile per tree kind" {
-    try std.testing.expect(Block.sapling.isCross());
-    try std.testing.expectEqual(@as(u8, 15), Block.sapling.crossTile(0));
-    try std.testing.expectEqual(@as(u8, 63), Block.sapling.crossTile(1));
-    try std.testing.expectEqual(@as(u8, 79), Block.sapling.crossTile(2));
-    try std.testing.expectEqual(@as(u8, 15), Block.sapling.crossTile(3));
+    try std.testing.expect(.sapling.isCross());
+    try std.testing.expectEqual(@as(u8, 15), .sapling.crossTile(0));
+    try std.testing.expectEqual(@as(u8, 63), .sapling.crossTile(1));
+    try std.testing.expectEqual(@as(u8, 79), .sapling.crossTile(2));
+    try std.testing.expectEqual(@as(u8, 15), .sapling.crossTile(3));
 }
 
 test "a torch is not solid, so nothing collides with it or plants on it" {
-    try std.testing.expect(!Block.torch.isSolid());
-    try std.testing.expect(!Block.torch.isOpaque());
-    try std.testing.expect(!Block.torch.isOpaqueCube());
-    try std.testing.expectEqual(Material.circuits, Block.torch.material());
+    try std.testing.expect(!.torch.isSolid());
+    try std.testing.expect(!.torch.isOpaque());
+    try std.testing.expect(!.torch.isOpaqueCube());
+    try std.testing.expectEqual(Material.circuits, .torch.material());
 }
 
 test "a torch breaks instantly and drops itself" {
     var rand = JavaRandom.init(0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), digTicks(.torch, null), 1.0e-4);
-    const dropped = Block.torch.drop(5, &rand).?;
+    const dropped = .torch.drop(5, &rand).?;
     try std.testing.expectEqual(Id{ .block = .torch }, dropped.id);
     try std.testing.expectEqual(@as(u8, 1), dropped.count);
-    try std.testing.expectEqualStrings("Torch", Block.torch.displayName(0));
+    try std.testing.expectEqualStrings("Torch", .torch.displayName(0));
 }
 
 test "a wall torch stands in the quarter of the block its wall is on" {
-    const west = Block.torch.selectionBounds(1);
+    const west = .torch.selectionBounds(1);
     try std.testing.expectEqual(@as(f32, 0.0), west.min[0]);
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), west.max[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), west.min[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), west.max[1], 1.0e-6);
 
-    const east = Block.torch.selectionBounds(2);
+    const east = .torch.selectionBounds(2);
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), east.min[0], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), east.max[0]);
 
-    const north = Block.torch.selectionBounds(3);
+    const north = .torch.selectionBounds(3);
     try std.testing.expectEqual(@as(f32, 0.0), north.min[2]);
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), north.max[2], 1.0e-6);
 
-    const south = Block.torch.selectionBounds(4);
+    const south = .torch.selectionBounds(4);
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), south.min[2], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), south.max[2]);
 }
 
 test "a standing torch is a thin column in the middle of the block" {
-    const standing = Block.torch.selectionBounds(5);
+    const standing = .torch.selectionBounds(5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), standing.min[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), standing.max[0], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 0.0), standing.min[1]);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), standing.max[1], 1.0e-6);
-    try std.testing.expectEqual(standing, Block.torch.selectionBounds(0));
+    try std.testing.expectEqual(standing, .torch.selectionBounds(0));
 }
 
 test "a torch leaves the world as a flat sprite, like a plant does" {
-    try std.testing.expectEqual(@as(?u8, 80), Block.torch.flatItemTile(2));
-    try std.testing.expectEqual(@as(?u8, Block.rose.crossTile(0)), Block.rose.flatItemTile(0));
-    try std.testing.expectEqual(@as(?u8, null), Block.stone.flatItemTile(0));
-    try std.testing.expectEqual(@as(?u8, null), Block.snow_layer.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, 80), .torch.flatItemTile(2));
+    try std.testing.expectEqual(@as(?u8, .rose.crossTile(0)), .rose.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, null), .stone.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, null), .snow_layer.flatItemTile(0));
 }
 
 test "only air, liquids and snow give way to a block placed on top of them" {
-    try std.testing.expect(Block.air.isReplaceable());
-    try std.testing.expect(Block.stationary_water.isReplaceable());
-    try std.testing.expect(Block.flowing_water.isReplaceable());
-    try std.testing.expect(Block.flowing_lava.isReplaceable());
-    try std.testing.expect(Block.snow_layer.isReplaceable());
+    try std.testing.expect(.air.isReplaceable());
+    try std.testing.expect(.stationary_water.isReplaceable());
+    try std.testing.expect(.flowing_water.isReplaceable());
+    try std.testing.expect(.flowing_lava.isReplaceable());
+    try std.testing.expect(.snow_layer.isReplaceable());
 
-    try std.testing.expect(!Block.torch.isReplaceable());
-    try std.testing.expect(!Block.stone.isReplaceable());
-    try std.testing.expect(!Block.tall_grass.isReplaceable());
-    try std.testing.expect(!Block.rose.isReplaceable());
+    try std.testing.expect(!.torch.isReplaceable());
+    try std.testing.expect(!.stone.isReplaceable());
+    try std.testing.expect(!.tall_grass.isReplaceable());
+    try std.testing.expect(!.rose.isReplaceable());
 }
 
 test "a closed door fills the three-sixteenths strip on the side it was hung" {
-    const north = Block.door_wood.selectionBounds(1);
+    const north = .door_wood.selectionBounds(1);
     try std.testing.expectEqual(@as(f32, 0.0), north.min[2]);
     try std.testing.expectApproxEqAbs(door_thickness, north.max[2], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), north.max[0]);
     try std.testing.expectEqual(@as(f32, 1.0), north.max[1]);
 
-    const east = Block.door_wood.selectionBounds(2);
+    const east = .door_wood.selectionBounds(2);
     try std.testing.expectApproxEqAbs(1.0 - door_thickness, east.min[0], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), east.max[0]);
 
-    const south = Block.door_wood.selectionBounds(3);
+    const south = .door_wood.selectionBounds(3);
     try std.testing.expectApproxEqAbs(1.0 - door_thickness, south.min[2], 1.0e-6);
 
-    const west = Block.door_wood.selectionBounds(0);
+    const west = .door_wood.selectionBounds(0);
     try std.testing.expectApproxEqAbs(door_thickness, west.max[0], 1.0e-6);
 }
 
@@ -1537,28 +1535,28 @@ test "the hinge step runs across the doorway the facing opens" {
 
 test "only the lower half of a door drops the item, and iron needs a pickaxe" {
     var rand = JavaRandom.init(0);
-    const dropped = Block.door_wood.drop(1, &rand).?;
+    const dropped = .door_wood.drop(1, &rand).?;
     try std.testing.expectEqual(Id{ .item = .door_wood }, dropped.id);
     try std.testing.expectEqual(@as(u8, 1), dropped.count);
-    try std.testing.expectEqual(@as(?Stack, null), Block.door_wood.drop(1 | door_top_bit, &rand));
+    try std.testing.expectEqual(@as(?Stack, null), .door_wood.drop(1 | door_top_bit, &rand));
 
-    try std.testing.expectEqual(Id{ .item = .door_iron }, Block.door_iron.drop(1, &rand).?.id);
-    try std.testing.expectEqual(@as(?Stack, null), Block.door_iron.drop(1 | door_top_bit, &rand));
+    try std.testing.expectEqual(Id{ .item = .door_iron }, .door_iron.drop(1, &rand).?.id);
+    try std.testing.expectEqual(@as(?Stack, null), .door_iron.drop(1 | door_top_bit, &rand));
 
     const pickaxe: Stack = .{ .id = .{ .item = .pickaxe_wood }, .count = 1 };
-    try std.testing.expect(Block.door_wood.harvestableWith(null));
-    try std.testing.expect(!Block.door_iron.harvestableWith(null));
-    try std.testing.expect(Block.door_iron.harvestableWith(pickaxe));
+    try std.testing.expect(.door_wood.harvestableWith(null));
+    try std.testing.expect(!.door_iron.harvestableWith(null));
+    try std.testing.expect(.door_iron.harvestableWith(pickaxe));
 }
 
 test "a door is solid to walk into but never culls the face beside it" {
-    try std.testing.expect(Block.door_wood.isSolid());
-    try std.testing.expect(Block.door_iron.isSolid());
-    try std.testing.expect(!Block.door_wood.isOpaqueCube());
-    try std.testing.expect(!Block.door_iron.isOpaqueCube());
-    try std.testing.expect(Block.stone.shouldRenderFace(.door_wood, .north, true));
-    try std.testing.expect(Block.door_wood.isDoor());
-    try std.testing.expect(!Block.planks.isDoor());
+    try std.testing.expect(.door_wood.isSolid());
+    try std.testing.expect(.door_iron.isSolid());
+    try std.testing.expect(!.door_wood.isOpaqueCube());
+    try std.testing.expect(!.door_iron.isOpaqueCube());
+    try std.testing.expect(.stone.shouldRenderFace(.door_wood, .north, true));
+    try std.testing.expect(.door_wood.isDoor());
+    try std.testing.expect(!.planks.isDoor());
 }
 
 test "a slab's metadata picks which block it was cut from" {
@@ -1581,16 +1579,16 @@ test "a slab's metadata picks which block it was cut from" {
 }
 
 test "a single slab is the bottom half of its block, a double slab the whole of it" {
-    const half = Block.slab.selectionBounds(0);
+    const half = .slab.selectionBounds(0);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, half.min);
     try std.testing.expectEqual([3]f32{ 1, 0.5, 1 }, half.max);
 
-    const whole = Block.slab_double.selectionBounds(0);
+    const whole = .slab_double.selectionBounds(0);
     try std.testing.expectEqual([3]f32{ 1, 1, 1 }, whole.max);
 
-    try std.testing.expect(!Block.slab.isOpaqueCube());
-    try std.testing.expect(Block.slab_double.isOpaqueCube());
-    try std.testing.expect(Block.slab.isSolid() and Block.slab_double.isSolid());
+    try std.testing.expect(!.slab.isOpaqueCube());
+    try std.testing.expect(.slab_double.isOpaqueCube());
+    try std.testing.expect(.slab.isSolid() and .slab_double.isSolid());
 }
 
 test "a slab always draws its top face, even buried" {
@@ -1602,29 +1600,29 @@ test "a slab always draws its top face, even buried" {
         try std.testing.expect(id.shouldRenderFace(.air, .down, true));
     }
 
-    try std.testing.expect(Block.slab.shouldRenderFace(.slab, .down, true));
-    try std.testing.expect(!Block.slab_double.shouldRenderFace(.slab_double, .down, true));
+    try std.testing.expect(.slab.shouldRenderFace(.slab, .down, true));
+    try std.testing.expect(!.slab_double.shouldRenderFace(.slab_double, .down, true));
 }
 
 test "a slab hides the side it shares with a slab of its own id" {
-    try std.testing.expect(!Block.slab.shouldRenderFace(.slab, .north, true));
-    try std.testing.expect(!Block.slab_double.shouldRenderFace(.slab_double, .east, true));
+    try std.testing.expect(!.slab.shouldRenderFace(.slab, .north, true));
+    try std.testing.expect(!.slab_double.shouldRenderFace(.slab_double, .east, true));
 
-    try std.testing.expect(!Block.slab.shouldRenderFace(.slab_double, .north, true));
-    try std.testing.expect(Block.slab_double.shouldRenderFace(.slab, .north, true));
-    try std.testing.expect(Block.slab.shouldRenderFace(.air, .north, true));
-    try std.testing.expect(!Block.slab.shouldRenderFace(.stone, .north, true));
+    try std.testing.expect(!.slab.shouldRenderFace(.slab_double, .north, true));
+    try std.testing.expect(.slab_double.shouldRenderFace(.slab, .north, true));
+    try std.testing.expect(.slab.shouldRenderFace(.air, .north, true));
+    try std.testing.expect(!.slab.shouldRenderFace(.stone, .north, true));
 }
 
 test "a double slab drops two single slabs, both keeping the metadata" {
     var rand = JavaRandom.init(0);
     for ([_]u4{ slab_stone, slab_sandstone, slab_wood, slab_cobblestone }) |meta| {
-        const single = Block.slab.drop(meta, &rand).?;
+        const single = .slab.drop(meta, &rand).?;
         try std.testing.expectEqual(Id{ .block = .slab }, single.id);
         try std.testing.expectEqual(@as(u8, 1), single.count);
         try std.testing.expectEqual(@as(u16, meta), single.meta);
 
-        const double = Block.slab_double.drop(meta, &rand).?;
+        const double = .slab_double.drop(meta, &rand).?;
         try std.testing.expectEqual(Id{ .block = .slab }, double.id);
         try std.testing.expectEqual(@as(u8, 2), double.count);
         try std.testing.expectEqual(@as(u16, meta), double.meta);
@@ -1676,47 +1674,47 @@ test "a stair keeps its neighbours' faces and is selected as a whole block" {
         try std.testing.expect(id.isStairs());
         try std.testing.expect(id.isSolid());
         try std.testing.expect(!id.isOpaqueCube());
-        try std.testing.expect(Block.stone.shouldRenderFace(id, .north, true));
+        try std.testing.expect(.stone.shouldRenderFace(id, .north, true));
 
         const cube: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
         try std.testing.expectEqual(cube, id.selectionBounds(0));
         try std.testing.expectEqual(cube, id.selectionBounds(3));
     }
-    try std.testing.expect(!Block.planks.isStairs());
+    try std.testing.expect(!.planks.isStairs());
 }
 
 test "a stair drops the block it was cut from, not itself" {
     var rand = JavaRandom.init(0);
-    try std.testing.expectEqual(Id{ .block = .planks }, Block.stairs_wood.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .block = .cobblestone }, Block.stairs_cobblestone.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .planks }, .stairs_wood.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .cobblestone }, .stairs_cobblestone.drop(0, &rand).?.id);
 }
 
 test "a shut trapdoor is the bottom three sixteenths of its block" {
-    const shut = Block.trapdoor.selectionBounds(0);
+    const shut = .trapdoor.selectionBounds(0);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, shut.min);
     try std.testing.expectEqual(@as(f32, 1.0), shut.max[0]);
     try std.testing.expectApproxEqAbs(trapdoor_thickness, shut.max[1], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), shut.max[2]);
 
     for (0..4) |facing| {
-        try std.testing.expectEqual(shut, Block.trapdoor.selectionBounds(@intCast(facing)));
+        try std.testing.expectEqual(shut, .trapdoor.selectionBounds(@intCast(facing)));
     }
 }
 
 test "an open trapdoor stands up against the wall that holds it" {
     const open = trapdoor_open_bit;
 
-    const south = Block.trapdoor.selectionBounds(open);
+    const south = .trapdoor.selectionBounds(open);
     try std.testing.expectApproxEqAbs(1.0 - trapdoor_thickness, south.min[2], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), south.max[1]);
 
-    const north = Block.trapdoor.selectionBounds(open + 1);
+    const north = .trapdoor.selectionBounds(open + 1);
     try std.testing.expectApproxEqAbs(trapdoor_thickness, north.max[2], 1.0e-6);
 
-    const east = Block.trapdoor.selectionBounds(open + 2);
+    const east = .trapdoor.selectionBounds(open + 2);
     try std.testing.expectApproxEqAbs(1.0 - trapdoor_thickness, east.min[0], 1.0e-6);
 
-    const west = Block.trapdoor.selectionBounds(open + 3);
+    const west = .trapdoor.selectionBounds(open + 3);
     try std.testing.expectApproxEqAbs(trapdoor_thickness, west.max[0], 1.0e-6);
 }
 
@@ -1739,23 +1737,23 @@ test "the wall holding a trapdoor sits opposite the face it was placed against" 
 
 test "a trapdoor is wood that drops itself with its swing forgotten" {
     var rand = JavaRandom.init(0);
-    const dropped = Block.trapdoor.drop(2 | trapdoor_open_bit, &rand).?;
+    const dropped = .trapdoor.drop(2 | trapdoor_open_bit, &rand).?;
     try std.testing.expectEqual(Id{ .block = .trapdoor }, dropped.id);
     try std.testing.expectEqual(@as(u16, 0), dropped.meta);
 
-    try std.testing.expectEqual(Material.wood, Block.trapdoor.material());
-    try std.testing.expect(Block.trapdoor.harvestableWith(null));
-    try std.testing.expect(Block.trapdoor.isTrapdoor());
-    try std.testing.expect(!Block.trapdoor.isOpaqueCube());
-    try std.testing.expectEqual(@as(u8, 84), Block.trapdoor.faceTextures().get(.down));
-    try std.testing.expectEqualStrings("Trapdoor", Block.trapdoor.displayName(0));
+    try std.testing.expectEqual(Material.wood, .trapdoor.material());
+    try std.testing.expect(.trapdoor.harvestableWith(null));
+    try std.testing.expect(.trapdoor.isTrapdoor());
+    try std.testing.expect(!.trapdoor.isOpaqueCube());
+    try std.testing.expectEqual(@as(u8, 84), .trapdoor.faceTextures().get(.down));
+    try std.testing.expectEqualStrings("Trapdoor", .trapdoor.displayName(0));
 }
 
 test "grass wears the snow side texture when snow is piled on it" {
-    try std.testing.expectEqual(grass_side_tile, grassSideTile(Block.air));
-    try std.testing.expectEqual(grass_side_tile, grassSideTile(Block.stone));
-    try std.testing.expectEqual(@as(u8, 68), grassSideTile(Block.snow_layer));
-    try std.testing.expectEqual(@as(u8, 68), grassSideTile(Block.snow_block));
+    try std.testing.expectEqual(grass_side_tile, grassSideTile(.air));
+    try std.testing.expectEqual(grass_side_tile, grassSideTile(.stone));
+    try std.testing.expectEqual(@as(u8, 68), grassSideTile(.snow_layer));
+    try std.testing.expectEqual(@as(u8, 68), grassSideTile(.snow_block));
 }
 
 test "a full cube is the default model when held, dropped or drawn in a slot" {
@@ -1764,7 +1762,7 @@ test "a full cube is the default model when held, dropped or drawn in a slot" {
         try std.testing.expectEqualSlices(Bounds, &.{cube}, id.itemRenderBoxes());
     }
 
-    const plate = Block.trapdoor.itemRenderBoxes()[0];
+    const plate = .trapdoor.itemRenderBoxes()[0];
     try std.testing.expectEqual([2]f32{ 0, 0 }, [2]f32{ plate.min[0], plate.min[2] });
     try std.testing.expectEqual([2]f32{ 1, 1 }, [2]f32{ plate.max[0], plate.max[2] });
     try std.testing.expectApproxEqAbs(trapdoor_thickness, plate.max[1] - plate.min[1], 1.0e-6);
@@ -1779,7 +1777,7 @@ test "each wool colour is named by its inverted metadata, as ItemCloth does" {
         "Brown Wool",      "Green Wool",  "Red Wool",     "Black Wool",
     };
     for (expected, 0..) |name, meta| {
-        try std.testing.expectEqualStrings(name, Block.wool.displayName(@intCast(meta)));
+        try std.testing.expectEqualStrings(name, .wool.displayName(@intCast(meta)));
     }
 }
 
@@ -1792,20 +1790,20 @@ test "a wool stack carries its colour through to the name shown in a slot" {
 }
 
 test "the sheep's fleece colours all name a wool a player would recognise" {
-    try std.testing.expectEqualStrings("Black Wool", Block.wool.displayName(15));
-    try std.testing.expectEqualStrings("Gray Wool", Block.wool.displayName(7));
-    try std.testing.expectEqualStrings("Light Gray Wool", Block.wool.displayName(8));
-    try std.testing.expectEqualStrings("Brown Wool", Block.wool.displayName(12));
-    try std.testing.expectEqualStrings("Pink Wool", Block.wool.displayName(6));
-    try std.testing.expectEqualStrings("Wool", Block.wool.displayName(0));
+    try std.testing.expectEqualStrings("Black Wool", .wool.displayName(15));
+    try std.testing.expectEqualStrings("Gray Wool", .wool.displayName(7));
+    try std.testing.expectEqualStrings("Light Gray Wool", .wool.displayName(8));
+    try std.testing.expectEqualStrings("Brown Wool", .wool.displayName(12));
+    try std.testing.expectEqualStrings("Pink Wool", .wool.displayName(6));
+    try std.testing.expectEqualStrings("Wool", .wool.displayName(0));
 }
 
 test "a slab is named after the block it was cut from" {
-    try std.testing.expectEqualStrings("Stone Slab", Block.slab.displayName(slab_stone));
-    try std.testing.expectEqualStrings("Sandstone Slab", Block.slab.displayName(slab_sandstone));
-    try std.testing.expectEqualStrings("Wooden Slab", Block.slab.displayName(slab_wood));
-    try std.testing.expectEqualStrings("Stone Slab", Block.slab.displayName(slab_cobblestone));
-    try std.testing.expectEqualStrings("Wooden Slab", Block.slab_double.displayName(slab_wood));
+    try std.testing.expectEqualStrings("Stone Slab", .slab.displayName(slab_stone));
+    try std.testing.expectEqualStrings("Sandstone Slab", .slab.displayName(slab_sandstone));
+    try std.testing.expectEqualStrings("Wooden Slab", .slab.displayName(slab_wood));
+    try std.testing.expectEqualStrings("Stone Slab", .slab.displayName(slab_cobblestone));
+    try std.testing.expectEqualStrings("Wooden Slab", .slab_double.displayName(slab_wood));
 
     const stack: Stack = .{ .id = .{ .block = .slab }, .count = 1, .meta = slab_sandstone };
     try std.testing.expectEqualStrings("Sandstone Slab", stack.displayName());
@@ -1813,7 +1811,7 @@ test "a slab is named after the block it was cut from" {
 
 test "blocks without variants read the same whatever metadata they carry" {
     for (0..16) |meta| {
-        try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName(@intCast(meta)));
-        try std.testing.expectEqualStrings("Wood", Block.log.displayName(@intCast(meta)));
+        try std.testing.expectEqualStrings("Cobblestone", .cobblestone.displayName(@intCast(meta)));
+        try std.testing.expectEqualStrings("Wood", .log.displayName(@intCast(meta)));
     }
 }

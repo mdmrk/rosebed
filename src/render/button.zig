@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 const gui_texture_size: f32 = 256;
 const tex_row: f32 = 46;

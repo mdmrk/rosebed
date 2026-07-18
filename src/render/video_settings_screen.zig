@@ -1,16 +1,16 @@
 const std = @import("std");
-const gl = @import("gl");
-const game = @import("game");
 
-const MeshBuilder = @import("mesh_builder.zig");
+const game = @import("game");
+const gl = @import("gl");
+
 const button = @import("button.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 const options_screen = @import("options_screen.zig");
+pub const Backdrop = options_screen.Backdrop;
 
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
-
-pub const Backdrop = options_screen.Backdrop;
 
 pub const Hit = enum {
     graphics,

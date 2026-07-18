@@ -1,10 +1,12 @@
 const std = @import("std");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
-const light = @import("light.zig");
 const item = @import("item.zig");
+const light = @import("light.zig");
+const testing_world = @import("testing.zig");
+const World = @import("world_map.zig");
 
 const fall_check_radius: i32 = 32;
 
@@ -144,7 +146,6 @@ pub fn toggleTrapdoor(world_map: *World, x: i32, y: i32, z: i32) !void {
     try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.trapdoor_open_bit);
 }
 
-/// `BlockStep.onBlockAdded`: a slab laid on a matching slab collapses the pair into a double slab.
 pub fn mergeSlabBelow(world_map: *World, x: i32, y: i32, z: i32) !bool {
     if (world_map.getBlock(x, y, z) != .slab) return false;
     if (world_map.getBlock(x, y - 1, z) != .slab) return false;
@@ -157,7 +158,6 @@ pub fn mergeSlabBelow(world_map: *World, x: i32, y: i32, z: i32) !bool {
     return true;
 }
 
-/// `ItemBucket.onItemRightClick`: an empty bucket only scoops a still source, never flowing liquid.
 pub fn scoopLiquid(world_map: *World, x: i32, y: i32, z: i32) !?item.Fill {
     if (world_map.getBlockMetadata(x, y, z) != 0) return null;
     const filled: item.Fill = switch (world_map.getBlock(x, y, z).material()) {
@@ -169,7 +169,6 @@ pub fn scoopLiquid(world_map: *World, x: i32, y: i32, z: i32) !?item.Fill {
     return filled;
 }
 
-/// `ItemBucket.onItemRightClick`: a full bucket pours into air or anything else that is not solid.
 pub fn pourLiquid(world_map: *World, x: i32, y: i32, z: i32, fill: item.Fill) !bool {
     const poured = fill.poured() orelse return false;
     const target = world_map.getBlock(x, y, z);
@@ -257,9 +256,6 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) std.mem.Alloc
     try world_map.setBlockWithNotify(x, y, z, .air);
 }
 
-/// The falling entity itself lives in the game layer, so the world only queues
-/// the spawn. Far from any loaded chunk the block drops to its resting place at
-/// once, the way the original skips the entity while generating terrain.
 pub fn tickFalling(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
     if (y < 0) return;
     if (!world_map.getBlock(x, y - 1, z).canFallInto()) return;
@@ -287,8 +283,6 @@ pub fn tickFalling(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.
     if (rest > 0) try world_map.setBlockWithNotify(x, rest, z, id);
 }
 
-const testing_world = @import("testing.zig");
-
 fn reedWorld(height: i32) !World {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     errdefer w.deinit();
@@ -306,8 +300,8 @@ test "breaking the bottom of a sugar cane column takes the whole column with it"
 
     try w.setBlockWithNotify(8, 12, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 14, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 14, 8));
     try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
 }
 
@@ -317,8 +311,8 @@ test "breaking the middle of a sugar cane column leaves the part below standing"
 
     try w.setBlockWithNotify(8, 13, 8, .air);
 
-    try std.testing.expectEqual(Block.reed, w.getBlock(8, 12, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 14, 8));
+    try std.testing.expectEqual(.reed, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 14, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
 }
 
@@ -328,8 +322,8 @@ test "digging out the soil takes the sugar cane standing on it" {
 
     try w.setBlockWithNotify(8, 11, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
 }
 
 test "a flower pops and drops itself when the dirt under it is dug out" {
@@ -340,9 +334,9 @@ test "a flower pops and drops itself when the dirt under it is dug out" {
 
     try w.setBlockWithNotify(8, 11, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
-    try std.testing.expectEqual(Block.rose, w.dropped.items[0].stack.id.block);
+    try std.testing.expectEqual(.rose, w.dropped.items[0].stack.id.block);
 }
 
 test "a mushroom needs an opaque cube under it, a flower needs grass or dirt" {
@@ -371,8 +365,8 @@ test "a cactus pops when a solid block is put beside it" {
 
     try w.setBlockWithNotify(9, 12, 8, .stone);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
     try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
 }
 
@@ -383,7 +377,7 @@ test "a snow layer pops when the block holding it up goes away" {
 
     try std.testing.expect(canStayAt(&w, 8, 12, 8, .snow_layer));
     try w.setBlockWithNotify(8, 11, 8, .air);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
 }
 
 test "placing ignores the light level but still needs the right block below" {
@@ -399,8 +393,6 @@ test "placing ignores the light level but still needs the right block below" {
     try std.testing.expect(canPlaceAt(&w, 8, 12, 8, .reed));
 }
 
-/// A sand column only schedules an update once the chunks around it are loaded,
-/// so these tests need more than the single chunk a flat world gives them.
 fn pillarWorld() !World {
     var w = World.init(std.testing.allocator);
     errdefer w.deinit();
@@ -428,12 +420,12 @@ test "digging out the block under a sand column drops the column one at a time" 
     w.time += 3;
     try w.tickUpdates();
     try std.testing.expectEqual(@as(usize, 1), w.falling.items.len);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
 
     w.time += 3;
     try w.tickUpdates();
     try std.testing.expectEqual(@as(usize, 2), w.falling.items.len);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
 }
 
 test "with immediate updates sand slides down to its resting place at once" {
@@ -443,8 +435,8 @@ test "with immediate updates sand slides down to its resting place at once" {
 
     try w.setBlockWithNotify(8, 20, 8, .sand);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 20, 8));
-    try std.testing.expectEqual(Block.sand, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 20, 8));
+    try std.testing.expectEqual(.sand, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(@as(usize, 0), w.falling.items.len);
 }
 
@@ -501,9 +493,9 @@ test "a wall torch pops when its own wall goes, even with another wall left" {
     try std.testing.expect(canStayAt(&w, 9, 12, 8, .torch));
     try w.setBlockWithNotify(8, 12, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(9, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(9, 12, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
-    try std.testing.expectEqual(Block.torch, w.dropped.items[0].stack.id.block);
+    try std.testing.expectEqual(.torch, w.dropped.items[0].stack.id.block);
 }
 
 test "a standing torch ignores the walls beside it and only watches the floor" {
@@ -512,10 +504,10 @@ test "a standing torch ignores the walls beside it and only watches the floor" {
     try w.setBlockAndMetadataWithNotify(8, 13, 8, .torch, 5);
 
     try w.setBlockWithNotify(9, 13, 8, .stone);
-    try std.testing.expectEqual(Block.torch, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.torch, w.getBlock(8, 13, 8));
 
     try w.setBlockWithNotify(8, 12, 8, .air);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
 }
 
 test "putting a second torch on the same wall leaves the first one alone" {
@@ -527,8 +519,8 @@ test "putting a second torch on the same wall leaves the first one alone" {
     try w.setBlockAndMetadataWithNotify(9, 12, 8, .torch, 1);
     try w.setBlockAndMetadataWithNotify(9, 13, 8, .torch, 1);
 
-    try std.testing.expectEqual(Block.torch, w.getBlock(9, 12, 8));
-    try std.testing.expectEqual(Block.torch, w.getBlock(9, 13, 8));
+    try std.testing.expectEqual(.torch, w.getBlock(9, 12, 8));
+    try std.testing.expectEqual(.torch, w.getBlock(9, 13, 8));
     try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(9, 12, 8));
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 }
@@ -553,8 +545,8 @@ test "a door goes up as two halves, the upper one flagged in its metadata" {
 
     try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
 
-    try std.testing.expectEqual(Block.door_wood, w.getBlock(8, 12, 8));
-    try std.testing.expectEqual(Block.door_wood, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.door_wood, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.door_wood, w.getBlock(8, 13, 8));
     const lower = w.getBlockMetadata(8, 12, 8);
     try std.testing.expect(!block.doorIsTop(lower));
     try std.testing.expectEqual(lower + block.door_top_bit, w.getBlockMetadata(8, 13, 8));
@@ -577,7 +569,7 @@ test "a door needs a normal cube under it and two free cells above" {
     w.setBlock(8, 11, 8, .air);
     try std.testing.expect(!canPlaceDoorAt(&w, 8, 12, 8));
     try std.testing.expect(!try placeDoor(&w, 8, 12, 8, .door_wood, 0));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
 }
 
 test "a door hung beside another one takes the opposite hinge" {
@@ -630,9 +622,9 @@ test "an open door stands across the doorway it filled when closed" {
     defer w.deinit();
     try std.testing.expect(try placeDoor(&w, 8, 12, 8, .door_wood, 0));
 
-    const closed = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+    const closed = .door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
     try toggleDoor(&w, 8, 12, 8);
-    const opened = Block.door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
+    const opened = .door_wood.selectionBounds(w.getBlockMetadata(8, 12, 8));
 
     try std.testing.expect(closed.max[0] - closed.min[0] != opened.max[0] - opened.min[0]);
 }
@@ -644,7 +636,7 @@ test "breaking one half of a door takes the other, dropping a single door" {
 
     try w.setBlockWithNotify(8, 13, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
     try std.testing.expectEqual(block.Id{ .item = .door_wood }, w.dropped.items[0].stack.id);
 }
@@ -656,7 +648,7 @@ test "breaking the lower half leaves nothing for the upper one to drop" {
 
     try w.setBlockWithNotify(8, 12, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 }
 
@@ -667,8 +659,8 @@ test "digging out the block under a door drops the door and clears both halves" 
 
     try w.setBlockWithNotify(8, 11, 8, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
     try std.testing.expectEqual(block.Id{ .item = .door_wood }, w.dropped.items[0].stack.id);
 }
@@ -718,7 +710,7 @@ test "swinging a trapdoor keeps the wall it hangs on" {
     try toggleTrapdoor(&w, 8, 12, 8);
     try std.testing.expectEqual(block.trapdoor_open_bit, w.getBlockMetadata(8, 12, 8));
     try std.testing.expect(block.trapdoorIsOpen(w.getBlockMetadata(8, 12, 8)));
-    try std.testing.expectEqual(Block.trapdoor, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.trapdoor, w.getBlock(8, 12, 8));
 
     try toggleTrapdoor(&w, 8, 12, 8);
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
@@ -731,11 +723,11 @@ test "a trapdoor pops when the wall behind it goes" {
     try std.testing.expect(canStayAt(&w, 8, 12, 8, .trapdoor));
 
     try w.setBlockWithNotify(8, 11, 8, .air);
-    try std.testing.expectEqual(Block.trapdoor, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.trapdoor, w.getBlock(8, 12, 8));
 
     try w.setBlockWithNotify(8, 12, 9, .air);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
     try std.testing.expectEqual(block.Id{ .block = .trapdoor }, w.dropped.items[0].stack.id);
 }
@@ -747,7 +739,7 @@ test "an open trapdoor still watches the same wall" {
 
     try std.testing.expect(canStayAt(&w, 8, 12, 8, .trapdoor));
     try w.setBlockWithNotify(8, 12, 9, .air);
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
 }
 
 test "a block placed against a face lands in the cell beyond it" {
@@ -791,8 +783,8 @@ test "a slab laid on a matching slab collapses the pair into a double slab" {
     try w.setBlockAndMetadataWithNotify(8, 13, 8, .slab, block.slab_wood);
 
     try std.testing.expect(try mergeSlabBelow(&w, 8, 13, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
-    try std.testing.expectEqual(Block.slab_double, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.slab_double, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(block.slab_wood, w.getBlockMetadata(8, 12, 8));
 }
 
@@ -804,8 +796,8 @@ test "slabs cut from different blocks stack instead of merging" {
     try w.setBlockAndMetadataWithNotify(8, 13, 8, .slab, block.slab_wood);
 
     try std.testing.expect(!try mergeSlabBelow(&w, 8, 13, 8));
-    try std.testing.expectEqual(Block.slab, w.getBlock(8, 13, 8));
-    try std.testing.expectEqual(Block.slab, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.slab, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.slab, w.getBlock(8, 12, 8));
 }
 
 test "a slab merges only downwards, and never into a double slab" {
@@ -818,8 +810,8 @@ test "a slab merges only downwards, and never into a double slab" {
 
     try w.setBlockAndMetadataWithNotify(8, 14, 8, .slab, block.slab_stone);
     try std.testing.expect(try mergeSlabBelow(&w, 8, 14, 8));
-    try std.testing.expectEqual(Block.slab_double, w.getBlock(8, 13, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 14, 8));
+    try std.testing.expectEqual(.slab_double, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 14, 8));
 }
 
 test "an empty bucket scoops a still source and leaves air behind" {
@@ -835,7 +827,7 @@ test "an empty bucket scoops a still source and leaves air behind" {
 
         const scooped = try scoopLiquid(&w, 8, 2, 8);
         try std.testing.expectEqual(source.fill, scooped.?);
-        try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+        try std.testing.expectEqual(.air, w.getBlock(8, 2, 8));
     }
 }
 
@@ -845,10 +837,10 @@ test "an empty bucket cannot scoop flowing liquid or dry land" {
 
     try w.setBlockAndMetadataWithNotify(8, 2, 8, .flowing_water, 1);
     try std.testing.expect(try scoopLiquid(&w, 8, 2, 8) == null);
-    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(.flowing_water, w.getBlock(8, 2, 8));
 
     try std.testing.expect(try scoopLiquid(&w, 8, 0, 8) == null);
-    try std.testing.expectEqual(Block.stone, w.getBlock(8, 0, 8));
+    try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
 
     try std.testing.expect(try scoopLiquid(&w, 8, 5, 8) == null);
 }
@@ -858,14 +850,14 @@ test "a full bucket pours a source into air but not into stone" {
     defer w.deinit();
 
     try std.testing.expect(try pourLiquid(&w, 8, 2, 8, .water));
-    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(.flowing_water, w.getBlock(8, 2, 8));
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 2, 8));
 
     try std.testing.expect(try pourLiquid(&w, 8, 3, 8, .lava));
-    try std.testing.expectEqual(Block.flowing_lava, w.getBlock(8, 3, 8));
+    try std.testing.expectEqual(.flowing_lava, w.getBlock(8, 3, 8));
 
     try std.testing.expect(!try pourLiquid(&w, 8, 0, 8, .water));
-    try std.testing.expectEqual(Block.stone, w.getBlock(8, 0, 8));
+    try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
 }
 
 test "a full bucket pours through a plant, which is not solid" {
@@ -874,7 +866,7 @@ test "a full bucket pours through a plant, which is not solid" {
     try w.setBlockAndMetadataWithNotify(8, 1, 8, .tall_grass, 1);
 
     try std.testing.expect(try pourLiquid(&w, 8, 1, 8, .water));
-    try std.testing.expectEqual(Block.flowing_water, w.getBlock(8, 1, 8));
+    try std.testing.expectEqual(.flowing_water, w.getBlock(8, 1, 8));
 }
 
 test "an empty or milk bucket pours nothing" {
@@ -883,7 +875,7 @@ test "an empty or milk bucket pours nothing" {
 
     try std.testing.expect(!try pourLiquid(&w, 8, 2, 8, .empty));
     try std.testing.expect(!try pourLiquid(&w, 8, 2, 8, .milk));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 2, 8));
 }
 
 test "scooping and pouring return the world to where it started" {
@@ -892,7 +884,7 @@ test "scooping and pouring return the world to where it started" {
     try w.setBlockAndMetadataWithNotify(8, 2, 8, .stationary_water, 0);
 
     const scooped = (try scoopLiquid(&w, 8, 2, 8)).?;
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 2, 8));
     try std.testing.expect(try pourLiquid(&w, 8, 2, 8, scooped));
 
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 2, 8));

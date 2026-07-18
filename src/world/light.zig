@@ -1,9 +1,10 @@
 const std = @import("std");
+
 const block = @import("block.zig");
-const constants = @import("constants.zig");
-const Chunk = @import("chunk.zig");
-const World = @import("world_map.zig");
 const Block = @import("block.zig").Block;
+const Chunk = @import("chunk.zig");
+const constants = @import("constants.zig");
+const World = @import("world_map.zig");
 
 pub const max_level: u4 = 15;
 
@@ -11,9 +12,9 @@ pub const Kind = enum { sky, block };
 
 pub fn opacity(id: Block) u8 {
     return switch (id) {
-        Block.flowing_water, Block.stationary_water, Block.ice => 3,
-        Block.leaves => 1,
-        Block.door_wood, Block.door_iron, Block.trapdoor => 0,
+        .flowing_water, .stationary_water, .ice => 3,
+        .leaves => 1,
+        .door_wood, .door_iron, .trapdoor => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }
@@ -30,9 +31,9 @@ pub fn columnSkyLight(world_map: *const World, x: i32, y: i32, z: i32) i32 {
 
 pub fn emission(id: Block) u4 {
     return switch (id) {
-        Block.flowing_lava, Block.stationary_lava => 15,
-        Block.torch => 14,
-        Block.burning_furnace => 13,
+        .flowing_lava, .stationary_lava => 15,
+        .torch => 14,
+        .burning_furnace => 13,
         else => 0,
     };
 }
@@ -59,9 +60,6 @@ fn borrowsNeighborLight(id: Block) bool {
     };
 }
 
-/// `World.getBlockLightValue_do`: a slab or stair seals its own cell to light, so instead of
-/// reading the darkness stored there it borrows the brightest of the five cells around it.
-/// The cell below is left out, and the borrowed reads never borrow again.
 pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
     if (!borrowsNeighborLight(world_map.getBlock(x, y, z))) {
         return storedLevelAt(world_map, x, y, z);
@@ -249,7 +247,7 @@ test "an open column is fully sky lit down to the ground" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }
 
@@ -267,8 +265,8 @@ test "sky light decays by one per block sideways under an overhang" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
-            if (x > 0) chunk.setBlock(@intCast(x), 2, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+            if (x > 0) chunk.setBlock(@intCast(x), 2, @intCast(z), .stone);
         }
     }
 
@@ -287,9 +285,9 @@ test "water dims the sky light passing through it" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
-            chunk.setBlock(@intCast(x), 1, @intCast(z), Block.stationary_water);
-            chunk.setBlock(@intCast(x), 2, @intCast(z), Block.stationary_water);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+            chunk.setBlock(@intCast(x), 1, @intCast(z), .stationary_water);
+            chunk.setBlock(@intCast(x), 2, @intCast(z), .stationary_water);
         }
     }
 
@@ -307,17 +305,17 @@ test "lava lights a sealed cave and nothing lights an empty one" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            for (0..8) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            for (0..8) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
         }
     }
-    chunk.setBlock(4, 4, 4, Block.air);
-    chunk.setBlock(5, 4, 4, Block.air);
-    chunk.setBlock(6, 4, 4, Block.air);
+    chunk.setBlock(4, 4, 4, .air);
+    chunk.setBlock(5, 4, 4, .air);
+    chunk.setBlock(6, 4, 4, .air);
 
     try relightChunk(gpa, &world_map, 0, 0);
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockLight(5, 4, 4));
 
-    chunk.setBlock(4, 4, 4, Block.flowing_lava);
+    chunk.setBlock(4, 4, 4, .flowing_lava);
     try relightChunk(gpa, &world_map, 0, 0);
 
     try std.testing.expectEqual(@as(u4, 15), world_map.getBlockLight(4, 4, 4));
@@ -334,10 +332,10 @@ test "light crosses a chunk seam from an already lit neighbor" {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             for (0..2) |y| {
-                open.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
-                roofed.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                open.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
+                roofed.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
-            roofed.setBlock(@intCast(x), 3, @intCast(z), Block.stone);
+            roofed.setBlock(@intCast(x), 3, @intCast(z), .stone);
         }
     }
 
@@ -385,10 +383,10 @@ test "a torch lights the block it sits in and fades by one per step" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 12, 8, Block.torch);
+    chunk.setBlock(8, 12, 8, .torch);
     chunk.setBlockMetadata(8, 12, 8, 5);
 
     try relightChunk(gpa, &world_map, 0, 0);
@@ -406,17 +404,17 @@ test "a door casts no shadow, so daylight reaches the floor of the doorway" {
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+            for (0..12) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 13, 8, Block.door_wood);
+    chunk.setBlock(8, 13, 8, .door_wood);
     chunk.setBlockMetadata(8, 13, 8, 1 | block.door_top_bit);
-    chunk.setBlock(8, 12, 8, Block.door_wood);
+    chunk.setBlock(8, 12, 8, .door_wood);
     chunk.setBlockMetadata(8, 12, 8, 1);
 
     try relightChunk(gpa, &world_map, 0, 0);
 
-    try std.testing.expectEqual(@as(u8, 0), opacity(Block.door_wood));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.door_wood));
     try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 12, 8));
     try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 13, 8));
 }
@@ -427,10 +425,10 @@ test "a stair borrows light from around it instead of the darkness in its own ce
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 1, 8, Block.stairs_cobblestone);
+    chunk.setBlock(8, 1, 8, .stairs_cobblestone);
     try relightChunk(std.testing.allocator, &world_map, 0, 0);
 
     try std.testing.expectEqual(@as(u4, 0), storedLevelAt(&world_map, 8, 1, 8));
@@ -444,11 +442,11 @@ test "a slab borrows light the same way, but a double slab keeps its own darknes
     const chunk = try world_map.createChunk(0, 0);
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 1, 8, Block.slab);
-    chunk.setBlock(10, 1, 10, Block.slab_double);
+    chunk.setBlock(8, 1, 8, .slab);
+    chunk.setBlock(10, 1, 10, .slab_double);
     try relightChunk(std.testing.allocator, &world_map, 0, 0);
 
     try std.testing.expectEqual(max_level, levelAt(&world_map, 8, 1, 8));
@@ -462,15 +460,15 @@ test "a stair sealed away from the sky borrows only the dark around it" {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             var y: u32 = 0;
-            while (y <= 3) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), Block.stone);
+            while (y <= 3) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 2, 8, Block.stairs_wood);
+    chunk.setBlock(8, 2, 8, .stairs_wood);
     try relightChunk(std.testing.allocator, &world_map, 0, 0);
 
     try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, 8, 2, 8));
 
-    chunk.setBlock(9, 2, 8, Block.torch);
+    chunk.setBlock(9, 2, 8, .torch);
     try relightChunk(std.testing.allocator, &world_map, 0, 0);
     try std.testing.expect(levelAt(&world_map, 8, 2, 8) > 0);
 }
@@ -482,11 +480,11 @@ test "a stair never borrows light from the block beneath it" {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             var y: u32 = 0;
-            while (y <= 4) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), Block.stone);
+            while (y <= 4) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 3, 8, Block.stairs_wood);
-    chunk.setBlock(8, 2, 8, Block.torch);
+    chunk.setBlock(8, 3, 8, .stairs_wood);
+    chunk.setBlock(8, 2, 8, .torch);
     try relightChunk(std.testing.allocator, &world_map, 0, 0);
 
     try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(8, 2, 8));

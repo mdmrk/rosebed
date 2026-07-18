@@ -1,7 +1,8 @@
 const std = @import("std");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = block.Block;
+const World = @import("world_map.zig");
 
 pub const check_bit: u4 = 8;
 const reach: i32 = 4;
@@ -144,7 +145,7 @@ test "a flagged leaf within reach of a log keeps its foliage" {
 
     try tick(&w, 8, 24, 8);
 
-    try std.testing.expectEqual(Block.leaves, w.getBlock(8, 24, 8));
+    try std.testing.expectEqual(.leaves, w.getBlock(8, 24, 8));
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 24, 8));
 }
 
@@ -160,7 +161,7 @@ test "a flagged leaf out of reach of any log decays away" {
 
     try tick(&w, 8, 25, 8);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 25, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 25, 8));
     try std.testing.expect(w.getBlockMetadata(8, 24, 8) & check_bit != 0);
 }
 
@@ -173,7 +174,7 @@ test "an unflagged leaf is left alone" {
 
     try tick(&w, 8, 30, 8);
 
-    try std.testing.expectEqual(Block.leaves, w.getBlock(8, 30, 8));
+    try std.testing.expectEqual(.leaves, w.getBlock(8, 30, 8));
 }
 
 test "decayed pine leaves occasionally drop a pine sapling" {

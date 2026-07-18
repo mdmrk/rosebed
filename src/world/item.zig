@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const Block = @import("block.zig").Block;
 
 pub const dye_meta_cactus: u16 = 2;
@@ -31,7 +32,6 @@ pub const ToolMaterial = enum {
         };
     }
 
-    /// `EnumToolMaterial`'s fourth field, the bonus a tool of this material carries into a hit.
     pub fn damageVsEntity(self: ToolMaterial) i32 {
         return switch (self) {
             .wood, .gold => 0,
@@ -360,8 +360,6 @@ pub const Item = enum(u16) {
         };
     }
 
-    /// `ItemSword` and `ItemTool` each add their own base to the material's bonus; everything
-    /// else, a bare hand included, answers `Item.getDamageVsEntity` with 1.
     pub fn damageVsEntity(self: Item) i32 {
         const t = self.tool() orelse return 1;
         return switch (t.kind) {
@@ -694,8 +692,8 @@ test "a fill and its bucket item name each other both ways" {
 }
 
 test "only a filled bucket pours, and milk pours nothing" {
-    try std.testing.expectEqual(Block.flowing_water, Fill.water.poured().?);
-    try std.testing.expectEqual(Block.flowing_lava, Fill.lava.poured().?);
+    try std.testing.expectEqual(.flowing_water, Fill.water.poured().?);
+    try std.testing.expectEqual(.flowing_lava, Fill.lava.poured().?);
     try std.testing.expect(Fill.empty.poured() == null);
     try std.testing.expect(Fill.milk.poured() == null);
 }

@@ -1,8 +1,11 @@
 const std = @import("std");
+
 const math = @import("math");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = block.Block;
+const constants = @import("constants.zig");
+const World = @import("world_map.zig");
 
 const max_decay: i32 = 8;
 const falling: u4 = 8;
@@ -360,8 +363,6 @@ pub fn flowAngle(world_map: *const World, x: i32, y: i32, z: i32) ?f32 {
     return @floatCast(std.math.atan2(vector.z, vector.x) - std.math.pi * 0.5);
 }
 
-const constants = @import("constants.zig");
-
 fn testWorld(floor_top_y: u32) !World {
     var world_map = World.init(std.testing.allocator);
     errdefer world_map.deinit();
@@ -415,7 +416,7 @@ test "a source settles into stationary water and spreads to its four neighbours"
     try placeSource(&world_map, 8, 64, 8);
     try runTicks(&world_map, 100);
 
-    try std.testing.expectEqual(Block.stationary_water, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
 
     for ([_][2]i32{ .{ -1, 0 }, .{ 1, 0 }, .{ 0, -1 }, .{ 0, 1 } }) |offset| {
@@ -435,7 +436,7 @@ test "water spreads exactly seven blocks from a source" {
 
     try std.testing.expect(Fluid.water.holds(world_map.getBlock(15, 64, 8)));
     try std.testing.expectEqual(@as(u4, 7), world_map.getBlockMetadata(15, 64, 8));
-    try std.testing.expectEqual(Block.air, world_map.getBlock(16, 64, 8));
+    try std.testing.expectEqual(.air, world_map.getBlock(16, 64, 8));
 }
 
 test "water falls straight down and marks the falling metadata bit" {
@@ -461,7 +462,7 @@ test "two sources one block apart turn the gap between them into a source" {
     try placeSource(&world_map, 9, 64, 8);
     try runTicks(&world_map, 20);
 
-    try std.testing.expectEqual(Block.stationary_water, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
 }
 
@@ -480,7 +481,7 @@ test "removing the source drains every block it filled" {
     while (x <= 15) : (x += 1) {
         var z: i32 = 1;
         while (z <= 15) : (z += 1) {
-            try std.testing.expectEqual(Block.air, world_map.getBlock(x, 64, z));
+            try std.testing.expectEqual(.air, world_map.getBlock(x, 64, z));
         }
     }
 }
@@ -494,9 +495,9 @@ test "flowing water prefers the direction with a hole to fall into" {
     try runTicks(&world_map, 10);
 
     try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
-    try std.testing.expectEqual(Block.air, world_map.getBlock(7, 64, 8));
-    try std.testing.expectEqual(Block.air, world_map.getBlock(8, 64, 7));
-    try std.testing.expectEqual(Block.air, world_map.getBlock(8, 64, 9));
+    try std.testing.expectEqual(.air, world_map.getBlock(7, 64, 8));
+    try std.testing.expectEqual(.air, world_map.getBlock(8, 64, 7));
+    try std.testing.expectEqual(.air, world_map.getBlock(8, 64, 9));
 }
 
 test "a solid wall stops water from spreading through it" {
@@ -510,8 +511,8 @@ test "a solid wall stops water from spreading through it" {
     try runTicks(&world_map, 100);
 
     try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
-    try std.testing.expectEqual(Block.stone, world_map.getBlock(10, 64, 8));
-    try std.testing.expectEqual(Block.air, world_map.getBlock(11, 64, 8));
+    try std.testing.expectEqual(.stone, world_map.getBlock(10, 64, 8));
+    try std.testing.expectEqual(.air, world_map.getBlock(11, 64, 8));
 }
 
 test "water washes a flower away and leaves its drop behind" {
@@ -542,7 +543,7 @@ test "breaking a block beside settled water lets it flow back in" {
     world_map.setBlock(8, 64, 8, .stationary_water);
     world_map.setBlock(9, 64, 8, .stone);
     try runTicks(&world_map, 5);
-    try std.testing.expectEqual(Block.stationary_water, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
 
     try world_map.setBlockWithNotify(9, 64, 8, .air);
     try runTicks(&world_map, 10);
@@ -580,7 +581,7 @@ test "a lava source spreads exactly three blocks and settles into stationary lav
     try placeLava(&world_map, 8, 64, 8, 0);
     try runTicks(&world_map, 200);
 
-    try std.testing.expectEqual(Block.stationary_lava, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.stationary_lava, world_map.getBlock(8, 64, 8));
     try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
 
     for ([_]u4{ 2, 4, 6 }, 1..) |expected, distance| {
@@ -588,7 +589,7 @@ test "a lava source spreads exactly three blocks and settles into stationary lav
         try std.testing.expect(Fluid.lava.holds(world_map.getBlock(x, 64, 8)));
         try std.testing.expectEqual(expected, world_map.getBlockMetadata(x, 64, 8));
     }
-    try std.testing.expectEqual(Block.air, world_map.getBlock(12, 64, 8));
+    try std.testing.expectEqual(.air, world_map.getBlock(12, 64, 8));
 }
 
 test "lava falls straight down and marks the falling metadata bit" {
@@ -613,7 +614,7 @@ test "water beside a lava source hardens it into obsidian" {
     try placeLava(&world_map, 8, 64, 8, 0);
     try world_map.setBlockWithNotify(9, 64, 8, .stationary_water);
 
-    try std.testing.expectEqual(Block.obsidian, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.obsidian, world_map.getBlock(8, 64, 8));
 }
 
 test "water beside flowing lava hardens it into cobblestone up to level four" {
@@ -624,7 +625,7 @@ test "water beside flowing lava hardens it into cobblestone up to level four" {
         try placeLava(&world_map, 8, 64, 8, decay);
         try world_map.setBlockWithNotify(9, 64, 8, .stationary_water);
 
-        try std.testing.expectEqual(Block.cobblestone, world_map.getBlock(8, 64, 8));
+        try std.testing.expectEqual(.cobblestone, world_map.getBlock(8, 64, 8));
     }
 }
 
@@ -646,7 +647,7 @@ test "lava flowing towards water hardens where the two meet" {
     try placeLava(&world_map, 8, 64, 8, 0);
     try runTicks(&world_map, 200);
 
-    try std.testing.expectEqual(Block.cobblestone, world_map.getBlock(9, 64, 8));
+    try std.testing.expectEqual(.cobblestone, world_map.getBlock(9, 64, 8));
     try std.testing.expect(Fluid.lava.holds(world_map.getBlock(8, 64, 8)));
 }
 

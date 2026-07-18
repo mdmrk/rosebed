@@ -1,10 +1,12 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Entity = @import("entity.zig");
+const game_physics = @import("physics.zig");
 const Inventory = @import("inventory.zig");
 const raycast = @import("raycast.zig");
-const game_physics = @import("physics.zig");
 
 const Player = @This();
 
@@ -616,7 +618,7 @@ fn floodedWorld(surface_y: u32) !world.World {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 1;
             while (y < surface_y) : (y += 1) {
-                chunk.setBlock(@intCast(x), y, @intCast(z), world.Block.stationary_water);
+                chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
             }
         }
     }
@@ -724,7 +726,7 @@ test "sneaking walks at a third of normal speed" {
 test "a sneaking player will not walk off the edge of a block" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
-    w.getChunk(0, 0).?.setBlock(8, 0, 8, world.Block.stone);
+    w.getChunk(0, 0).?.setBlock(8, 0, 8, .stone);
 
     var sneaker = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     sneaker.base.on_ground = true;
@@ -815,7 +817,7 @@ test "the third person camera stops short of a wall behind the player" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     const chunk = w.getChunk(0, 0).?;
-    for (0..6) |y| chunk.setBlock(8, @intCast(y), 5, world.Block.stone);
+    for (0..6) |y| chunk.setBlock(8, @intCast(y), 5, .stone);
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.yaw = 0;
@@ -837,7 +839,7 @@ test "a block at head height counts as being inside it" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     const chunk = w.getChunk(0, 0).?;
-    chunk.setBlock(8, 2, 8, world.Block.stone);
+    chunk.setBlock(8, 2, 8, .stone);
 
     const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try std.testing.expect(player.isInsideOpaqueBlock(&w));

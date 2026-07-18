@@ -1,4 +1,5 @@
 const game = @import("game");
+const grid_size = game.crafting.workbench_grid_size;
 
 const container = @import("container_screen.zig");
 const gui = @import("gui.zig");
@@ -13,7 +14,6 @@ const crafting_label_y: f32 = 6;
 const inventory_label_x: f32 = 8;
 const inventory_label_y: f32 = container.height - 96 + 2;
 
-const grid_size = game.crafting.workbench_grid_size;
 pub const slot_count = 1 + grid_size * grid_size + container.player_slot_count;
 
 pub fn slots() [slot_count]container.Slot {

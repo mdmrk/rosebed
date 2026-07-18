@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
+
 const Entity = @import("entity.zig");
 
 const Particle = @This();
@@ -330,7 +332,7 @@ test "a splash droplet picks a rain tile and dies when it lands in water" {
     try std.testing.expect(particle.base.motion.y >= 0.1 and particle.base.motion.y < 0.3);
 
     particle.base.position = math.Vec3.init(8.5, 4.5, 8.5);
-    world_map.getChunk(0, 0).?.setBlock(8, 4, 8, world.Block.stationary_water);
+    world_map.getChunk(0, 0).?.setBlock(8, 4, 8, .stationary_water);
     particle.tick(&world_map, &rand);
     try std.testing.expect(particle.isExpired());
 }

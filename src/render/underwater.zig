@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const gl = @import("gl");
 
 const Atlas = @import("atlas.zig");

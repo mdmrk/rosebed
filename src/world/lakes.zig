@@ -1,9 +1,10 @@
 const std = @import("std");
-const JavaRandom = @import("java_random.zig");
-const World = @import("world_map.zig");
+
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const JavaRandom = @import("java_random.zig");
 const light = @import("light.zig");
+const World = @import("world_map.zig");
 
 const grid_x = 16;
 const grid_z = 16;
@@ -33,7 +34,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
     const ox = x_in - 8;
     const oz = z_in - 8;
     var oy = y_in;
-    while (oy > 0 and world_map.getBlock(ox, oy, oz) == Block.air) : (oy -= 1) {}
+    while (oy > 0 and world_map.getBlock(ox, oy, oz) == .air) : (oy -= 1) {}
     oy -= 4;
 
     var flags: [flag_count]bool = [_]bool{false} ** flag_count;
@@ -86,7 +87,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
                 const wx = ox + @as(i32, @intCast(x));
                 const wy = oy + @as(i32, @intCast(y));
                 const wz = oz + @as(i32, @intCast(z));
-                const id: Block = if (y >= 4) Block.air else liquid_id;
+                const id: Block = if (y >= 4) .air else liquid_id;
                 world_map.setBlock(wx, wy, wz, id);
             }
         }
@@ -100,9 +101,9 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
                 const wx = ox + @as(i32, @intCast(x));
                 const wy = oy + @as(i32, @intCast(y));
                 const wz = oz + @as(i32, @intCast(z));
-                if (world_map.getBlock(wx, wy - 1, wz) != Block.dirt) continue;
+                if (world_map.getBlock(wx, wy - 1, wz) != .dirt) continue;
                 if (!seesSky(world_map, wx, wy, wz)) continue;
-                world_map.setBlock(wx, wy - 1, wz, Block.grass);
+                world_map.setBlock(wx, wy - 1, wz, .grass);
             }
         }
     }
@@ -117,7 +118,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
                     const wy = oy + @as(i32, @intCast(y));
                     const wz = oz + @as(i32, @intCast(z));
                     if (world_map.getBlock(wx, wy, wz).isSolid()) {
-                        world_map.setBlock(wx, wy, wz, Block.stone);
+                        world_map.setBlock(wx, wy, wz, .stone);
                     }
                 }
             }
@@ -133,7 +134,7 @@ fn testWorldWithChunk() !World {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -145,7 +146,7 @@ test "a water lake carves an air basin over a liquid floor" {
     defer w.deinit();
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 8, 64, 8, Block.stationary_water);
+    const made = generate(&w, &rand, 8, 64, 8, .stationary_water);
     try std.testing.expect(made);
 
     var found_air = false;
@@ -154,8 +155,8 @@ test "a water lake carves an air basin over a liquid floor" {
         for (0..16) |z| {
             for (0..80) |y| {
                 const id = w.getBlock(@intCast(x), @intCast(y), @intCast(z));
-                if (id == Block.air) found_air = true;
-                if (id == Block.stationary_water) found_water = true;
+                if (id == .air) found_air = true;
+                if (id == .stationary_water) found_water = true;
             }
         }
     }
@@ -168,14 +169,14 @@ test "a lava lake seals its shell with stone" {
     defer w.deinit();
 
     var rand = JavaRandom.init(2);
-    const made = generate(&w, &rand, 8, 40, 8, Block.flowing_lava);
+    const made = generate(&w, &rand, 8, 40, 8, .flowing_lava);
     try std.testing.expect(made);
 
     var found_lava = false;
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.flowing_lava) found_lava = true;
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .flowing_lava) found_lava = true;
             }
         }
     }
@@ -188,7 +189,7 @@ test "refuses to carve when surrounded by open air instead of solid ground" {
     _ = try w.createChunk(0, 0);
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 8, 64, 8, Block.stationary_water);
+    const made = generate(&w, &rand, 8, 64, 8, .stationary_water);
     try std.testing.expect(!made);
 }
 
@@ -200,14 +201,14 @@ test "a lake spills across a chunk boundary into the neighbor chunk" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..80) |y| {
-                a.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
-                b.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                a.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
+                b.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 15, 64, 8, Block.stationary_water);
+    const made = generate(&w, &rand, 15, 64, 8, .stationary_water);
     try std.testing.expect(made);
 
     var found_in_neighbor = false;
@@ -215,7 +216,7 @@ test "a lake spills across a chunk boundary into the neighbor chunk" {
         for (0..16) |z| {
             for (0..80) |y| {
                 const id = w.getBlock(16 + @as(i32, @intCast(x)), @intCast(y), @as(i32, @intCast(z)));
-                if (id == Block.air or id == Block.stationary_water) found_in_neighbor = true;
+                if (id == .air or id == .stationary_water) found_in_neighbor = true;
             }
         }
     }
@@ -229,19 +230,19 @@ test "an open water lake grows grass on the dirt around its rim" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..70) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.dirt);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .dirt);
             }
         }
     }
 
     var rand = JavaRandom.init(1);
-    try std.testing.expect(generate(&w, &rand, 8, 69, 8, Block.stationary_water));
+    try std.testing.expect(generate(&w, &rand, 8, 69, 8, .stationary_water));
 
     var found_grass = false;
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..70) |y| {
-                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.grass) found_grass = true;
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .grass) found_grass = true;
             }
         }
     }
@@ -255,21 +256,21 @@ test "a lake buried under stone leaves its rim as dirt" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..70) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.dirt);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .dirt);
             }
             for (70..128) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
 
     var rand = JavaRandom.init(1);
-    try std.testing.expect(generate(&w, &rand, 8, 69, 8, Block.stationary_water));
+    try std.testing.expect(generate(&w, &rand, 8, 69, 8, .stationary_water));
 
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..70) |y| {
-                try std.testing.expect(w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.grass);
+                try std.testing.expect(w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != .grass);
             }
         }
     }

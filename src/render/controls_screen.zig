@@ -1,12 +1,15 @@
 const std = @import("std");
+
+const game = @import("game");
+pub const Binding = game.Settings.Binding;
 const gl = @import("gl");
 const sdl3 = @import("sdl3");
-const game = @import("game");
 
-const MeshBuilder = @import("mesh_builder.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 const options_screen = @import("options_screen.zig");
+pub const Backdrop = options_screen.Backdrop;
 
 const bind_width: f32 = 70;
 const description_gap: f32 = 6;
@@ -14,9 +17,6 @@ const description_offset_y: f32 = 7;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const description_color: [4]u8 = .{ 255, 255, 255, 255 };
 const unknown_key = "???";
-
-pub const Backdrop = options_screen.Backdrop;
-pub const Binding = game.Settings.Binding;
 
 pub const Hit = union(enum) { binding: Binding, done };
 

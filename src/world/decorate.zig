@@ -1,12 +1,14 @@
 const std = @import("std");
+
 const math = @import("math");
-const JavaRandom = @import("java_random.zig");
-const Chunk = @import("chunk.zig");
-const World = @import("world_map.zig");
-const block = @import("block.zig");
+
 const biome = @import("biome.zig");
-const light = @import("light.zig");
+const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const Chunk = @import("chunk.zig");
+const JavaRandom = @import("java_random.zig");
+const light = @import("light.zig");
+const World = @import("world_map.zig");
 
 fn tryPlaceIfMatches(world_map: *World, wx: i32, wy: i32, wz: i32, match_id: Block, replace_id: Block) void {
     if (world_map.getBlock(wx, wy, wz) == match_id) {
@@ -89,7 +91,7 @@ pub fn generateOreVeins(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *Ja
             const x = base_x + rand.nextIntBound(16);
             const y = rand.nextIntBound(vein.max_height);
             const z = base_z + rand.nextIntBound(16);
-            generateVeinBlob(world_map, rand, x, y, z, Block.stone, vein.id, vein.size);
+            generateVeinBlob(world_map, rand, x, y, z, .stone, vein.id, vein.size);
         }
     }
 
@@ -97,7 +99,7 @@ pub fn generateOreVeins(world_map: *World, chunk_x: i32, chunk_z: i32, rand: *Ja
         const x = base_x + rand.nextIntBound(16);
         const y = rand.nextIntBound(16) + rand.nextIntBound(16);
         const z = base_z + rand.nextIntBound(16);
-        generateVeinBlob(world_map, rand, x, y, z, Block.stone, Block.ore_lapis, 6);
+        generateVeinBlob(world_map, rand, x, y, z, .stone, .ore_lapis, 6);
     }
 }
 
@@ -110,7 +112,7 @@ pub fn generateClayPatches(world_map: *World, chunk_x: i32, chunk_z: i32, rand: 
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16);
         if (world_map.getBlock(x, y, z).material() != .water) continue;
-        generateVeinBlob(world_map, rand, x, y, z, Block.sand, Block.clay, 32);
+        generateVeinBlob(world_map, rand, x, y, z, .sand, .clay, 32);
     }
 }
 
@@ -148,7 +150,7 @@ fn generateTreeVariant(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, 
                     continue;
                 }
                 const id = world_map.getBlock(x + dx, check_y, z + dz);
-                if (id != Block.air and id != Block.leaves) can_grow = false;
+                if (id != .air and id != .leaves) can_grow = false;
             }
         }
     }
@@ -156,9 +158,9 @@ fn generateTreeVariant(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, 
 
     if (y_in < 1) return false;
     const below = world_map.getBlock(x, y_in - 1, z);
-    if ((below != Block.grass and below != Block.dirt) or y_in >= 128 - trunk_height - 1) return false;
+    if ((below != .grass and below != .dirt) or y_in >= 128 - trunk_height - 1) return false;
 
-    world_map.setBlock(x, y_in - 1, z, Block.dirt);
+    world_map.setBlock(x, y_in - 1, z, .dirt);
 
     var ly = y_in - 3 + trunk_height;
     while (ly <= y_in + trunk_height) : (ly += 1) {
@@ -174,7 +176,7 @@ fn generateTreeVariant(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, 
                 if (ly < 0 or ly >= 128) continue;
                 if ((@abs(dx) != margin or @abs(dz) != margin or (rand.nextIntBound(2) != 0 and dy != 0))) {
                     if (!world_map.getBlock(lx, ly, lz).isOpaqueCube()) {
-                        world_map.setBlock(lx, ly, lz, Block.leaves);
+                        world_map.setBlock(lx, ly, lz, .leaves);
                         world_map.setBlockMetadata(lx, ly, lz, wood_metadata);
                     }
                 }
@@ -187,8 +189,8 @@ fn generateTreeVariant(world_map: *World, rand: *JavaRandom, x: i32, y_in: i32, 
         const ty = y_in + trunk_y;
         if (ty < 0 or ty >= 128) continue;
         const id = world_map.getBlock(x, ty, z);
-        if (id == Block.air or id == Block.leaves) {
-            world_map.setBlock(x, ty, z, Block.log);
+        if (id == .air or id == .leaves) {
+            world_map.setBlock(x, ty, z, .log);
             world_map.setBlockMetadata(x, ty, z, wood_metadata);
         }
     }
@@ -211,7 +213,7 @@ fn taigaSpaceIsClear(world_map: *const World, x: i32, y: i32, z: i32, height: i3
             var cz = z - radius;
             while (cz <= z + radius) : (cz += 1) {
                 const id = world_map.getBlock(cx, cy, cz);
-                if (id != Block.air and id != Block.leaves) return false;
+                if (id != .air and id != .leaves) return false;
             }
         }
     }
@@ -220,7 +222,7 @@ fn taigaSpaceIsClear(world_map: *const World, x: i32, y: i32, z: i32, height: i3
 
 fn taigaGroundIsSuitable(world_map: *const World, x: i32, y: i32, z: i32, height: i32) bool {
     const below = world_map.getBlock(x, y - 1, z);
-    return (below == Block.grass or below == Block.dirt) and y < 128 - height - 1;
+    return (below == .grass or below == .dirt) and y < 128 - height - 1;
 }
 
 fn placeTaigaLeafLayer(world_map: *World, x: i32, y: i32, z: i32, radius: i32) void {
@@ -230,7 +232,7 @@ fn placeTaigaLeafLayer(world_map: *World, x: i32, y: i32, z: i32, radius: i32) v
         while (cz <= z + radius) : (cz += 1) {
             if (@abs(cx - x) == radius and @abs(cz - z) == radius and radius > 0) continue;
             if (world_map.getBlock(cx, y, cz).isOpaqueCube()) continue;
-            world_map.setBlock(cx, y, cz, Block.leaves);
+            world_map.setBlock(cx, y, cz, .leaves);
             world_map.setBlockMetadata(cx, y, cz, taiga_wood_metadata);
         }
     }
@@ -240,8 +242,8 @@ fn placeTaigaTrunk(world_map: *World, x: i32, y: i32, z: i32, height: i32) void 
     var i: i32 = 0;
     while (i < height) : (i += 1) {
         const id = world_map.getBlock(x, y + i, z);
-        if (id != Block.air and id != Block.leaves) continue;
-        world_map.setBlock(x, y + i, z, Block.log);
+        if (id != .air and id != .leaves) continue;
+        world_map.setBlock(x, y + i, z, .log);
         world_map.setBlockMetadata(x, y + i, z, taiga_wood_metadata);
     }
 }
@@ -254,7 +256,7 @@ pub fn generatePineTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z:
     if (!taigaSpaceIsClear(world_map, x, y, z, height, bare_height, max_radius)) return false;
     if (!taigaGroundIsSuitable(world_map, x, y, z, height)) return false;
 
-    world_map.setBlock(x, y - 1, z, Block.dirt);
+    world_map.setBlock(x, y - 1, z, .dirt);
 
     var radius: i32 = 0;
     var ly = y + height;
@@ -280,7 +282,7 @@ pub fn generateSpruceTree(world_map: *World, rand: *JavaRandom, x: i32, y: i32, 
     if (!taigaSpaceIsClear(world_map, x, y, z, height, bare_height, max_radius)) return false;
     if (!taigaGroundIsSuitable(world_map, x, y, z, height)) return false;
 
-    world_map.setBlock(x, y - 1, z, Block.dirt);
+    world_map.setBlock(x, y - 1, z, .dirt);
 
     var radius: i32 = rand.nextIntBound(2);
     var radius_limit: i32 = 1;
@@ -335,7 +337,7 @@ fn bigTreeLineIsClear(world_map: *const World, from: [3]i32, to: [3]i32) bool {
         at[first] = math.util.floorDouble(@as(f64, @floatFromInt(from[first])) + @as(f64, @floatFromInt(i)) * first_slope);
         at[second] = math.util.floorDouble(@as(f64, @floatFromInt(from[second])) + @as(f64, @floatFromInt(i)) * second_slope);
         const id = world_map.getBlock(at[0], at[1], at[2]);
-        if (id != Block.air and id != Block.leaves) return false;
+        if (id != .air and id != .leaves) return false;
     }
     return true;
 }
@@ -360,7 +362,7 @@ fn bigTreeDrawLogLine(world_map: *World, from: [3]i32, to: [3]i32) void {
         at[dominant] = from[dominant] + i;
         at[first] = math.util.floorDouble(@as(f64, @floatFromInt(from[first])) + @as(f64, @floatFromInt(i)) * first_slope + 0.5);
         at[second] = math.util.floorDouble(@as(f64, @floatFromInt(from[second])) + @as(f64, @floatFromInt(i)) * second_slope + 0.5);
-        world_map.setBlock(at[0], at[1], at[2], Block.log);
+        world_map.setBlock(at[0], at[1], at[2], .log);
     }
 }
 
@@ -374,8 +376,8 @@ fn bigTreeLeafDisc(world_map: *World, center: [3]i32, radius: f32) void {
             const fdz = @as(f64, @floatFromInt(@abs(dz))) + 0.5;
             if (@sqrt(std.math.pow(f64, fdx, 2.0) + std.math.pow(f64, fdz, 2.0)) > @as(f64, radius)) continue;
             const id = world_map.getBlock(center[0] + dx, center[1], center[2] + dz);
-            if (id != Block.air and id != Block.leaves) continue;
-            world_map.setBlock(center[0] + dx, center[1], center[2] + dz, Block.leaves);
+            if (id != .air and id != .leaves) continue;
+            world_map.setBlock(center[0] + dx, center[1], center[2] + dz, .leaves);
         }
     }
 }
@@ -410,12 +412,12 @@ pub fn generateBigTree(world_map: *World, world_rand: *JavaRandom, x: i32, y_in:
     var trunk_size: i32 = 5 + rand.nextIntBound(12);
 
     const below = world_map.getBlock(x, y_in - 1, z);
-    if (below != Block.grass and below != Block.dirt) return false;
+    if (below != .grass and below != .dirt) return false;
 
     var probed: i32 = 0;
     while (probed < trunk_size) : (probed += 1) {
         const id = world_map.getBlock(x, y_in + probed, z);
-        if (id == Block.air or id == Block.leaves) continue;
+        if (id == .air or id == .leaves) continue;
         if (probed < 6) return false;
         trunk_size = probed;
         break;
@@ -553,14 +555,14 @@ fn descendToAnchor(world_map: *const World, x: i32, y_in: i32, z: i32) i32 {
     var y = y_in;
     while (y > 0) {
         const id = world_map.getBlock(x, y, z);
-        if (id != Block.air and id != Block.leaves) break;
+        if (id != .air and id != .leaves) break;
         y -= 1;
     }
     return y;
 }
 
 fn canPlantStayOn(below: Block) bool {
-    return below == Block.grass or below == Block.dirt;
+    return below == .grass or below == .dirt;
 }
 
 fn flowerCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
@@ -570,7 +572,7 @@ fn flowerCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
 
 fn deadBushCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
     if (light.columnSkyLight(world_map, x, y, z) < 8) return false;
-    return world_map.getBlock(x, y - 1, z) == Block.sand;
+    return world_map.getBlock(x, y - 1, z) == .sand;
 }
 
 fn mushroomCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
@@ -585,9 +587,9 @@ pub fn generateTallGrassPatch(world_map: *World, rand: *JavaRandom, x: i32, y_in
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
-        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, wy, wz) != .air) continue;
         if (!flowerCanStayAt(world_map, wx, wy, wz)) continue;
-        world_map.setBlock(wx, wy, wz, Block.tall_grass);
+        world_map.setBlock(wx, wy, wz, .tall_grass);
         world_map.setBlockMetadata(wx, wy, wz, metadata);
     }
 }
@@ -599,9 +601,9 @@ pub fn generateDeadBushPatch(world_map: *World, rand: *JavaRandom, x: i32, y_in:
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
-        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, wy, wz) != .air) continue;
         if (!deadBushCanStayAt(world_map, wx, wy, wz)) continue;
-        world_map.setBlock(wx, wy, wz, Block.dead_bush);
+        world_map.setBlock(wx, wy, wz, .dead_bush);
     }
 }
 
@@ -611,7 +613,7 @@ pub fn generateFlowerPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32,
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
-        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, wy, wz) != .air) continue;
         if (!stayCheck(world_map, wx, wy, wz)) continue;
         world_map.setBlock(wx, wy, wz, flower_id);
     }
@@ -623,10 +625,10 @@ pub fn generatePumpkinPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
         if (wy < 1 or wy >= 128) continue;
-        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, wy, wz) != .air) continue;
         const below = world_map.getBlock(wx, wy - 1, wz);
-        if (below != Block.grass) continue;
-        world_map.setBlock(wx, wy, wz, Block.pumpkin);
+        if (below != .grass) continue;
+        world_map.setBlock(wx, wy, wz, .pumpkin);
         world_map.setBlockMetadata(wx, wy, wz, @intCast(rand.nextIntBound(4)));
     }
 }
@@ -638,7 +640,7 @@ fn cactusCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
     if (world_map.getBlock(x, y, z + 1).isSolid()) return false;
 
     const below = world_map.getBlock(x, y - 1, z);
-    return below == Block.cactus or below == Block.sand;
+    return below == .cactus or below == .sand;
 }
 
 pub fn generateCactusPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) void {
@@ -646,13 +648,13 @@ pub fn generateCactusPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32,
         const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
         const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
-        if (world_map.getBlock(wx, wy, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, wy, wz) != .air) continue;
 
         const height = 1 + rand.nextIntBound(rand.nextIntBound(3) + 1);
         var k: i32 = 0;
         while (k < height) : (k += 1) {
             if (!cactusCanStay(world_map, wx, wy + k, wz)) continue;
-            world_map.setBlock(wx, wy + k, wz, Block.cactus);
+            world_map.setBlock(wx, wy + k, wz, .cactus);
         }
     }
 }
@@ -666,8 +668,8 @@ fn hasAdjacentWater(world_map: *const World, x: i32, y: i32, z: i32) bool {
 
 fn reedCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
     const below = world_map.getBlock(x, y - 1, z);
-    if (below == Block.reed) return true;
-    if (below != Block.grass and below != Block.dirt) return false;
+    if (below == .reed) return true;
+    if (below != .grass and below != .dirt) return false;
     return hasAdjacentWater(world_map, x, y - 1, z);
 }
 
@@ -675,14 +677,14 @@ pub fn generateReedPatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z
     for (0..20) |_| {
         const wx = x + rand.nextIntBound(4) - rand.nextIntBound(4);
         const wz = z + rand.nextIntBound(4) - rand.nextIntBound(4);
-        if (world_map.getBlock(wx, y, wz) != Block.air) continue;
+        if (world_map.getBlock(wx, y, wz) != .air) continue;
         if (!hasAdjacentWater(world_map, wx, y - 1, wz)) continue;
 
         const height = 2 + rand.nextIntBound(rand.nextIntBound(3) + 1);
         var k: i32 = 0;
         while (k < height) : (k += 1) {
             if (!reedCanStayAt(world_map, wx, y + k, wz)) continue;
-            world_map.setBlock(wx, y + k, wz, Block.reed);
+            world_map.setBlock(wx, y + k, wz, .reed);
         }
     }
 }
@@ -717,7 +719,7 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.dandelion, flowerCanStayAt);
+        generateFlowerPatch(world_map, rand, x, y, z, .dandelion, flowerCanStayAt);
     }
 
     i = 0;
@@ -744,21 +746,21 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.rose, flowerCanStayAt);
+        generateFlowerPatch(world_map, rand, x, y, z, .rose, flowerCanStayAt);
     }
 
     if (rand.nextIntBound(4) == 0) {
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_brown, mushroomCanStayAt);
+        generateFlowerPatch(world_map, rand, x, y, z, .mushroom_brown, mushroomCanStayAt);
     }
 
     if (rand.nextIntBound(8) == 0) {
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
-        generateFlowerPatch(world_map, rand, x, y, z, Block.mushroom_red, mushroomCanStayAt);
+        generateFlowerPatch(world_map, rand, x, y, z, .mushroom_red, mushroomCanStayAt);
     }
 
     i = 0;
@@ -806,7 +808,7 @@ test "clay patches replace sand only where the origin is underwater" {
                 for (0..16) |z| {
                     var y: u32 = 0;
                     while (y < 128) : (y += 1) {
-                        const id: Block = if (y % 2 == 0) Block.stationary_water else Block.sand;
+                        const id: Block = if (y % 2 == 0) .stationary_water else .sand;
                         chunk.setBlock(@intCast(x), y, @intCast(z), id);
                     }
                 }
@@ -822,7 +824,7 @@ test "clay patches replace sand only where the origin is underwater" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..128) |y| {
-                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.clay) found_clay = true;
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .clay) found_clay = true;
             }
         }
     }
@@ -834,7 +836,7 @@ test "clay patches do nothing without water at the origin" {
         fn fill(chunk: *Chunk) void {
             for (0..16) |x| {
                 for (0..16) |z| {
-                    chunk.setBlock(@intCast(x), 60, @intCast(z), Block.sand);
+                    chunk.setBlock(@intCast(x), 60, @intCast(z), .sand);
                 }
             }
         }
@@ -846,7 +848,7 @@ test "clay patches do nothing without water at the origin" {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(w.getBlock(@intCast(x), 60, @intCast(z)) != Block.clay);
+            try std.testing.expect(w.getBlock(@intCast(x), 60, @intCast(z)) != .clay);
         }
     }
 }
@@ -855,7 +857,7 @@ fn fillStoneToSixtyFour(chunk: *Chunk) void {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..64) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -873,7 +875,7 @@ test "ore veins can replace stone underground" {
         for (0..16) |z| {
             for (0..64) |y| {
                 const id = w.getBlock(@intCast(x), @intCast(y), @intCast(z));
-                if (id == Block.ore_coal or id == Block.ore_iron or id == Block.dirt or id == Block.gravel) found_ore = true;
+                if (id == .ore_coal or id == .ore_iron or id == .dirt or id == .gravel) found_ore = true;
             }
         }
     }
@@ -885,13 +887,13 @@ test "an ore vein rolled near the edge spills into the neighbor chunk" {
     defer w.deinit();
 
     var rand = JavaRandom.init(3);
-    generateVeinBlob(&w, &rand, 14, 32, 8, Block.stone, Block.ore_coal, 32);
+    generateVeinBlob(&w, &rand, 14, 32, 8, .stone, .ore_coal, 32);
 
     var found_across = false;
     for (16..32) |x| {
         for (0..16) |z| {
             for (0..64) |y| {
-                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.ore_coal) found_across = true;
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .ore_coal) found_across = true;
             }
         }
     }
@@ -903,7 +905,7 @@ fn testWorldWithFloor() !World {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.grass);
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
         }
     }
     return w;
@@ -916,7 +918,7 @@ test "a tree grows on grass with clear space above" {
     var rand = JavaRandom.init(1);
     const grew = generateTree(&w, &rand, 8, 1, 8);
     try std.testing.expect(grew);
-    try std.testing.expectEqual(Block.log, w.getBlock(8, 1, 8));
+    try std.testing.expectEqual(.log, w.getBlock(8, 1, 8));
 }
 
 test "a birch tree stores wood metadata 2 on its log and leaves" {
@@ -926,7 +928,7 @@ test "a birch tree stores wood metadata 2 on its log and leaves" {
     var rand = JavaRandom.init(1);
     const grew = generateBirchTree(&w, &rand, 8, 1, 8);
     try std.testing.expect(grew);
-    try std.testing.expectEqual(Block.log, w.getBlock(8, 1, 8));
+    try std.testing.expectEqual(.log, w.getBlock(8, 1, 8));
     try std.testing.expectEqual(@as(u4, 2), w.getBlockMetadata(8, 1, 8));
 }
 
@@ -942,14 +944,14 @@ test "taiga pines and spruces grow with spruce wood metadata" {
             generateSpruceTree(&w, &rand, 8, 1, 8);
         try std.testing.expect(grew);
 
-        try std.testing.expectEqual(Block.log, w.getBlock(8, 1, 8));
+        try std.testing.expectEqual(.log, w.getBlock(8, 1, 8));
         try std.testing.expectEqual(taiga_wood_metadata, w.getBlockMetadata(8, 1, 8));
 
         var leaves: usize = 0;
         for (0..16) |x| {
             for (1..30) |y| {
                 for (0..16) |z| {
-                    if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.leaves) continue;
+                    if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != .leaves) continue;
                     leaves += 1;
                     try std.testing.expectEqual(taiga_wood_metadata, w.getBlockMetadata(@intCast(x), @intCast(y), @intCast(z)));
                 }
@@ -963,8 +965,8 @@ test "a tree does not grow without clear space above" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, Block.grass);
-    chunk.setBlock(8, 3, 8, Block.stone);
+    chunk.setBlock(8, 0, 8, .grass);
+    chunk.setBlock(8, 3, 8, .stone);
 
     var rand = JavaRandom.init(1);
     const grew = generateTree(&w, &rand, 8, 1, 8);
@@ -985,8 +987,8 @@ test "a big tree grows a taller trunk with leaf clusters" {
         for (1..40) |y| {
             for (0..16) |z| {
                 const id = w.getBlock(@intCast(x), @intCast(y), @intCast(z));
-                if (id == Block.log) logs += 1;
-                if (id == Block.leaves) leaves += 1;
+                if (id == .log) logs += 1;
+                if (id == .leaves) leaves += 1;
             }
         }
     }
@@ -998,8 +1000,8 @@ test "a big tree refuses to grow with an obstruction right above its base" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 0, 8, Block.grass);
-    chunk.setBlock(8, 3, 8, Block.stone);
+    chunk.setBlock(8, 0, 8, .grass);
+    chunk.setBlock(8, 3, 8, .stone);
 
     var rand = JavaRandom.init(1);
     const grew = generateBigTree(&w, &rand, 8, 1, 8);
@@ -1007,7 +1009,7 @@ test "a big tree refuses to grow with an obstruction right above its base" {
 }
 
 test "a big tree refuses to grow on anything but grass or dirt" {
-    for ([_]Block{ Block.sand, Block.stone, Block.stationary_water }) |ground| {
+    for ([_]Block{ .sand, .stone, .stationary_water }) |ground| {
         var w = World.init(std.testing.allocator);
         defer w.deinit();
         const chunk = try w.createChunk(0, 0);
@@ -1038,7 +1040,7 @@ test "a big tree's trunk runs unbroken from the ground to its topmost leaf clust
             while (x < 16) : (x += 1) {
                 var z: i32 = 0;
                 while (z < 16) : (z += 1) {
-                    if (w.getBlock(x, y, z) == Block.leaves) highest_leaf = y;
+                    if (w.getBlock(x, y, z) == .leaves) highest_leaf = y;
                 }
             }
         }
@@ -1049,9 +1051,9 @@ test "a big tree's trunk runs unbroken from the ground to its topmost leaf clust
 
         y = 1;
         while (y <= trunk_top) : (y += 1) {
-            try std.testing.expectEqual(Block.log, w.getBlock(8, y, 8));
+            try std.testing.expectEqual(.log, w.getBlock(8, y, 8));
         }
-        try std.testing.expect(w.getBlock(8, trunk_top + 1, 8) != Block.log);
+        try std.testing.expect(w.getBlock(8, trunk_top + 1, 8) != .log);
     }
 }
 
@@ -1061,13 +1063,13 @@ test "the height value ignores blocks that do not block light, like the original
 
     try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
 
-    w.setBlock(8, 11, 8, Block.tall_grass);
+    w.setBlock(8, 11, 8, .tall_grass);
     try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
 
-    w.setBlock(8, 11, 8, Block.dandelion);
+    w.setBlock(8, 11, 8, .dandelion);
     try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
 
-    w.setBlock(8, 11, 8, Block.stone);
+    w.setBlock(8, 11, 8, .stone);
     try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
 }
 
@@ -1075,10 +1077,10 @@ test "the height value stops on water and leaves, which do block light" {
     var w = try flatGrassWorld();
     defer w.deinit();
 
-    w.setBlock(8, 11, 8, Block.stationary_water);
+    w.setBlock(8, 11, 8, .stationary_water);
     try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
 
-    w.setBlock(8, 11, 8, Block.leaves);
+    w.setBlock(8, 11, 8, .leaves);
     try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
 }
 
@@ -1088,7 +1090,7 @@ test "generateTrees places trees in a forest biome and none in desert" {
     const forest_chunk = try forest_w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            forest_chunk.setBlock(@intCast(x), 0, @intCast(z), Block.grass);
+            forest_chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
         }
     }
     var forest_rand = JavaRandom.init(1);
@@ -1100,7 +1102,7 @@ test "generateTrees places trees in a forest biome and none in desert" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                if (forest_w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.log) forest_logs += 1;
+                if (forest_w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .log) forest_logs += 1;
             }
         }
     }
@@ -1111,7 +1113,7 @@ test "generateTrees places trees in a forest biome and none in desert" {
     const desert_chunk = try desert_w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            desert_chunk.setBlock(@intCast(x), 0, @intCast(z), Block.sand);
+            desert_chunk.setBlock(@intCast(x), 0, @intCast(z), .sand);
         }
     }
     var desert_rand = JavaRandom.init(1);
@@ -1123,7 +1125,7 @@ test "generateTrees places trees in a forest biome and none in desert" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                if (desert_w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.log) desert_logs += 1;
+                if (desert_w.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .log) desert_logs += 1;
             }
         }
     }
@@ -1137,15 +1139,15 @@ test "a tree whose rolled position spills into the neighbor chunk still grows th
     const b = try w.createChunk(1, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            a.setBlock(@intCast(x), 0, @intCast(z), Block.grass);
-            b.setBlock(@intCast(x), 0, @intCast(z), Block.grass);
+            a.setBlock(@intCast(x), 0, @intCast(z), .grass);
+            b.setBlock(@intCast(x), 0, @intCast(z), .grass);
         }
     }
 
     var rand = JavaRandom.init(1);
     const grew = generateTree(&w, &rand, 20, 1, 8);
     try std.testing.expect(grew);
-    try std.testing.expectEqual(Block.log, w.getBlock(20, 1, 8));
+    try std.testing.expectEqual(.log, w.getBlock(20, 1, 8));
 }
 
 fn flatGrassWorld() !World {
@@ -1153,7 +1155,7 @@ fn flatGrassWorld() !World {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.grass);
+            chunk.setBlock(@intCast(x), 10, @intCast(z), .grass);
         }
     }
     return w;
@@ -1168,7 +1170,7 @@ test "tall grass patches place blades on grass with air above" {
     var found = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (w.getBlock(@intCast(x), 11, @intCast(z)) == Block.tall_grass) found = true;
+            if (w.getBlock(@intCast(x), 11, @intCast(z)) == .tall_grass) found = true;
         }
     }
     try std.testing.expect(found);
@@ -1180,7 +1182,7 @@ test "dead bush only takes root on sand" {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.sand);
+            chunk.setBlock(@intCast(x), 10, @intCast(z), .sand);
         }
     }
     var rand = JavaRandom.init(1);
@@ -1189,7 +1191,7 @@ test "dead bush only takes root on sand" {
     var found = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (w.getBlock(@intCast(x), 11, @intCast(z)) == Block.dead_bush) found = true;
+            if (w.getBlock(@intCast(x), 11, @intCast(z)) == .dead_bush) found = true;
         }
     }
     try std.testing.expect(found);
@@ -1203,7 +1205,7 @@ test "dead bush does not take root on grass" {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != Block.dead_bush);
+            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != .dead_bush);
         }
     }
 }
@@ -1218,7 +1220,7 @@ test "surface plants place dandelions in plains but not in the ocean" {
     for (0..16) |x| {
         for (0..16) |z| {
             const id = w.getBlock(@intCast(x), 11, @intCast(z));
-            if (id == Block.dandelion or id == Block.tall_grass or id == Block.rose) found_flower_or_grass = true;
+            if (id == .dandelion or id == .tall_grass or id == .rose) found_flower_or_grass = true;
         }
     }
     try std.testing.expect(found_flower_or_grass);
@@ -1230,17 +1232,17 @@ test "mushrooms can stay on any opaque block, but only away from full daylight" 
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.stone);
-            chunk.setBlock(@intCast(x), 14, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 10, @intCast(z), .stone);
+            chunk.setBlock(@intCast(x), 14, @intCast(z), .stone);
         }
     }
     var rand = JavaRandom.init(1);
-    generateFlowerPatch(&w, &rand, 8, 11, 8, Block.mushroom_brown, mushroomCanStayAt);
+    generateFlowerPatch(&w, &rand, 8, 11, 8, .mushroom_brown, mushroomCanStayAt);
 
     var found = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (w.getBlock(@intCast(x), 11, @intCast(z)) == Block.mushroom_brown) found = true;
+            if (w.getBlock(@intCast(x), 11, @intCast(z)) == .mushroom_brown) found = true;
         }
     }
     try std.testing.expect(found);
@@ -1250,15 +1252,15 @@ test "mushrooms can stay on any opaque block, but only away from full daylight" 
     const open_chunk = try uncovered.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            open_chunk.setBlock(@intCast(x), 10, @intCast(z), Block.stone);
+            open_chunk.setBlock(@intCast(x), 10, @intCast(z), .stone);
         }
     }
     var open_rand = JavaRandom.init(1);
-    generateFlowerPatch(&uncovered, &open_rand, 8, 11, 8, Block.mushroom_brown, mushroomCanStayAt);
+    generateFlowerPatch(&uncovered, &open_rand, 8, 11, 8, .mushroom_brown, mushroomCanStayAt);
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(uncovered.getBlock(@intCast(x), 11, @intCast(z)) != Block.mushroom_brown);
+            try std.testing.expect(uncovered.getBlock(@intCast(x), 11, @intCast(z)) != .mushroom_brown);
         }
     }
 }
@@ -1269,7 +1271,7 @@ test "reeds only take root on grass adjacent to water" {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            const id: Block = if (x % 2 == 0) Block.stationary_water else Block.grass;
+            const id: Block = if (x % 2 == 0) .stationary_water else .grass;
             chunk.setBlock(@intCast(x), 10, @intCast(z), id);
         }
     }
@@ -1280,7 +1282,7 @@ test "reeds only take root on grass adjacent to water" {
     var found = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (w.getBlock(@intCast(x), 11, @intCast(z)) == Block.reed) found = true;
+            if (w.getBlock(@intCast(x), 11, @intCast(z)) == .reed) found = true;
         }
     }
     try std.testing.expect(found);
@@ -1294,7 +1296,7 @@ test "reeds do not take root on grass away from water" {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != Block.reed);
+            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != .reed);
         }
     }
 }
@@ -1305,7 +1307,7 @@ test "cactus grows on sand in stacks of at most three" {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.sand);
+            chunk.setBlock(@intCast(x), 10, @intCast(z), .sand);
         }
     }
 
@@ -1317,7 +1319,7 @@ test "cactus grows on sand in stacks of at most three" {
         for (0..16) |z| {
             var height: usize = 0;
             for (11..16) |y| {
-                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != Block.cactus) break;
+                if (w.getBlock(@intCast(x), @intCast(y), @intCast(z)) != .cactus) break;
                 height += 1;
             }
             tallest = @max(tallest, height);
@@ -1333,18 +1335,18 @@ test "cactus refuses to grow beside a solid block" {
     const chunk = try w.createChunk(0, 0);
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(@intCast(x), 10, @intCast(z), Block.sand);
-            chunk.setBlock(@intCast(x), 11, @intCast(z), Block.stone);
+            chunk.setBlock(@intCast(x), 10, @intCast(z), .sand);
+            chunk.setBlock(@intCast(x), 11, @intCast(z), .stone);
         }
     }
-    chunk.setBlock(8, 11, 8, Block.air);
+    chunk.setBlock(8, 11, 8, .air);
 
     var rand = JavaRandom.init(5);
     generateCactusPatch(&w, &rand, 8, 11, 8);
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != Block.cactus);
+            try std.testing.expect(w.getBlock(@intCast(x), 11, @intCast(z)) != .cactus);
         }
     }
 }
@@ -1358,7 +1360,7 @@ test "pumpkins only take root on grass and store a random facing" {
     var found = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            if (w.getBlock(@intCast(x), 11, @intCast(z)) == Block.pumpkin) {
+            if (w.getBlock(@intCast(x), 11, @intCast(z)) == .pumpkin) {
                 found = true;
                 try std.testing.expect(w.getBlockMetadata(@intCast(x), 11, @intCast(z)) < 4);
             }

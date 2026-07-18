@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
 const gui = @import("gui.zig");
+const MeshBuilder = @import("mesh_builder.zig");
 
 pub const height: f32 = 20;
 pub const max_length = 32;

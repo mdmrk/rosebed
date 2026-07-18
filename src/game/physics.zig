@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const math = @import("math");
 const world = @import("world");
 
@@ -18,7 +19,6 @@ fn offsetBox(bounds: world.block.Bounds, x: i32, y: i32, z: i32) math.AABB {
     );
 }
 
-/// `Block.getCollidingBoundingBoxes`: one box per block, except stairs, which split into two.
 fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, out: *[2]math.AABB) usize {
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
@@ -299,7 +299,7 @@ fn testWorldWithFloor(floor_top_y: u32) !world.World {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 0;
             while (y < floor_top_y) : (y += 1) {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), world.Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -318,7 +318,7 @@ test "falling onto a floor stops the vertical offset at the surface" {
 test "walking into a wall clamps the horizontal offset at the surface" {
     var w = try testWorldWithFloor(0);
     defer w.deinit();
-    w.setBlock(2, 0, 0, world.Block.stone);
+    w.setBlock(2, 0, 0, .stone);
     const aabb = math.AABB.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
     const result = moveEntity(&w, aabb, 0.5, 0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), result.dx, 1.0e-9);
@@ -338,14 +338,14 @@ test "open air applies the full requested movement" {
 test "a single slab is half a block tall to walk onto, a double slab a whole one" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, world.Block.slab);
+    w.setBlock(2, 1, 0, .slab);
 
     const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const onto_slab = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_slab.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_slab.aabb.min_y, 1.0e-9);
 
-    w.setBlock(2, 1, 0, world.Block.slab_double);
+    w.setBlock(2, 1, 0, .slab_double);
     const onto_double = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_double.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), onto_double.aabb.min_y, 1.0e-9);
@@ -354,7 +354,7 @@ test "a single slab is half a block tall to walk onto, a double slab a whole one
 test "a stair's tread is walked onto while its tall half blocks the way" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, world.Block.stairs_cobblestone);
+    w.setBlock(2, 1, 0, .stairs_cobblestone);
     w.setBlockMetadata(2, 1, 0, 0);
 
     const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
@@ -370,7 +370,7 @@ test "a stair's tread is walked onto while its tall half blocks the way" {
 test "a rise of half a block is stepped over when the entity has step height" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, world.Block.stone);
+    w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
@@ -382,7 +382,7 @@ test "a rise of half a block is stepped over when the entity has step height" {
 test "the same rise stops an entity that cannot step" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, world.Block.stone);
+    w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const blocked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0, true, false, 0);
@@ -394,7 +394,7 @@ test "the same rise stops an entity that cannot step" {
 test "a step that lands mid-block locks out stepping until the offset decays" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, world.Block.stone);
+    w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
@@ -411,7 +411,7 @@ fn waterWorld() !world.World {
         for (0..world.constants.chunk_width) |z| {
             var y: u32 = 1;
             while (y < 5) : (y += 1) {
-                w.getChunk(0, 0).?.setBlock(@intCast(x), y, @intCast(z), world.Block.stationary_water);
+                w.getChunk(0, 0).?.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
             }
         }
     }
@@ -450,7 +450,7 @@ test "a source block counts as submerged right up to the top of its block" {
 test "a shallow flowing block leaves an air gap the camera can see out of" {
     var w = try waterWorld();
     defer w.deinit();
-    w.setBlock(8, 4, 8, world.Block.flowing_water);
+    w.setBlock(8, 4, 8, .flowing_water);
     w.setBlockMetadata(8, 4, 8, 4);
     try std.testing.expect(!isInsideWater(&w, 8.5, 4.9, 8.5));
     try std.testing.expect(isInsideWater(&w, 8.5, 4.4, 8.5));
@@ -467,7 +467,7 @@ test "stepping out of water needs a free, dry space to move into" {
 test "a closed door stops an entity walking into it" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, world.Block.door_wood, 180));
+    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, .door_wood, 180));
 
     const closed = world.block.doorBounds(w.getBlockMetadata(8, 1, 8));
     const aabb = math.AABB.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
@@ -478,7 +478,7 @@ test "a closed door stops an entity walking into it" {
 test "an open door leaves the doorway clear" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, world.Block.door_wood, 180));
+    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, .door_wood, 180));
     try world.block_update.toggleDoor(&w, 8, 1, 8);
 
     const aabb = math.AABB.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
@@ -489,8 +489,8 @@ test "an open door leaves the doorway clear" {
 fn trapdoorWorld(metadata: u4) !world.World {
     var w = try testWorldWithFloor(1);
     errdefer w.deinit();
-    w.setBlock(8, 1, 9, world.Block.stone);
-    try w.setBlockAndMetadataWithNotify(8, 1, 8, world.Block.trapdoor, metadata);
+    w.setBlock(8, 1, 9, .stone);
+    try w.setBlockAndMetadataWithNotify(8, 1, 8, .trapdoor, metadata);
     return w;
 }
 

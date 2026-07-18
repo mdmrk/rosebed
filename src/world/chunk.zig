@@ -1,13 +1,13 @@
 const std = @import("std");
-const constants = @import("constants.zig");
-const NibbleArray = @import("nibble_array.zig");
+
 const Block = @import("block.zig").Block;
-
-const Chunk = @This();
-
+const constants = @import("constants.zig");
 pub const width = constants.chunk_width;
 pub const height = constants.chunk_height;
 pub const volume = constants.chunk_volume;
+const NibbleArray = @import("nibble_array.zig");
+
+const Chunk = @This();
 
 x: i32,
 z: i32,
@@ -88,7 +88,7 @@ test "block id round-trips through the packed index" {
     var chunk = Chunk.init(0, 0);
     chunk.setBlock(1, 64, 15, @enumFromInt(42));
     try std.testing.expectEqual(@as(Block, @enumFromInt(42)), chunk.getBlock(1, 64, 15));
-    try std.testing.expectEqual(Block.air, chunk.getBlock(0, 0, 0));
+    try std.testing.expectEqual(.air, chunk.getBlock(0, 0, 0));
 }
 
 test "metadata is independent of the block id" {

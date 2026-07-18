@@ -1,8 +1,8 @@
-pub const Vec3 = @import("vec3.zig");
 pub const AABB = @import("aabb.zig");
-pub const util = @import("mathutil.zig");
-pub const Mat4 = @import("mat4.zig");
 pub const Frustum = @import("frustum.zig");
+pub const Mat4 = @import("mat4.zig");
+pub const util = @import("mathutil.zig");
+pub const Vec3 = @import("vec3.zig");
 
 test {
     _ = Vec3;

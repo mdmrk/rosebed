@@ -1,17 +1,18 @@
 const std = @import("std");
-const JavaRandom = @import("java_random.zig");
-const NoiseGeneratorOctaves = @import("noise_octaves.zig");
-const Chunk = @import("chunk.zig");
-const block = @import("block.zig");
-const Climate = @import("climate.zig");
+
 const biome = @import("biome.zig");
-const caves = @import("caves.zig");
-const decorate = @import("decorate.zig");
-const lakes = @import("lakes.zig");
-const springs = @import("springs.zig");
-const dungeons = @import("dungeons.zig");
-const World = @import("world_map.zig");
+const block = @import("block.zig");
 const Block = @import("block.zig").Block;
+const caves = @import("caves.zig");
+const Chunk = @import("chunk.zig");
+const Climate = @import("climate.zig");
+const decorate = @import("decorate.zig");
+const dungeons = @import("dungeons.zig");
+const JavaRandom = @import("java_random.zig");
+const lakes = @import("lakes.zig");
+const NoiseGeneratorOctaves = @import("noise_octaves.zig");
+const springs = @import("springs.zig");
+const World = @import("world_map.zig");
 
 const TerrainGenerator = @This();
 
@@ -204,13 +205,13 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
                             if (by < sea_level) {
                                 const temperature = climate_sample.temperature[bx * Climate.grid_size + bz];
                                 if (temperature < 0.5 and by >= sea_level - 1) {
-                                    id = Block.ice;
+                                    id = .ice;
                                 } else {
-                                    id = Block.stationary_water;
+                                    id = .stationary_water;
                                 }
                             }
                             if (value > 0.0) {
-                                id = Block.stone;
+                                id = .stone;
                             }
                             chunk.setBlock(bx, by, bz, id);
                             value += step_value;
@@ -249,7 +250,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.stationary_water);
+        _ = lakes.generate(world_map, &decorate_rand, x, y, z, .stationary_water);
     }
 
     if (decorate_rand.nextIntBound(8) == 0) {
@@ -257,7 +258,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
         if (y < 64 or decorate_rand.nextIntBound(10) == 0) {
-            _ = lakes.generate(world_map, &decorate_rand, x, y, z, Block.stationary_lava);
+            _ = lakes.generate(world_map, &decorate_rand, x, y, z, .stationary_lava);
         }
     }
 
@@ -280,14 +281,14 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        try springs.generate(world_map, x, y, z, Block.flowing_water);
+        try springs.generate(world_map, x, y, z, .flowing_water);
     }
 
     for (0..20) |_| {
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(decorate_rand.nextIntBound(112) + 8) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        try springs.generate(world_map, x, y, z, Block.flowing_lava);
+        try springs.generate(world_map, x, y, z, .flowing_lava);
     }
 
     const snow_climate = self.climate.sample(base_x + 8, base_z + 8);
@@ -317,11 +318,11 @@ fn placeSnowLayers(world_map: *World, base_x: i32, base_z: i32, temperatures: *c
             const temperature = temperatures[climate_idx] - altitude_penalty;
             if (temperature >= 0.5 or top_y <= 0 or top_y >= 128) continue;
 
-            if (world_map.getBlock(x, top_y, z) != Block.air) continue;
+            if (world_map.getBlock(x, top_y, z) != .air) continue;
             const below = world_map.getBlock(x, top_y - 1, z).material();
             if (!below.isSolid() or below == .ice) continue;
 
-            try world_map.setBlockWithNotify(x, top_y, z, Block.snow_layer);
+            try world_map.setBlockWithNotify(x, top_y, z, .snow_layer);
         }
     }
 }
@@ -357,35 +358,35 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
             var y: i32 = 127;
             while (y >= 0) : (y -= 1) {
                 if (y <= rand.nextIntBound(5)) {
-                    chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.bedrock);
+                    chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .bedrock);
                     continue;
                 }
 
                 const current = chunk.getBlock(@intCast(x), @intCast(y), @intCast(z));
-                if (current == Block.air) {
+                if (current == .air) {
                     remaining_filler = -1;
                     continue;
                 }
-                if (current != Block.stone) continue;
+                if (current != .stone) continue;
 
                 if (remaining_filler == -1) {
                     if (surface_depth <= 0) {
-                        top_block = Block.air;
-                        filler_block = Block.stone;
+                        top_block = .air;
+                        filler_block = .stone;
                     } else if (y >= sea_level - 4 and y <= sea_level + 1) {
                         top_block = surface_biome.topBlock();
                         filler_block = surface_biome.fillerBlock();
                         if (gravelly) {
-                            top_block = Block.air;
-                            filler_block = Block.gravel;
+                            top_block = .air;
+                            filler_block = .gravel;
                         }
                         if (sandy) {
-                            top_block = Block.sand;
-                            filler_block = Block.sand;
+                            top_block = .sand;
+                            filler_block = .sand;
                         }
                     }
 
-                    if (y < sea_level and top_block == Block.air) top_block = Block.stationary_water;
+                    if (y < sea_level and top_block == .air) top_block = .stationary_water;
 
                     remaining_filler = surface_depth;
                     const placed = if (y >= sea_level - 1) top_block else filler_block;
@@ -393,9 +394,9 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
                 } else if (remaining_filler > 0) {
                     remaining_filler -= 1;
                     chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), filler_block);
-                    if (remaining_filler == 0 and filler_block == Block.sand) {
+                    if (remaining_filler == 0 and filler_block == .sand) {
                         remaining_filler = rand.nextIntBound(4);
-                        filler_block = Block.sandstone;
+                        filler_block = .sandstone;
                     }
                 }
             }
@@ -412,7 +413,7 @@ fn grassPlateauWorld() !World {
             const chunk = try w.createChunk(chunk_x, chunk_z);
             for (0..16) |x| {
                 for (0..16) |z| {
-                    chunk.setBlock(@intCast(x), 70, @intCast(z), Block.grass);
+                    chunk.setBlock(@intCast(x), 70, @intCast(z), .grass);
                 }
             }
         }
@@ -433,7 +434,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
     var found_snow = false;
     for (8..24) |x| {
         for (8..24) |z| {
-            if (cold_world.getBlock(@intCast(x), 71, @intCast(z)) == Block.snow_layer) found_snow = true;
+            if (cold_world.getBlock(@intCast(x), 71, @intCast(z)) == .snow_layer) found_snow = true;
         }
     }
     try std.testing.expect(found_snow);
@@ -445,7 +446,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
 
     for (8..24) |x| {
         for (8..24) |z| {
-            try std.testing.expect(warm_world.getBlock(@intCast(x), 71, @intCast(z)) != Block.snow_layer);
+            try std.testing.expect(warm_world.getBlock(@intCast(x), 71, @intCast(z)) != .snow_layer);
         }
     }
 }
@@ -458,24 +459,24 @@ test "the snow pass covers the 16x16 area starting eight blocks into the chunk" 
 
     for (8..24) |x| {
         for (8..24) |z| {
-            try std.testing.expectEqual(Block.snow_layer, w.getBlock(@intCast(x), 71, @intCast(z)));
+            try std.testing.expectEqual(.snow_layer, w.getBlock(@intCast(x), 71, @intCast(z)));
         }
     }
-    try std.testing.expectEqual(Block.air, w.getBlock(7, 71, 8));
-    try std.testing.expectEqual(Block.air, w.getBlock(8, 71, 7));
-    try std.testing.expectEqual(Block.air, w.getBlock(24, 71, 24));
+    try std.testing.expectEqual(.air, w.getBlock(7, 71, 8));
+    try std.testing.expectEqual(.air, w.getBlock(8, 71, 7));
+    try std.testing.expectEqual(.air, w.getBlock(24, 71, 24));
 }
 
 test "snow does not settle on ice" {
     var w = try grassPlateauWorld();
     defer w.deinit();
-    w.setBlock(12, 70, 12, Block.ice);
+    w.setBlock(12, 70, 12, .ice);
 
     const cold = uniformTemperatures(0.1);
     try placeSnowLayers(&w, 0, 0, &cold);
 
-    try std.testing.expectEqual(Block.air, w.getBlock(12, 71, 12));
-    try std.testing.expectEqual(Block.snow_layer, w.getBlock(13, 71, 12));
+    try std.testing.expectEqual(.air, w.getBlock(12, 71, 12));
+    try std.testing.expectEqual(.snow_layer, w.getBlock(13, 71, 12));
 }
 
 fn uniformClimate(temperature: f64, humidity: f64) Climate.Sample {
@@ -496,7 +497,7 @@ test "surface dressing lays sandstone under a desert's sand" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..81) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -505,14 +506,14 @@ test "surface dressing lays sandstone under a desert's sand" {
     try std.testing.expectEqual(biome.Biome.desert, desert.biomeAt(0, 0));
     gen.dressSurface(&chunk, &desert);
 
-    try std.testing.expectEqual(Block.sand, chunk.getBlock(8, 80, 8));
+    try std.testing.expectEqual(.sand, chunk.getBlock(8, 80, 8));
 
     var found_sandstone = false;
     for (0..16) |x| {
         for (0..16) |z| {
             var y: u32 = 79;
             while (y > 5) : (y -= 1) {
-                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.sandstone) found_sandstone = true;
+                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == .sandstone) found_sandstone = true;
             }
         }
     }
@@ -528,7 +529,7 @@ test "surface dressing stops the stone column with a jagged bedrock floor" {
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..81) |y| {
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), Block.stone);
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
             }
         }
     }
@@ -540,12 +541,12 @@ test "surface dressing stops the stone column with a jagged bedrock floor" {
     var highest_top: u32 = 0;
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expectEqual(Block.bedrock, chunk.getBlock(@intCast(x), 0, @intCast(z)));
+            try std.testing.expectEqual(.bedrock, chunk.getBlock(@intCast(x), 0, @intCast(z)));
 
             var top: u32 = 0;
             var y: u32 = 0;
             while (y < 8) : (y += 1) {
-                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == Block.bedrock) top = y;
+                if (chunk.getBlock(@intCast(x), y, @intCast(z)) == .bedrock) top = y;
             }
             try std.testing.expect(top <= 4);
             lowest_top = @min(lowest_top, top);
@@ -564,13 +565,13 @@ test "generated chunk has bedrock at the bottom and grass somewhere" {
     defer w.deinit();
     const chunk = try w.getOrGenerateChunk(gen, 0, 0);
 
-    try std.testing.expectEqual(Block.bedrock, chunk.getBlock(8, 0, 8));
+    try std.testing.expectEqual(.bedrock, chunk.getBlock(8, 0, 8));
 
     var found_grass = false;
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..128) |y| {
-                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) == Block.grass) {
+                if (chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) == .grass) {
                     found_grass = true;
                 }
             }
@@ -642,8 +643,8 @@ test "a cold ocean freezes over at sea level" {
     for (0..16) |x| {
         for (0..16) |z| {
             try std.testing.expect(chunk.getTemperature(@intCast(x), @intCast(z)) < 0.5);
-            try std.testing.expectEqual(Block.ice, chunk.getBlock(@intCast(x), 63, @intCast(z)));
-            try std.testing.expectEqual(Block.stationary_water, chunk.getBlock(@intCast(x), 62, @intCast(z)));
+            try std.testing.expectEqual(.ice, chunk.getBlock(@intCast(x), 63, @intCast(z)));
+            try std.testing.expectEqual(.stationary_water, chunk.getBlock(@intCast(x), 62, @intCast(z)));
         }
     }
 }
@@ -659,7 +660,7 @@ test "a warm ocean keeps water at sea level" {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            try std.testing.expect(chunk.getBlock(@intCast(x), 63, @intCast(z)) != Block.ice);
+            try std.testing.expect(chunk.getBlock(@intCast(x), 63, @intCast(z)) != .ice);
         }
     }
 }

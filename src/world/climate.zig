@@ -1,7 +1,8 @@
 const std = @import("std");
+
+const biome = @import("biome.zig");
 const JavaRandom = @import("java_random.zig");
 const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
-const biome = @import("biome.zig");
 
 const Climate = @This();
 

@@ -1,6 +1,6 @@
 const std = @import("std");
-const world = @import("world");
 
+const world = @import("world");
 pub const ItemStack = world.Stack;
 
 pub const max_stack_size: u8 = 64;
