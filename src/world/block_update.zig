@@ -211,7 +211,6 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
     };
 }
 
-
 fn bedPartnerStands(world_map: *const World, x: i32, y: i32, z: i32) bool {
     const metadata = world_map.getBlockMetadata(x, y, z);
     const step = block.bedStep(block.bedFacing(metadata));

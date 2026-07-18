@@ -94,6 +94,12 @@ pub fn skipToDawn(self: *World) void {
     self.time = tomorrow - @mod(tomorrow, ticks_per_day);
 }
 
+pub fn setTime(self: *World, time: i64) void {
+    const shift = time - self.time;
+    for (self.scheduled.items) |*entry| entry.time += shift;
+    self.time = time;
+}
+
 pub fn celestialAngle(self: *const World, partial_ticks: f32) f32 {
     const day_time: f32 = @floatFromInt(@mod(self.time, ticks_per_day));
     var fraction = (day_time + partial_ticks) / @as(f32, ticks_per_day) - 0.25;
@@ -825,6 +831,24 @@ test "sleeping rounds the clock up to the next dawn" {
     world_map.time = 0;
     world_map.skipToDawn();
     try std.testing.expectEqual(@as(i64, 24000), world_map.time);
+}
+
+test "moving the clock drags the pending scheduled ticks along with it" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    for ([_][2]i32{ .{ 0, 0 }, .{ 1, 0 }, .{ 0, 1 }, .{ 1, 1 } }) |coord| _ = try w.createChunk(coord[0], coord[1]);
+
+    w.time = 100;
+    w.setBlock(8, 10, 8, .flowing_water);
+    try w.scheduleBlockUpdate(8, 10, 8, .flowing_water, 5);
+    try std.testing.expectEqual(@as(i64, 105), w.scheduled.items[0].time);
+
+    w.setTime(18000);
+    try std.testing.expectEqual(@as(i64, 18000), w.time);
+    try std.testing.expectEqual(@as(i64, 18005), w.scheduled.items[0].time);
+
+    w.setTime(0);
+    try std.testing.expectEqual(@as(i64, 5), w.scheduled.items[0].time);
 }
 
 test "day and night follow how much skylight is taken away" {

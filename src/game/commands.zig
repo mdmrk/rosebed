@@ -8,12 +8,14 @@ pub const Verb = enum {
     help,
     give,
     spawn,
+    time,
 
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
             .help => "",
             .give => "<player> <id|name> [num]",
             .spawn => "<mob> [num]",
+            .time => "<add|set> <amount>",
         };
     }
 
@@ -22,6 +24,7 @@ pub const Verb = enum {
             .help => "shows this message",
             .give => "gives a player a resource",
             .spawn => "spawns a mob where you look",
+            .time => "adds to or sets the world time (0-24000)",
         };
     }
 };
@@ -40,15 +43,25 @@ pub const Spawn = struct {
     count: u8,
 };
 
+pub const Time = struct {
+    method: Method,
+    amount: i32,
+
+    pub const Method = enum { add, set };
+};
+
 pub const Result = union(enum) {
     nothing,
     help,
     give: Give,
     spawn: Spawn,
+    time: Time,
     unparsed_item: []const u8,
     missing_item: u32,
     missing_user: []const u8,
     missing_mob: []const u8,
+    unparsed_time: []const u8,
+    unknown_method,
     unknown: []const u8,
 };
 
@@ -77,6 +90,8 @@ pub const help_lines: []const []const u8 = blk: {
 };
 
 pub const unknown_command_line = "Unknown command. Type /help for a list.";
+
+pub const unknown_method_line = "Unknown method, use either \"add\" or \"set\"";
 
 fn tryParse(text: ?[]const u8, fallback: u8) u8 {
     const raw = std.fmt.parseInt(u32, text orelse return fallback, 10) catch return fallback;
@@ -122,6 +137,7 @@ pub fn parse(line: []const u8, username: []const u8) Result {
         .help => .help,
         .give => parseGive(&words, username),
         .spawn => parseSpawn(&words),
+        .time => parseTime(&words),
     };
 }
 
@@ -155,6 +171,16 @@ fn parseSpawn(words: *Words) Result {
 
     const mob = std.meta.stringToEnum(Mob, name) orelse return .{ .missing_mob = name };
     return .{ .spawn = .{ .mob = mob, .count = tryParse(count_text, 1) } };
+}
+
+fn parseTime(words: *Words) Result {
+    const method_text = words.next() orelse return .nothing;
+    const amount_text = words.next() orelse return .nothing;
+    if (words.next() != null) return .nothing;
+
+    const amount = std.fmt.parseInt(i32, amount_text, 10) catch return .{ .unparsed_time = amount_text };
+    const method = std.meta.stringToEnum(Time.Method, method_text) orelse return .unknown_method;
+    return .{ .time = .{ .method = method, .amount = amount } };
 }
 
 const local_user = "Player";
@@ -224,6 +250,32 @@ test "spawn rejects a mob it cannot build" {
     try std.testing.expectEqual(Result.nothing, parse("/spawn", local_user));
 }
 
+test "time adds to or sets the clock" {
+    const added = parse("/time add 1000", local_user).time;
+    try std.testing.expectEqual(Time.Method.add, added.method);
+    try std.testing.expectEqual(@as(i32, 1000), added.amount);
+
+    const set = parse("/time set 18000", local_user).time;
+    try std.testing.expectEqual(Time.Method.set, set.method);
+    try std.testing.expectEqual(@as(i32, 18000), set.amount);
+
+    try std.testing.expectEqual(@as(i32, -500), parse("/time add -500", local_user).time.amount);
+}
+
+test "time reads its amount before it judges the method" {
+    try std.testing.expectEqualStrings("noon", parse("/time set noon", local_user).unparsed_time);
+    try std.testing.expectEqualStrings("noon", parse("/time skip noon", local_user).unparsed_time);
+    try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999", local_user).unparsed_time);
+    try std.testing.expectEqual(Result.unknown_method, parse("/time skip 1000", local_user));
+    try std.testing.expectEqual(Result.unknown_method, parse("/time Set 1000", local_user));
+}
+
+test "time stays silent when the argument count is wrong" {
+    try std.testing.expectEqual(Result.nothing, parse("/time", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/time set", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/time set 0 0", local_user));
+}
+
 test "an unrecognised verb reports itself" {
     try std.testing.expectEqualStrings("tp", parse("/tp Player Notch", local_user).unknown);
     try std.testing.expectEqual(Result.nothing, parse("/", local_user));
@@ -235,6 +287,7 @@ test "help is built from the verbs, one line each under a heading" {
     try std.testing.expectEqualStrings("   help                           shows this message", help_lines[1]);
     try std.testing.expectEqualStrings("   give <player> <id|name> [num]  gives a player a resource", help_lines[2]);
     try std.testing.expectEqualStrings("   spawn <mob> [num]              spawns a mob where you look", help_lines[3]);
+    try std.testing.expectEqualStrings("   time <add|set> <amount>        adds to or sets the world time (0-24000)", help_lines[4]);
 }
 
 test "every verb names itself in help and answers to that name" {

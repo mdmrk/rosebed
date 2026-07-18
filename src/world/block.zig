@@ -952,7 +952,6 @@ const cake_item_boxes = [1]Bounds{.{
     .max = .{ 1 - cake_margin, cake_height, 1 - cake_margin },
 }};
 
-
 pub const bed_facing_mask: u4 = 3;
 pub const bed_occupied_bit: u4 = 4;
 pub const bed_pillow_bit: u4 = 8;
