@@ -139,13 +139,11 @@ pub const compass_tile: u8 = 54;
 const compass_needle_grey: [4]u8 = .{ 100, 100, 100, 255 };
 const compass_needle_red: [4]u8 = .{ 255, 20, 20, 255 };
 
-pub const Compass = struct {
+pub const Spring = struct {
     angle: f64 = 0.0,
     velocity: f64 = 0.0,
-    base: [cells * 4]u8 = @splat(0),
-    image: [cells * 4]u8 = @splat(0),
 
-    pub fn tick(self: *Compass, target: f64) void {
+    pub fn ease(self: *Spring, target: f64) void {
         var delta = target - self.angle;
         while (delta < -std.math.pi) delta += std.math.pi * 2.0;
         while (delta >= std.math.pi) delta -= std.math.pi * 2.0;
@@ -154,11 +152,21 @@ pub const Compass = struct {
         self.velocity += delta * 0.1;
         self.velocity *= 0.8;
         self.angle += self.velocity;
+    }
+};
+
+pub const Compass = struct {
+    spin: Spring = .{},
+    base: [cells * 4]u8 = @splat(0),
+    image: [cells * 4]u8 = @splat(0),
+
+    pub fn tick(self: *Compass, target: f64) void {
+        self.spin.ease(target);
 
         @memcpy(&self.image, &self.base);
 
-        const sin = @sin(self.angle);
-        const cos = @cos(self.angle);
+        const sin = @sin(self.spin.angle);
+        const cos = @cos(self.spin.angle);
 
         var along: i32 = -4;
         while (along <= 4) : (along += 1) {
@@ -182,18 +190,62 @@ pub const Compass = struct {
     }
 };
 
+pub const clock_tile: u8 = 70;
+
+pub const Clock = struct {
+    spin: Spring = .{},
+    base: [cells * 4]u8 = @splat(0),
+    dial: [cells * 4]u8 = @splat(0),
+    image: [cells * 4]u8 = @splat(0),
+
+    fn showsDial(red: u8, green: u8, blue: u8) bool {
+        return red == blue and green == 0 and blue > 0;
+    }
+
+    pub fn tick(self: *Clock, target: f64) void {
+        self.spin.ease(target);
+
+        const sin = @sin(self.spin.angle);
+        const cos = @cos(self.spin.angle);
+
+        for (0..cells) |i| {
+            const red = self.base[i * 4 + 0];
+            const green = self.base[i * 4 + 1];
+            const blue = self.base[i * 4 + 2];
+
+            if (!showsDial(red, green, blue)) {
+                @memcpy(self.image[i * 4 ..][0..4], self.base[i * 4 ..][0..4]);
+                continue;
+            }
+
+            const across = -(@as(f64, @floatFromInt(i % tile)) / 15.0 - 0.5);
+            const down = @as(f64, @floatFromInt(i / tile)) / 15.0 - 0.5;
+            const turned_x: i32 = @intFromFloat((across * cos + down * sin + 0.5) * 16.0);
+            const turned_y: i32 = @intFromFloat((down * cos - across * sin + 0.5) * 16.0);
+            const source: usize = @intCast((turned_x & 15) + (turned_y & 15) * tile);
+
+            const tint: u32 = red;
+            for (0..3) |channel| {
+                self.image[i * 4 + channel] = @intCast(@as(u32, self.dial[source * 4 + channel]) * tint / 255);
+            }
+            self.image[i * 4 + 3] = self.dial[source * 4 + 3];
+        }
+    }
+};
+
 water: Water = .{ .flowing = false },
 water_flow: Water = .{ .flowing = true },
 lava: Lava = .{ .flowing = false },
 lava_flow: Lava = .{ .flowing = true },
 compass: Compass = .{},
+clock: Clock = .{},
 rand: world.JavaRandom,
 
 pub fn init(seed: i64) TextureFx {
     return .{ .rand = .init(seed) };
 }
 
-pub fn loadCompassBase(self: *TextureFx, png: []const u8) !void {
+fn readTile(png: []const u8, index: u8, out: *[cells * 4]u8) !void {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(png), true);
     defer surface.deinit();
     const converted = try surface.convertFormat(.array_rgba_32);
@@ -202,16 +254,23 @@ pub fn loadCompassBase(self: *TextureFx, png: []const u8) !void {
     const width = converted.getWidth();
     const pixels = converted.getPixels() orelse return error.SurfaceNotAccessible;
 
-    const left = @as(usize, compass_tile % Atlas.tiles_per_row) * tile;
-    const top = @as(usize, compass_tile / Atlas.tiles_per_row) * tile;
+    const left = @as(usize, index % Atlas.tiles_per_row) * tile;
+    const top = @as(usize, index / Atlas.tiles_per_row) * tile;
     for (0..tile) |row| {
         const source = ((top + row) * width + left) * 4;
-        @memcpy(self.compass.base[row * tile * 4 ..][0 .. tile * 4], pixels[source..][0 .. tile * 4]);
+        @memcpy(out[row * tile * 4 ..][0 .. tile * 4], pixels[source..][0 .. tile * 4]);
     }
 }
 
-pub fn tick(self: *TextureFx, compass_target: f64) void {
+pub fn loadSprites(self: *TextureFx, items_png: []const u8, dial_png: []const u8) !void {
+    try readTile(items_png, compass_tile, &self.compass.base);
+    try readTile(items_png, clock_tile, &self.clock.base);
+    try readTile(dial_png, 0, &self.clock.dial);
+}
+
+pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64) void {
     self.compass.tick(compass_target);
+    self.clock.tick(clock_target);
     self.lava.tick(&self.rand);
     self.water.tick(&self.rand);
     self.water_flow.tick(&self.rand);
@@ -239,6 +298,7 @@ pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
 
     items.bind();
     uploadTile(&self.compass.image, compass_tile, 1);
+    uploadTile(&self.clock.image, clock_tile, 1);
 }
 
 test "the animated tiles are the ones the fluid blocks draw with" {
@@ -286,20 +346,20 @@ test "the needle eases onto its bearing instead of snapping to it" {
     var fx: Compass = .{};
     fx.tick(1.0);
 
-    try std.testing.expectApproxEqAbs(@as(f64, 0.08), fx.velocity, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.08), fx.angle, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.08), fx.spin.velocity, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.08), fx.spin.angle, 1.0e-9);
 
     for (0..200) |_| fx.tick(1.0);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), fx.angle, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), fx.velocity, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), fx.spin.angle, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), fx.spin.velocity, 1.0e-6);
 }
 
 test "a bearing behind the needle is taken the short way round" {
     var fx: Compass = .{};
-    fx.angle = std.math.pi - 0.1;
+    fx.spin.angle = std.math.pi - 0.1;
     fx.tick(-std.math.pi + 0.1);
 
-    try std.testing.expect(fx.velocity > 0.0);
+    try std.testing.expect(fx.spin.velocity > 0.0);
 }
 
 test "the swing toward a distant bearing is capped at a radian" {
@@ -309,7 +369,7 @@ test "the swing toward a distant bearing is capped at a radian" {
     var far: Compass = .{};
     far.tick(3.0);
 
-    try std.testing.expectApproxEqAbs(straight.velocity, far.velocity, 1.0e-9);
+    try std.testing.expectApproxEqAbs(straight.spin.velocity, far.spin.velocity, 1.0e-9);
 }
 
 test "the needle paints a red half, a grey tail and a grey crossbar" {
@@ -331,8 +391,8 @@ test "the needle never paints outside its own sixteen by sixteen tile" {
     var fx: Compass = .{};
     var angle: f64 = 0.0;
     while (angle < std.math.pi * 2.0) : (angle += 0.05) {
-        fx.angle = angle;
-        fx.velocity = 0.0;
+        fx.spin.angle = angle;
+        fx.spin.velocity = 0.0;
         fx.tick(angle);
     }
 }
@@ -344,4 +404,64 @@ test "the dial underneath survives every tick the needle is drawn on" {
     const corner = fx.base[0..4].*;
     fx.tick(0.0);
     try std.testing.expectEqual(corner, fx.image[0..4].*);
+}
+
+test "the clock is the icon Item.pocketSundial draws with" {
+    try std.testing.expectEqual(@as(u8, 6 + 4 * 16), clock_tile);
+}
+
+test "only the magenta window of the clock face shows the dial" {
+    try std.testing.expect(Clock.showsDial(204, 0, 204));
+    try std.testing.expect(Clock.showsDial(255, 0, 255));
+    try std.testing.expect(!Clock.showsDial(204, 0, 200));
+    try std.testing.expect(!Clock.showsDial(204, 1, 204));
+    try std.testing.expect(!Clock.showsDial(0, 0, 0));
+}
+
+test "the bezel is copied through untouched and the window is not" {
+    var fx: Clock = .{};
+    fx.base[0] = 90;
+    fx.base[1] = 80;
+    fx.base[2] = 70;
+    fx.base[3] = 255;
+    fx.base[4] = 204;
+    fx.base[5] = 0;
+    fx.base[6] = 204;
+    fx.base[7] = 255;
+    for (&fx.dial, 0..) |*channel, i| channel.* = if (i % 4 == 3) 255 else 128;
+
+    fx.tick(0.0);
+
+    try std.testing.expectEqual([4]u8{ 90, 80, 70, 255 }, fx.image[0..4].*);
+    try std.testing.expectEqual(@as(u8, 128 * 204 / 255), fx.image[4]);
+    try std.testing.expectEqual(@as(u8, 255), fx.image[7]);
+}
+
+test "the dial keeps turning and always samples inside itself" {
+    var fx: Clock = .{};
+    for (&fx.base, 0..) |*channel, i| {
+        channel.* = switch (i % 4) {
+            0, 2 => 204,
+            1 => 0,
+            else => 255,
+        };
+    }
+    for (&fx.dial, 0..) |*channel, i| channel.* = @truncate(i);
+
+    var angle: f64 = 0.0;
+    while (angle < std.math.pi * 2.0) : (angle += 0.05) {
+        fx.spin.angle = angle;
+        fx.spin.velocity = 0.0;
+        fx.tick(angle);
+    }
+}
+
+test "the clock and the compass ease the same way, as both FX classes do" {
+    var clock: Clock = .{};
+    var compass: Compass = .{};
+    clock.tick(1.0);
+    compass.tick(1.0);
+
+    try std.testing.expectEqual(compass.spin.angle, clock.spin.angle);
+    try std.testing.expectEqual(compass.spin.velocity, clock.spin.velocity);
 }

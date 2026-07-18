@@ -385,7 +385,7 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
-    try app_state.texture_fx.loadCompassBase(assets.gui.items_png);
+    try app_state.texture_fx.loadSprites(assets.gui.items_png, assets.misc.dial_png);
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
@@ -1902,6 +1902,11 @@ fn compassAngle(app_state: *const AppState) f64 {
     return @as(f64, app_state.player.yaw - 90.0) * std.math.pi / 180.0 - std.math.atan2(to_spawn_z, to_spawn_x);
 }
 
+fn clockAngle(app_state: *const AppState) f64 {
+    if (app_state.screen != .playing) return 0.0;
+    return -@as(f64, app_state.world_map.celestialAngle(1.0)) * std.math.pi * 2.0;
+}
+
 fn horizonColor(app_state: *const AppState) render.sky.Color {
     if (cameraSubmerged(app_state)) return underwater_fog_color;
     const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
@@ -2346,7 +2351,7 @@ pub fn iterate(
     }
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
-        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state));
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state), clockAngle(app_state));
         app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items);
     }
 
