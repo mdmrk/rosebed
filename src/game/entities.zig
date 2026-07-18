@@ -34,6 +34,92 @@ fn herds(self: *Entities) struct {
     return .{ &self.pigs, &self.sheep, &self.cows, &self.chickens };
 }
 
+pub const Target = union(enum) {
+    pig: usize,
+    sheep: usize,
+    cow: usize,
+    chicken: usize,
+};
+
+/// `EntityRenderer.getMouseOver` never looks past three blocks for an entity, however far the
+/// crosshair reaches, and grows each entity's box by `Entity.getCollisionBorderSize` before testing.
+pub const entity_reach: f64 = 3.0;
+const collision_border: f64 = 0.1;
+
+fn boxRayDistance(box: math.AABB, origin: [3]f64, along: [3]f64, reach: f64) ?f64 {
+    var entry: f64 = 0;
+    var exit = reach;
+
+    const low = [3]f64{ box.min_x, box.min_y, box.min_z };
+    const high = [3]f64{ box.max_x, box.max_y, box.max_z };
+
+    for (0..3) |axis| {
+        if (along[axis] == 0.0) {
+            if (origin[axis] < low[axis] or origin[axis] > high[axis]) return null;
+            continue;
+        }
+        const to_low = (low[axis] - origin[axis]) / along[axis];
+        const to_high = (high[axis] - origin[axis]) / along[axis];
+        entry = @max(entry, @min(to_low, to_high));
+        exit = @min(exit, @max(to_low, to_high));
+    }
+
+    if (entry > exit) return null;
+    return entry;
+}
+
+fn boxHolds(box: math.AABB, point: [3]f64) bool {
+    return point[0] >= box.min_x and point[0] <= box.max_x and
+        point[1] >= box.min_y and point[1] <= box.max_y and
+        point[2] >= box.min_z and point[2] <= box.max_z;
+}
+
+pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Target {
+    const start = [3]f64{ origin.x, origin.y, origin.z };
+    const along = [3]f64{ look[0], look[1], look[2] };
+
+    var found: ?Target = null;
+    var nearest: f64 = 0;
+
+    inline for (self.herds(), 0..) |herd, kind| {
+        for (herd.items, 0..) |*animal, index| {
+            if (!animal.animal.isAlive()) continue;
+
+            const box = animal.animal.base.boundingBox().expand(collision_border, collision_border, collision_border);
+            const target: Target = switch (kind) {
+                0 => .{ .pig = index },
+                1 => .{ .sheep = index },
+                2 => .{ .cow = index },
+                else => .{ .chicken = index },
+            };
+
+            // getMouseOver keeps a nearest of zero as its unset marker, so a later entity still
+            // wins against one the eye stands inside. Kept as vanilla has it.
+            if (boxHolds(box, start)) {
+                found = target;
+                nearest = 0;
+            } else if (boxRayDistance(box, start, along, reach)) |distance| {
+                if (distance < nearest or nearest == 0) {
+                    found = target;
+                    nearest = distance;
+                }
+            }
+        }
+    }
+
+    return found;
+}
+
+/// Only `EntitySheep` overrides `attackEntityFrom`, to scatter its fleece when something living hits it.
+pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec3, rand: *world.JavaRandom) void {
+    switch (target) {
+        .pig => |index| _ = self.pigs.items[index].animal.hurt(amount, source, rand),
+        .sheep => |index| _ = self.sheep.items[index].hurt(amount, source, rand),
+        .cow => |index| _ = self.cows.items[index].animal.hurt(amount, source, rand),
+        .chicken => |index| _ = self.chickens.items[index].animal.hurt(amount, source, rand),
+    }
+}
+
 pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
@@ -921,4 +1007,80 @@ test "a torch flame sits above the tip of the model it belongs to" {
     const flame = torchFlamePosition(0, 0, 0, 5);
     try std.testing.expect(flame.y > bounds.max[1]);
     try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);
+}
+
+test "the crosshair picks the animal it is aimed at, and nothing off to the side" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnCow(gpa, math.Vec3.init(0, 0, 2));
+    try entities.spawnPig(gpa, math.Vec3.init(5, 0, 0));
+
+    const eye = math.Vec3.init(0, 1, 0);
+    try std.testing.expectEqual(Target{ .cow = 0 }, entities.pick(eye, .{ 0, 0, 1 }, entity_reach).?);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, -1 }, entity_reach) == null);
+    try std.testing.expect(entities.pick(eye, .{ 0, 1, 0 }, entity_reach) == null);
+}
+
+test "an animal beyond the three block reach is not picked" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    try entities.spawnCow(gpa, math.Vec3.init(0, 0, 6));
+
+    const eye = math.Vec3.init(0, 1, 0);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) == null);
+    try std.testing.expectEqual(Target{ .cow = 0 }, entities.pick(eye, .{ 0, 0, 1 }, 8.0).?);
+}
+
+test "the nearer of two animals in a line is the one picked" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnCow(gpa, math.Vec3.init(0, 0, 3));
+    try entities.spawnPig(gpa, math.Vec3.init(0, 0, 1.5));
+
+    const eye = math.Vec3.init(0, 1, 0);
+    try std.testing.expectEqual(Target{ .pig = 0 }, entities.pick(eye, .{ 0, 0, 1 }, entity_reach).?);
+}
+
+test "a dead animal is no longer picked" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    try entities.spawnCow(gpa, math.Vec3.init(0, 0, 2));
+
+    const eye = math.Vec3.init(0, 1, 0);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) != null);
+
+    entities.cows.items[0].animal.health = 0;
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) == null);
+}
+
+test "a hit takes health off the animal the crosshair found" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(0);
+
+    try entities.spawnCow(gpa, math.Vec3.init(0, 0, 2));
+    const before = entities.cows.items[0].animal.health;
+
+    entities.hurtTarget(.{ .cow = 0 }, 4, math.Vec3.init(0, 1, 0), &rand);
+    try std.testing.expectEqual(before - 4, entities.cows.items[0].animal.health);
+}
+
+test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(0);
+
+    try entities.spawnSheep(gpa, math.Vec3.init(0, 0, 2), &rand);
+    try std.testing.expect(!entities.sheep.items[0].sheared);
+
+    entities.hurtTarget(.{ .sheep = 0 }, 1, math.Vec3.init(0, 1, 0), &rand);
+    try std.testing.expect(entities.sheep.items[0].sheared);
 }

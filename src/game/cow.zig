@@ -14,6 +14,12 @@ pub const max_health: i32 = 10;
 
 pub const spec: Animal.Spec = .{ .width = width, .height = height, .max_health = max_health };
 
+/// `EntityCow.interact`: an empty bucket in hand leaves with milk in it, and nothing else answers.
+pub fn interact(held: ?world.Item) ?world.Item {
+    const item = held orelse return null;
+    return if (item == .bucket) .bucket_milk else null;
+}
+
 pub fn spawn(position: math.Vec3) Cow {
     var cow: Cow = .{ .animal = Animal.spawn(position, spec) };
     cow.animal.on_death = dropFewItems;
@@ -124,4 +130,12 @@ test "a cow keeps its wounds across a record round trip" {
     try std.testing.expectApproxEqAbs(@as(f32, 42.0), restored.animal.yaw, 1.0e-6);
     try std.testing.expect(restored.animal.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.animal.base.position.x, 1.0e-9);
+}
+
+test "a cow fills an empty bucket with milk, and ignores anything else" {
+    try std.testing.expectEqual(world.Item.bucket_milk, Cow.interact(.bucket).?);
+    try std.testing.expect(Cow.interact(.bucket_water) == null);
+    try std.testing.expect(Cow.interact(.bucket_milk) == null);
+    try std.testing.expect(Cow.interact(.sword_iron) == null);
+    try std.testing.expect(Cow.interact(null) == null);
 }

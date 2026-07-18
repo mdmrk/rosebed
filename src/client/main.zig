@@ -401,9 +401,40 @@ pub fn init(
 
 const missed_click_ticks = 10;
 
+/// `EntityRenderer.getMouseOver`: an entity is only picked in front of whatever block the
+/// crosshair found, and never past three blocks.
+fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
+    var reach: f64 = reach_distance;
+    if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+        reach = hit.distance;
+    }
+    reach = @min(reach, game.Entities.entity_reach);
+    return app_state.entities.pick(app_state.player.eyePosition(), app_state.player.lookVector(), reach);
+}
+
+/// `EntityPlayer.attackTargetEntityWithCurrentItem`: a bare hand deals one, and a fall adds one more.
+fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
+    var damage: i32 = 1;
+    if (app_state.player.inventory.selectedStack()) |stack| {
+        damage = switch (stack.id) {
+            .item => |held| held.damageVsEntity(),
+            .block => 1,
+        };
+    }
+    if (damage <= 0) return;
+    if (app_state.player.base.motion.y < 0.0) damage += 1;
+
+    app_state.entities.hurtTarget(target, damage, app_state.player.base.position, &app_state.world_map.rand);
+    try app_state.stats.add(app_state.gpa, .{ .general = .damage_dealt }, damage);
+}
+
 fn clickLeft(app_state: *AppState) !void {
     if (app_state.missed_click_cooldown > 0) return;
     app_state.player.swingItem();
+    if (pickedEntity(app_state)) |target| {
+        try attackEntity(app_state, target);
+        return;
+    }
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
         app_state.missed_click_cooldown = missed_click_ticks;
         return;
@@ -1357,6 +1388,7 @@ fn consumeSelectedStack(app_state: *AppState) void {
 }
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
+    if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
     if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
         switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
             .workbench => {
@@ -1382,6 +1414,20 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
         }
     }
     return placeBlockAtTarget(app_state);
+}
+
+/// `EntityCow.interact`: an empty bucket in hand leaves with milk in it. No other animal answers.
+fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
+    if (target != .cow) return false;
+    const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
+        .item => |id| id,
+        .block => null,
+    };
+    const milked = game.Cow.interact(held) orelse return false;
+
+    holdStack(app_state, milked);
+    try app_state.stats.use(app_state.gpa, .{ .item = held.? });
+    return true;
 }
 
 fn holdStack(app_state: *AppState, held: world.Item) void {

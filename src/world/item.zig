@@ -31,6 +31,16 @@ pub const ToolMaterial = enum {
         };
     }
 
+    /// `EnumToolMaterial`'s fourth field, the bonus a tool of this material carries into a hit.
+    pub fn damageVsEntity(self: ToolMaterial) i32 {
+        return switch (self) {
+            .wood, .gold => 0,
+            .stone => 1,
+            .iron => 2,
+            .diamond => 3,
+        };
+    }
+
     pub fn efficiency(self: ToolMaterial) f32 {
         return switch (self) {
             .wood => 2.0,
@@ -347,6 +357,19 @@ pub const Item = enum(u16) {
             .bucket_lava => .lava,
             .bucket_milk => .milk,
             else => null,
+        };
+    }
+
+    /// `ItemSword` and `ItemTool` each add their own base to the material's bonus; everything
+    /// else, a bare hand included, answers `Item.getDamageVsEntity` with 1.
+    pub fn damageVsEntity(self: Item) i32 {
+        const t = self.tool() orelse return 1;
+        return switch (t.kind) {
+            .sword => 4 + t.material.damageVsEntity() * 2,
+            .axe => 3 + t.material.damageVsEntity(),
+            .pickaxe => 2 + t.material.damageVsEntity(),
+            .shovel => 1 + t.material.damageVsEntity(),
+            .hoe => 1,
         };
     }
 
@@ -675,4 +698,31 @@ test "only a filled bucket pours, and milk pours nothing" {
     try std.testing.expectEqual(Block.flowing_lava, Fill.lava.poured().?);
     try std.testing.expect(Fill.empty.poured() == null);
     try std.testing.expect(Fill.milk.poured() == null);
+}
+
+test "weapon damage follows ItemSword and ItemTool over the material bonus" {
+    try std.testing.expectEqual(@as(i32, 4), Item.sword_wood.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 6), Item.sword_stone.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 8), Item.sword_iron.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 10), Item.sword_diamond.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 4), Item.sword_gold.damageVsEntity());
+
+    try std.testing.expectEqual(@as(i32, 3), Item.axe_wood.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 5), Item.axe_iron.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 2), Item.pickaxe_wood.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 4), Item.pickaxe_iron.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 1), Item.shovel_wood.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 3), Item.shovel_iron.damageVsEntity());
+}
+
+test "a hoe and anything that is not a tool swing for one" {
+    try std.testing.expectEqual(@as(i32, 1), Item.hoe_diamond.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 1), Item.bucket.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 1), Item.ingot_iron.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 1), Item.bone.damageVsEntity());
+}
+
+test "a gold sword hits no harder than a wooden one" {
+    try std.testing.expectEqual(Item.sword_wood.damageVsEntity(), Item.sword_gold.damageVsEntity());
+    try std.testing.expectEqual(@as(i32, 0), ToolMaterial.gold.damageVsEntity());
 }
