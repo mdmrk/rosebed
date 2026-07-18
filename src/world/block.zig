@@ -124,7 +124,7 @@ pub const Stack = struct {
 
     pub fn displayName(self: Stack) []const u8 {
         return switch (self.id) {
-            .block => |id| id.displayName(),
+            .block => |id| id.displayName(self.blockMeta()),
             .item => |id| id.displayName(self.meta),
         };
     }
@@ -577,9 +577,10 @@ pub const Block = enum(u8) {
         return self.strVsBlock(held) * speed_factor / h / 30.0;
     }
 
-    pub fn displayName(self: Block) []const u8 {
+    pub fn displayName(self: Block, metadata: u4) []const u8 {
         return switch (self) {
-            .slab, .slab_double => "Stone Slab",
+            .wool => wool_names[~metadata],
+            .slab, .slab_double => slabName(metadata),
             .stone => "Stone",
             .grass => "Grass",
             .dirt => "Dirt",
@@ -609,7 +610,6 @@ pub const Block = enum(u8) {
             .cactus => "Cactus",
             .reed => "Sugar cane",
             .pumpkin => "Pumpkin",
-            .wool => "Wool",
             .sponge => "Sponge",
             .glass => "Glass",
             .block_lapis => "Lapis Lazuli Block",
@@ -681,6 +681,33 @@ pub const Block = enum(u8) {
 pub fn leafTile(metadata: u4, fancy: bool) u8 {
     const base: u8 = if (fancy) 52 else 53;
     return if (metadata & 3 == 1) base + 80 else base;
+}
+
+const wool_names: [16][]const u8 = .{
+    "Black Wool",
+    "Red Wool",
+    "Green Wool",
+    "Brown Wool",
+    "Blue Wool",
+    "Purple Wool",
+    "Cyan Wool",
+    "Light Gray Wool",
+    "Gray Wool",
+    "Pink Wool",
+    "Lime Wool",
+    "Yellow Wool",
+    "Light Blue Wool",
+    "Magenta Wool",
+    "Orange Wool",
+    "Wool",
+};
+
+fn slabName(metadata: u4) []const u8 {
+    return switch (metadata) {
+        slab_sandstone => "Sandstone Slab",
+        slab_wood => "Wooden Slab",
+        else => "Stone Slab",
+    };
 }
 
 pub fn woolTile(metadata: u4) u8 {
@@ -1249,16 +1276,16 @@ test "a falling block can fall into air or liquid, not solid ground" {
 }
 
 test "display names come from the real en_US lang keys, not the enum names" {
-    try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName());
-    try std.testing.expectEqualStrings("Wooden Planks", Block.planks.displayName());
-    try std.testing.expectEqualStrings("Wood", Block.log.displayName());
-    try std.testing.expectEqualStrings("Flower", Block.dandelion.displayName());
-    try std.testing.expectEqualStrings("Moss Stone", Block.cobblestone_mossy.displayName());
+    try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName(0));
+    try std.testing.expectEqualStrings("Wooden Planks", Block.planks.displayName(0));
+    try std.testing.expectEqualStrings("Wood", Block.log.displayName(0));
+    try std.testing.expectEqualStrings("Flower", Block.dandelion.displayName(0));
+    try std.testing.expectEqualStrings("Moss Stone", Block.cobblestone_mossy.displayName(0));
 }
 
 test "blocks with no lang entry have no display name" {
-    try std.testing.expectEqualStrings("", Block.tall_grass.displayName());
-    try std.testing.expectEqualStrings("", Block.dead_bush.displayName());
+    try std.testing.expectEqualStrings("", Block.tall_grass.displayName(0));
+    try std.testing.expectEqualStrings("", Block.dead_bush.displayName(0));
 }
 
 test "log wood types all share one display name" {
@@ -1367,7 +1394,7 @@ test "a torch breaks instantly and drops itself" {
     const dropped = Block.torch.drop(5, &rand).?;
     try std.testing.expectEqual(Id{ .block = .torch }, dropped.id);
     try std.testing.expectEqual(@as(u8, 1), dropped.count);
-    try std.testing.expectEqualStrings("Torch", Block.torch.displayName());
+    try std.testing.expectEqualStrings("Torch", Block.torch.displayName(0));
 }
 
 test "a wall torch stands in the quarter of the block its wall is on" {
@@ -1721,7 +1748,7 @@ test "a trapdoor is wood that drops itself with its swing forgotten" {
     try std.testing.expect(Block.trapdoor.isTrapdoor());
     try std.testing.expect(!Block.trapdoor.isOpaqueCube());
     try std.testing.expectEqual(@as(u8, 84), Block.trapdoor.faceTextures().get(.down));
-    try std.testing.expectEqualStrings("Trapdoor", Block.trapdoor.displayName());
+    try std.testing.expectEqualStrings("Trapdoor", Block.trapdoor.displayName(0));
 }
 
 test "grass wears the snow side texture when snow is piled on it" {
@@ -1742,4 +1769,51 @@ test "a full cube is the default model when held, dropped or drawn in a slot" {
     try std.testing.expectEqual([2]f32{ 1, 1 }, [2]f32{ plate.max[0], plate.max[2] });
     try std.testing.expectApproxEqAbs(trapdoor_thickness, plate.max[1] - plate.min[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), (plate.max[1] + plate.min[1]) / 2.0, 1.0e-6);
+}
+
+test "each wool colour is named by its inverted metadata, as ItemCloth does" {
+    const expected = [16][]const u8{
+        "Wool",            "Orange Wool", "Magenta Wool", "Light Blue Wool",
+        "Yellow Wool",     "Lime Wool",   "Pink Wool",    "Gray Wool",
+        "Light Gray Wool", "Cyan Wool",   "Purple Wool",  "Blue Wool",
+        "Brown Wool",      "Green Wool",  "Red Wool",     "Black Wool",
+    };
+    for (expected, 0..) |name, meta| {
+        try std.testing.expectEqualStrings(name, Block.wool.displayName(@intCast(meta)));
+    }
+}
+
+test "a wool stack carries its colour through to the name shown in a slot" {
+    const black: Stack = .{ .id = .{ .block = .wool }, .count = 1, .meta = 15 };
+    try std.testing.expectEqualStrings("Black Wool", black.displayName());
+
+    const white: Stack = .{ .id = .{ .block = .wool }, .count = 1, .meta = 0 };
+    try std.testing.expectEqualStrings("Wool", white.displayName());
+}
+
+test "the sheep's fleece colours all name a wool a player would recognise" {
+    try std.testing.expectEqualStrings("Black Wool", Block.wool.displayName(15));
+    try std.testing.expectEqualStrings("Gray Wool", Block.wool.displayName(7));
+    try std.testing.expectEqualStrings("Light Gray Wool", Block.wool.displayName(8));
+    try std.testing.expectEqualStrings("Brown Wool", Block.wool.displayName(12));
+    try std.testing.expectEqualStrings("Pink Wool", Block.wool.displayName(6));
+    try std.testing.expectEqualStrings("Wool", Block.wool.displayName(0));
+}
+
+test "a slab is named after the block it was cut from" {
+    try std.testing.expectEqualStrings("Stone Slab", Block.slab.displayName(slab_stone));
+    try std.testing.expectEqualStrings("Sandstone Slab", Block.slab.displayName(slab_sandstone));
+    try std.testing.expectEqualStrings("Wooden Slab", Block.slab.displayName(slab_wood));
+    try std.testing.expectEqualStrings("Stone Slab", Block.slab.displayName(slab_cobblestone));
+    try std.testing.expectEqualStrings("Wooden Slab", Block.slab_double.displayName(slab_wood));
+
+    const stack: Stack = .{ .id = .{ .block = .slab }, .count = 1, .meta = slab_sandstone };
+    try std.testing.expectEqualStrings("Sandstone Slab", stack.displayName());
+}
+
+test "blocks without variants read the same whatever metadata they carry" {
+    for (0..16) |meta| {
+        try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName(@intCast(meta)));
+        try std.testing.expectEqualStrings("Wood", Block.log.displayName(@intCast(meta)));
+    }
 }

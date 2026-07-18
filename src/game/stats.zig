@@ -199,7 +199,7 @@ pub fn tracksMining(id: world.Id) bool {
         .door_iron,
         .trapdoor,
         => false,
-        else => block.displayName().len > 0,
+        else => block.displayName(0).len > 0,
     };
 }
 
@@ -388,7 +388,7 @@ pub fn formatValue(buffer: []u8, unit: Unit, value: i32) []const u8 {
 
 pub fn displayName(id: world.Id) []const u8 {
     return switch (id) {
-        .block => |block| block.displayName(),
+        .block => |block| block.displayName(0),
         .item => |item| item.displayName(0),
     };
 }
