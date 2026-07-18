@@ -122,6 +122,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(3, 1, &.{ i(.reed), i(.reed), i(.reed) }, .{ .item = .paper }, 3),
     shaped(1, 3, &.{ i(.paper), i(.paper), i(.paper) }, .{ .item = .book }, 1),
     shaped(3, 1, &.{ i(.wheat), i(.wheat), i(.wheat) }, .{ .item = .bread }, 1),
+    shaped(3, 3, &.{
+        i(.bucket_milk), i(.bucket_milk), i(.bucket_milk),
+        i(.sugar),       i(.egg),         i(.sugar),
+        i(.wheat),       i(.wheat),       i(.wheat),
+    }, .{ .item = .cake }, 1),
     shaped(3, 2, &.{ b(.planks), null, b(.planks), null, b(.planks), null }, .{ .item = .bowl }, 4),
     shaped(2, 3, &.{
         b(.planks), b(.planks),
@@ -854,4 +859,28 @@ test "the bucket's iron must be in a v, not a row or a full square" {
         row[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
     }
     try std.testing.expect(findMatch(&row, workbench_grid_size) == null);
+}
+
+test "milk, sugar, egg and wheat craft one cake" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .item = .bucket_milk }, .count = 1 };
+    grid[3] = .{ .id = .{ .item = .sugar }, .count = 1 };
+    grid[4] = .{ .id = .{ .item = .egg }, .count = 1 };
+    grid[5] = .{ .id = .{ .item = .sugar }, .count = 1 };
+    for (6..9) |cell| grid[cell] = .{ .id = .{ .item = .wheat }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .cake }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the cake's sugar and egg cannot swap places" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .item = .bucket_milk }, .count = 1 };
+    grid[3] = .{ .id = .{ .item = .egg }, .count = 1 };
+    grid[4] = .{ .id = .{ .item = .sugar }, .count = 1 };
+    grid[5] = .{ .id = .{ .item = .sugar }, .count = 1 };
+    for (6..9) |cell| grid[cell] = .{ .id = .{ .item = .wheat }, .count = 1 };
+
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
 }

@@ -23,6 +23,7 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
+        .cake => world.block.cakeCollisionBounds(world_map.getBlockMetadata(x, y, z)),
         .stairs => {
             for (world.block.stairsBoxes(world_map.getBlockMetadata(x, y, z)), out) |bounds, *box| {
                 box.* = offsetBox(bounds, x, y, z);

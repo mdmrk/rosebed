@@ -447,6 +447,7 @@ fn clickLeft(app_state: *AppState) !void {
             try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
+        .cake => try eatCakeSlice(app_state, hit.x, hit.y, hit.z),
         else => {},
     }
 }
@@ -1488,10 +1489,27 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try applyBlockChanges(app_state);
                 return true;
             },
+            .cake => {
+                try eatCakeSlice(app_state, hit.x, hit.y, hit.z);
+                return true;
+            },
             else => {},
         }
     }
     return placeBlockAtTarget(app_state);
+}
+
+fn eatCakeSlice(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    if (app_state.player.health >= 20) return;
+    app_state.player.heal(3);
+
+    const eaten = app_state.world_map.getBlockMetadata(x, y, z) + 1;
+    if (eaten >= world.block.cake_slices) {
+        try app_state.world_map.setBlockWithNotify(x, y, z, .air);
+    } else {
+        try app_state.world_map.setBlockMetadataWithNotify(x, y, z, @intCast(eaten));
+    }
+    try applyBlockChanges(app_state);
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
@@ -1573,9 +1591,9 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
         .block => |b| b,
-        .item => |held| {
+        .item => |held| blk: {
             if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
-            return placeDoorAtTarget(app_state, held);
+            break :blk held.placedBlock() orelse return placeDoorAtTarget(app_state, held);
         },
     };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;

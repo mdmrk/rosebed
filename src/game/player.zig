@@ -244,6 +244,11 @@ pub fn hurt(self: *Player, amount: i32) void {
     self.health = @max(0, self.health - @divTrunc(scaled, 25));
 }
 
+pub fn heal(self: *Player, amount: i32) void {
+    if (self.health <= 0) return;
+    self.health = @min(20, self.health + amount);
+}
+
 pub fn digSpeedFactor(self: Player, world_map: *const world.World) f32 {
     var factor: f32 = 1.0;
     if (self.isSubmerged(world_map)) factor /= 5.0;
@@ -904,4 +909,19 @@ test "a player spawns with the half-block step height EntityLiving grants" {
     const player = Player.spawn(math.Vec3.init(0, 0, 0));
     try std.testing.expectEqual(step_height, player.base.step_height);
     try std.testing.expectEqual(@as(f64, 0.5), player.base.step_height);
+}
+
+test "healing tops out at full health and never revives the dead" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+
+    player.health = 14;
+    player.heal(3);
+    try std.testing.expectEqual(@as(i32, 17), player.health);
+
+    player.heal(9);
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+
+    player.health = 0;
+    player.heal(3);
+    try std.testing.expectEqual(@as(i32, 0), player.health);
 }

@@ -35,6 +35,7 @@ pub const Material = enum {
     pumpkin,
     cactus,
     circuits,
+    cake,
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
@@ -69,6 +70,7 @@ pub const Shape = union(enum) {
     door,
     trapdoor,
     stairs,
+    cake,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -240,6 +242,7 @@ pub const Block = enum(u8) {
     soul_sand = 88,
     glowstone = 89,
     jack_o_lantern = 91,
+    cake = 92,
     trapdoor = 96,
     _,
 
@@ -269,6 +272,7 @@ pub const Block = enum(u8) {
             .clay => .clay,
             .cactus => .cactus,
             .pumpkin, .jack_o_lantern => .pumpkin,
+            .cake => .cake,
             .torch => .circuits,
             else => .rock,
         };
@@ -281,6 +285,7 @@ pub const Block = enum(u8) {
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
             .stairs_wood, .stairs_cobblestone => .stairs,
+            .cake => .cake,
             .snow_layer => .{ .partial = 0.125 },
             .slab => .{ .partial = 0.5 },
             else => .cube,
@@ -297,6 +302,10 @@ pub const Block = enum(u8) {
 
     pub fn isTrapdoor(self: Block) bool {
         return self.shape() == .trapdoor;
+    }
+
+    pub fn isCake(self: Block) bool {
+        return self.shape() == .cake;
     }
 
     pub fn isStairs(self: Block) bool {
@@ -337,7 +346,7 @@ pub const Block = enum(u8) {
 
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
-            .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor => false,
+            .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             else => self.isOpaque() and !self.isLiquid(),
@@ -374,12 +383,14 @@ pub const Block = enum(u8) {
             .torch => torchBounds(metadata),
             .door_wood, .door_iron => doorBounds(metadata),
             .trapdoor => trapdoorBounds(metadata),
+            .cake => cakeBounds(metadata),
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }
 
     pub fn itemRenderBoxes(self: Block) []const Bounds {
         return switch (self) {
+            .cake => &cake_item_boxes,
             .trapdoor => &trapdoor_item_boxes,
             .slab => &slab_item_boxes,
             .stairs_wood, .stairs_cobblestone => &stairs_item_boxes,
@@ -464,6 +475,7 @@ pub const Block = enum(u8) {
             .netherrack => uniform(103),
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
+            .cake => cakeTextures(0),
             .jack_o_lantern => FaceTextures.init(.{
                 .down = 102,
                 .up = 102,
@@ -550,6 +562,7 @@ pub const Block = enum(u8) {
             .soul_sand => 0.5,
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
+            .cake => 0.5,
             else => 0.0,
         };
     }
@@ -638,6 +651,7 @@ pub const Block = enum(u8) {
             .soul_sand => "Soul Sand",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
+            .cake => "Cake",
             else => "",
         };
     }
@@ -673,6 +687,7 @@ pub const Block = enum(u8) {
             .door_iron => if (meta & door_top_bit != 0) null else .{ .id = .{ .item = .door_iron }, .count = 1 },
             .glass, .bookshelf, .ice => null,
             .mob_spawner => null,
+            .cake => null,
             .flowing_water, .stationary_water, .flowing_lava, .stationary_lava => null,
             else => .{ .id = .{ .block = self }, .count = 1 },
         };
@@ -901,6 +916,47 @@ pub fn stairsFacingFromYaw(yaw: f32) u4 {
 }
 
 const slab_item_boxes = [1]Bounds{.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 0.5, 1 } }};
+
+pub const cake_margin: f32 = 1.0 / 16.0;
+pub const cake_height: f32 = 0.5;
+pub const cake_slices = 6;
+
+pub fn cakeEaten(metadata: u4) f32 {
+    return @as(f32, @floatFromInt(1 + @as(u8, metadata) * 2)) / 16.0;
+}
+
+pub fn cakeBounds(metadata: u4) Bounds {
+    return .{
+        .min = .{ cakeEaten(metadata), 0, cake_margin },
+        .max = .{ 1 - cake_margin, cake_height, 1 - cake_margin },
+    };
+}
+
+pub fn cakeCollisionBounds(metadata: u4) Bounds {
+    var bounds = cakeBounds(metadata);
+    bounds.max[1] -= cake_margin;
+    return bounds;
+}
+
+const cake_item_boxes = [1]Bounds{.{
+    .min = .{ cake_margin, 0, cake_margin },
+    .max = .{ 1 - cake_margin, cake_height, 1 - cake_margin },
+}};
+
+const cake_tile: u8 = 121;
+
+pub fn cakeTextures(metadata: u4) FaceTextures {
+    var textures = FaceTextures.init(.{
+        .down = cake_tile + 3,
+        .up = cake_tile,
+        .north = cake_tile + 1,
+        .south = cake_tile + 1,
+        .west = cake_tile + 1,
+        .east = cake_tile + 1,
+    });
+    if (metadata > 0) textures.set(.west, cake_tile + 2);
+    return textures;
+}
 
 pub const slab_stone: u4 = 0;
 pub const slab_sandstone: u4 = 1;
@@ -1814,4 +1870,68 @@ test "blocks without variants read the same whatever metadata they carry" {
         try std.testing.expectEqualStrings("Cobblestone", Block.cobblestone.displayName(@intCast(meta)));
         try std.testing.expectEqualStrings("Wood", Block.log.displayName(@intCast(meta)));
     }
+}
+
+test "a cake is eaten away from its west face, a slice at a time" {
+    const whole = Block.cake.selectionBounds(0);
+    try std.testing.expectEqual(@as(f32, 1.0 / 16.0), whole.min[0]);
+    try std.testing.expectEqual(@as(f32, 3.0 / 16.0), Block.cake.selectionBounds(1).min[0]);
+    try std.testing.expectEqual(@as(f32, 11.0 / 16.0), Block.cake.selectionBounds(5).min[0]);
+
+    for (0..cake_slices) |meta| {
+        const bounds = Block.cake.selectionBounds(@intCast(meta));
+        try std.testing.expectEqual(whole.min[1], bounds.min[1]);
+        try std.testing.expectEqual(whole.max, bounds.max);
+        try std.testing.expectEqual(@as(f32, 1.0 / 16.0), bounds.min[2]);
+    }
+}
+
+test "a cake stands half a block tall, and is walked on a notch lower" {
+    const selected = Block.cake.selectionBounds(0);
+    try std.testing.expectEqual(@as(f32, 0.5), selected.max[1]);
+    try std.testing.expectEqual(@as(f32, 15.0 / 16.0), selected.max[0]);
+    try std.testing.expectEqual(@as(f32, 15.0 / 16.0), selected.max[2]);
+
+    const walked = cakeCollisionBounds(0);
+    try std.testing.expectEqual(@as(f32, 7.0 / 16.0), walked.max[1]);
+    try std.testing.expectEqual(selected.min, walked.min);
+}
+
+test "an uncut cake shows its whole side, a cut one its filling to the west" {
+    const whole = cakeTextures(0);
+    try std.testing.expectEqual(@as(u8, 121), whole.get(.up));
+    try std.testing.expectEqual(@as(u8, 124), whole.get(.down));
+    for ([_]Side{ .north, .south, .west, .east }) |side| {
+        try std.testing.expectEqual(@as(u8, 122), whole.get(side));
+    }
+
+    const cut = cakeTextures(1);
+    try std.testing.expectEqual(@as(u8, 123), cut.get(.west));
+    for ([_]Side{ .north, .south, .east }) |side| {
+        try std.testing.expectEqual(@as(u8, 122), cut.get(side));
+    }
+    try std.testing.expectEqual(whole.get(.up), cut.get(.up));
+    try std.testing.expectEqual(whole.get(.down), cut.get(.down));
+}
+
+test "a cake never culls a neighbour's face and never drops itself" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expect(!Block.cake.isOpaqueCube());
+    try std.testing.expect(Block.stone.shouldRenderFace(.cake, .up, true));
+    try std.testing.expectEqual(@as(?Stack, null), Block.cake.drop(0, &rand));
+    try std.testing.expectEqual(@as(?Stack, null), Block.cake.drop(3, &rand));
+}
+
+test "a cake is solid enough to stand on but soft enough to cut by hand" {
+    try std.testing.expect(Block.cake.isSolid());
+    try std.testing.expect(Block.cake.material().isSolid());
+    try std.testing.expect(Block.cake.harvestableWith(null));
+    try std.testing.expectEqualStrings("Cake", Block.cake.displayName(0));
+}
+
+test "the cake in hand is the whole cake, not a cube" {
+    const boxes = Block.cake.itemRenderBoxes();
+    try std.testing.expectEqual(@as(usize, 1), boxes.len);
+    try std.testing.expectEqual([3]f32{ 1.0 / 16.0, 0, 1.0 / 16.0 }, boxes[0].min);
+    try std.testing.expectEqual([3]f32{ 15.0 / 16.0, 0.5, 15.0 / 16.0 }, boxes[0].max);
 }

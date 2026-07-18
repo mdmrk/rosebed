@@ -14,7 +14,7 @@ pub fn opacity(id: Block) u8 {
     return switch (id) {
         .flowing_water, .stationary_water, .ice => 3,
         .leaves => 1,
-        .door_wood, .door_iron, .trapdoor => 0,
+        .door_wood, .door_iron, .trapdoor, .cake => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }

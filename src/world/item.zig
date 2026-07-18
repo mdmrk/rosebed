@@ -275,6 +275,7 @@ pub const Item = enum(u16) {
     dye = 351,
     bone = 352,
     sugar = 353,
+    cake = 354,
     _,
 
     pub fn tool(self: Item) ?Tool {
@@ -345,9 +346,16 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
-        if (self == .door_wood or self == .door_iron) return 1;
+        if (self == .door_wood or self == .door_iron or self == .cake) return 1;
         if (self.bucketFill() != null) return 1;
         return if (self.isDamageable()) 1 else 64;
+    }
+
+    pub fn placedBlock(self: Item) ?Block {
+        return switch (self) {
+            .cake => .cake,
+            else => null,
+        };
     }
 
     pub fn bucketFill(self: Item) ?Fill {
@@ -466,6 +474,7 @@ pub const Item = enum(u16) {
             .glowstone_dust => 4 * 16 + 9,
             .bone => 1 * 16 + 12,
             .sugar => 13,
+            .cake => 1 * 16 + 13,
             else => null,
         };
     }
@@ -554,6 +563,7 @@ pub const Item = enum(u16) {
             .dye => dye_names[@as(u4, @truncate(metadata))],
             .bone => "Bone",
             .sugar => "Sugar",
+            .cake => "Cake",
             else => "",
         };
     }

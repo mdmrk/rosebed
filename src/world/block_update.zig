@@ -205,6 +205,7 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .torch => torchCanStay(world_map, x, y, z),
         .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
         .trapdoor => trapdoorCanStay(world_map, x, y, z),
+        .cake => world_map.getBlock(x, y - 1, z).material().isSolid(),
         else => true,
     };
 }
@@ -889,4 +890,20 @@ test "scooping and pouring return the world to where it started" {
 
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 2, 8));
     try std.testing.expectEqual(block.Material.water, w.getBlock(8, 2, 8).material());
+}
+
+test "a cake needs something solid under it and falls off when that goes" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try std.testing.expect(canStayAt(&w, 8, 2, 8, .cake));
+
+    try w.setBlockWithNotify(8, 1, 8, .air);
+    try std.testing.expect(!canStayAt(&w, 8, 2, 8, .cake));
+
+    try w.setBlockWithNotify(8, 1, 8, .tall_grass);
+    try std.testing.expect(!canStayAt(&w, 8, 2, 8, .cake));
+
+    try w.setBlockWithNotify(8, 1, 8, .glass);
+    try std.testing.expect(canStayAt(&w, 8, 2, 8, .cake));
 }

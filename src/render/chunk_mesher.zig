@@ -426,13 +426,13 @@ fn buildBoundedBox(
     world_map: *const world.World,
     id: world.Block,
     bounds: world.block.Bounds,
+    textures: world.block.FaceTextures,
     x: i32,
     y: i32,
     z: i32,
     origin: [3]f32,
     options: Options,
 ) !void {
-    const textures = id.faceTextures();
     const emitted = world.light.emission(id);
     const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
 
@@ -666,14 +666,21 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 
                 if (id.isTrapdoor()) {
                     const bounds = world.block.trapdoorBounds(metadata);
-                    try buildBoundedBox(target, gpa, world_map, id, bounds, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), world_x, world_y, world_z, .{ bx, by, bz }, options);
                     continue;
                 }
 
                 if (id.isStairs()) {
                     for (world.block.stairsBoxes(metadata)) |bounds| {
-                        try buildBoundedBox(target, gpa, world_map, id, bounds, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                        try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), world_x, world_y, world_z, .{ bx, by, bz }, options);
                     }
+                    continue;
+                }
+
+                if (id.isCake()) {
+                    const bounds = world.block.cakeBounds(metadata);
+                    const textures = world.block.cakeTextures(metadata);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, textures, world_x, world_y, world_z, .{ bx, by, bz }, options);
                     continue;
                 }
 
