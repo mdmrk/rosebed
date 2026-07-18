@@ -1,5 +1,6 @@
 pub const Animal = @import("animal.zig");
 pub const Chicken = @import("chicken.zig");
+pub const commands = @import("commands.zig");
 pub const Cow = @import("cow.zig");
 pub const crafting = @import("crafting.zig");
 pub const Entities = @import("entities.zig");
@@ -38,4 +39,5 @@ test {
     _ = Settings;
     _ = stats;
     _ = stats_file;
+    _ = commands;
 }

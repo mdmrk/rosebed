@@ -873,11 +873,69 @@ fn closeChat(app_state: *AppState) !void {
 fn sendChat(app_state: *AppState) !void {
     const trimmed = std.mem.trim(u8, app_state.chat.message(), " ");
     if (trimmed.len > 0) {
-        var buf: [render.chat.max_message_length + 32]u8 = undefined;
-        const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
-        app_state.chat.addMessage(app_state.font, line);
+        if (trimmed[0] == '/') {
+            try runCommand(app_state, trimmed);
+        } else {
+            var buf: [render.chat.max_message_length + 32]u8 = undefined;
+            const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
+            app_state.chat.addMessage(app_state.font, line);
+        }
     }
     try closeChat(app_state);
+}
+
+fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void {
+    var buf: [render.chat.max_message_length * 2]u8 = undefined;
+    app_state.chat.addMessage(app_state.font, std.fmt.bufPrint(&buf, format, args) catch return);
+}
+
+fn lookedAtPosition(app_state: *AppState) math.Vec3 {
+    const hit = game.raycast.cast(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return app_state.player.base.position;
+
+    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    return math.Vec3.init(
+        @as(f64, @floatFromInt(target.x)) + 0.5,
+        @floatFromInt(target.y),
+        @as(f64, @floatFromInt(target.z)) + 0.5,
+    );
+}
+
+fn runCommand(app_state: *AppState, line: []const u8) !void {
+    switch (game.commands.parse(line, game.stats_file.default_username)) {
+        .nothing => {},
+        .help => for (game.commands.help_lines) |help_line| {
+            app_state.chat.addMessage(app_state.font, help_line);
+        },
+        .give => |give| {
+            try app_state.entities.throwFromPlayer(
+                app_state.gpa,
+                &app_state.player,
+                .{ .id = give.id, .count = give.count },
+                &app_state.world_map.rand,
+            );
+            reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
+        },
+        .spawn => |spawn| {
+            const position = lookedAtPosition(app_state);
+            for (0..spawn.count) |_| switch (spawn.mob) {
+                .pig => try app_state.entities.spawnPig(app_state.gpa, position),
+                .cow => try app_state.entities.spawnCow(app_state.gpa, position),
+                .sheep => try app_state.entities.spawnSheep(app_state.gpa, position, &app_state.world_map.rand),
+                .chicken => try app_state.entities.spawnChicken(app_state.gpa, position, &app_state.world_map.rand),
+            };
+            reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
+        },
+        .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
+        .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
+        .missing_user => |name| reply(app_state, "Can't find user {s}", .{name}),
+        .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
+        .unknown => app_state.chat.addMessage(app_state.font, game.commands.unknown_command_line),
+    }
 }
 
 fn quitToTitle(app_state: *AppState) !void {
