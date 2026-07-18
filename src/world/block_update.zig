@@ -206,8 +206,54 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
         .trapdoor => trapdoorCanStay(world_map, x, y, z),
         .cake => world_map.getBlock(x, y - 1, z).material().isSolid(),
+        .bed => bedPartnerStands(world_map, x, y, z),
         else => true,
     };
+}
+
+
+fn bedPartnerStands(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    const step = block.bedStep(block.bedFacing(metadata));
+    return if (block.bedIsPillow(metadata))
+        world_map.getBlock(x - step[0], y, z - step[1]) == .bed
+    else
+        world_map.getBlock(x + step[0], y, z + step[1]) == .bed;
+}
+
+pub fn bedPartner(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
+    if (world_map.getBlock(x, y, z) != .bed) return null;
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    const step = block.bedStep(block.bedFacing(metadata));
+    const other: [3]i32 = if (block.bedIsPillow(metadata))
+        .{ x - step[0], y, z - step[1] }
+    else
+        .{ x + step[0], y, z + step[1] };
+    return if (world_map.getBlock(other[0], other[1], other[2]) == .bed) other else null;
+}
+
+pub fn canPlaceBedAt(world_map: *const World, x: i32, y: i32, z: i32, facing: u2) bool {
+    const step = block.bedStep(facing);
+    if (!world_map.getBlock(x, y, z).isReplaceable()) return false;
+    if (!world_map.getBlock(x + step[0], y, z + step[1]).isReplaceable()) return false;
+    if (!world_map.getBlock(x, y - 1, z).isOpaqueCube()) return false;
+    if (!world_map.getBlock(x + step[0], y - 1, z + step[1]).isOpaqueCube()) return false;
+    return true;
+}
+
+pub fn placeBed(world_map: *World, x: i32, y: i32, z: i32, yaw: f32) !bool {
+    const facing = block.bedFacingFromYaw(yaw);
+    if (!canPlaceBedAt(world_map, x, y, z, facing)) return false;
+
+    const step = block.bedStep(facing);
+    try world_map.setBlockAndMetadataWithNotify(x, y, z, .bed, facing);
+    try world_map.setBlockAndMetadataWithNotify(x + step[0], y, z + step[1], .bed, facing + block.bed_pillow_bit);
+    return true;
+}
+
+pub fn breakBedPartner(world_map: *World, x: i32, y: i32, z: i32) !void {
+    const other = bedPartner(world_map, x, y, z) orelse return;
+    try world_map.setBlockWithNotify(other[0], other[1], other[2], .air);
 }
 
 pub const Placement = struct {
@@ -906,4 +952,67 @@ test "a cake needs something solid under it and falls off when that goes" {
 
     try w.setBlockWithNotify(8, 1, 8, .glass);
     try std.testing.expect(canStayAt(&w, 8, 2, 8, .cake));
+}
+
+test "a bed needs two free cells with solid ground under both" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try std.testing.expect(canPlaceBedAt(&w, 8, 2, 8, 0));
+
+    try w.setBlockWithNotify(8, 1, 9, .air);
+    try std.testing.expect(!canPlaceBedAt(&w, 8, 2, 8, 0));
+
+    try w.setBlockWithNotify(8, 1, 9, .stone);
+    try w.setBlockWithNotify(8, 2, 9, .stone);
+    try std.testing.expect(!canPlaceBedAt(&w, 8, 2, 8, 0));
+    try std.testing.expect(canPlaceBedAt(&w, 8, 2, 8, 2));
+}
+
+test "placing a bed lays both ends down facing the same way" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try std.testing.expect(try placeBed(&w, 8, 2, 8, 0));
+    try std.testing.expectEqual(.bed, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(.bed, w.getBlock(8, 2, 9));
+
+    try std.testing.expect(!block.bedIsPillow(w.getBlockMetadata(8, 2, 8)));
+    try std.testing.expect(block.bedIsPillow(w.getBlockMetadata(8, 2, 9)));
+    try std.testing.expectEqual(@as(u2, 0), block.bedFacing(w.getBlockMetadata(8, 2, 9)));
+}
+
+test "each end of the bed points at the other" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+    try std.testing.expect(try placeBed(&w, 8, 2, 8, 0));
+
+    try std.testing.expectEqual([3]i32{ 8, 2, 9 }, bedPartner(&w, 8, 2, 8).?);
+    try std.testing.expectEqual([3]i32{ 8, 2, 8 }, bedPartner(&w, 8, 2, 9).?);
+    try std.testing.expectEqual(@as(?[3]i32, null), bedPartner(&w, 8, 2, 7));
+}
+
+test "breaking one end of a bed takes the other with it" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+    try std.testing.expect(try placeBed(&w, 8, 2, 8, 0));
+
+    try w.setBlockWithNotify(8, 2, 8, .air);
+    try std.testing.expectEqual(.air, w.getBlock(8, 2, 9));
+}
+
+test "breaking the pillow end still leaves exactly one bed behind" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+    try std.testing.expect(try placeBed(&w, 8, 2, 8, 0));
+    w.dropped.clearRetainingCapacity();
+
+    try w.setBlockWithNotify(8, 2, 9, .air);
+    try std.testing.expectEqual(.air, w.getBlock(8, 2, 8));
+
+    var beds: usize = 0;
+    for (w.dropped.items) |drop| {
+        if (drop.stack.id.eql(.{ .item = .bed })) beds += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), beds);
 }

@@ -279,6 +279,7 @@ pub const Item = enum(u16) {
     bone = 352,
     sugar = 353,
     cake = 354,
+    bed = 355,
     _,
 
     pub fn tool(self: Item) ?Tool {
@@ -349,7 +350,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
-        if (self == .door_wood or self == .door_iron or self == .cake) return 1;
+        if (self == .door_wood or self == .door_iron or self == .cake or self == .bed) return 1;
         if (self.bucketFill() != null) return 1;
         return if (self.isDamageable()) 1 else 64;
     }
@@ -481,6 +482,7 @@ pub const Item = enum(u16) {
             .bone => 1 * 16 + 12,
             .sugar => 13,
             .cake => 1 * 16 + 13,
+            .bed => 2 * 16 + 13,
             else => null,
         };
     }
@@ -573,6 +575,7 @@ pub const Item = enum(u16) {
             .bone => "Bone",
             .sugar => "Sugar",
             .cake => "Cake",
+            .bed => "Bed",
             else => "",
         };
     }

@@ -71,6 +71,7 @@ pub const Shape = union(enum) {
     trapdoor,
     stairs,
     cake,
+    bed,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -201,6 +202,7 @@ pub const Block = enum(u8) {
     block_lapis = 22,
     sandstone = 24,
     note_block = 25,
+    bed = 26,
     tall_grass = 31,
     dead_bush = 32,
     wool = 35,
@@ -272,6 +274,7 @@ pub const Block = enum(u8) {
             .clay => .clay,
             .cactus => .cactus,
             .pumpkin, .jack_o_lantern => .pumpkin,
+            .bed => .cloth,
             .cake => .cake,
             .torch => .circuits,
             else => .rock,
@@ -284,6 +287,7 @@ pub const Block = enum(u8) {
             .torch => .torch,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
+            .bed => .bed,
             .stairs_wood, .stairs_cobblestone => .stairs,
             .cake => .cake,
             .snow_layer => .{ .partial = 0.125 },
@@ -346,7 +350,7 @@ pub const Block = enum(u8) {
 
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
-            .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake => false,
+            .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             else => self.isOpaque() and !self.isLiquid(),
@@ -384,6 +388,7 @@ pub const Block = enum(u8) {
             .door_wood, .door_iron => doorBounds(metadata),
             .trapdoor => trapdoorBounds(metadata),
             .cake => cakeBounds(metadata),
+            .bed => bed_bounds,
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }
@@ -476,6 +481,7 @@ pub const Block = enum(u8) {
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
             .cake => cakeTextures(0),
+            .bed => bedTextures(0),
             .jack_o_lantern => FaceTextures.init(.{
                 .down = 102,
                 .up = 102,
@@ -563,6 +569,7 @@ pub const Block = enum(u8) {
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
             .cake => 0.5,
+            .bed => 0.2,
             else => 0.0,
         };
     }
@@ -652,6 +659,7 @@ pub const Block = enum(u8) {
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
+            .bed => "Bed",
             else => "",
         };
     }
@@ -688,6 +696,7 @@ pub const Block = enum(u8) {
             .glass, .bookshelf, .ice => null,
             .mob_spawner => null,
             .cake => null,
+            .bed => if (bedIsPillow(meta)) null else .{ .id = .{ .item = .bed }, .count = 1 },
             .flowing_water, .stationary_water, .flowing_lava, .stationary_lava => null,
             else => .{ .id = .{ .block = self }, .count = 1 },
         };
@@ -942,6 +951,74 @@ const cake_item_boxes = [1]Bounds{.{
     .min = .{ cake_margin, 0, cake_margin },
     .max = .{ 1 - cake_margin, cake_height, 1 - cake_margin },
 }};
+
+
+pub const bed_facing_mask: u4 = 3;
+pub const bed_occupied_bit: u4 = 4;
+pub const bed_pillow_bit: u4 = 8;
+
+pub const bed_height: f32 = 9.0 / 16.0;
+pub const bed_leg_height: f32 = 3.0 / 16.0;
+const bed_bounds: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, bed_height, 1 } };
+const bed_tile: u8 = 134;
+
+pub fn bedFacing(metadata: u4) u2 {
+    return @truncate(metadata & bed_facing_mask);
+}
+
+pub fn bedIsPillow(metadata: u4) bool {
+    return metadata & bed_pillow_bit != 0;
+}
+
+pub fn bedIsOccupied(metadata: u4) bool {
+    return metadata & bed_occupied_bit != 0;
+}
+
+pub fn bedOccupied(metadata: u4, occupied: bool) u4 {
+    return if (occupied) metadata | bed_occupied_bit else metadata & ~bed_occupied_bit;
+}
+
+pub fn bedStep(facing: u2) [2]i32 {
+    return switch (facing) {
+        0 => .{ 0, 1 },
+        1 => .{ -1, 0 },
+        2 => .{ 0, -1 },
+        3 => .{ 1, 0 },
+    };
+}
+
+pub fn bedFacingFromYaw(yaw: f32) u2 {
+    const quarters = yaw * 4.0 / 360.0 + 0.5;
+    const floored: i32 = @intFromFloat(@floor(quarters));
+    return @truncate(@as(u32, @bitCast(floored)) & 3);
+}
+
+const bed_side_lookup = [4][6]u8{
+    .{ 1, 0, 3, 2, 5, 4 },
+    .{ 1, 0, 5, 4, 2, 3 },
+    .{ 1, 0, 2, 3, 4, 5 },
+    .{ 1, 0, 4, 5, 3, 2 },
+};
+
+pub fn bedTile(side: Side, metadata: u4) u8 {
+    if (side == .down) return 4;
+
+    const turned = bed_side_lookup[bedFacing(metadata)][@intFromEnum(side)];
+    if (bedIsPillow(metadata)) {
+        if (turned == 2) return bed_tile + 2 + 16;
+        if (turned == 5 or turned == 4) return bed_tile + 1 + 16;
+        return bed_tile + 1;
+    }
+    if (turned == 3) return bed_tile - 1 + 16;
+    if (turned == 5 or turned == 4) return bed_tile + 16;
+    return bed_tile;
+}
+
+pub fn bedTextures(metadata: u4) FaceTextures {
+    var textures: FaceTextures = undefined;
+    for (std.enums.values(Side)) |side| textures.set(side, bedTile(side, metadata));
+    return textures;
+}
 
 const cake_tile: u8 = 121;
 
@@ -1934,4 +2011,56 @@ test "the cake in hand is the whole cake, not a cube" {
     try std.testing.expectEqual(@as(usize, 1), boxes.len);
     try std.testing.expectEqual([3]f32{ 1.0 / 16.0, 0, 1.0 / 16.0 }, boxes[0].min);
     try std.testing.expectEqual([3]f32{ 15.0 / 16.0, 0.5, 15.0 / 16.0 }, boxes[0].max);
+}
+
+test "the bed's metadata carries a facing, an occupied flag and which end it is" {
+    try std.testing.expectEqual(@as(u2, 0), bedFacing(0));
+    try std.testing.expectEqual(@as(u2, 3), bedFacing(3));
+    try std.testing.expectEqual(@as(u2, 1), bedFacing(1 + bed_pillow_bit));
+
+    try std.testing.expect(!bedIsPillow(2));
+    try std.testing.expect(bedIsPillow(2 + bed_pillow_bit));
+
+    try std.testing.expect(!bedIsOccupied(2));
+    try std.testing.expect(bedIsOccupied(bedOccupied(2, true)));
+    try std.testing.expect(!bedIsOccupied(bedOccupied(2 + bed_occupied_bit, false)));
+    try std.testing.expectEqual(@as(u2, 2), bedFacing(bedOccupied(2, true)));
+}
+
+test "the step from one end of the bed to the other follows the facing" {
+    try std.testing.expectEqual([2]i32{ 0, 1 }, bedStep(0));
+    try std.testing.expectEqual([2]i32{ -1, 0 }, bedStep(1));
+    try std.testing.expectEqual([2]i32{ 0, -1 }, bedStep(2));
+    try std.testing.expectEqual([2]i32{ 1, 0 }, bedStep(3));
+}
+
+test "the bed is laid out from the way the player faces" {
+    try std.testing.expectEqual(@as(u2, 0), bedFacingFromYaw(0));
+    try std.testing.expectEqual(@as(u2, 1), bedFacingFromYaw(90));
+    try std.testing.expectEqual(@as(u2, 2), bedFacingFromYaw(180));
+    try std.testing.expectEqual(@as(u2, 3), bedFacingFromYaw(270));
+    try std.testing.expectEqual(@as(u2, 0), bedFacingFromYaw(360));
+    try std.testing.expectEqual(@as(u2, 3), bedFacingFromYaw(-90));
+}
+
+test "the pillow end wears the pillow, the other end does not" {
+    try std.testing.expectEqual(@as(u8, 134), bedTile(.up, 0));
+    try std.testing.expectEqual(@as(u8, 135), bedTile(.up, bed_pillow_bit));
+    try std.testing.expectEqual(@as(u8, 4), bedTile(.down, 0));
+    try std.testing.expectEqual(@as(u8, 4), bedTile(.down, bed_pillow_bit));
+}
+
+test "only the end without the pillow drops the bed" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(Id{ .item = .bed }, Block.bed.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .bed }, Block.bed.drop(3, &rand).?.id);
+    try std.testing.expectEqual(@as(?Stack, null), Block.bed.drop(bed_pillow_bit, &rand));
+    try std.testing.expectEqual(@as(?Stack, null), Block.bed.drop(3 + bed_pillow_bit, &rand));
+}
+
+test "a bed is a low slab that never culls its neighbours" {
+    try std.testing.expect(!Block.bed.isOpaqueCube());
+    try std.testing.expect(Block.stone.shouldRenderFace(.bed, .up, true));
+    try std.testing.expectEqual(@as(f32, 9.0 / 16.0), Block.bed.selectionBounds(0).max[1]);
+    try std.testing.expectEqualStrings("Bed", Block.bed.displayName(0));
 }

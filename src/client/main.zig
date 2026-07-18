@@ -1534,6 +1534,10 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try eatCakeSlice(app_state, hit.x, hit.y, hit.z);
                 return true;
             },
+            .bed => {
+                try sleepInBed(app_state, hit.x, hit.y, hit.z);
+                return true;
+            },
             else => {},
         }
     }
@@ -1584,6 +1588,28 @@ fn hangPaintingAtTarget(app_state: *AppState) !bool {
     try app_state.stats.use(app_state.gpa, .{ .item = .painting });
     consumeSelectedStack(app_state);
     return true;
+}
+
+const bed_reach_x: f64 = 3.0;
+const bed_reach_y: f64 = 2.0;
+
+fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    var pillow: [3]i32 = .{ x, y, z };
+    if (!world.block.bedIsPillow(app_state.world_map.getBlockMetadata(x, y, z))) {
+        pillow = world.block_update.bedPartner(&app_state.world_map, x, y, z) orelse return;
+    }
+
+    if (app_state.world_map.isDaytime()) {
+        app_state.chat.addMessage(app_state.font, "You can only sleep at night");
+        return;
+    }
+
+    const position = app_state.player.base.position;
+    if (@abs(position.x - @as(f64, @floatFromInt(pillow[0]))) > bed_reach_x) return;
+    if (@abs(position.y - @as(f64, @floatFromInt(pillow[1]))) > bed_reach_y) return;
+    if (@abs(position.z - @as(f64, @floatFromInt(pillow[2]))) > bed_reach_x) return;
+
+    app_state.world_map.skipToDawn();
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
@@ -1661,6 +1687,22 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
     return true;
 }
 
+fn placeBedAtTarget(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+    if (hit.face != .up) return false;
+    if (!try world.block_update.placeBed(&app_state.world_map, hit.x, hit.y + 1, hit.z, app_state.player.yaw)) return false;
+
+    try app_state.stats.use(app_state.gpa, .{ .item = .bed });
+    consumeSelectedStack(app_state);
+    try applyBlockChanges(app_state);
+    return true;
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
@@ -1668,6 +1710,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         .item => |held| blk: {
             if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
             if (held == .painting) return hangPaintingAtTarget(app_state);
+            if (held == .bed) return placeBedAtTarget(app_state);
             break :blk held.placedBlock() orelse return placeDoorAtTarget(app_state, held);
         },
     };

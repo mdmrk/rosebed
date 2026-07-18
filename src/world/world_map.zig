@@ -85,6 +85,15 @@ pub const max_ticks_per_update: usize = 1000;
 
 const load_radius: i32 = 8;
 
+pub fn isDaytime(self: *const World) bool {
+    return self.skylight_subtracted < 4;
+}
+
+pub fn skipToDawn(self: *World) void {
+    const tomorrow = self.time + ticks_per_day;
+    self.time = tomorrow - @mod(tomorrow, ticks_per_day);
+}
+
 pub fn celestialAngle(self: *const World, partial_ticks: f32) f32 {
     const day_time: f32 = @floatFromInt(@mod(self.time, ticks_per_day));
     var fraction = (day_time + partial_ticks) / @as(f32, ticks_per_day) - 0.25;
@@ -799,4 +808,35 @@ test "an incremental save round writes every loaded chunk a few at a time" {
         _ = try reloaded.getOrGenerateChunk(generator, cx, 0);
         try std.testing.expectEqual(.glowstone, reloaded.getBlock(cx * 16 + 1, 90, 1));
     }
+}
+
+test "sleeping rounds the clock up to the next dawn" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+
+    world_map.time = 13000;
+    world_map.skipToDawn();
+    try std.testing.expectEqual(@as(i64, 24000), world_map.time);
+
+    world_map.time = 24001;
+    world_map.skipToDawn();
+    try std.testing.expectEqual(@as(i64, 48000), world_map.time);
+
+    world_map.time = 0;
+    world_map.skipToDawn();
+    try std.testing.expectEqual(@as(i64, 24000), world_map.time);
+}
+
+test "day and night follow how much skylight is taken away" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+
+    world_map.skylight_subtracted = 0;
+    try std.testing.expect(world_map.isDaytime());
+    world_map.skylight_subtracted = 3;
+    try std.testing.expect(world_map.isDaytime());
+    world_map.skylight_subtracted = 4;
+    try std.testing.expect(!world_map.isDaytime());
+    world_map.skylight_subtracted = 11;
+    try std.testing.expect(!world_map.isDaytime());
 }

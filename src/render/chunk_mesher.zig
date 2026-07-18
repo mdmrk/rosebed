@@ -677,6 +677,16 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     continue;
                 }
 
+                if (id.shape() == .bed) {
+                    const bounds = world.block.Bounds{
+                        .min = .{ 0, world.block.bed_leg_height, 0 },
+                        .max = .{ 1, world.block.bed_height, 1 },
+                    };
+                    const textures = world.block.bedTextures(metadata);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, textures, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    continue;
+                }
+
                 if (id.isCake()) {
                     const bounds = world.block.cakeBounds(metadata);
                     const textures = world.block.cakeTextures(metadata);
