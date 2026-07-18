@@ -2271,8 +2271,14 @@ pub fn iterate(
         app_state.debug_latched_ms = now_ms;
     }
 
-    app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
-    if (app_state.screen == .playing and !app_state.paused) {
+    const world_ticking = app_state.screen == .playing and !app_state.paused;
+    if (world_ticking) {
+        app_state.timer.advance(sdl3.timer.getNanosecondsSinceInit());
+    } else {
+        app_state.timer.advanceHoldingPartial(sdl3.timer.getNanosecondsSinceInit());
+    }
+
+    if (world_ticking) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
             try tick(app_state);
         }

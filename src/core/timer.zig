@@ -28,6 +28,12 @@ pub fn advance(self: *Timer, now_ns: u64) void {
     self.render_partial_ticks = self.elapsed_partial_ticks;
 }
 
+pub fn advanceHoldingPartial(self: *Timer, now_ns: u64) void {
+    const held = self.render_partial_ticks;
+    self.advance(now_ns);
+    self.render_partial_ticks = held;
+}
+
 test "advance produces one tick per 1/20s at 20 ticks/second" {
     var t = Timer.init(20.0, 0);
     t.advance(std.time.ns_per_s / 20);
@@ -46,4 +52,28 @@ test "advance caps ticks per frame to avoid a spiral of death" {
     var t = Timer.init(20.0, 0);
     t.advance(std.time.ns_per_s * 5);
     try std.testing.expectEqual(@as(i32, 10), t.elapsed_ticks);
+}
+
+test "a held partial keeps the frame interpolation still while ticks pile up" {
+    var t = Timer.init(20.0, 0);
+    t.advance(std.time.ns_per_s / 40);
+    const frozen = t.render_partial_ticks;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), frozen, 1.0e-4);
+
+    var now: u64 = std.time.ns_per_s / 40;
+    for (0..20) |_| {
+        now += std.time.ns_per_s / 60;
+        t.advanceHoldingPartial(now);
+        try std.testing.expectEqual(frozen, t.render_partial_ticks);
+    }
+}
+
+test "the hold covers the frame interpolation only, not the tick accumulator" {
+    var t = Timer.init(20.0, 0);
+    t.advanceHoldingPartial(std.time.ns_per_s / 40);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), t.render_partial_ticks, 1.0e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), t.elapsed_partial_ticks, 1.0e-4);
+
+    t.advance(std.time.ns_per_s / 40 + std.time.ns_per_s / 80);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), t.render_partial_ticks, 1.0e-4);
 }
