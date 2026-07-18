@@ -425,6 +425,8 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
     if (damage <= 0) return;
     if (app_state.player.base.motion.y < 0.0) damage += 1;
 
+    if (target == .painting) return breakPainting(app_state, target.painting);
+
     app_state.entities.hurtTarget(target, damage, app_state.player.base.position, &app_state.world_map.rand);
     try app_state.stats.add(app_state.gpa, .{ .general = .damage_dealt }, damage);
 }
@@ -922,7 +924,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .{ .id = give.id, .count = give.count },
                 &app_state.world_map.rand,
             );
-            reply(app_state, "Giving {s} some {d}", .{ give.user, give.id });
+            reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
@@ -1551,6 +1553,39 @@ fn eatCakeSlice(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     try applyBlockChanges(app_state);
 }
 
+fn breakPainting(app_state: *AppState, index: usize) !void {
+    const painting = app_state.entities.paintings.orderedRemove(index);
+    try app_state.entities.dropStackAt(
+        app_state.gpa,
+        painting.position,
+        .{ .id = .{ .item = .painting }, .count = 1 },
+        &app_state.world_map.rand,
+    );
+}
+
+fn hangPaintingAtTarget(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+
+    const direction = game.Painting.directionFromFace(hit.face) orelse return false;
+    const hung = game.Painting.pickArt(
+        .{ hit.x, hit.y, hit.z },
+        direction,
+        &app_state.world_map,
+        app_state.entities.paintings.items,
+        &app_state.world_map.rand,
+    ) orelse return true;
+
+    try app_state.entities.spawnPainting(app_state.gpa, hung);
+    try app_state.stats.use(app_state.gpa, .{ .item = .painting });
+    consumeSelectedStack(app_state);
+    return true;
+}
+
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
     if (target != .cow) return false;
     const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
@@ -1632,6 +1667,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         .block => |b| b,
         .item => |held| blk: {
             if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
+            if (held == .painting) return hangPaintingAtTarget(app_state);
             break :blk held.placedBlock() orelse return placeDoorAtTarget(app_state, held);
         },
     };
@@ -1742,6 +1778,7 @@ fn tick(app_state: *AppState) !void {
         app_state.spawn,
         &app_state.world_map.rand,
     );
+    try app_state.entities.tickPaintings(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
     try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
     try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
@@ -1994,6 +2031,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep, partial);
         }
     }
+    var painting_mesh: render.MeshBuilder = .{};
+    defer painting_mesh.deinit(app_state.frame);
+    for (app_state.entities.paintings.items) |painting| {
+        try render.entity_render.appendPainting(&painting_mesh, app_state.frame, &app_state.world_map, painting);
+    }
+    if (painting_mesh.vertices.items.len > 0) {
+        app_state.textures.art.bind();
+        drawEntityMesh(&painting_mesh);
+        app_state.textures.terrain.bind();
+    }
+
     var icon_mesh: render.MeshBuilder = .{};
     defer icon_mesh.deinit(app_state.frame);
     for (app_state.entities.items.items) |item| {

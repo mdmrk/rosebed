@@ -10,6 +10,7 @@ const Entity = @import("entity.zig");
 const FallingBlock = @import("falling_block.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
+const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
 const Pig = @import("pig.zig");
 const Player = @import("player.zig");
@@ -24,6 +25,7 @@ sheep: std.ArrayList(Sheep) = .empty,
 cows: std.ArrayList(Cow) = .empty,
 chickens: std.ArrayList(Chicken) = .empty,
 particles: std.ArrayList(Particle) = .empty,
+paintings: std.ArrayList(Painting) = .empty,
 
 fn herds(self: *Entities) struct {
     *std.ArrayList(Pig),
@@ -39,6 +41,7 @@ pub const Target = union(enum) {
     sheep: usize,
     cow: usize,
     chicken: usize,
+    painting: usize,
 };
 
 pub const entity_reach: f64 = 3.0;
@@ -79,6 +82,19 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
     var found: ?Target = null;
     var nearest: f64 = 0;
 
+    for (self.paintings.items, 0..) |painting, index| {
+        const target: Target = .{ .painting = index };
+        if (boxHolds(painting.box, start)) {
+            found = target;
+            nearest = 0;
+        } else if (boxRayDistance(painting.box, start, along, reach)) |distance| {
+            if (distance < nearest or nearest == 0) {
+                found = target;
+                nearest = distance;
+            }
+        }
+    }
+
     inline for (self.herds(), 0..) |herd, kind| {
         for (herd.items, 0..) |*animal, index| {
             if (!animal.animal.isAlive()) continue;
@@ -114,6 +130,7 @@ pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec
         .sheep => |index| _ = self.sheep.items[index].hurt(amount, source, rand),
         .cow => |index| _ = self.cows.items[index].animal.hurt(amount, source, rand),
         .chicken => |index| _ = self.chickens.items[index].animal.hurt(amount, source, rand),
+        .painting => {},
     }
 }
 
@@ -121,6 +138,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
+    self.paintings.deinit(gpa);
     inline for (self.herds()) |herd| {
         for (herd.items) |*animal| animal.deinit(gpa);
         herd.deinit(gpa);
@@ -132,7 +150,34 @@ pub fn animalCount(self: *const Entities) usize {
 }
 
 pub fn count(self: *const Entities) usize {
-    return self.items.items.len + self.falling_blocks.items.len + self.animalCount();
+    return self.items.items.len + self.falling_blocks.items.len + self.paintings.items.len + self.animalCount();
+}
+
+pub fn dropStackAt(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    position: math.Vec3,
+    stack: Inventory.ItemStack,
+    rand: *world.JavaRandom,
+) !void {
+    try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
+}
+
+pub fn tickPaintings(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    rand: *world.JavaRandom,
+) !void {
+    var index = self.paintings.items.len;
+    while (index > 0) {
+        index -= 1;
+        if (!self.paintings.items[index].dueForRecheck()) continue;
+        if (self.paintings.items[index].fits(world_map, self.paintings.items, index)) continue;
+
+        const fallen = self.paintings.orderedRemove(index);
+        try self.dropStackAt(gpa, fallen.position, .{ .id = .{ .item = .painting }, .count = 1 }, rand);
+    }
 }
 
 pub fn dropStack(
@@ -182,6 +227,10 @@ pub fn throwFromPlayer(
     };
 
     try self.items.append(gpa, item);
+}
+
+pub fn spawnPainting(self: *Entities, gpa: std.mem.Allocator, painting: Painting) !void {
+    try self.paintings.append(gpa, painting);
 }
 
 pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: world.Block) !void {
@@ -1080,4 +1129,35 @@ test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
 
     entities.hurtTarget(.{ .sheep = 0 }, 1, math.Vec3.init(0, 1, 0), &rand);
     try std.testing.expect(entities.sheep.items[0].sheared);
+}
+
+test "a painting whose wall is gone falls as an item where it hung" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    try w.setBlockWithNotify(8, 4, 8, .stone);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    const hung = Painting.place(.{ 8, 4, 8 }, 0, .kebab);
+    try entities.spawnPainting(gpa, hung);
+
+    var rand = world.JavaRandom.init(7);
+    for (0..Painting.recheck_ticks * 2) |_| {
+        try entities.tickPaintings(gpa, &w, &rand);
+    }
+    try std.testing.expectEqual(@as(usize, 1), entities.paintings.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
+
+    try w.setBlockWithNotify(8, 4, 8, .air);
+    for (0..Painting.recheck_ticks * 2) |_| {
+        try entities.tickPaintings(gpa, &w, &rand);
+    }
+    try std.testing.expectEqual(@as(usize, 0), entities.paintings.items.len);
+    try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
+
+    const dropped = entities.items.items[0];
+    try std.testing.expectEqual(world.Id{ .item = .painting }, dropped.stack.id);
+    try std.testing.expectApproxEqAbs(hung.position.x, dropped.base.position.x, 1.0e-6);
+    try std.testing.expectApproxEqAbs(hung.position.z, dropped.base.position.z, 1.0e-6);
 }

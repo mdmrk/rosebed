@@ -8,6 +8,7 @@ pub const Entity = @import("entity.zig");
 pub const FallingBlock = @import("falling_block.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
+pub const Painting = @import("painting.zig");
 pub const Particle = @import("particle.zig");
 pub const physics = @import("physics.zig");
 pub const Pig = @import("pig.zig");
@@ -27,6 +28,7 @@ test {
     _ = raycast;
     _ = Inventory;
     _ = ItemEntity;
+    _ = Painting;
     _ = Particle;
     _ = FallingBlock;
     _ = Animal;

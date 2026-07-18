@@ -1312,3 +1312,149 @@ test "a flame samples a whole tile of the particle sheet, not a quarter" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.999 / 16.0), highest_u - lowest_u, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), lowest_u, 1.0e-6);
 }
+
+const painting_atlas: f32 = 256.0;
+const painting_back_u0: f32 = 12.0 / 16.0;
+const painting_back_u1: f32 = 13.0 / 16.0;
+const painting_back_v0: f32 = 0.0;
+const painting_back_v1: f32 = 1.0 / 16.0;
+const painting_edge_u: f32 = 385.0 / 512.0;
+const painting_edge_v: f32 = 0.001953125;
+
+fn paintingTileBrightness(
+    world_map: *const world.World,
+    painting: game.Painting,
+    across: f32,
+    up: f32,
+) f32 {
+    var x = math.util.floorDouble(painting.position.x);
+    const y = math.util.floorDouble(painting.position.y + @as(f64, up / 16.0));
+    var z = math.util.floorDouble(painting.position.z);
+    switch (painting.direction) {
+        0 => x = math.util.floorDouble(painting.position.x + @as(f64, across / 16.0)),
+        1 => z = math.util.floorDouble(painting.position.z - @as(f64, across / 16.0)),
+        2 => x = math.util.floorDouble(painting.position.x - @as(f64, across / 16.0)),
+        3 => z = math.util.floorDouble(painting.position.z + @as(f64, across / 16.0)),
+    }
+    return world.light.brightnessAt(world_map, x, y, z, 0);
+}
+
+pub fn appendPainting(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    painting: game.Painting,
+) !void {
+    const size = painting.art.info();
+    const wide: f32 = @floatFromInt(size.size_x);
+    const tall: f32 = @floatFromInt(size.size_y);
+    const left = -wide / 2.0;
+    const bottom = -tall / 2.0;
+    const back: f32 = -0.5;
+    const front: f32 = 0.5;
+
+    const yaw = painting.yaw() * to_radians;
+    const sin = @sin(yaw);
+    const cos = @cos(yaw);
+    const origin_x: f32 = @floatCast(painting.position.x);
+    const origin_y: f32 = @floatCast(painting.position.y);
+    const origin_z: f32 = @floatCast(painting.position.z);
+
+    const put = struct {
+        fn at(x: f32, y: f32, z: f32, s: f32, c: f32, ox: f32, oy: f32, oz: f32) [3]f32 {
+            const sx = x / 16.0;
+            const sy = y / 16.0;
+            const sz = z / 16.0;
+            return .{ ox + sx * c + sz * s, oy + sy, oz - sx * s + sz * c };
+        }
+    }.at;
+
+    for (0..size.size_x / 16) |column| {
+        for (0..size.size_y / 16) |row| {
+            const step: f32 = @floatFromInt(column);
+            const lift: f32 = @floatFromInt(row);
+            const right = left + (step + 1.0) * 16.0;
+            const near = left + step * 16.0;
+            const top = bottom + (lift + 1.0) * 16.0;
+            const low = bottom + lift * 16.0;
+
+            const shade = paintingTileBrightness(world_map, painting, (right + near) / 2.0, (top + low) / 2.0);
+            const tile_first = mesh.vertices.items.len;
+            const colour: [4]u8 = .{ 255, 255, 255, 255 };
+
+            const u_near = @as(f32, @floatFromInt(size.offset_x + size.size_x)) / painting_atlas - step * 16.0 / painting_atlas;
+            const u_far = @as(f32, @floatFromInt(size.offset_x + size.size_x)) / painting_atlas - (step + 1.0) * 16.0 / painting_atlas;
+            const v_near = @as(f32, @floatFromInt(size.offset_y + size.size_y)) / painting_atlas - lift * 16.0 / painting_atlas;
+            const v_far = @as(f32, @floatFromInt(size.offset_y + size.size_y)) / painting_atlas - (lift + 1.0) * 16.0 / painting_atlas;
+
+            try mesh.quad(gpa, .{
+                put(right, low, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, top, back, sin, cos, origin_x, origin_y, origin_z),
+                put(right, top, back, sin, cos, origin_x, origin_y, origin_z),
+            }, .{ .{ u_far, v_near }, .{ u_near, v_near }, .{ u_near, v_far }, .{ u_far, v_far } }, colour);
+
+            try mesh.quad(gpa, .{
+                put(right, top, front, sin, cos, origin_x, origin_y, origin_z),
+                put(near, top, front, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, front, sin, cos, origin_x, origin_y, origin_z),
+                put(right, low, front, sin, cos, origin_x, origin_y, origin_z),
+            }, .{
+                .{ painting_back_u0, painting_back_v0 },
+                .{ painting_back_u1, painting_back_v0 },
+                .{ painting_back_u1, painting_back_v1 },
+                .{ painting_back_u0, painting_back_v1 },
+            }, colour);
+
+            try mesh.quad(gpa, .{
+                put(right, top, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, top, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, top, front, sin, cos, origin_x, origin_y, origin_z),
+                put(right, top, front, sin, cos, origin_x, origin_y, origin_z),
+            }, .{
+                .{ painting_back_u0, painting_edge_v },
+                .{ painting_back_u1, painting_edge_v },
+                .{ painting_back_u1, painting_edge_v },
+                .{ painting_back_u0, painting_edge_v },
+            }, colour);
+
+            try mesh.quad(gpa, .{
+                put(right, low, front, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, front, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, back, sin, cos, origin_x, origin_y, origin_z),
+                put(right, low, back, sin, cos, origin_x, origin_y, origin_z),
+            }, .{
+                .{ painting_back_u0, painting_edge_v },
+                .{ painting_back_u1, painting_edge_v },
+                .{ painting_back_u1, painting_edge_v },
+                .{ painting_back_u0, painting_edge_v },
+            }, colour);
+
+            try mesh.quad(gpa, .{
+                put(right, top, front, sin, cos, origin_x, origin_y, origin_z),
+                put(right, low, front, sin, cos, origin_x, origin_y, origin_z),
+                put(right, low, back, sin, cos, origin_x, origin_y, origin_z),
+                put(right, top, back, sin, cos, origin_x, origin_y, origin_z),
+            }, .{
+                .{ painting_edge_u, 0.0 },
+                .{ painting_edge_u, painting_back_v1 },
+                .{ painting_edge_u, painting_back_v1 },
+                .{ painting_edge_u, 0.0 },
+            }, colour);
+
+            try mesh.quad(gpa, .{
+                put(near, top, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, back, sin, cos, origin_x, origin_y, origin_z),
+                put(near, low, front, sin, cos, origin_x, origin_y, origin_z),
+                put(near, top, front, sin, cos, origin_x, origin_y, origin_z),
+            }, .{
+                .{ painting_edge_u, 0.0 },
+                .{ painting_edge_u, painting_back_v1 },
+                .{ painting_edge_u, painting_back_v1 },
+                .{ painting_edge_u, 0.0 },
+            }, colour);
+
+            mesh.scaleColors(tile_first, shade);
+        }
+    }
+}
