@@ -12,7 +12,7 @@ pub const Verb = enum {
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
             .help => "",
-            .give => "<player> <id> [num]",
+            .give => "<player> <id|name> [num]",
             .spawn => "<mob> [num]",
         };
     }
@@ -21,7 +21,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "shows this message",
             .give => "gives a player a resource",
-            .spawn => "spawns a mob you are looking at",
+            .spawn => "spawns a mob where you look",
         };
     }
 };
@@ -99,6 +99,19 @@ fn verbFromWord(word: []const u8) ?Verb {
     return std.meta.stringToEnum(Verb, word);
 }
 
+pub fn resolveName(name: []const u8) ?world.Id {
+    if (std.meta.stringToEnum(world.Item, name)) |id| return .{ .item = id };
+    if (std.meta.stringToEnum(world.Block, name)) |id| return .{ .block = id };
+    return null;
+}
+
+pub fn numericId(id: world.Id) u32 {
+    return switch (id) {
+        .block => |block| @intFromEnum(block),
+        .item => |item| @intFromEnum(item),
+    };
+}
+
 pub fn parse(line: []const u8, username: []const u8) Result {
     if (!std.mem.startsWith(u8, line, "/")) return .nothing;
 
@@ -122,13 +135,15 @@ fn parseGive(words: *Words, username: []const u8) Result {
 
     if (!std.mem.eql(u8, user, username)) return .{ .missing_user = user };
 
-    const raw = std.fmt.parseInt(u32, id_text, 10) catch return .{ .unparsed_item = id_text };
-    const id = resolveId(raw) orelse return .{ .missing_item = raw };
+    const id = if (std.fmt.parseInt(u32, id_text, 10)) |raw|
+        resolveId(raw) orelse return .{ .missing_item = raw }
+    else |_|
+        resolveName(id_text) orelse return .{ .unparsed_item = id_text };
 
     return .{ .give = .{
         .user = user,
         .id = id,
-        .raw_id = raw,
+        .raw_id = numericId(id),
         .count = tryParse(count_text, 1),
     } };
 }
@@ -179,7 +194,7 @@ test "give rejects ids that name nothing, and air" {
     try std.testing.expectEqual(@as(u32, 250), parse("/give Player 250", local_user).missing_item);
     try std.testing.expectEqual(@as(u32, 400), parse("/give Player 400", local_user).missing_item);
     try std.testing.expectEqual(@as(u32, 262), parse("/give Player 262", local_user).missing_item);
-    try std.testing.expectEqualStrings("apple", parse("/give Player apple", local_user).unparsed_item);
+    try std.testing.expectEqualStrings("turnip", parse("/give Player turnip", local_user).unparsed_item);
 }
 
 test "give only knows the one local player, spelled exactly" {
@@ -217,9 +232,9 @@ test "an unrecognised verb reports itself" {
 test "help is built from the verbs, one line each under a heading" {
     try std.testing.expectEqual(std.enums.values(Verb).len + 1, help_lines.len);
     try std.testing.expectEqualStrings("Commands:", help_lines[0]);
-    try std.testing.expectEqualStrings("   help                      shows this message", help_lines[1]);
-    try std.testing.expectEqualStrings("   give <player> <id> [num]  gives a player a resource", help_lines[2]);
-    try std.testing.expectEqualStrings("   spawn <mob> [num]         spawns a mob you are looking at", help_lines[3]);
+    try std.testing.expectEqualStrings("   help                           shows this message", help_lines[1]);
+    try std.testing.expectEqualStrings("   give <player> <id|name> [num]  gives a player a resource", help_lines[2]);
+    try std.testing.expectEqualStrings("   spawn <mob> [num]              spawns a mob where you look", help_lines[3]);
 }
 
 test "every verb names itself in help and answers to that name" {
@@ -256,4 +271,42 @@ test "resolveId spans both halves of the id space" {
     try std.testing.expectEqual(world.Item.bone, resolveId(352).?.item);
     try std.testing.expectEqual(@as(?world.Id, null), resolveId(0));
     try std.testing.expectEqual(@as(?world.Id, null), resolveId(70000));
+}
+
+test "give takes a block or item by its own name" {
+    try std.testing.expectEqual(world.Block.stone, parse("/give Player stone", local_user).give.id.block);
+    try std.testing.expectEqual(world.Item.diamond, parse("/give Player diamond", local_user).give.id.item);
+    try std.testing.expectEqual(world.Block.jack_o_lantern, parse("/give Player jack_o_lantern", local_user).give.id.block);
+}
+
+test "a name that is both a block and an item hands over the item" {
+    for ([_][]const u8{ "cake", "reed", "brick", "door_wood", "door_iron" }) |name| {
+        var line: [64]u8 = undefined;
+        const typed = std.fmt.bufPrint(&line, "/give Player {s}", .{name}) catch unreachable;
+        const given = parse(typed, local_user).give;
+        try std.testing.expect(given.id == .item);
+        try std.testing.expectEqualStrings(name, @tagName(given.id.item));
+    }
+}
+
+test "a numeric id still reaches the block half of a shared name" {
+    try std.testing.expectEqual(world.Block.cake, parse("/give Player 92", local_user).give.id.block);
+    try std.testing.expectEqual(world.Item.cake, parse("/give Player 354", local_user).give.id.item);
+}
+
+test "a name is matched exactly, like every other command word" {
+    try std.testing.expectEqualStrings("Stone", parse("/give Player Stone", local_user).unparsed_item);
+    try std.testing.expectEqualStrings("banana", parse("/give Player banana", local_user).unparsed_item);
+}
+
+test "the count still follows a name the way it follows an id" {
+    const given = parse("/give Player cobblestone 32", local_user).give;
+    try std.testing.expectEqual(world.Block.cobblestone, given.id.block);
+    try std.testing.expectEqual(@as(u8, 32), given.count);
+}
+
+test "a name reports the id it resolved to, so the reply reads the same either way" {
+    try std.testing.expectEqual(@as(u32, 264), parse("/give Player diamond", local_user).give.raw_id);
+    try std.testing.expectEqual(@as(u32, 264), parse("/give Player 264", local_user).give.raw_id);
+    try std.testing.expectEqual(@as(u32, 1), parse("/give Player 001", local_user).give.raw_id);
 }
