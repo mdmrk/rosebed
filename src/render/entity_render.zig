@@ -127,6 +127,8 @@ pub fn appendItem(
         Cube.faces.set(.east, side_tile);
     } else if (id == .wool) {
         Cube.faces = world.block.FaceTextures.initFill(world.block.woolTile(item.stack.blockMeta()));
+    } else if (id == .slab or id == .slab_double) {
+        Cube.faces = world.block.slabTextures(item.stack.blockMeta());
     }
     Cube.inset = id.sideInset() * block_scale;
     try appendCopies(

@@ -207,6 +207,8 @@ pub const Block = enum(u8) {
     mushroom_red = 40,
     block_gold = 41,
     block_iron = 42,
+    slab_double = 43,
+    slab = 44,
     brick = 45,
     tnt = 46,
     bookshelf = 47,
@@ -246,6 +248,7 @@ pub const Block = enum(u8) {
             .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner, .stairs_cobblestone => .rock,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
             .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
+            .slab, .slab_double => .rock,
             .furnace, .burning_furnace => .rock,
             .block_gold, .block_iron, .block_diamond, .door_iron => .iron,
             .grass, .dirt => .ground,
@@ -278,6 +281,7 @@ pub const Block = enum(u8) {
             .trapdoor => .trapdoor,
             .stairs_wood, .stairs_cobblestone => .stairs,
             .snow_layer => .{ .partial = 0.125 },
+            .slab => .{ .partial = 0.5 },
             else => .cube,
         };
     }
@@ -334,6 +338,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor => false,
             .stairs_wood, .stairs_cobblestone => false,
+            .slab => false,
             else => self.isOpaque() and !self.isLiquid(),
         };
     }
@@ -375,6 +380,7 @@ pub const Block = enum(u8) {
     pub fn itemRenderBoxes(self: Block) []const Bounds {
         return switch (self) {
             .trapdoor => &trapdoor_item_boxes,
+            .slab => &slab_item_boxes,
             .stairs_wood, .stairs_cobblestone => &stairs_item_boxes,
             else => &full_cube_box,
         };
@@ -388,6 +394,11 @@ pub const Block = enum(u8) {
         }
         if (self == .leaves and !fancy and neighbor == .leaves) return false;
         if (self.isBreakable() and neighbor == self) return false;
+        if (self == .slab or self == .slab_double) {
+            if (side == .up) return true;
+            if (!neighbor.isOpaqueCube()) return side == .down or neighbor != self;
+            return false;
+        }
         return !neighbor.isOpaqueCube();
     }
 
@@ -443,6 +454,7 @@ pub const Block = enum(u8) {
             .door_wood => uniform(door_bottom_tile),
             .door_iron => uniform(door_bottom_tile + 1),
             .trapdoor => uniform(trapdoor_tile),
+            .slab, .slab_double => slabTextures(0),
             .stairs_wood => uniform(4),
             .stairs_cobblestone => uniform(16),
             .ice => uniform(67),
@@ -510,6 +522,7 @@ pub const Block = enum(u8) {
             .snow_layer => 0.1,
             .cobblestone, .cobblestone_mossy => 2.0,
             .stairs_wood, .stairs_cobblestone => 2.0,
+            .slab, .slab_double => 2.0,
             .mob_spawner => 5.0,
             .sponge => 0.6,
             .glass => 0.3,
@@ -566,6 +579,7 @@ pub const Block = enum(u8) {
 
     pub fn displayName(self: Block) []const u8 {
         return switch (self) {
+            .slab, .slab_double => "Stone Slab",
             .stone => "Stone",
             .grass => "Grass",
             .dirt => "Dirt",
@@ -595,12 +609,12 @@ pub const Block = enum(u8) {
             .cactus => "Cactus",
             .reed => "Sugar cane",
             .pumpkin => "Pumpkin",
+            .wool => "Wool",
             .sponge => "Sponge",
             .glass => "Glass",
             .block_lapis => "Lapis Lazuli Block",
             .sandstone => "Sandstone",
             .note_block => "Note Block",
-            .wool => "Wool",
             .block_gold => "Block of Gold",
             .block_iron => "Block of Iron",
             .brick => "Bricks",
@@ -631,6 +645,8 @@ pub const Block = enum(u8) {
         return switch (self) {
             .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .grass => .{ .id = .{ .block = .dirt }, .count = 1 },
+            .slab => .{ .id = .{ .block = .slab }, .count = 1, .meta = meta },
+            .slab_double => .{ .id = .{ .block = .slab }, .count = 2, .meta = meta },
             .stairs_wood => .{ .id = .{ .block = .planks }, .count = 1 },
             .stairs_cobblestone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .gravel => if (rand.nextIntBound(10) == 0)
@@ -856,6 +872,22 @@ pub fn stairsFacingFromYaw(yaw: f32) u4 {
         1 => 1,
         2 => 3,
         3 => 0,
+    };
+}
+
+const slab_item_boxes = [1]Bounds{.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 0.5, 1 } }};
+
+pub const slab_stone: u4 = 0;
+pub const slab_sandstone: u4 = 1;
+pub const slab_wood: u4 = 2;
+pub const slab_cobblestone: u4 = 3;
+
+pub fn slabTextures(metadata: u4) FaceTextures {
+    return switch (metadata) {
+        slab_sandstone => topAndSide(176, 208, 192),
+        slab_wood => uniform(4),
+        slab_cobblestone => uniform(16),
+        else => topAndSide(6, 6, 5),
     };
 }
 
@@ -1502,6 +1534,76 @@ test "a door is solid to walk into but never culls the face beside it" {
     try std.testing.expect(!Block.planks.isDoor());
 }
 
+test "a slab's metadata picks which block it was cut from" {
+    const stone = slabTextures(slab_stone);
+    try std.testing.expectEqual(@as(u8, 6), stone.get(.up));
+    try std.testing.expectEqual(@as(u8, 6), stone.get(.down));
+    try std.testing.expectEqual(@as(u8, 5), stone.get(.north));
+
+    const sand = slabTextures(slab_sandstone);
+    try std.testing.expectEqual(@as(u8, 176), sand.get(.up));
+    try std.testing.expectEqual(@as(u8, 208), sand.get(.down));
+    try std.testing.expectEqual(@as(u8, 192), sand.get(.east));
+
+    try std.testing.expectEqual(uniform(4), slabTextures(slab_wood));
+    try std.testing.expectEqual(uniform(16), slabTextures(slab_cobblestone));
+
+    for (4..16) |meta| {
+        try std.testing.expectEqual(stone, slabTextures(@intCast(meta)));
+    }
+}
+
+test "a single slab is the bottom half of its block, a double slab the whole of it" {
+    const half = Block.slab.selectionBounds(0);
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, half.min);
+    try std.testing.expectEqual([3]f32{ 1, 0.5, 1 }, half.max);
+
+    const whole = Block.slab_double.selectionBounds(0);
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, whole.max);
+
+    try std.testing.expect(!Block.slab.isOpaqueCube());
+    try std.testing.expect(Block.slab_double.isOpaqueCube());
+    try std.testing.expect(Block.slab.isSolid() and Block.slab_double.isSolid());
+}
+
+test "a slab always draws its top face, even buried" {
+    for ([_]Block{ .slab, .slab_double }) |id| {
+        try std.testing.expect(id.shouldRenderFace(.stone, .up, true));
+        try std.testing.expect(id.shouldRenderFace(id, .up, true));
+
+        try std.testing.expect(!id.shouldRenderFace(.stone, .down, true));
+        try std.testing.expect(id.shouldRenderFace(.air, .down, true));
+    }
+
+    try std.testing.expect(Block.slab.shouldRenderFace(.slab, .down, true));
+    try std.testing.expect(!Block.slab_double.shouldRenderFace(.slab_double, .down, true));
+}
+
+test "a slab hides the side it shares with a slab of its own id" {
+    try std.testing.expect(!Block.slab.shouldRenderFace(.slab, .north, true));
+    try std.testing.expect(!Block.slab_double.shouldRenderFace(.slab_double, .east, true));
+
+    try std.testing.expect(!Block.slab.shouldRenderFace(.slab_double, .north, true));
+    try std.testing.expect(Block.slab_double.shouldRenderFace(.slab, .north, true));
+    try std.testing.expect(Block.slab.shouldRenderFace(.air, .north, true));
+    try std.testing.expect(!Block.slab.shouldRenderFace(.stone, .north, true));
+}
+
+test "a double slab drops two single slabs, both keeping the metadata" {
+    var rand = JavaRandom.init(0);
+    for ([_]u4{ slab_stone, slab_sandstone, slab_wood, slab_cobblestone }) |meta| {
+        const single = Block.slab.drop(meta, &rand).?;
+        try std.testing.expectEqual(Id{ .block = .slab }, single.id);
+        try std.testing.expectEqual(@as(u8, 1), single.count);
+        try std.testing.expectEqual(@as(u16, meta), single.meta);
+
+        const double = Block.slab_double.drop(meta, &rand).?;
+        try std.testing.expectEqual(Id{ .block = .slab }, double.id);
+        try std.testing.expectEqual(@as(u8, 2), double.count);
+        try std.testing.expectEqual(@as(u16, meta), double.meta);
+    }
+}
+
 test "a stair splits into a half-height tread and a full-height back" {
     for (0..4) |facing| {
         const boxes = stairsBoxes(@intCast(facing));
@@ -1629,7 +1731,7 @@ test "grass wears the snow side texture when snow is piled on it" {
     try std.testing.expectEqual(@as(u8, 68), grassSideTile(Block.snow_block));
 }
 
-test "only the trapdoor shrinks its model when held, dropped or drawn in a slot" {
+test "a full cube is the default model when held, dropped or drawn in a slot" {
     const cube: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
     for ([_]Block{ .stone, .snow_layer, .door_wood, .cactus, .torch }) |id| {
         try std.testing.expectEqualSlices(Bounds, &.{cube}, id.itemRenderBoxes());

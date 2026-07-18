@@ -67,15 +67,15 @@ pub fn blockTint(colorizer: Colorizer, id: world.Block, metadata: u4, side: worl
 
 fn faceUvs(tile: u8, side: world.Side, height_scale: f32) [4][2]f32 {
     const uv = Atlas.tileUv(tile);
-    const bottom_v = if (side == .up or side == .down)
-        uv.v1
+    const top_v = if (side == .up or side == .down)
+        uv.v0
     else
-        uv.v0 + (uv.v1 - uv.v0) * height_scale;
+        uv.v1 - (uv.v1 - uv.v0) * height_scale;
     return .{
-        .{ uv.u1, bottom_v },
-        .{ uv.u1, uv.v0 },
-        .{ uv.u0, uv.v0 },
-        .{ uv.u0, bottom_v },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u1, top_v },
+        .{ uv.u0, top_v },
+        .{ uv.u0, uv.v1 },
     };
 }
 
@@ -692,6 +692,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     textures = world.block.FaceTextures.initFill(world.block.leafTile(metadata, options.fancy));
                 } else if (id == .wool) {
                     textures = world.block.FaceTextures.initFill(world.block.woolTile(metadata));
+                } else if (id == .slab or id == .slab_double) {
+                    textures = world.block.slabTextures(metadata);
                 } else if (id == .furnace or id == .burning_furnace) {
                     textures = world.block.furnaceTextures(id, metadata);
                 } else if (id == .grass) {
@@ -1447,7 +1449,7 @@ test "snow on top swaps the grass sides for the snow side, overlay and all" {
     }
 }
 
-test "a snow layer's sides show only the top slice of its texture" {
+test "a snow layer's sides show only the bottom slice of its texture" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
@@ -1460,16 +1462,28 @@ test "a snow layer's sides show only the top slice of its texture" {
     defer mesh.deinit(gpa);
 
     const uv = Atlas.tileUv(world.Block.snow_layer.faceTextures().get(.north));
-    const slice = uv.v0 + (uv.v1 - uv.v0) * world.Block.snow_layer.heightScale();
+    const slice = uv.v1 - (uv.v1 - uv.v0) * world.Block.snow_layer.heightScale();
 
-    var found_side = false;
-    for (mesh.solid.vertices.items) |vertex| {
-        if (vertex.y > 2.0 and vertex.y < 2.125) continue;
-        if (vertex.y != 2.0) continue;
-        found_side = true;
-        try std.testing.expect(vertex.v <= slice + 1.0e-6);
+    var sides: usize = 0;
+    var quad: usize = 0;
+    while (quad * 4 < mesh.solid.vertices.items.len) : (quad += 1) {
+        const corners = mesh.solid.vertices.items[quad * 4 ..][0..4];
+
+        var spans_snow = false;
+        for (corners) |corner| spans_snow = spans_snow or corner.y == 2.125;
+        if (!spans_snow) continue;
+
+        var upright = false;
+        for (corners) |corner| upright = upright or corner.y == 2.0;
+        if (!upright) continue;
+
+        sides += 1;
+        for (corners) |corner| {
+            const want = if (corner.y == 2.0) uv.v1 else slice;
+            try std.testing.expectApproxEqAbs(want, corner.v, 1.0e-6);
+        }
     }
-    try std.testing.expect(found_side);
+    try std.testing.expectEqual(@as(usize, 4), sides);
 }
 
 fn doorMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
@@ -1658,12 +1672,187 @@ test "a trapdoor's sides show only the slice of the tile they cover" {
     try std.testing.expectApproxEqAbs(slice, highest - lowest, 1.0e-6);
 }
 
+test "a slab stands half a block tall and keeps its top face when buried" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 1, 8, world.Block.slab);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var open = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer open.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 6 * 4), open.solid.vertices.items.len);
+
+    var highest: f32 = -std.math.floatMax(f32);
+    for (open.solid.vertices.items) |vertex| highest = @max(highest, vertex.y);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), highest, 1.0e-5);
+
+    chunk.setBlock(8, 2, 8, world.Block.stone);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var buried = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer buried.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 1), topFaces(buried, 1.5));
+    try std.testing.expectEqual(@as(usize, 1), topFaces(open, 1.5));
+}
+
+fn topFaces(mesh: Mesh, height: f32) usize {
+    var count: usize = 0;
+    var quad: usize = 0;
+    while (quad * 4 < mesh.solid.vertices.items.len) : (quad += 1) {
+        const corners = mesh.solid.vertices.items[quad * 4 ..][0..4];
+        var flat = true;
+        for (corners) |corner| flat = flat and corner.y == height;
+        if (flat) count += 1;
+    }
+    return count;
+}
+
+test "slabs of one id hide the sides they share, unlike a slab beside a double slab" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 1, 8, world.Block.slab);
+    chunk.setBlock(9, 1, 8, world.Block.slab);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var paired = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer paired.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 10 * 4), paired.solid.vertices.items.len);
+
+    chunk.setBlock(9, 1, 8, world.Block.slab_double);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mixed = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer mixed.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 11 * 4), mixed.solid.vertices.items.len);
+}
+
+test "a slab's sides show the bottom half of the tile, as the double slab's seam requires" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 1, 8, world.Block.slab);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var mesh = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.block.slabTextures(world.block.slab_stone).get(.north));
+    const middle = uv.v1 - (uv.v1 - uv.v0) * 0.5;
+
+    var sides: usize = 0;
+    var quad: usize = 0;
+    while (quad * 4 < mesh.solid.vertices.items.len) : (quad += 1) {
+        const corners = mesh.solid.vertices.items[quad * 4 ..][0..4];
+        var upright = false;
+        for (corners) |corner| upright = upright or corner.y == 1.5;
+        var grounded = false;
+        for (corners) |corner| grounded = grounded or corner.y == 1.0;
+        if (!upright or !grounded) continue;
+
+        sides += 1;
+        for (corners) |corner| {
+            const want = if (corner.y == 1.0) uv.v1 else middle;
+            try std.testing.expectApproxEqAbs(want, corner.v, 1.0e-6);
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 4), sides);
+}
+
+test "a slab in hand is the bottom half of its block, not a whole cube" {
+    const boxes = world.Block.slab.itemRenderBoxes();
+    try std.testing.expectEqual(@as(usize, 1), boxes.len);
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, boxes[0].min);
+    try std.testing.expectEqual([3]f32{ 1, 0.5, 1 }, boxes[0].max);
+
+    const whole: world.block.Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
+    try std.testing.expectEqualSlices(world.block.Bounds, &.{whole}, world.Block.slab_double.itemRenderBoxes());
+
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], world.Block.slab.faceTextures(), 0.0);
+
+    var lowest: f32 = std.math.floatMax(f32);
+    var highest: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |vertex| {
+        lowest = @min(lowest, vertex.y);
+        highest = @max(highest, vertex.y);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, -0.5), lowest, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), highest, 1.0e-6);
+}
+
+test "a slab's metadata reaches the mesh as the texture it was cut from" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 1, 8, world.Block.slab);
+    chunk.setBlockMetadata(8, 1, 8, world.block.slab_wood);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var mesh = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    const uv = Atlas.tileUv(world.block.slabTextures(world.block.slab_wood).get(.up));
+    var matched = false;
+    for (mesh.solid.vertices.items) |vertex| {
+        if (vertex.y == 1.5 and @abs(vertex.u - uv.u0) < 1.0e-6) matched = true;
+    }
+    try std.testing.expect(matched);
+}
+
 fn stairsMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, options: Options) !Mesh {
     const chunk = world_map.getChunk(0, 0).?;
     chunk.setBlock(8, 1, 8, world.Block.stairs_cobblestone);
     chunk.setBlockMetadata(8, 1, 8, metadata);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, options);
+}
+
+test "a stair's inner faces are lit like the air around it, not black" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), world.Block.stone);
+    }
+
+    var mesh = try stairsMesh(gpa, &world_map, 3, .{});
+    defer mesh.deinit(gpa);
+
+    var inner_riser: ?[4]u8 = null;
+    var outer_wall: ?[4]u8 = null;
+
+    var quad: usize = 0;
+    while (quad * 4 < mesh.solid.vertices.items.len) : (quad += 1) {
+        const corners = mesh.solid.vertices.items[quad * 4 ..][0..4];
+
+        var above_floor = false;
+        for (corners) |corner| above_floor = above_floor or corner.y > 1.0;
+        if (!above_floor) continue;
+
+        for (corners) |corner| {
+            try std.testing.expect(corner.color[0] > 0);
+        }
+
+        var flat_z: ?f32 = corners[0].z;
+        for (corners) |corner| {
+            if (corner.z != corners[0].z) flat_z = null;
+        }
+        const plane = flat_z orelse continue;
+        if (plane == 8.5) inner_riser = corners[0].color;
+        if (plane == 8.0) outer_wall = corners[0].color;
+    }
+
+    try std.testing.expect(inner_riser != null);
+    try std.testing.expect(outer_wall != null);
+    try std.testing.expectEqual(outer_wall.?, inner_riser.?);
 }
 
 test "a stair in the open draws both of its halves" {

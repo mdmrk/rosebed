@@ -143,6 +143,19 @@ pub fn toggleTrapdoor(world_map: *World, x: i32, y: i32, z: i32) !void {
     try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.trapdoor_open_bit);
 }
 
+/// `BlockStep.onBlockAdded`: a slab laid on a matching slab collapses the pair into a double slab.
+pub fn mergeSlabBelow(world_map: *World, x: i32, y: i32, z: i32) !bool {
+    if (world_map.getBlock(x, y, z) != .slab) return false;
+    if (world_map.getBlock(x, y - 1, z) != .slab) return false;
+
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    if (metadata != world_map.getBlockMetadata(x, y - 1, z)) return false;
+
+    try world_map.setBlockWithNotify(x, y, z, .air);
+    try world_map.setBlockAndMetadataWithNotify(x, y - 1, z, .slab_double, metadata);
+    return true;
+}
+
 pub fn placementMetadata(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side, metadata: u4) u4 {
     if (id == .trapdoor) return block.trapdoorFacingFromFace(face) orelse 0;
     if (id != .torch) return metadata;
@@ -746,4 +759,43 @@ test "a block placed on a snow layer takes the snow's own cell" {
     const from_side = placementTarget(&world_map, 8, 5, 8, .north);
     try std.testing.expectEqual(@as(i32, 5), from_side.y);
     try std.testing.expectEqual(@as(i32, 8), from_side.z);
+}
+
+test "a slab laid on a matching slab collapses the pair into a double slab" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .slab, block.slab_wood);
+    try w.setBlockAndMetadataWithNotify(8, 13, 8, .slab, block.slab_wood);
+
+    try std.testing.expect(try mergeSlabBelow(&w, 8, 13, 8));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(Block.slab_double, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(block.slab_wood, w.getBlockMetadata(8, 12, 8));
+}
+
+test "slabs cut from different blocks stack instead of merging" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .slab, block.slab_stone);
+    try w.setBlockAndMetadataWithNotify(8, 13, 8, .slab, block.slab_wood);
+
+    try std.testing.expect(!try mergeSlabBelow(&w, 8, 13, 8));
+    try std.testing.expectEqual(Block.slab, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(Block.slab, w.getBlock(8, 12, 8));
+}
+
+test "a slab merges only downwards, and never into a double slab" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .slab_double, block.slab_stone);
+    try w.setBlockAndMetadataWithNotify(8, 13, 8, .slab, block.slab_stone);
+    try std.testing.expect(!try mergeSlabBelow(&w, 8, 13, 8));
+
+    try w.setBlockAndMetadataWithNotify(8, 14, 8, .slab, block.slab_stone);
+    try std.testing.expect(try mergeSlabBelow(&w, 8, 14, 8));
+    try std.testing.expectEqual(Block.slab_double, w.getBlock(8, 13, 8));
+    try std.testing.expectEqual(Block.air, w.getBlock(8, 14, 8));
 }

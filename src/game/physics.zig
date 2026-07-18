@@ -29,6 +29,7 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
             }
             return 2;
         },
+        .partial => |height| world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, height, 1 } },
         else => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
     };
     out[0] = offsetBox(bounds, x, y, z);
@@ -332,6 +333,22 @@ test "open air applies the full requested movement" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.dy, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dz, 1.0e-9);
+}
+
+test "a single slab is half a block tall to walk onto, a double slab a whole one" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(2, 1, 0, world.Block.slab);
+
+    const aabb = math.AABB.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
+    const onto_slab = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_slab.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_slab.aabb.min_y, 1.0e-9);
+
+    w.setBlock(2, 1, 0, world.Block.slab_double);
+    const onto_double = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_double.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), onto_double.aabb.min_y, 1.0e-9);
 }
 
 test "a stair's tread is walked onto while its tall half blocks the way" {

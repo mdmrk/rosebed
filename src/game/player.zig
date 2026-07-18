@@ -63,8 +63,12 @@ const drown_damage: i32 = 2;
 const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
 
+pub const step_height: f64 = 0.5;
+
 pub fn spawn(position: math.Vec3) Player {
-    return .{ .base = Entity.init(position, width, height) };
+    var player: Player = .{ .base = Entity.init(position, width, height) };
+    player.base.step_height = step_height;
+    return player;
 }
 
 pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {
@@ -837,4 +841,65 @@ test "a block at head height counts as being inside it" {
 
     const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try std.testing.expect(player.isInsideOpaqueBlock(&w));
+}
+
+test "a player walks up a slab without jumping" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(10, 1, 8, .slab);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.base.on_ground = true;
+    player.yaw = -90;
+
+    for (0..14) |_| {
+        player.tick(&w, 0, 1, false, false);
+        try std.testing.expect(!player.jumped);
+    }
+
+    try std.testing.expect(player.base.position.x > 10.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), player.base.position.y, 1.0e-9);
+}
+
+test "a player climbs a stair's tread and back in two steps, never jumping" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(10, 1, 8, .stairs_cobblestone, 0);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.base.on_ground = true;
+    player.yaw = -90;
+
+    var reached_tread = false;
+    for (0..16) |_| {
+        player.tick(&w, 0, 1, false, false);
+        try std.testing.expect(!player.jumped);
+        if (player.base.position.y == 1.5) reached_tread = true;
+    }
+
+    try std.testing.expect(reached_tread);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), player.base.position.y, 1.0e-9);
+    try std.testing.expect(player.base.position.x > 10.0);
+}
+
+test "without step height the same slab stops the player where they stand" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(10, 1, 8, .slab);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.base.step_height = 0;
+    player.base.on_ground = true;
+    player.yaw = -90;
+
+    for (0..14) |_| player.tick(&w, 0, 1, false, false);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
+    try std.testing.expect(player.base.position.x < 10.0);
+}
+
+test "a player spawns with the half-block step height EntityLiving grants" {
+    const player = Player.spawn(math.Vec3.init(0, 0, 0));
+    try std.testing.expectEqual(step_height, player.base.step_height);
+    try std.testing.expectEqual(@as(f64, 0.5), player.base.step_height);
 }

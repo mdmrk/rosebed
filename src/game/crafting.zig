@@ -134,6 +134,10 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
         b(.planks), b(.planks), b(.planks),
     }, .{ .block = .trapdoor }, 2),
+    shapedMeta(3, 1, &.{ b(.cobblestone), b(.cobblestone), b(.cobblestone) }, .{ .block = .slab }, 3, world.block.slab_cobblestone),
+    shapedMeta(3, 1, &.{ b(.stone), b(.stone), b(.stone) }, .{ .block = .slab }, 3, world.block.slab_stone),
+    shapedMeta(3, 1, &.{ b(.sandstone), b(.sandstone), b(.sandstone) }, .{ .block = .slab }, 3, world.block.slab_sandstone),
+    shapedMeta(3, 1, &.{ b(.planks), b(.planks), b(.planks) }, .{ .block = .slab }, 3, world.block.slab_wood),
     shaped(3, 3, &.{
         b(.planks), null,       null,
         b(.planks), b(.planks), null,
@@ -769,6 +773,32 @@ test "six planks in two rows craft a pair of trapdoors" {
     const result = findMatch(&grid, workbench_grid_size).?;
     try std.testing.expectEqual(world.Id{ .block = .trapdoor }, result.id);
     try std.testing.expectEqual(@as(u8, 2), result.count);
+}
+
+test "three blocks in a row craft three slabs, tagged with which block they came from" {
+    for ([_]struct { cut: world.Block, meta: u4 }{
+        .{ .cut = .cobblestone, .meta = world.block.slab_cobblestone },
+        .{ .cut = .stone, .meta = world.block.slab_stone },
+        .{ .cut = .sandstone, .meta = world.block.slab_sandstone },
+        .{ .cut = .planks, .meta = world.block.slab_wood },
+    }) |pair| {
+        var grid: [9]?Inventory.ItemStack = @splat(null);
+        for ([_]usize{ 3, 4, 5 }) |cell| {
+            grid[cell] = .{ .id = .{ .block = pair.cut }, .count = 1 };
+        }
+        const result = findMatch(&grid, workbench_grid_size).?;
+        try std.testing.expectEqual(world.Id{ .block = .slab }, result.id);
+        try std.testing.expectEqual(@as(u8, 3), result.count);
+        try std.testing.expectEqual(@as(u16, pair.meta), result.meta);
+    }
+}
+
+test "two blocks in a row are not enough for slabs" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 3, 4 }) |cell| {
+        grid[cell] = .{ .id = .{ .block = .stone }, .count = 1 };
+    }
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
 }
 
 test "a staircase of six blocks crafts four stairs of that block" {

@@ -79,10 +79,7 @@ const AppState = struct {
     cloud_offset: u64 = 0,
     chunks_drawn: u32 = 0,
     equip: render.held_item.Equip = .{},
-    player: game.Player = .{
-        .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
-        .inventory = starterInventory(),
-    },
+    player: game.Player = playerAtSpawn(),
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -182,6 +179,12 @@ const Digging = struct {
     z: i32,
     progress: f32,
 };
+
+fn playerAtSpawn() game.Player {
+    var player = game.Player.spawn(spawn_position);
+    player.inventory = starterInventory();
+    return player;
+}
 
 fn starterInventory() game.Inventory {
     var inv: game.Inventory = .{};
@@ -1031,10 +1034,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
 
     app_state.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     app_state.world_map.entity_io = app_state.entities.entityIo();
-    app_state.player = .{
-        .base = game.Entity.init(spawn_position, game.Player.width, game.Player.height),
-        .inventory = starterInventory(),
-    };
+    app_state.player = playerAtSpawn();
 
     try app_state.stats.add(app_state.gpa, .{ .general = if (stored == null) .create_world else .load_world }, 1);
     try app_state.stats.add(app_state.gpa, .{ .general = .start_game }, 1);
@@ -1423,6 +1423,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
     }
+    _ = try world.block_update.mergeSlabBelow(&app_state.world_map, px, py, pz);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);

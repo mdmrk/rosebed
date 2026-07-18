@@ -47,9 +47,31 @@ pub const brightness_table: [16]f32 = blk: {
     break :blk table;
 };
 
-pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
+fn storedLevelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
     const sky = world_map.getSkyLight(x, y, z) -| world_map.skylight_subtracted;
     return @max(sky, world_map.getBlockLight(x, y, z));
+}
+
+fn borrowsNeighborLight(id: Block) bool {
+    return switch (id) {
+        .slab, .stairs_wood, .stairs_cobblestone => true,
+        else => false,
+    };
+}
+
+/// `World.getBlockLightValue_do`: a slab or stair seals its own cell to light, so instead of
+/// reading the darkness stored there it borrows the brightest of the five cells around it.
+/// The cell below is left out, and the borrowed reads never borrow again.
+pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
+    if (!borrowsNeighborLight(world_map.getBlock(x, y, z))) {
+        return storedLevelAt(world_map, x, y, z);
+    }
+    var level = storedLevelAt(world_map, x, y + 1, z);
+    level = @max(level, storedLevelAt(world_map, x + 1, y, z));
+    level = @max(level, storedLevelAt(world_map, x - 1, y, z));
+    level = @max(level, storedLevelAt(world_map, x, y, z + 1));
+    level = @max(level, storedLevelAt(world_map, x, y, z - 1));
+    return level;
 }
 
 pub fn brightnessAt(world_map: *const World, x: i32, y: i32, z: i32, minimum: u4) f32 {
@@ -397,4 +419,76 @@ test "a door casts no shadow, so daylight reaches the floor of the doorway" {
     try std.testing.expectEqual(@as(u8, 0), opacity(Block.door_wood));
     try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 12, 8));
     try std.testing.expectEqual(@as(u4, max_level), world_map.getSkyLight(8, 13, 8));
+}
+
+test "a stair borrows light from around it instead of the darkness in its own cell" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 1, 8, Block.stairs_cobblestone);
+    try relightChunk(std.testing.allocator, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u4, 0), storedLevelAt(&world_map, 8, 1, 8));
+    try std.testing.expectEqual(max_level, levelAt(&world_map, 8, 1, 8));
+    try std.testing.expect(brightnessAt(&world_map, 8, 1, 8, 0) > 0.9);
+}
+
+test "a slab borrows light the same way, but a double slab keeps its own darkness" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            chunk.setBlock(@intCast(x), 0, @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 1, 8, Block.slab);
+    chunk.setBlock(10, 1, 10, Block.slab_double);
+    try relightChunk(std.testing.allocator, &world_map, 0, 0);
+
+    try std.testing.expectEqual(max_level, levelAt(&world_map, 8, 1, 8));
+    try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, 10, 1, 10));
+}
+
+test "a stair sealed away from the sky borrows only the dark around it" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            var y: u32 = 0;
+            while (y <= 3) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 2, 8, Block.stairs_wood);
+    try relightChunk(std.testing.allocator, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, 8, 2, 8));
+
+    chunk.setBlock(9, 2, 8, Block.torch);
+    try relightChunk(std.testing.allocator, &world_map, 0, 0);
+    try std.testing.expect(levelAt(&world_map, 8, 2, 8) > 0);
+}
+
+test "a stair never borrows light from the block beneath it" {
+    var world_map = World.init(std.testing.allocator);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            var y: u32 = 0;
+            while (y <= 4) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), Block.stone);
+        }
+    }
+    chunk.setBlock(8, 3, 8, Block.stairs_wood);
+    chunk.setBlock(8, 2, 8, Block.torch);
+    try relightChunk(std.testing.allocator, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(8, 2, 8));
+    try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, 8, 3, 8));
 }

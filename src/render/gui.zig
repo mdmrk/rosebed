@@ -408,6 +408,8 @@ pub fn appendBlockIcon3d(
         textures.set(.east, side_tile);
     } else if (id == .wool) {
         textures = world.block.FaceTextures.initFill(world.block.woolTile(meta));
+    } else if (id == .slab or id == .slab_double) {
+        textures = world.block.slabTextures(meta);
     }
     const inset = id.sideInset();
     for (id.itemRenderBoxes()) |bounds| {
