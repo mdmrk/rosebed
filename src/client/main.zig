@@ -102,6 +102,7 @@ const AppState = struct {
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     paused: bool = false,
+    dead: bool = false,
     options_open: bool = false,
     video_open: bool = false,
     controls_open: bool = false,
@@ -816,7 +817,7 @@ fn containerOpen(app_state: *const AppState) bool {
 }
 
 fn worldFocused(app_state: *const AppState) bool {
-    return app_state.screen == .playing and !containerOpen(app_state) and !app_state.paused and !app_state.options_open and !app_state.chat.open;
+    return app_state.screen == .playing and !containerOpen(app_state) and !app_state.paused and !app_state.dead and !app_state.options_open and !app_state.chat.open;
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
@@ -861,6 +862,57 @@ fn toggleInventory(app_state: *AppState) !void {
 fn togglePause(app_state: *AppState) !void {
     app_state.paused = !app_state.paused;
     try updateMouseMode(app_state);
+}
+
+fn killPlayer(app_state: *AppState) !void {
+    app_state.dead = true;
+    if (containerOpen(app_state)) try closeContainer(app_state);
+    try dropInventoryOnDeath(app_state);
+    app_state.keys = .{};
+    app_state.mouse_left_down = false;
+    app_state.digging = null;
+    try app_state.stats.add(app_state.gpa, .{ .general = .deaths }, 1);
+    try updateMouseMode(app_state);
+}
+
+fn dropInventoryOnDeath(app_state: *AppState) !void {
+    for (&app_state.player.inventory.slots) |*slot| try scatterSlotOnDeath(app_state, slot);
+    for (&app_state.player.inventory.armor) |*slot| try scatterSlotOnDeath(app_state, slot);
+}
+
+fn scatterSlotOnDeath(app_state: *AppState, slot: *?game.Inventory.ItemStack) !void {
+    const stack = slot.* orelse return;
+    try app_state.entities.scatterFromPlayer(
+        app_state.gpa,
+        &app_state.player,
+        stack,
+        &app_state.world_map.rand,
+    );
+    slot.* = null;
+}
+
+fn respawnPlayer(app_state: *AppState) !void {
+    const x = app_state.spawn[0];
+    const z = app_state.spawn[2];
+    const width = world.constants.chunk_width;
+    try app_state.world_map.ensureDecorated(app_state.generator, @divFloor(x, width), @divFloor(z, width));
+
+    app_state.player.respawn(math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @floatFromInt(findSpawnY(app_state, x, z)),
+        @as(f64, @floatFromInt(z)) + 0.5,
+    ));
+    app_state.dead = false;
+    try updateMouseMode(app_state);
+}
+
+fn deathScreenClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    const action = render.death_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    switch (action) {
+        .respawn => try respawnPlayer(app_state),
+        .title_menu => try quitToTitle(app_state),
+    }
 }
 
 fn openChat(app_state: *AppState) !void {
@@ -917,6 +969,10 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         .help => for (game.commands.help_lines) |help_line| {
             app_state.chat.addMessage(app_state.font, help_line);
         },
+        .kill => {
+            app_state.player.kill();
+            app_state.chat.addMessage(app_state.font, game.commands.kill_line);
+        },
         .give => |give| {
             try app_state.entities.throwFromPlayer(
                 app_state.gpa,
@@ -966,6 +1022,7 @@ fn quitToTitle(app_state: *AppState) !void {
     app_state.chat.clear();
     app_state.screen = .title;
     app_state.paused = false;
+    app_state.dead = false;
     app_state.splash = pickSplash(&app_state.world_map.rand);
     try updateMouseMode(app_state);
 }
@@ -1768,6 +1825,10 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
         try app_state.stats.add(gpa, .{ .general = .damage_taken }, player.damage_taken);
         player.damage_taken = 0;
     }
+    if (player.distance_fallen > 0) {
+        try app_state.stats.add(gpa, .{ .general = .distance_fallen }, centimetres(player.distance_fallen));
+        player.distance_fallen = 0;
+    }
 
     const dx = player.base.position.x - before.x;
     const dy = player.base.position.y - before.y;
@@ -1790,7 +1851,7 @@ fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
     app_state.chat.tick();
 
-    const moving_allowed = !containerOpen(app_state);
+    const moving_allowed = !containerOpen(app_state) and !app_state.dead;
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
@@ -1803,6 +1864,7 @@ fn tick(app_state: *AppState) !void {
         moving_allowed and app_state.keys.sneak,
     );
     try recordPlayerTick(app_state, before_move);
+    if (app_state.player.isDead() and !app_state.dead) try killPlayer(app_state);
     if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
         try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
     }
@@ -2483,6 +2545,8 @@ pub fn iterate(
         const total = app_state.loading.total;
         const progress: i32 = if (total == 0) 0 else @intCast(app_state.loading.done * 100 / total);
         try render.loading_screen.draw(ui, app_state.loading.title, "Building terrain", progress);
+    } else if (app_state.dead) {
+        try render.death_screen.draw(ui);
     } else if (app_state.paused) {
         try render.menu.draw(ui);
     } else if (openedFurnace(app_state)) |furnace| {
@@ -2601,7 +2665,9 @@ pub fn event(
         } else if (app_state.screen == .confirm_delete) {
             if (k.key == .escape) app_state.screen = .select_world;
         } else if (app_state.screen == .playing) {
-            if (app_state.chat.open) {
+            if (app_state.dead) {
+                // the game over screen swallows keys until a button is clicked
+            } else if (app_state.chat.open) {
                 if (k.key == .escape) {
                     try closeChat(app_state);
                 } else if (k.key == .return_key or k.key == .kp_enter) {
@@ -2694,6 +2760,8 @@ pub fn event(
                 try confirmDeleteClick(app_state);
             } else if (app_state.screen == .loading) {
                 // the loading screen swallows clicks until the spawn area is ready
+            } else if (app_state.dead) {
+                try deathScreenClick(app_state);
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
             } else if (app_state.chat.open) {} else if (containerOpen(app_state)) {
@@ -2703,7 +2771,7 @@ pub fn event(
                 app_state.last_held_swing_tick = app_state.tick_count;
                 try clickLeft(app_state);
             },
-            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.chat.open) {} else if (containerOpen(app_state)) {
+            .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.dead or app_state.chat.open) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
             } else {
                 if (try useBlockOrPlace(app_state)) app_state.player.swingItem();

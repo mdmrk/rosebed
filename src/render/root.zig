@@ -9,6 +9,7 @@ pub const container_screen = @import("container_screen.zig");
 pub const controls_screen = @import("controls_screen.zig");
 pub const crafting_screen = @import("crafting_screen.zig");
 pub const create_world_screen = @import("create_world_screen.zig");
+pub const death_screen = @import("death_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
 pub const entity_render = @import("entity_render.zig");
 pub const Font = @import("font.zig");
@@ -79,6 +80,7 @@ test {
     _ = confirm_screen;
     _ = loading_screen;
     _ = debug_overlay;
+    _ = death_screen;
     _ = multiplayer_screen;
     _ = chat;
 }

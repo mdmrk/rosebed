@@ -37,6 +37,7 @@ jumped: bool = false,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
+distance_fallen: f32 = 0,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
 
@@ -64,6 +65,7 @@ pub const max_air: i32 = 300;
 const drown_damage: i32 = 2;
 
 pub const safe_fall_distance: f32 = 3.0;
+const recorded_fall_distance: f32 = 2.0;
 
 const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
@@ -243,6 +245,8 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
 }
 
 fn fall(self: *Player, distance: f32) void {
+    if (distance >= recorded_fall_distance) self.distance_fallen += distance;
+
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
     self.damage_taken += damage;
@@ -267,9 +271,27 @@ pub fn hurt(self: *Player, amount: i32) void {
     self.health = @max(0, self.health - @divTrunc(scaled, 25));
 }
 
+pub fn kill(self: *Player) void {
+    self.damage_taken += self.health;
+    self.health = 0;
+}
+
 pub fn heal(self: *Player, amount: i32) void {
     if (self.health <= 0) return;
     self.health = @min(20, self.health + amount);
+}
+
+pub fn isDead(self: Player) bool {
+    return self.health <= 0;
+}
+
+pub fn respawn(self: *Player, position: math.Vec3) void {
+    self.base = Entity.init(position, width, height);
+    self.base.step_height = step_height;
+    self.health = 20;
+    self.air = max_air;
+    self.fall_distance = 0;
+    self.damage_remainder = 0;
 }
 
 pub fn digSpeedFactor(self: Player, world_map: *const world.World) f32 {
@@ -732,6 +754,55 @@ test "a three block drop is walked away from unhurt" {
 
     try std.testing.expectEqual(@as(i32, 20), player.health);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+}
+
+test "a fall of two blocks or more is counted as distance fallen" {
+    var player = Player.spawn(math.Vec3.init(8, 20, 8));
+    player.updateFallState(-1.5);
+    player.base.on_ground = true;
+    player.updateFallState(0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.distance_fallen, 1.0e-6);
+
+    player.base.on_ground = false;
+    player.updateFallState(-2.5);
+    player.base.on_ground = true;
+    player.updateFallState(0);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.5), player.distance_fallen, 1.0e-6);
+}
+
+test "killing outright empties the health bar, armour or no armour" {
+    var player = Player.spawn(math.Vec3.init(8, 20, 8));
+    player.inventory.armor[0] = .{ .id = .{ .item = .helmet_diamond }, .count = 1 };
+    player.health = 7;
+    player.kill();
+
+    try std.testing.expect(player.isDead());
+    try std.testing.expectEqual(@as(i32, 0), player.health);
+    try std.testing.expectEqual(@as(i32, 7), player.damage_taken);
+    try std.testing.expect(player.inventory.armor[0] != null);
+}
+
+test "respawning restores health and air and forgets the fall" {
+    var player = Player.spawn(math.Vec3.init(8, 20, 8));
+    player.health = 0;
+    player.air = 0;
+    player.fall_distance = 12.0;
+    player.damage_remainder = 17;
+    player.base.motion = math.Vec3.init(0, -3, 0);
+    player.inventory.slots[0] = .{ .id = .{ .block = .stone }, .count = 1 };
+
+    player.respawn(math.Vec3.init(1.5, 64, 2.5));
+
+    try std.testing.expect(!player.isDead());
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+    try std.testing.expectEqual(max_air, player.air);
+    try std.testing.expectEqual(@as(i32, 0), player.damage_remainder);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+    try std.testing.expectEqual(@as(f64, 64.0), player.base.position.y);
+    try std.testing.expectEqual(@as(f64, 64.0), player.base.prev_position.y);
+    try std.testing.expectEqual(@as(f64, 0.0), player.base.motion.y);
+    try std.testing.expectEqual(step_height, player.base.step_height);
+    try std.testing.expect(player.inventory.slots[0] != null);
 }
 
 test "falling out of the sky hurts on landing" {

@@ -229,6 +229,35 @@ pub fn throwFromPlayer(
     try self.items.append(gpa, item);
 }
 
+const scatter_speed: f64 = 0.5;
+const scatter_lift: f64 = 0.2;
+
+pub fn scatterFromPlayer(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    player: *const Player,
+    stack: Inventory.ItemStack,
+    rand: *world.JavaRandom,
+) !void {
+    const position = math.Vec3.init(
+        player.base.position.x,
+        player.base.position.y + Player.eye_height - player_hand_drop,
+        player.base.position.z,
+    );
+    var item = ItemEntity.spawn(position, stack, rand);
+    item.pickup_delay = throw_pickup_delay;
+
+    const speed = @as(f64, rand.nextFloat()) * scatter_speed;
+    const angle = @as(f64, rand.nextFloat()) * std.math.pi * 2.0;
+    item.base.motion = .{
+        .x = -@sin(angle) * speed,
+        .y = scatter_lift,
+        .z = @cos(angle) * speed,
+    };
+
+    try self.items.append(gpa, item);
+}
+
 pub fn spawnPainting(self: *Entities, gpa: std.mem.Allocator, painting: Painting) !void {
     try self.paintings.append(gpa, painting);
 }
