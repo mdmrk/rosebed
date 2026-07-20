@@ -36,6 +36,7 @@ prev_camera_pitch: f32 = 0,
 jumped: bool = false,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
+fall_distance: f32 = 0,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
 
@@ -61,6 +62,8 @@ const water_climb_out: f64 = 0.3;
 
 pub const max_air: i32 = 300;
 const drown_damage: i32 = 2;
+
+pub const safe_fall_distance: f32 = 3.0;
 
 const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
@@ -96,6 +99,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     }
 
     self.base.updateWaterState(world_map);
+    if (self.base.in_water) self.fall_distance = 0;
     self.updateAir(world_map);
 
     if (self.base.in_water) {
@@ -119,6 +123,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     const before_y = self.base.position.y;
     const before_z = self.base.position.z;
     const moved = self.base.move(world_map);
+    self.updateFallState(moved.dy);
 
     const moved_x = self.base.position.x - before_x;
     const moved_z = self.base.position.z - before_z;
@@ -235,6 +240,24 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
         return;
     }
     self.air = max_air;
+}
+
+fn fall(self: *Player, distance: f32) void {
+    const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
+    if (damage <= 0) return;
+    self.damage_taken += damage;
+    self.hurt(damage);
+}
+
+fn updateFallState(self: *Player, dy: f64) void {
+    if (self.base.on_ground) {
+        if (self.fall_distance > 0.0) {
+            self.fall(self.fall_distance);
+            self.fall_distance = 0.0;
+        }
+    } else if (dy < 0.0) {
+        self.fall_distance -= @floatCast(dy);
+    }
 }
 
 pub fn hurt(self: *Player, amount: i32) void {
@@ -687,6 +710,57 @@ test "air holds for 300 ticks underwater and then drowning starts" {
     for (0..20) |_| player.updateAir(&w);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(i32, 0), player.air);
+}
+
+test "a fall costs half a heart for every block past the third" {
+    var player = Player.spawn(math.Vec3.init(8, 20, 8));
+    player.updateFallState(-2.0);
+    player.updateFallState(-3.5);
+    player.base.on_ground = true;
+    player.updateFallState(0);
+
+    try std.testing.expectEqual(@as(i32, 17), player.health);
+    try std.testing.expectEqual(@as(i32, 3), player.damage_taken);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+}
+
+test "a three block drop is walked away from unhurt" {
+    var player = Player.spawn(math.Vec3.init(8, 20, 8));
+    player.updateFallState(-3.0);
+    player.base.on_ground = true;
+    player.updateFallState(0);
+
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+}
+
+test "falling out of the sky hurts on landing" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 30, 8));
+    for (0..200) |_| {
+        player.tick(&w, 0, 0, false, false);
+        if (player.base.on_ground) break;
+    }
+
+    try std.testing.expect(player.base.on_ground);
+    try std.testing.expect(player.health < 20);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+}
+
+test "hitting water cancels the fall instead of hurting" {
+    var w = try floodedWorld(8);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 40, 8));
+    for (0..200) |_| {
+        player.tick(&w, 0, 0, false, false);
+        if (player.base.on_ground) break;
+    }
+
+    try std.testing.expect(player.base.on_ground);
+    try std.testing.expectEqual(@as(i32, 20), player.health);
 }
 
 test "a full diamond suit soaks four fifths of a hit and wears down doing it" {
