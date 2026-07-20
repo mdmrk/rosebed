@@ -213,7 +213,7 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
         .renderers_loaded = loaded,
         .entities_rendered = entities,
         .entities_total = entities,
-        .particles = @intCast(app_state.entities.particles.items.len),
+        .particles = @intCast(app_state.entities.particles.items.len + app_state.entities.pickups.items.len),
         .chunk_cache = @intCast(app_state.world_map.chunks.count()),
         .x = app_state.player.base.position.x,
         .y = app_state.player.base.position.y,
@@ -1876,7 +1876,7 @@ fn tick(app_state: *AppState) !void {
     app_state.player.tickSwing();
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
-    app_state.entities.tickItems(&app_state.world_map, &app_state.player);
+    try app_state.entities.tickItems(app_state.gpa, &app_state.world_map, &app_state.player);
     try tickFallingBlocks(app_state);
     const player_chunk = playerChunkCoord(app_state);
     try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
@@ -1899,6 +1899,7 @@ fn tick(app_state: *AppState) !void {
     );
     try app_state.entities.tickPaintings(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
     try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
+    app_state.entities.tickPickups();
     try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
     try advanceWorldTime(app_state);
@@ -2108,6 +2109,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     for (app_state.entities.items.items) |item| {
         try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.world_map, item, partial);
     }
+    for (app_state.entities.pickups.items) |fx| {
+        const swallowed = fx.swallowed(&app_state.player, partial);
+        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.world_map, swallowed, partial);
+    }
     for (app_state.entities.falling_blocks.items) |block| {
         try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
     }
@@ -2170,6 +2175,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer icon_mesh.deinit(app_state.frame);
     for (app_state.entities.items.items) |item| {
         try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, item, app_state.player.yaw, partial);
+    }
+    for (app_state.entities.pickups.items) |fx| {
+        const swallowed = fx.swallowed(&app_state.player, partial);
+        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, swallowed, app_state.player.yaw, partial);
     }
     if (icon_mesh.vertices.items.len > 0) {
         app_state.textures.items.bind();

@@ -12,6 +12,7 @@ const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
 const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
+const PickupFx = @import("pickup_fx.zig");
 const Pig = @import("pig.zig");
 const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
@@ -25,6 +26,7 @@ sheep: std.ArrayList(Sheep) = .empty,
 cows: std.ArrayList(Cow) = .empty,
 chickens: std.ArrayList(Chicken) = .empty,
 particles: std.ArrayList(Particle) = .empty,
+pickups: std.ArrayList(PickupFx) = .empty,
 paintings: std.ArrayList(Painting) = .empty,
 
 fn herds(self: *Entities) struct {
@@ -138,6 +140,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
+    self.pickups.deinit(gpa);
     self.paintings.deinit(gpa);
     inline for (self.herds()) |herd| {
         for (herd.items) |*animal| animal.deinit(gpa);
@@ -469,7 +472,12 @@ pub fn spawnChicken(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3
 
 const pickup_reach: f64 = 1.0;
 
-pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player) void {
+pub fn tickItems(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: *Player,
+) !void {
     const reach = player.base.boundingBox().expand(pickup_reach, 0, pickup_reach);
     var i: usize = 0;
     while (i < self.items.items.len) {
@@ -479,15 +487,28 @@ pub fn tickItems(self: *Entities, world_map: *const world.World, player: *Player
         var picked_up = false;
         if (player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {
             const leftover = player.inventory.addStack(item.stack);
-            if (leftover == 0) {
-                picked_up = true;
-            } else {
+            if (leftover < item.stack.count) {
                 item.stack.count = leftover;
+                try self.pickups.append(gpa, PickupFx.spawn(item.*));
+                picked_up = leftover == 0;
             }
         }
 
         if (picked_up or item.isExpired()) {
             _ = self.items.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+pub fn tickPickups(self: *Entities) void {
+    var i: usize = 0;
+    while (i < self.pickups.items.len) {
+        const fx = &self.pickups.items[i];
+        fx.tick();
+        if (fx.isExpired()) {
+            _ = self.pickups.swapRemove(i);
         } else {
             i += 1;
         }
@@ -769,7 +790,7 @@ test "walking over a dropped stack picks it up" {
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
-    entities.tickItems(&w, &player);
+    try entities.tickItems(gpa, &w, &player);
 
     try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
     try std.testing.expectEqual(@as(u8, 3), player.inventory.slots[0].?.count);
@@ -793,10 +814,65 @@ test "a stack that does not fit keeps whatever is left over on the ground" {
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
-    entities.tickItems(&w, &player);
+    try entities.tickItems(gpa, &w, &player);
 
     try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
     try std.testing.expectEqual(@as(u8, 4), entities.items.items[0].stack.count);
+}
+
+test "picking a stack up leaves a swallow effect behind, a full inventory does not" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
+    entities.items.items[0].pickup_delay = 0;
+    entities.items.items[0].base.position = player.base.position;
+
+    try entities.tickItems(gpa, &w, &player);
+
+    const swallowed = entities.pickups.items[0].item;
+    try std.testing.expectEqual(@as(usize, 1), entities.pickups.items.len);
+    try std.testing.expectEqual(@as(u8, 0), swallowed.stack.count);
+    try std.testing.expectEqual(swallowed.base.position, swallowed.base.prev_position);
+    try std.testing.expectApproxEqAbs(player.base.position.x, swallowed.base.position.x, 0.1);
+
+    for (&player.inventory.slots) |*slot| {
+        slot.* = .{ .id = .{ .item = .coal }, .count = Inventory.max_stack_size };
+    }
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
+    entities.items.items[0].pickup_delay = 0;
+    entities.items.items[0].base.position = player.base.position;
+
+    try entities.tickItems(gpa, &w, &player);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.pickups.items.len);
+}
+
+test "swallow effects are dropped once they have run their three ticks" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    entities.items.items[0].pickup_delay = 0;
+    entities.items.items[0].base.position = player.base.position;
+    try entities.tickItems(gpa, &w, &player);
+
+    for (0..PickupFx.duration - 1) |_| {
+        entities.tickPickups();
+        try std.testing.expectEqual(@as(usize, 1), entities.pickups.items.len);
+    }
+    entities.tickPickups();
+    try std.testing.expectEqual(@as(usize, 0), entities.pickups.items.len);
 }
 
 test "an item out of reach of the player is left alone" {
@@ -811,7 +887,7 @@ test "an item out of reach of the player is left alone" {
     try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
 
-    entities.tickItems(&w, &player);
+    try entities.tickItems(gpa, &w, &player);
 
     try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
     try std.testing.expect(player.inventory.slots[0] == null);
@@ -1018,7 +1094,7 @@ test "an item within a block of the player is drawn in, one further out is not" 
         item.base.motion = math.Vec3.init(0, 0, 0);
     }
 
-    entities.tickItems(&w, &player);
+    try entities.tickItems(gpa, &w, &player);
 
     try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
     try std.testing.expectApproxEqAbs(@as(f64, 9.5), entities.items.items[0].base.position.x, 1.0e-9);
@@ -1038,7 +1114,7 @@ test "a dead player leaves items on the ground" {
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
-    entities.tickItems(&w, &player);
+    try entities.tickItems(gpa, &w, &player);
 
     try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
 }
