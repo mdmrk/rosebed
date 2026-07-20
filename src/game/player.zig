@@ -34,6 +34,10 @@ prev_camera_yaw: f32 = 0,
 camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
 jumped: bool = false,
+fire: i32 = 0,
+in_lava: bool = false,
+hurt_resistance: i32 = 0,
+last_damage: i32 = 0,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
@@ -55,14 +59,19 @@ const ground_speed: f64 = 0.1;
 const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
-const water_speed: f64 = 0.02;
+const liquid_speed: f64 = 0.02;
 const water_drag: f64 = 0.8;
-const water_gravity: f64 = 0.02;
-const water_jump: f64 = 0.04;
-const water_climb_out: f64 = 0.3;
+const lava_drag: f64 = 0.5;
+const liquid_gravity: f64 = 0.02;
+const liquid_jump: f64 = 0.04;
+const liquid_climb_out: f64 = 0.3;
 
 pub const max_air: i32 = 300;
 const drown_damage: i32 = 2;
+const burn_damage: i32 = 1;
+const lava_damage: i32 = 4;
+const lava_fire_ticks: i32 = 600;
+const hurt_resistance_ticks: i32 = 20;
 
 pub const safe_fall_distance: f32 = 3.0;
 const recorded_fall_distance: f32 = 2.0;
@@ -101,18 +110,23 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     }
 
     self.base.updateWaterState(world_map);
-    if (self.base.in_water) self.fall_distance = 0;
-    self.updateAir(world_map);
-
     if (self.base.in_water) {
-        if (jump) self.base.motion.y += water_jump;
+        self.fall_distance = 0;
+        self.fire = 0;
+    }
+    self.updateFire(world_map);
+    self.updateAir(world_map);
+    if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
+
+    if (self.base.in_water or self.in_lava) {
+        if (jump) self.base.motion.y += liquid_jump;
     } else if (self.base.on_ground and jump) {
         self.base.motion.y = jump_velocity;
         self.jumped = true;
     }
 
-    const speed: f64 = if (self.base.in_water)
-        water_speed
+    const speed: f64 = if (self.base.in_water or self.in_lava)
+        liquid_speed
     else if (self.base.on_ground)
         ground_speed
     else
@@ -131,16 +145,17 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     const moved_z = self.base.position.z - before_z;
     self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
 
-    if (self.base.in_water) {
-        self.base.motion.x *= water_drag;
-        self.base.motion.y *= water_drag;
-        self.base.motion.z *= water_drag;
-        self.base.motion.y -= water_gravity;
+    if (self.base.in_water or self.in_lava) {
+        const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
+        self.base.motion.x *= drag;
+        self.base.motion.y *= drag;
+        self.base.motion.z *= drag;
+        self.base.motion.y -= liquid_gravity;
 
         const blocked_horizontally = moved.blocked_x or moved.blocked_z;
         const step_up = self.base.motion.y + 0.6 - self.base.position.y + before_y;
         if (blocked_horizontally and self.base.isOffsetPositionInLiquid(world_map, self.base.motion.x, step_up, self.base.motion.z)) {
-            self.base.motion.y = water_climb_out;
+            self.base.motion.y = liquid_climb_out;
         }
     } else {
         self.base.motion.y -= gravity;
@@ -231,14 +246,27 @@ pub fn isSubmerged(self: Player, world_map: *const world.World) bool {
     return game_physics.isInsideWater(world_map, eye.x, eye.y, eye.z);
 }
 
+fn updateFire(self: *Player, world_map: *const world.World) void {
+    if (self.fire > 0) {
+        if (@rem(self.fire, 20) == 0) self.hurt(burn_damage);
+        self.fire -= 1;
+    }
+
+    self.in_lava = game_physics.isInLava(world_map, self.base.boundingBox());
+    if (self.in_lava) {
+        self.hurt(lava_damage);
+        self.fire = lava_fire_ticks;
+    }
+}
+
 fn updateAir(self: *Player, world_map: *const world.World) void {
     if (self.health > 0 and self.isSubmerged(world_map)) {
         self.air -= 1;
         if (self.air == -20) {
             self.air = 0;
-            self.damage_taken += drown_damage;
             self.hurt(drown_damage);
         }
+        self.fire = 0;
         return;
     }
     self.air = max_air;
@@ -249,7 +277,6 @@ fn fall(self: *Player, distance: f32) void {
 
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
-    self.damage_taken += damage;
     self.hurt(damage);
 }
 
@@ -265,6 +292,22 @@ fn updateFallState(self: *Player, dy: f64) void {
 }
 
 pub fn hurt(self: *Player, amount: i32) void {
+    if (self.health <= 0 or amount == 0) return;
+    self.damage_taken += amount;
+
+    if (self.hurt_resistance > @divTrunc(hurt_resistance_ticks, 2)) {
+        if (amount <= self.last_damage) return;
+        self.applyDamage(amount - self.last_damage);
+        self.last_damage = amount;
+        return;
+    }
+
+    self.last_damage = amount;
+    self.hurt_resistance = hurt_resistance_ticks;
+    self.applyDamage(amount);
+}
+
+fn applyDamage(self: *Player, amount: i32) void {
     const scaled = amount * (25 - self.inventory.totalArmorValue()) + self.damage_remainder;
     self.inventory.damageArmor(@intCast(amount));
     self.damage_remainder = @rem(scaled, 25);
@@ -290,7 +333,10 @@ pub fn respawn(self: *Player, position: math.Vec3) void {
     self.base.step_height = step_height;
     self.health = 20;
     self.air = max_air;
+    self.fire = 0;
     self.fall_distance = 0;
+    self.hurt_resistance = 0;
+    self.last_damage = 0;
     self.damage_remainder = 0;
 }
 
@@ -682,7 +728,7 @@ test "a player in water sinks far more slowly than one falling through air" {
     var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
     swimmer.tick(&w, 0, 0, false, false);
     try std.testing.expect(swimmer.base.in_water);
-    try std.testing.expectApproxEqAbs(@as(f64, -water_gravity), swimmer.base.motion.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, -liquid_gravity), swimmer.base.motion.y, 1.0e-9);
 
     var faller = Player.spawn(math.Vec3.init(8, 40, 8));
     faller.tick(&w, 0, 0, false, false);
@@ -698,6 +744,70 @@ test "holding jump underwater swims upward instead of doing nothing" {
     for (0..10) |_| player.tick(&w, 0, 0, true, false);
     try std.testing.expect(player.base.motion.y > 0.0);
     try std.testing.expect(player.base.position.y > 10.0);
+}
+
+fn lavaWorld(surface_y: u32) !world.World {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    errdefer w.deinit();
+    const chunk = w.getChunk(0, 0).?;
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            var y: u32 = 1;
+            while (y < surface_y) : (y += 1) {
+                chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_lava);
+            }
+        }
+    }
+    return w;
+}
+
+test "lava scalds on contact and leaves the player alight for half a minute" {
+    var w = try lavaWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(player.in_lava);
+    try std.testing.expectEqual(@as(i32, 16), player.health);
+    try std.testing.expectEqual(@as(i32, lava_fire_ticks), player.fire);
+}
+
+test "burning outside lava costs half a heart a second until the flames die" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+    player.fire = 40;
+
+    for (0..40) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(@as(i32, 0), player.fire);
+    try std.testing.expectEqual(@as(i32, 18), player.health);
+}
+
+test "water snuffs the flames out" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    player.fire = lava_fire_ticks;
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(@as(i32, 0), player.fire);
+}
+
+test "wading through lava is slower than swimming the same input" {
+    var flooded = try floodedWorld(20);
+    defer flooded.deinit();
+    var swimmer = Player.spawn(math.Vec3.init(8, 10, 8));
+    swimmer.tick(&flooded, 0, 1, false, false);
+
+    var molten = try lavaWorld(20);
+    defer molten.deinit();
+    var waders = Player.spawn(math.Vec3.init(8, 10, 8));
+    waders.tick(&molten, 0, 1, false, false);
+
+    try std.testing.expect(waders.base.motion.z < swimmer.base.motion.z);
+    try std.testing.expectApproxEqAbs(swimmer.base.motion.z * lava_drag / water_drag, waders.base.motion.z, 1.0e-9);
 }
 
 test "swimming forward is slower than walking the same input on land" {
@@ -855,13 +965,26 @@ test "the twenty-fifths armour rounds away carry into the next hit" {
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
     player.inventory.armorSlot(.chestplate).* = .{ .id = .{ .item = .chestplate_iron }, .count = 1 };
 
-    player.hurt(2);
+    player.applyDamage(2);
     try std.testing.expectEqual(@as(i32, 19), player.health);
     try std.testing.expectEqual(@as(i32, 9), player.damage_remainder);
 
-    player.hurt(2);
+    player.applyDamage(2);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(i32, 20), player.damage_remainder);
+}
+
+test "a second hit inside the resistance window is shrugged off unless it is harder" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+
+    player.hurt(4);
+    try std.testing.expectEqual(@as(i32, 16), player.health);
+
+    player.hurt(4);
+    try std.testing.expectEqual(@as(i32, 16), player.health);
+
+    player.hurt(6);
+    try std.testing.expectEqual(@as(i32, 14), player.health);
 }
 
 test "sneaking walks at a third of normal speed" {
