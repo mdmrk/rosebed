@@ -892,16 +892,8 @@ fn scatterSlotOnDeath(app_state: *AppState, slot: *?game.Inventory.ItemStack) !v
 }
 
 fn respawnPlayer(app_state: *AppState) !void {
-    const x = app_state.spawn[0];
-    const z = app_state.spawn[2];
-    const width = world.constants.chunk_width;
-    try app_state.world_map.ensureDecorated(app_state.generator, @divFloor(x, width), @divFloor(z, width));
-
-    app_state.player.respawn(math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @floatFromInt(findSpawnY(app_state, x, z)),
-        @as(f64, @floatFromInt(z)) + 0.5,
-    ));
+    try adjustSpawnLocation(app_state);
+    app_state.player.respawn(spawnPlacement(&app_state.world_map, app_state.spawn));
     app_state.dead = false;
     try updateMouseMode(app_state);
 }
@@ -1273,7 +1265,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
         }
     } else {
         app_state.world_map.time = 0;
-        app_state.spawn = .{ 8, 64, 8 };
+        app_state.spawn = try findInitialSpawn(app_state);
     }
 
     app_state.loading = .{
@@ -1309,25 +1301,49 @@ fn stepLoading(app_state: *AppState) !void {
     try finishLoading(app_state);
 }
 
-fn findSpawnY(app_state: *AppState, x: i32, z: i32) i32 {
-    var y: i32 = world.constants.chunk_height - 1;
-    while (y > 0) : (y -= 1) {
-        if (app_state.world_map.getBlock(x, y, z).isSolid()) return y + 1;
+fn firstUncoveredBlock(app_state: *AppState, x: i32, z: i32) !world.Block {
+    const width = world.constants.chunk_width;
+    try app_state.world_map.ensureDecorated(app_state.generator, @divFloor(x, width), @divFloor(z, width));
+
+    var y: i32 = 63;
+    while (app_state.world_map.getBlock(x, y + 1, z) != .air) : (y += 1) {}
+    return app_state.world_map.getBlock(x, y, z);
+}
+
+fn findInitialSpawn(app_state: *AppState) ![3]i32 {
+    var x: i32 = 0;
+    var z: i32 = 0;
+    while ((try firstUncoveredBlock(app_state, x, z)) != .sand) {
+        x += app_state.world_map.rand.nextIntBound(64) - app_state.world_map.rand.nextIntBound(64);
+        z += app_state.world_map.rand.nextIntBound(64) - app_state.world_map.rand.nextIntBound(64);
     }
-    return 64;
+    return .{ x, 64, z };
+}
+
+fn adjustSpawnLocation(app_state: *AppState) !void {
+    if (app_state.spawn[1] <= 0) app_state.spawn[1] = 64;
+    while ((try firstUncoveredBlock(app_state, app_state.spawn[0], app_state.spawn[2])) == .air) {
+        app_state.spawn[0] += app_state.world_map.rand.nextIntBound(8) - app_state.world_map.rand.nextIntBound(8);
+        app_state.spawn[2] += app_state.world_map.rand.nextIntBound(8) - app_state.world_map.rand.nextIntBound(8);
+    }
+}
+
+fn spawnPlacement(world_map: *const world.World, spawn: [3]i32) math.Vec3 {
+    var position = math.Vec3.init(
+        @as(f64, @floatFromInt(spawn[0])) + 0.5,
+        @as(f64, @floatFromInt(spawn[1] + 1)) - game.Player.eye_height,
+        @as(f64, @floatFromInt(spawn[2])) + 0.5,
+    );
+    while (position.y + game.Player.eye_height > 0) : (position.y += 1) {
+        const box = game.Entity.init(position, game.Player.width, game.Player.height).boundingBox();
+        if (!game.physics.isBoxObstructed(world_map, box)) break;
+    }
+    return position;
 }
 
 fn finishLoading(app_state: *AppState) !void {
     if (app_state.needs_spawn) {
-        const x = app_state.spawn[0];
-        const z = app_state.spawn[2];
-        const y = findSpawnY(app_state, x, z);
-        app_state.spawn = .{ x, y, z };
-        app_state.player.base.position = math.Vec3.init(
-            @as(f64, @floatFromInt(x)) + 0.5,
-            @floatFromInt(y),
-            @as(f64, @floatFromInt(z)) + 0.5,
-        );
+        app_state.player.base.position = spawnPlacement(&app_state.world_map, app_state.spawn);
         app_state.player.base.prev_position = app_state.player.base.position;
         app_state.needs_spawn = false;
     }
