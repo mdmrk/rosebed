@@ -520,6 +520,13 @@ pub const Block = enum(u8) {
         };
     }
 
+    pub fn particleTile(self: Block, metadata: u4) u8 {
+        return switch (self.shape()) {
+            .cross => self.crossTile(metadata),
+            else => self.faceTextures().get(.down),
+        };
+    }
+
     fn hardness(self: Block) f32 {
         return switch (self) {
             .stone => 1.5,
@@ -1545,6 +1552,13 @@ test "a wall torch stands in the quarter of the block its wall is on" {
     const south = Block.torch.selectionBounds(4);
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), south.min[2], 1.0e-6);
     try std.testing.expectEqual(@as(f32, 1.0), south.max[2]);
+}
+
+test "a broken plant sheds its own sprite, not the grass top" {
+    try std.testing.expectEqual(Block.rose.crossTile(0), Block.rose.particleTile(0));
+    try std.testing.expectEqual(Block.dandelion.crossTile(0), Block.dandelion.particleTile(0));
+    try std.testing.expectEqual(Block.tall_grass.crossTile(2), Block.tall_grass.particleTile(2));
+    try std.testing.expectEqual(Block.stone.faceTextures().get(.down), Block.stone.particleTile(0));
 }
 
 test "a standing torch is a thin column in the middle of the block" {

@@ -492,7 +492,7 @@ fn digStep(app_state: *AppState) !void {
         hit.y,
         hit.z,
         hit.face,
-        block_id.faceTextures().get(.down),
+        block_id.particleTile(app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
         particleTint(app_state, block_id, hit.x, hit.y, hit.z),
         &app_state.world_map.rand,
     );
@@ -587,7 +587,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         x,
         y,
         z,
-        block_id.faceTextures().get(.down),
+        block_id.particleTile(meta),
         particleTint(app_state, block_id, x, y, z),
         &app_state.world_map.rand,
     );
