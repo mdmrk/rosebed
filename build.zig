@@ -16,7 +16,6 @@ pub fn build(b: *std.Build) void {
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
-        .main = true,
         .c_sdl_strip = !debug,
         .c_sdl_lto = lto,
         .c_sdl_sanitize_c = .off,
