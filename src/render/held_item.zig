@@ -139,6 +139,33 @@ pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bright
     mesh.scaleColors(first_vertex, brightness);
 }
 
+pub const fire_quads = 2;
+
+pub fn fireMatrix(quad: usize) math.Mat4 {
+    const side: f32 = @floatFromInt(@as(i32, @intCast(quad)) * 2 - 1);
+    return math.Mat4.translation(-side * 0.24, -0.3, 0)
+        .mul(math.Mat4.rotationY(side * 10.0 * degrees));
+}
+
+pub fn appendFire(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8) !void {
+    const colour: [4]u8 = .{ 255, 255, 255, 230 };
+
+    const column: f32 = @floatFromInt(@as(u32, tile % 16) * 16);
+    const row: f32 = @floatFromInt(@as(u32, tile / 16) * 16);
+    const left = column / atlas_size;
+    const right = (column + 15.99) / atlas_size;
+    const top = row / atlas_size;
+    const bottom = (row + 15.99) / atlas_size;
+
+    const near: f32 = -0.5;
+    const min: f32 = -0.5;
+    const max: f32 = 0.5;
+
+    try mesh.quad(gpa, .{
+        .{ min, min, near }, .{ max, min, near }, .{ max, max, near }, .{ min, max, near },
+    }, .{ .{ right, bottom }, .{ left, bottom }, .{ left, top }, .{ right, top } }, colour);
+}
+
 pub const arm_box: mob_model.Box = .{
     .origin = .{ -3, -2, -2 },
     .size = .{ 4, 12, 4 },

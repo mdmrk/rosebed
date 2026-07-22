@@ -21,6 +21,12 @@ limb_swing: f32 = 0,
 limb_swing_amount: f32 = 0,
 prev_limb_swing_amount: f32 = 0,
 health: i32 = 20,
+prev_health: i32 = 20,
+hurt_time: i32 = 0,
+max_hurt_time: i32 = 0,
+attacked_at_yaw: f32 = 0,
+death_time: i32 = 0,
+hurt_rand: world.JavaRandom = .init(0),
 air: i32 = max_air,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
@@ -72,6 +78,7 @@ const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
 const hurt_resistance_ticks: i32 = 20;
+const hurt_animation_ticks: i32 = 10;
 
 pub const safe_fall_distance: f32 = 3.0;
 const recorded_fall_distance: f32 = 2.0;
@@ -116,7 +123,9 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     }
     self.updateFire(world_map);
     self.updateAir(world_map);
+    if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
+    if (self.health <= 0) self.death_time += 1;
 
     if (self.base.in_water or self.in_lava) {
         if (jump) self.base.motion.y += liquid_jump;
@@ -299,12 +308,17 @@ pub fn hurt(self: *Player, amount: i32) void {
         if (amount <= self.last_damage) return;
         self.applyDamage(amount - self.last_damage);
         self.last_damage = amount;
+        self.attacked_at_yaw = 0;
         return;
     }
 
     self.last_damage = amount;
+    self.prev_health = self.health;
     self.hurt_resistance = hurt_resistance_ticks;
     self.applyDamage(amount);
+    self.hurt_time = hurt_animation_ticks;
+    self.max_hurt_time = hurt_animation_ticks;
+    self.attacked_at_yaw = @floatFromInt(@as(i32, @intFromFloat(self.hurt_rand.nextDouble() * 2.0)) * 180);
 }
 
 fn applyDamage(self: *Player, amount: i32) void {
@@ -322,6 +336,7 @@ pub fn kill(self: *Player) void {
 pub fn heal(self: *Player, amount: i32) void {
     if (self.health <= 0) return;
     self.health = @min(20, self.health + amount);
+    self.hurt_resistance = @divTrunc(hurt_resistance_ticks, 2);
 }
 
 pub fn isDead(self: Player) bool {
@@ -332,10 +347,15 @@ pub fn respawn(self: *Player, position: math.Vec3) void {
     self.base = Entity.init(position, width, height);
     self.base.step_height = step_height;
     self.health = 20;
+    self.prev_health = 20;
     self.air = max_air;
     self.fire = 0;
     self.fall_distance = 0;
     self.hurt_resistance = 0;
+    self.hurt_time = 0;
+    self.max_hurt_time = 0;
+    self.attacked_at_yaw = 0;
+    self.death_time = 0;
     self.last_damage = 0;
     self.damage_remainder = 0;
 }
@@ -492,6 +512,27 @@ pub fn thirdPersonDistance(self: Player, world_map: *const world.World, partial_
         if (reached < distance) distance = reached;
     }
     return distance;
+}
+
+pub fn hurtMatrix(self: Player, partial_ticks: f32) math.Mat4 {
+    const degrees = std.math.pi / 180.0;
+    var transform = math.Mat4.identity;
+
+    if (self.health <= 0) {
+        const dying = @as(f32, @floatFromInt(self.death_time)) + partial_ticks;
+        transform = transform.mul(math.Mat4.rotationZ((40.0 - 8000.0 / (dying + 200.0)) * degrees));
+    }
+
+    const elapsed = @as(f32, @floatFromInt(self.hurt_time)) - partial_ticks;
+    if (elapsed < 0.0 or self.max_hurt_time == 0) return transform;
+
+    const phase = elapsed / @as(f32, @floatFromInt(self.max_hurt_time));
+    const tilt = math.util.sin(phase * phase * phase * phase * std.math.pi);
+    const yaw = self.attacked_at_yaw;
+    return transform
+        .mul(math.Mat4.rotationY(-yaw * degrees))
+        .mul(math.Mat4.rotationZ(-tilt * 14.0 * degrees))
+        .mul(math.Mat4.rotationY(yaw * degrees));
 }
 
 pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
@@ -1192,4 +1233,80 @@ test "healing tops out at full health and never revives the dead" {
     player.health = 0;
     player.heal(3);
     try std.testing.expectEqual(@as(i32, 0), player.health);
+}
+
+test "taking a hit starts a ten tick hurt animation and remembers the health before it" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(4);
+
+    try std.testing.expectEqual(@as(i32, 20), player.prev_health);
+    try std.testing.expectEqual(@as(i32, 16), player.health);
+    try std.testing.expectEqual(@as(i32, 10), player.hurt_time);
+    try std.testing.expectEqual(@as(i32, 10), player.max_hurt_time);
+    try std.testing.expect(player.attacked_at_yaw == 0.0 or player.attacked_at_yaw == 180.0);
+}
+
+test "a hit shrugged off inside the resistance window does not restart the animation" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(4);
+    player.hurt_time = 3;
+    player.hurt(6);
+
+    try std.testing.expectEqual(@as(i32, 20), player.prev_health);
+    try std.testing.expectEqual(@as(i32, 14), player.health);
+    try std.testing.expectEqual(@as(i32, 3), player.hurt_time);
+}
+
+test "healing halves the resistance window so the hearts stop flashing" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(4);
+    try std.testing.expectEqual(@as(i32, hurt_resistance_ticks), player.hurt_resistance);
+
+    player.heal(2);
+    try std.testing.expectEqual(@as(i32, hurt_resistance_ticks / 2), player.hurt_resistance);
+}
+
+test "the hurt camera rolls out and back over the animation" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(4);
+    player.attacked_at_yaw = 0;
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.hurtMatrix(0.0).m[1], 1.0e-3);
+
+    var peak: f32 = 0;
+    var remaining: i32 = 10;
+    while (remaining >= 0) : (remaining -= 1) {
+        player.hurt_time = remaining;
+        peak = @min(peak, player.hurtMatrix(0.0).m[1]);
+    }
+    try std.testing.expect(peak < -0.2);
+
+    player.hurt_time = 0;
+    try std.testing.expectEqual(math.Mat4.identity.m, player.hurtMatrix(0.0).m);
+}
+
+test "the attacked yaw flips which way the camera rolls" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(4);
+    player.hurt_time = 5;
+
+    player.attacked_at_yaw = 0;
+    const left = player.hurtMatrix(0.5);
+    player.attacked_at_yaw = 180;
+    const right = player.hurtMatrix(0.5);
+
+    try std.testing.expectApproxEqAbs(left.m[1], -right.m[1], 1.0e-5);
+}
+
+test "a dead player's camera keeps tilting toward forty degrees" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.health = 0;
+
+    player.death_time = 1;
+    const early = player.hurtMatrix(0.0);
+    player.death_time = 200;
+    const late = player.hurtMatrix(0.0);
+
+    try std.testing.expect(early.m[1] > 0.0);
+    try std.testing.expect(late.m[1] > early.m[1]);
 }

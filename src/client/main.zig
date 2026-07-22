@@ -2093,10 +2093,11 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         const distance = app_state.player.thirdPersonDistance(&app_state.world_map, partial);
         break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
     } else eye_view;
+    const hurt = app_state.player.hurtMatrix(partial);
     const view = if (app_state.settings.view_bobbing)
-        app_state.player.bobMatrix(partial).mul(camera)
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(camera)
     else
-        camera;
+        hurt.mul(camera);
     const view_proj = proj.mul(view);
     const eye = app_state.player.base.renderPosition(partial);
 
@@ -2252,7 +2253,39 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.Disable(gl.BLEND);
 
     try drawClouds(app_state, proj, partial);
-    if (!app_state.third_person) try drawHeldItem(app_state, proj, partial);
+    if (!app_state.third_person) {
+        try drawHeldItem(app_state, proj, partial);
+        if (app_state.player.fire > 0) try drawFireOverlay(app_state, proj);
+    }
+}
+
+fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    app_state.shader.setInt("u_fog_enabled", 0);
+    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
+    gl.ActiveTexture(gl.TEXTURE0);
+    app_state.shader.setInt("u_atlas", 0);
+    app_state.textures.terrain.bind();
+
+    for (0..render.held_item.fire_quads) |quad| {
+        var mesh: render.MeshBuilder = .{};
+        defer mesh.deinit(app_state.frame);
+
+        const tile: u8 = render.TextureFx.fire_tile + @as(u8, @intCast(quad)) * render.Atlas.tiles_per_row;
+        try render.held_item.appendFire(&mesh, app_state.frame, tile);
+        app_state.shader.setMat4("u_view_proj", proj.mul(render.held_item.fireMatrix(quad)).m);
+
+        var gpu = render.GpuMesh.upload(&mesh);
+        defer gpu.deinit();
+        gpu.draw();
+    }
+
+    app_state.shader.setInt("u_alpha_test", 1);
+    gl.Disable(gl.BLEND);
 }
 
 fn drawPlayer(app_state: *AppState, partial: f32) !void {
@@ -2302,7 +2335,7 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const equipped = app_state.equip.interpolated(partial);
     const shape = render.held_item.heldShape(app_state.equip.shown);
 
-    var transform = proj.mul(bob);
+    var transform = proj.mul(app_state.player.hurtMatrix(partial)).mul(bob);
     if (shape) |held| {
         transform = transform.mul(render.held_item.handMatrix(swing, equipped));
         switch (held) {
@@ -2345,10 +2378,11 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const angle = app_state.world_map.celestialAngle(partial);
     const eye = app_state.player.base.renderPosition(partial);
+    const hurt = app_state.player.hurtMatrix(partial);
     const rotation = if (app_state.settings.view_bobbing)
-        app_state.player.bobMatrix(partial).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(app_state.player.viewRotation())
     else
-        app_state.player.viewRotation();
+        hurt.mul(app_state.player.viewRotation());
 
     const ticks: f64 = @floatFromInt(app_state.cloud_offset);
     try render.SkyRenderer.drawClouds(.{
@@ -2371,10 +2405,11 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         math.util.floorDouble(app_state.player.base.position.x),
         math.util.floorDouble(app_state.player.base.position.z),
     ));
+    const hurt = app_state.player.hurtMatrix(partial);
     const rotation = if (app_state.settings.view_bobbing)
-        app_state.player.bobMatrix(partial).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(app_state.player.viewRotation())
     else
-        app_state.player.viewRotation();
+        hurt.mul(app_state.player.viewRotation());
 
     try app_state.sky.draw(.{
         .shader = app_state.shader,
@@ -2528,7 +2563,7 @@ pub fn iterate(
                 world.light.brightnessAt(&app_state.world_map, sample[0], sample[1], sample[2], 0),
             );
         }
-        try render.hud.draw(ui, app_state.player.inventory, app_state.player.health);
+        try render.hud.draw(ui, app_state.player.inventory, app_state.player, @truncate(@as(i64, @bitCast(app_state.tick_count))));
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
         try render.chat.draw(ui, &app_state.chat);
     }

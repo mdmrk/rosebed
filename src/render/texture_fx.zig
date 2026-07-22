@@ -134,6 +134,57 @@ pub const Lava = struct {
     }
 };
 
+pub const fire_tile: u8 = 31;
+
+const flame_rows = 20;
+const flame_cells = tile * flame_rows;
+
+pub const Flames = struct {
+    current: [flame_cells]f32 = @splat(0.0),
+    next: [flame_cells]f32 = @splat(0.0),
+    image: [cells * 4]u8 = @splat(0),
+
+    pub fn tick(self: *Flames, rand: *world.JavaRandom) void {
+        for (0..tile) |xi| {
+            for (0..flame_rows) |yi| {
+                const x: i32 = @intCast(xi);
+                const y: i32 = @intCast(yi);
+                var divisor: i32 = 18;
+                var sum = self.current[xi + (yi + 1) % flame_rows * tile] * @as(f32, @floatFromInt(divisor));
+
+                var a = x - 1;
+                while (a <= x + 1) : (a += 1) {
+                    var b = y;
+                    while (b <= y + 1) : (b += 1) {
+                        if (a >= 0 and b >= 0 and a < tile and b < flame_rows) {
+                            sum += self.current[@intCast(a + b * tile)];
+                        }
+                        divisor += 1;
+                    }
+                }
+
+                self.next[xi + yi * tile] = sum / (@as(f32, @floatFromInt(divisor)) * 1.06);
+                if (yi >= flame_rows - 1) {
+                    const spark = rand.nextDouble() * rand.nextDouble() * rand.nextDouble() * 4.0 +
+                        rand.nextDouble() * 0.1 + 0.2;
+                    self.next[xi + yi * tile] = @floatCast(spark);
+                }
+            }
+        }
+
+        std.mem.swap([flame_cells]f32, &self.current, &self.next);
+
+        for (0..cells) |i| {
+            const level = std.math.clamp(self.current[i] * 1.8, 0.0, 1.0);
+            const squared = level * level;
+            self.image[i * 4 + 0] = @intFromFloat(level * 155.0 + 100.0);
+            self.image[i * 4 + 1] = @intFromFloat(squared * 255.0);
+            self.image[i * 4 + 2] = @intFromFloat(squared * squared * squared * squared * squared * 255.0);
+            self.image[i * 4 + 3] = if (level < 0.5) 0 else 255;
+        }
+    }
+};
+
 pub const compass_tile: u8 = 54;
 
 const compass_needle_grey: [4]u8 = .{ 100, 100, 100, 255 };
@@ -237,6 +288,8 @@ water: Water = .{ .flowing = false },
 water_flow: Water = .{ .flowing = true },
 lava: Lava = .{ .flowing = false },
 lava_flow: Lava = .{ .flowing = true },
+flames: Flames = .{},
+flames_back: Flames = .{},
 compass: Compass = .{},
 clock: Clock = .{},
 rand: world.JavaRandom,
@@ -275,6 +328,8 @@ pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64) void {
     self.water.tick(&self.rand);
     self.water_flow.tick(&self.rand);
     self.lava_flow.tick(&self.rand);
+    self.flames.tick(&self.rand);
+    self.flames_back.tick(&self.rand);
 }
 
 fn uploadTile(image: []const u8, index: u8, span: gl.int) void {
@@ -295,6 +350,8 @@ pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
     uploadTile(&self.water_flow.image, water_flow_tile, 2);
     uploadTile(&self.lava.image, lava_still_tile, 1);
     uploadTile(&self.lava_flow.image, lava_flow_tile, 2);
+    uploadTile(&self.flames.image, fire_tile, 1);
+    uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1);
 
     items.bind();
     uploadTile(&self.compass.image, compass_tile, 1);
@@ -465,3 +522,25 @@ test "the clock and the compass ease the same way, as both FX classes do" {
     try std.testing.expectEqual(compass.spin.angle, clock.spin.angle);
     try std.testing.expectEqual(compass.spin.velocity, clock.spin.velocity);
 }
+
+test "the flame tile is the one BlockFire draws with, and the second sits below it" {
+    try std.testing.expectEqual(@as(u8, 15 + 1 * 16), fire_tile);
+    try std.testing.expectEqual(@as(u8, 15 + 2 * 16), fire_tile + Atlas.tiles_per_row);
+}
+
+test "flames burn opaque orange at the base and fade to nothing at the top" {
+    var rand = world.JavaRandom.init(4321);
+    var fx: Flames = .{};
+    for (0..100) |_| fx.tick(&rand);
+
+    var lit: usize = 0;
+    for (0..tile) |x| {
+        const bottom = (tile - 1) * tile + x;
+        if (fx.image[bottom * 4 + 3] == 255) lit += 1;
+        try std.testing.expect(fx.image[bottom * 4 + 0] >= 100);
+    }
+    try std.testing.expect(lit > tile / 2);
+
+    for (0..tile) |x| try std.testing.expectEqual(@as(u8, 0), fx.image[x * 4 + 3]);
+}
+
