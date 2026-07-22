@@ -9,6 +9,7 @@ pub const Verb = enum {
     give,
     kill,
     spawn,
+    seed,
     time,
 
     pub fn usage(self: Verb) []const u8 {
@@ -17,6 +18,7 @@ pub const Verb = enum {
             .give => "<player> <id|name> [num]",
             .kill => "",
             .spawn => "<mob> [num]",
+            .seed => "<|copy>",
             .time => "<add|set> <amount>",
         };
     }
@@ -27,6 +29,7 @@ pub const Verb = enum {
             .give => "gives a player a resource",
             .kill => "kills the player",
             .spawn => "spawns a mob where you look",
+            .seed => "shows world seed",
             .time => "adds to or sets the world time (0-24000)",
         };
     }
@@ -39,6 +42,10 @@ pub const Give = struct {
     id: world.Id,
     raw_id: u32,
     count: u8,
+};
+
+pub const Seed = struct {
+    copy: bool,
 };
 
 pub const Spawn = struct {
@@ -57,6 +64,7 @@ pub const Result = union(enum) {
     nothing,
     help,
     kill,
+    seed: Seed,
     give: Give,
     spawn: Spawn,
     time: Time,
@@ -144,6 +152,7 @@ pub fn parse(line: []const u8, username: []const u8) Result {
         .kill => if (words.next() == null) .kill else .nothing,
         .give => parseGive(&words, username),
         .spawn => parseSpawn(&words),
+        .seed => parseSeed(&words),
         .time => parseTime(&words),
     };
 }
@@ -178,6 +187,12 @@ fn parseSpawn(words: *Words) Result {
 
     const mob = std.meta.stringToEnum(Mob, name) orelse return .{ .missing_mob = name };
     return .{ .spawn = .{ .mob = mob, .count = tryParse(count_text, 1) } };
+}
+
+fn parseSeed(words: *Words) Result {
+    const copy = words.next() orelse return .{ .seed = .{ .copy = false } };
+    if (!std.mem.eql(u8, copy, "copy")) return .{ .unknown = copy };
+    return .{ .seed = .{ .copy = true } };
 }
 
 fn parseTime(words: *Words) Result {

@@ -1017,6 +1017,19 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);
         },
+        .seed => |seed| {
+            var buffer: [64]u8 = undefined;
+            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.generator.world_seed}, 0);
+            const copy_msg = if (seed.copy)
+                " (Copied to clipboard)"
+            else
+                "";
+
+            if (seed.copy) {
+                try sdl3.clipboard.setText(world_seed);
+            }
+            reply(app_state, "{s}{s}", .{ world_seed, copy_msg });
+        },
         .give => |give| {
             try app_state.entities.throwFromPlayer(
                 app_state.gpa,
