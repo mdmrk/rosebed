@@ -144,6 +144,9 @@ const AppState = struct {
     needs_spawn: bool = false,
     spawn: [3]i32 = .{ 0, 64, 0 },
     ticks_since_save: u32 = 0,
+    pause_save_frames: u32 = 0,
+    pause_ticks: u32 = 0,
+    pause_saving: bool = false,
     stats: game.stats.Stats = .{},
     stats_open: bool = false,
     stats_view: render.stats_screen.State = .{},
@@ -174,8 +177,8 @@ const Loading = struct {
 };
 
 const spawn_load_radius: i32 = 3;
-const autosave_interval_ticks: u32 = 900;
-const save_chunks_per_tick: usize = 1;
+const autosave_interval_ticks: u32 = 40;
+const save_chunks_per_pass: usize = 24;
 const OptionsParent = enum { title, pause };
 
 const Digging = struct {
@@ -881,7 +884,25 @@ fn toggleInventory(app_state: *AppState) !void {
 
 fn togglePause(app_state: *AppState) !void {
     app_state.paused = !app_state.paused;
+    if (app_state.paused) {
+        app_state.pause_save_frames = 0;
+        app_state.pause_ticks = 0;
+        app_state.pause_saving = true;
+    }
     try updateMouseMode(app_state);
+}
+
+fn stepPauseSave(app_state: *AppState) !void {
+    if (app_state.save_handle == null) {
+        app_state.pause_saving = false;
+        return;
+    }
+    if (app_state.pause_save_frames == 0) {
+        try saveLevel(app_state);
+        try app_state.world_map.beginSaveRound();
+    }
+    app_state.pause_save_frames += 1;
+    app_state.pause_saving = try app_state.world_map.saveQueuedChunks(save_chunks_per_pass) > 0;
 }
 
 fn killPlayer(app_state: *AppState) !void {
@@ -912,6 +933,17 @@ fn scatterSlotOnDeath(app_state: *AppState, slot: *?game.Inventory.ItemStack) !v
 }
 
 fn respawnPlayer(app_state: *AppState) !void {
+    if (app_state.player.spawn_point) |bed| {
+        if (world.block_update.bedRespawnSpot(&app_state.world_map, bed[0], bed[1], bed[2])) |spot| {
+            app_state.player.respawn(spawnPlacement(&app_state.world_map, spot));
+            app_state.dead = false;
+            try updateMouseMode(app_state);
+            return;
+        }
+        app_state.chat.addMessage(app_state.font, bed_not_valid_line);
+        app_state.player.spawn_point = null;
+    }
+
     try adjustSpawnLocation(app_state);
     app_state.player.respawn(spawnPlacement(&app_state.world_map, app_state.spawn));
     app_state.dead = false;
@@ -1183,7 +1215,14 @@ fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.Inventor
         .motion = .{ app_state.player.base.motion.x, app_state.player.base.motion.y, app_state.player.base.motion.z },
         .yaw = app_state.player.yaw,
         .pitch = app_state.player.pitch,
+        .fall_distance = app_state.player.fall_distance,
+        .fire = @intCast(app_state.player.fire),
+        .air = @intCast(app_state.player.air),
         .on_ground = app_state.player.base.on_ground,
+        .health = @intCast(app_state.player.health),
+        .hurt_time = @intCast(app_state.player.hurt_time),
+        .death_time = @intCast(app_state.player.death_time),
+        .spawn = app_state.player.spawn_point,
         .inventory = entries.items,
     };
 }
@@ -1207,6 +1246,14 @@ fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
     app_state.player.render_yaw = state.yaw;
     app_state.player.prev_render_yaw = state.yaw;
     app_state.player.base.on_ground = state.on_ground;
+    app_state.player.fall_distance = state.fall_distance;
+    app_state.player.fire = state.fire;
+    app_state.player.air = state.air;
+    app_state.player.health = state.health;
+    app_state.player.prev_health = state.health;
+    app_state.player.hurt_time = state.hurt_time;
+    app_state.player.death_time = state.death_time;
+    app_state.player.spawn_point = state.spawn;
 
     app_state.player.inventory.loadSaveEntries(state.inventory);
 }
@@ -1228,7 +1275,7 @@ fn saveLevel(app_state: *AppState) !void {
         .seed = app_state.generator.world_seed,
         .spawn = app_state.spawn,
         .time = app_state.world_map.time,
-        .last_played = world.RegionFile.unixSeconds(app_state.io),
+        .last_played = world.RegionFile.unixMilliseconds(app_state.io),
         .size_on_disk = @intCast(handle.diskSize(app_state.io)),
         .name = @constCast(app_state.open_name.text()),
         .player = player,
@@ -1697,6 +1744,7 @@ fn hangPaintingAtTarget(app_state: *AppState) !bool {
     return true;
 }
 
+const bed_not_valid_line = "Your home bed was missing or obstructed";
 const bed_reach_x: f64 = 3.0;
 const bed_reach_y: f64 = 2.0;
 
@@ -1717,6 +1765,7 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (@abs(position.z - @as(f64, @floatFromInt(pillow[2]))) > bed_reach_x) return;
 
     app_state.world_map.skipToDawn();
+    app_state.player.spawn_point = pillow;
 }
 
 fn useHeldItem(app_state: *AppState) !void {
@@ -2006,10 +2055,10 @@ fn tick(app_state: *AppState) !void {
     app_state.ticks_since_save += 1;
     if (app_state.ticks_since_save >= autosave_interval_ticks) {
         app_state.ticks_since_save = 0;
-        try app_state.world_map.beginSaveRound();
         try saveLevel(app_state);
+        try app_state.world_map.beginSaveRound();
+        _ = try app_state.world_map.saveQueuedChunks(save_chunks_per_pass);
     }
-    _ = try app_state.world_map.saveQueuedChunks(save_chunks_per_tick);
 }
 
 const display_particle_samples = 1000;
@@ -2669,6 +2718,9 @@ pub fn iterate(
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.create_state.tick();
     } else if (app_state.screen == .multiplayer) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.multiplayer_state.tick();
+    } else if (app_state.screen == .playing and app_state.paused) {
+        app_state.pause_ticks +|= @intCast(app_state.timer.elapsed_ticks);
+        try stepPauseSave(app_state);
     }
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
@@ -2750,7 +2802,7 @@ pub fn iterate(
     } else if (app_state.dead) {
         try render.death_screen.draw(ui);
     } else if (app_state.paused) {
-        try render.menu.draw(ui);
+        try render.menu.draw(ui, app_state.pause_saving, app_state.pause_ticks, app_state.timer.render_partial_ticks);
     } else if (openedFurnace(app_state)) |furnace| {
         try render.furnace_screen.draw(
             ui,

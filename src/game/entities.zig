@@ -710,6 +710,19 @@ fn collectChunkEntities(
         if (chunkOf(chicken.animal.base.position.x) != chunk_x or chunkOf(chicken.animal.base.position.z) != chunk_z) continue;
         try out.append(gpa, try world.entity_nbt.storeChicken(gpa, chicken.toRecord()));
     }
+    for (self.items.items) |item| {
+        if (chunkOf(item.base.position.x) != chunk_x or chunkOf(item.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeItem(gpa, item.toRecord()));
+    }
+    for (self.arrows.items) |arrow| {
+        if (arrow.dead) continue;
+        if (chunkOf(arrow.base.position.x) != chunk_x or chunkOf(arrow.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeArrow(gpa, arrow.toRecord()));
+    }
+    for (self.paintings.items) |painting| {
+        if (chunkOf(painting.position.x) != chunk_x or chunkOf(painting.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storePainting(gpa, painting.toRecord()));
+    }
 }
 
 fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!void {
@@ -722,6 +735,12 @@ fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world
         try self.cows.append(gpa, Cow.fromRecord(record));
     } else if (world.entity_nbt.loadChicken(entity)) |record| {
         try self.chickens.append(gpa, Chicken.fromRecord(record));
+    } else if (world.entity_nbt.loadItem(entity)) |record| {
+        try self.items.append(gpa, ItemEntity.fromRecord(record));
+    } else if (world.entity_nbt.loadArrow(entity)) |record| {
+        try self.arrows.append(gpa, Arrow.fromRecord(record));
+    } else if (world.entity_nbt.loadPainting(entity)) |record| {
+        if (Painting.fromRecord(record)) |painting| try self.paintings.append(gpa, painting);
     }
 }
 
@@ -896,6 +915,72 @@ test "a pig is written into the chunk it stands in and comes back on reload" {
     const chicken = restored.chickens.items[0];
     try std.testing.expectApproxEqAbs(@as(f64, 11.5), chicken.animal.base.position.x, 1.0e-9);
     try std.testing.expectEqual(@as(i32, 3), chicken.animal.health);
+}
+
+test "dropped items, arrows and paintings come back with their chunk" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Litter");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        var rand = world.JavaRandom.init(0);
+        try entities.dropStackAt(gpa, math.Vec3.init(4.5, 1, 4.5), .{ .id = .{ .item = .diamond }, .count = 7 }, &rand);
+
+        var arrow = Arrow{ .base = Entity.init(math.Vec3.init(6.5, 1, 6.5), Arrow.size, Arrow.size) };
+        arrow.in_ground = true;
+        arrow.from_player = true;
+        arrow.tile = .{ 6, 0, 6 };
+        arrow.in_tile = .stone;
+        try entities.arrows.append(gpa, arrow);
+
+        try entities.spawnPainting(gpa, Painting.place(.{ 9, 2, 9 }, 2, .pigscene));
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.items.items.len);
+    const item = restored.items.items[0];
+    try std.testing.expectEqual(world.Id{ .item = .diamond }, item.stack.id);
+    try std.testing.expectEqual(@as(u8, 7), item.stack.count);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.5), item.base.position.x, 1.0e-9);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.arrows.items.len);
+    const restored_arrow = restored.arrows.items[0];
+    try std.testing.expect(restored_arrow.in_ground);
+    try std.testing.expect(restored_arrow.from_player);
+    try std.testing.expectEqual(world.Block.stone, restored_arrow.in_tile);
+    try std.testing.expectEqual([3]i32{ 6, 0, 6 }, restored_arrow.tile);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.paintings.items.len);
+    const painting = restored.paintings.items[0];
+    try std.testing.expectEqual(Painting.Art.pigscene, painting.art);
+    try std.testing.expectEqual([3]i32{ 9, 2, 9 }, painting.tile);
+    try std.testing.expectEqual(@as(u2, 2), painting.direction);
 }
 
 test "a pig is only written into the chunk it is standing in" {

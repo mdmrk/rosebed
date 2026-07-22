@@ -243,6 +243,33 @@ pub fn bedPartner(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
     return if (world_map.getBlock(other[0], other[1], other[2]) == .bed) other else null;
 }
 
+pub fn bedRespawnSpot(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
+    if (world_map.getBlock(x, y, z) != .bed) return null;
+
+    const step = block.bedStep(block.bedFacing(world_map.getBlockMetadata(x, y, z)));
+
+    var ring: i32 = 0;
+    while (ring <= 1) : (ring += 1) {
+        const from_x = x - step[0] * ring - 1;
+        const from_z = z - step[1] * ring - 1;
+
+        var sx = from_x;
+        while (sx <= from_x + 2) : (sx += 1) {
+            var sz = from_z;
+            while (sz <= from_z + 2) : (sz += 1) {
+                if (world_map.getBlock(sx, y - 1, sz).isOpaqueCube() and
+                    world_map.getBlock(sx, y, sz) == .air and
+                    world_map.getBlock(sx, y + 1, sz) == .air)
+                {
+                    return .{ sx, y, sz };
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
 pub fn canPlaceBedAt(world_map: *const World, x: i32, y: i32, z: i32, facing: u2) bool {
     const step = block.bedStep(facing);
     if (!world_map.getBlock(x, y, z).isReplaceable()) return false;
@@ -1027,6 +1054,48 @@ test "breaking the pillow end still leaves exactly one bed behind" {
         if (drop.stack.id.eql(.{ .item = .bed })) beds += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), beds);
+}
+
+test "a respawn spot is found beside the bed, on solid ground with headroom" {
+    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try w.setBlockWithNotify(8, 2, 8, .bed);
+    try w.setBlockMetadataWithNotify(8, 2, 8, block.bed_pillow_bit);
+    try w.setBlockWithNotify(8, 2, 7, .bed);
+
+    const spot = bedRespawnSpot(&w, 8, 2, 8).?;
+    try std.testing.expectEqual(@as(i32, 2), spot[1]);
+    try std.testing.expect(@abs(spot[0] - 8) <= 1);
+    try std.testing.expect(w.getBlock(spot[0], spot[1], spot[2]) == .air);
+    try std.testing.expect(w.getBlock(spot[0], spot[1] - 1, spot[2]).isOpaqueCube());
+}
+
+test "a bed that is gone offers no respawn spot" {
+    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8));
+}
+
+test "a bed walled in on every side offers no respawn spot" {
+    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+
+    try w.setBlockWithNotify(8, 2, 8, .bed);
+    try w.setBlockMetadataWithNotify(8, 2, 8, block.bed_pillow_bit);
+    try w.setBlockWithNotify(8, 2, 7, .bed);
+
+    var x: i32 = 5;
+    while (x <= 11) : (x += 1) {
+        var z: i32 = 4;
+        while (z <= 11) : (z += 1) {
+            if (w.getBlock(x, 2, z) == .bed) continue;
+            try w.setBlockWithNotify(x, 2, z, .stone);
+        }
+    }
+
+    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8));
 }
 
 test "a sign post falls when the ground under it goes" {

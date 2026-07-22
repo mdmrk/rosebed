@@ -408,3 +408,16 @@ test "a painting stops fitting once its wall is mined away" {
     try w.setBlockWithNotify(8, 4, 8, .air);
     try std.testing.expect(!hung[0].fits(&w, &hung, 0));
 }
+
+pub fn toRecord(self: Painting) world.entity_nbt.Painting {
+    return .{
+        .tile = self.tile,
+        .direction = self.direction,
+        .motive = self.art.info().title,
+    };
+}
+
+pub fn fromRecord(record: world.entity_nbt.Painting) ?Painting {
+    const art = Art.fromTitle(record.motive) orelse return null;
+    return place(record.tile, record.direction, art);
+}

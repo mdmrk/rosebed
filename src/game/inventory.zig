@@ -193,21 +193,12 @@ pub fn consumeItem(self: *Inventory, id: world.Id) bool {
 }
 
 pub fn saveEntry(slot: u8, stack: ItemStack) world.save.InventoryEntry {
-    const id: i16 = switch (stack.id) {
-        .block => |b| @intCast(@intFromEnum(b)),
-        .item => |i| @bitCast(@as(u16, @intFromEnum(i))),
-    };
-    return .{ .slot = slot, .id = id, .count = stack.count, .damage = @bitCast(stack.meta) };
+    return .{ .slot = slot, .id = stack.id.numeric(), .count = stack.count, .damage = @bitCast(stack.meta) };
 }
 
 pub fn stackFromEntry(entry: world.save.InventoryEntry) ?ItemStack {
     if (entry.count == 0) return null;
-    const raw: u16 = @bitCast(entry.id);
-    const id: world.Id = if (raw < 256)
-        .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
-    else
-        .{ .item = @enumFromInt(raw) };
-    return .{ .id = id, .count = entry.count, .meta = @bitCast(entry.damage) };
+    return .{ .id = world.Id.fromNumeric(entry.id), .count = entry.count, .meta = @bitCast(entry.damage) };
 }
 
 pub fn appendSaveEntries(self: Inventory, gpa: std.mem.Allocator, entries: *std.ArrayList(world.save.InventoryEntry)) !void {

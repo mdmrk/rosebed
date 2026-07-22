@@ -194,6 +194,7 @@ fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i
     const chunk = try self.createChunk(chunk_x, chunk_z);
     const climate = generator.climate.sample(chunk_x * Chunk.width, chunk_z * Chunk.width);
     chunk.* = stored.chunk;
+    chunk.stored_entities = stored.entities.len > 0 or stored.tile_entities.len > 0;
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
             const i = x * Chunk.width + z;
@@ -205,9 +206,9 @@ fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i
     return chunk;
 }
 
-fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
-    const persistence = self.persistence orelse return;
-    const chunk = self.getChunk(coord.x, coord.z) orelse return;
+fn writeChunkAt(self: *World, coord: ChunkCoord) !bool {
+    const persistence = self.persistence orelse return false;
+    const chunk = self.getChunk(coord.x, coord.z) orelse return false;
 
     var entities: std.ArrayList(nbt.Tag) = .empty;
     errdefer {
@@ -223,6 +224,15 @@ fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
     }
     try self.collectTileEntities(coord, &tile_entities);
 
+    const holds_entities = entities.items.len > 0 or tile_entities.items.len > 0;
+    if (!chunk.modified and !chunk.stored_entities and !holds_entities) {
+        for (entities.items) |*tag| nbt.deinit(self.allocator, tag);
+        entities.deinit(self.allocator);
+        for (tile_entities.items) |*tag| nbt.deinit(self.allocator, tag);
+        tile_entities.deinit(self.allocator);
+        return false;
+    }
+
     try persistence.handle.writeChunk(
         self.allocator,
         persistence.io,
@@ -232,13 +242,17 @@ fn writeChunkAt(self: *World, coord: ChunkCoord) !void {
         try entities.toOwnedSlice(self.allocator),
         try tile_entities.toOwnedSlice(self.allocator),
     );
+
+    chunk.modified = false;
+    chunk.stored_entities = holds_entities;
+    return true;
 }
 
 pub fn saveLoadedChunks(self: *World) !void {
     if (self.persistence == null) return;
 
     var it = self.chunks.keyIterator();
-    while (it.next()) |coord| try self.writeChunkAt(coord.*);
+    while (it.next()) |coord| _ = try self.writeChunkAt(coord.*);
     self.save_queue.clearRetainingCapacity();
 }
 
@@ -254,8 +268,7 @@ pub fn saveQueuedChunks(self: *World, limit: usize) !usize {
     var written: usize = 0;
     while (written < limit) {
         const coord = self.save_queue.pop() orelse break;
-        try self.writeChunkAt(coord);
-        written += 1;
+        if (try self.writeChunkAt(coord)) written += 1;
     }
     return self.save_queue.items.len;
 }
@@ -788,6 +801,91 @@ test "a world with a save reloads its chunks from disk instead of regenerating t
     const chunk = try reloaded.getOrGenerateChunk(generator, 0, 0);
     try std.testing.expectEqual(.glowstone, chunk.getBlock(4, 100, 6));
     try std.testing.expect(reloaded.isDecorated(0, 0));
+}
+
+test "a second save skips chunks that have not changed since the first" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const generator = try TerrainGenerator.init(gpa, 4321);
+    defer generator.deinit(gpa);
+
+    var handle = try save.open(io, tmp.dir, "Unchanged");
+    defer handle.close(gpa, io);
+
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+    world_map.persistence = .{ .handle = &handle, .io = io };
+
+    try world_map.ensureDecorated(generator, 0, 0);
+    try world_map.saveLoadedChunks();
+
+    const chunk = world_map.getChunk(0, 0).?;
+    try std.testing.expect(!chunk.modified);
+
+    world_map.setBlock(4, 100, 6, .glowstone);
+    try std.testing.expect(chunk.modified);
+    try world_map.saveLoadedChunks();
+    try std.testing.expect(!chunk.modified);
+}
+
+test "a chunk loaded from disk is clean until something changes it" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const generator = try TerrainGenerator.init(gpa, 909);
+    defer generator.deinit(gpa);
+
+    var handle = try save.open(io, tmp.dir, "Clean");
+    defer handle.close(gpa, io);
+
+    {
+        var world_map = World.init(gpa);
+        defer world_map.deinit();
+        world_map.persistence = .{ .handle = &handle, .io = io };
+        try world_map.ensureDecorated(generator, 0, 0);
+        try world_map.saveLoadedChunks();
+    }
+
+    var reloaded = World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    const chunk = try reloaded.getOrGenerateChunk(generator, 0, 0);
+    try std.testing.expect(!chunk.modified);
+}
+
+test "a chunk keeps being written while it still holds the entities it stored" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    const generator = try TerrainGenerator.init(gpa, 77);
+    defer generator.deinit(gpa);
+
+    var handle = try save.open(io, tmp.dir, "Tenants");
+    defer handle.close(gpa, io);
+
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+    world_map.persistence = .{ .handle = &handle, .io = io };
+
+    try world_map.ensureDecorated(generator, 0, 0);
+    (try world_map.addSign(3, 90, 5)).* = .{};
+    try world_map.saveLoadedChunks();
+
+    const chunk = world_map.getChunk(0, 0).?;
+    try std.testing.expect(chunk.stored_entities);
+
+    _ = world_map.removeSign(3, 90, 5);
+    chunk.modified = false;
+    try world_map.saveLoadedChunks();
+    try std.testing.expect(!chunk.stored_entities);
 }
 
 test "a world without a save still generates chunks" {

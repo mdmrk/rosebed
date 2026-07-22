@@ -18,6 +18,8 @@ block_light: NibbleArray = .{},
 height_map: [width * width]u8 = [_]u8{0} ** (width * width),
 temperature: [width * width]f32 = [_]f32{0.5} ** (width * width),
 humidity: [width * width]f32 = [_]f32{0.5} ** (width * width),
+modified: bool = false,
+stored_entities: bool = false,
 
 pub fn init(x: i32, z: i32) Chunk {
     return .{ .x = x, .z = z };
@@ -33,6 +35,7 @@ pub fn getBlock(self: *const Chunk, x: u32, y: u32, z: u32) Block {
 
 pub fn setBlock(self: *Chunk, x: u32, y: u32, z: u32, id: Block) void {
     self.blocks[blockIndex(x, y, z)] = id;
+    self.modified = true;
 }
 
 pub fn getBlockMetadata(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
@@ -41,6 +44,7 @@ pub fn getBlockMetadata(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
 
 pub fn setBlockMetadata(self: *Chunk, x: u32, y: u32, z: u32, value: u4) void {
     self.metadata.set(x, y, z, value);
+    self.modified = true;
 }
 
 fn heightMapIndex(x: u32, z: u32) usize {
@@ -53,6 +57,7 @@ pub fn getHeightValue(self: *const Chunk, x: u32, z: u32) u8 {
 
 pub fn setHeightValue(self: *Chunk, x: u32, z: u32, value: u8) void {
     self.height_map[heightMapIndex(x, z)] = value;
+    self.modified = true;
 }
 
 pub fn getSkyLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
@@ -61,6 +66,7 @@ pub fn getSkyLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
 
 pub fn setSkyLight(self: *Chunk, x: u32, y: u32, z: u32, value: u4) void {
     self.sky_light.set(x, y, z, value);
+    self.modified = true;
 }
 
 pub fn getBlockLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
@@ -69,6 +75,7 @@ pub fn getBlockLight(self: *const Chunk, x: u32, y: u32, z: u32) u4 {
 
 pub fn setBlockLight(self: *Chunk, x: u32, y: u32, z: u32, value: u4) void {
     self.block_light.set(x, y, z, value);
+    self.modified = true;
 }
 
 pub fn getTemperature(self: *const Chunk, x: u32, z: u32) f32 {

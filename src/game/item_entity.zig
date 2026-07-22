@@ -108,3 +108,34 @@ test "canPickUp is false until the pickup delay elapses" {
     for (0..10) |_| item.tick(&w);
     try std.testing.expect(item.canPickUp());
 }
+
+pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {
+    return .{
+        .base = .{
+            .position = .{
+                self.base.position.x,
+                self.base.position.y + self.base.y_size,
+                self.base.position.z,
+            },
+            .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+            .on_ground = self.base.on_ground,
+        },
+        .stack = self.stack,
+        .age = @intCast(self.age),
+    };
+}
+
+pub fn fromRecord(record: world.entity_nbt.Item) ItemEntity {
+    var item = ItemEntity{
+        .base = Entity.init(math.Vec3.init(
+            record.base.position[0],
+            record.base.position[1],
+            record.base.position[2],
+        ), width, height),
+        .stack = record.stack,
+        .age = @intCast(@max(0, record.age)),
+    };
+    item.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);
+    item.base.on_ground = record.base.on_ground;
+    return item;
+}

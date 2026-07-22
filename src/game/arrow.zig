@@ -451,3 +451,52 @@ test "an arrow that falls out of the world stops existing" {
     _ = arrow.settle(&w, &rand);
     try std.testing.expect(arrow.dead);
 }
+
+pub fn toRecord(self: Arrow) world.entity_nbt.Arrow {
+    return .{
+        .base = .{
+            .position = .{
+                self.base.position.x,
+                self.base.position.y + self.base.y_size,
+                self.base.position.z,
+            },
+            .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+            .yaw = self.yaw,
+            .pitch = self.pitch,
+            .on_ground = self.base.on_ground,
+        },
+        .tile = .{
+            @intCast(self.tile[0]),
+            @intCast(self.tile[1]),
+            @intCast(self.tile[2]),
+        },
+        .in_tile = @intFromEnum(self.in_tile),
+        .in_data = self.in_tile_metadata,
+        .shake = @intCast(@max(0, self.shake)),
+        .in_ground = self.in_ground,
+        .from_player = self.from_player,
+    };
+}
+
+pub fn fromRecord(record: world.entity_nbt.Arrow) Arrow {
+    var arrow = Arrow{
+        .base = Entity.init(math.Vec3.init(
+            record.base.position[0],
+            record.base.position[1],
+            record.base.position[2],
+        ), size, size),
+        .yaw = record.base.yaw,
+        .pitch = record.base.pitch,
+        .prev_yaw = record.base.yaw,
+        .prev_pitch = record.base.pitch,
+        .tile = .{ record.tile[0], record.tile[1], record.tile[2] },
+        .in_tile = @enumFromInt(record.in_tile),
+        .in_tile_metadata = @truncate(record.in_data),
+        .in_ground = record.in_ground,
+        .from_player = record.from_player,
+        .shake = record.shake,
+    };
+    arrow.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);
+    arrow.base.on_ground = record.base.on_ground;
+    return arrow;
+}

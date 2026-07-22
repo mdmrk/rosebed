@@ -1,11 +1,15 @@
 const std = @import("std");
 
+const block = @import("block.zig");
 const nbt = @import("nbt.zig");
 
 pub const pig_id = "Pig";
 pub const sheep_id = "Sheep";
 pub const cow_id = "Cow";
 pub const chicken_id = "Chicken";
+pub const item_id = "Item";
+pub const arrow_id = "Arrow";
+pub const painting_id = "Painting";
 
 pub const max_stored_motion: f64 = 10.0;
 
@@ -42,6 +46,40 @@ pub const Chicken = struct {
     living: Living,
 };
 
+pub const Base = struct {
+    position: [3]f64,
+    motion: [3]f64 = .{ 0, 0, 0 },
+    yaw: f32 = 0,
+    pitch: f32 = 0,
+    fall_distance: f32 = 0,
+    fire: i16 = 0,
+    air: i16 = 300,
+    on_ground: bool = false,
+};
+
+pub const Item = struct {
+    base: Base,
+    stack: block.Stack,
+    health: i16 = 5,
+    age: i16 = 0,
+};
+
+pub const Arrow = struct {
+    base: Base,
+    tile: [3]i16 = .{ -1, -1, -1 },
+    in_tile: u8 = 0,
+    in_data: u8 = 0,
+    shake: u8 = 0,
+    in_ground: bool = false,
+    from_player: bool = false,
+};
+
+pub const Painting = struct {
+    tile: [3]i32,
+    direction: u2,
+    motive: []const u8,
+};
+
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
     try nbt.putDuped(gpa, compound, key, tag);
 }
@@ -56,6 +94,17 @@ fn floatList(gpa: std.mem.Allocator, values: [2]f32) !nbt.Tag {
     const items = try gpa.alloc(nbt.Tag, values.len);
     for (items, values) |*item, value| item.* = .{ .float = value };
     return .{ .list = .{ .element_type = .float, .items = items } };
+}
+
+fn storeBase(gpa: std.mem.Allocator, compound: *nbt.Compound, id: []const u8, base: Base) !void {
+    try put(gpa, compound, "id", .{ .string = try gpa.dupe(u8, id) });
+    try put(gpa, compound, "Pos", try doubleList(gpa, base.position));
+    try put(gpa, compound, "Motion", try doubleList(gpa, base.motion));
+    try put(gpa, compound, "Rotation", try floatList(gpa, .{ base.yaw, base.pitch }));
+    try put(gpa, compound, "FallDistance", .{ .float = base.fall_distance });
+    try put(gpa, compound, "Fire", .{ .short = base.fire });
+    try put(gpa, compound, "Air", .{ .short = base.air });
+    try put(gpa, compound, "OnGround", .{ .byte = @intFromBool(base.on_ground) });
 }
 
 fn storeLiving(gpa: std.mem.Allocator, compound: *nbt.Compound, id: []const u8, living: Living) !void {
@@ -120,6 +169,67 @@ pub fn storeChicken(gpa: std.mem.Allocator, chicken: Chicken) !nbt.Tag {
     }
 
     try storeLiving(gpa, &compound, chicken_id, chicken.living);
+
+    return .{ .compound = compound };
+}
+
+pub fn storeItem(gpa: std.mem.Allocator, item: Item) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeBase(gpa, &compound, item_id, item.base);
+    try put(gpa, &compound, "Health", .{ .short = item.health });
+    try put(gpa, &compound, "Age", .{ .short = item.age });
+
+    var stack: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = stack };
+        nbt.deinit(gpa, &owned);
+    }
+    try put(gpa, &stack, "id", .{ .short = item.stack.id.numeric() });
+    try put(gpa, &stack, "Count", .{ .byte = @bitCast(item.stack.count) });
+    try put(gpa, &stack, "Damage", .{ .short = @bitCast(item.stack.meta) });
+    try put(gpa, &compound, "Item", .{ .compound = stack });
+
+    return .{ .compound = compound };
+}
+
+pub fn storeArrow(gpa: std.mem.Allocator, arrow: Arrow) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeBase(gpa, &compound, arrow_id, arrow.base);
+    try put(gpa, &compound, "xTile", .{ .short = arrow.tile[0] });
+    try put(gpa, &compound, "yTile", .{ .short = arrow.tile[1] });
+    try put(gpa, &compound, "zTile", .{ .short = arrow.tile[2] });
+    try put(gpa, &compound, "inTile", .{ .byte = @bitCast(arrow.in_tile) });
+    try put(gpa, &compound, "inData", .{ .byte = @bitCast(arrow.in_data) });
+    try put(gpa, &compound, "shake", .{ .byte = @bitCast(arrow.shake) });
+    try put(gpa, &compound, "inGround", .{ .byte = @intFromBool(arrow.in_ground) });
+    try put(gpa, &compound, "player", .{ .byte = @intFromBool(arrow.from_player) });
+
+    return .{ .compound = compound };
+}
+
+pub fn storePainting(gpa: std.mem.Allocator, painting: Painting) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, painting_id) });
+    try put(gpa, &compound, "Dir", .{ .byte = painting.direction });
+    try put(gpa, &compound, "Motive", .{ .string = try gpa.dupe(u8, painting.motive) });
+    try put(gpa, &compound, "TileX", .{ .int = painting.tile[0] });
+    try put(gpa, &compound, "TileY", .{ .int = painting.tile[1] });
+    try put(gpa, &compound, "TileZ", .{ .int = painting.tile[2] });
 
     return .{ .compound = compound };
 }
@@ -189,6 +299,38 @@ fn floatsField(compound: nbt.Compound, key: []const u8, out: *[2]f32) void {
     }
 }
 
+fn byteField(compound: nbt.Compound, key: []const u8, fallback: u8) u8 {
+    const tag = compound.get(key) orelse return fallback;
+    return switch (tag) {
+        .byte => |value| @bitCast(value),
+        else => fallback,
+    };
+}
+
+fn intField(compound: nbt.Compound, key: []const u8, fallback: i32) i32 {
+    const tag = compound.get(key) orelse return fallback;
+    return switch (tag) {
+        .int => |value| value,
+        else => fallback,
+    };
+}
+
+fn stringField(compound: nbt.Compound, key: []const u8) ?[]const u8 {
+    const tag = compound.get(key) orelse return null;
+    return switch (tag) {
+        .string => |value| value,
+        else => null,
+    };
+}
+
+fn compoundField(compound: nbt.Compound, key: []const u8) ?nbt.Compound {
+    const tag = compound.get(key) orelse return null;
+    return switch (tag) {
+        .compound => |value| value,
+        else => null,
+    };
+}
+
 fn hasId(compound: nbt.Compound, id: []const u8) bool {
     const tag = compound.get("id") orelse return false;
     return switch (tag) {
@@ -211,6 +353,90 @@ pub fn isCow(compound: nbt.Compound) bool {
 
 pub fn isChicken(compound: nbt.Compound) bool {
     return hasId(compound, chicken_id);
+}
+
+pub fn isItem(compound: nbt.Compound) bool {
+    return hasId(compound, item_id);
+}
+
+pub fn isArrow(compound: nbt.Compound) bool {
+    return hasId(compound, arrow_id);
+}
+
+pub fn isPainting(compound: nbt.Compound) bool {
+    return hasId(compound, painting_id);
+}
+
+fn loadBase(compound: nbt.Compound) ?Base {
+    var base: Base = .{ .position = .{ 0, 0, 0 } };
+    if (!doublesField(compound, "Pos", &base.position)) return null;
+    _ = doublesField(compound, "Motion", &base.motion);
+    for (&base.motion) |*component| {
+        if (@abs(component.*) > max_stored_motion) component.* = 0;
+    }
+
+    var rotation = [2]f32{ 0, 0 };
+    floatsField(compound, "Rotation", &rotation);
+    base.yaw = rotation[0];
+    base.pitch = rotation[1];
+
+    base.fall_distance = floatField(compound, "FallDistance", 0);
+    base.fire = shortField(compound, "Fire", 0);
+    base.air = shortField(compound, "Air", 300);
+    base.on_ground = boolField(compound, "OnGround");
+
+    return base;
+}
+
+pub fn loadItem(compound: nbt.Compound) ?Item {
+    if (!isItem(compound)) return null;
+    const base = loadBase(compound) orelse return null;
+    const stored = compoundField(compound, "Item") orelse return null;
+
+    const count = byteField(stored, "Count", 0);
+    if (count == 0) return null;
+
+    return .{
+        .base = base,
+        .stack = .{
+            .id = block.Id.fromNumeric(shortField(stored, "id", 0)),
+            .count = count,
+            .meta = @bitCast(shortField(stored, "Damage", 0)),
+        },
+        .health = shortField(compound, "Health", 5),
+        .age = shortField(compound, "Age", 0),
+    };
+}
+
+pub fn loadArrow(compound: nbt.Compound) ?Arrow {
+    if (!isArrow(compound)) return null;
+    const base = loadBase(compound) orelse return null;
+    return .{
+        .base = base,
+        .tile = .{
+            shortField(compound, "xTile", -1),
+            shortField(compound, "yTile", -1),
+            shortField(compound, "zTile", -1),
+        },
+        .in_tile = byteField(compound, "inTile", 0),
+        .in_data = byteField(compound, "inData", 0),
+        .shake = byteField(compound, "shake", 0),
+        .in_ground = byteField(compound, "inGround", 0) == 1,
+        .from_player = boolField(compound, "player"),
+    };
+}
+
+pub fn loadPainting(compound: nbt.Compound) ?Painting {
+    if (!isPainting(compound)) return null;
+    return .{
+        .tile = .{
+            intField(compound, "TileX", 0),
+            intField(compound, "TileY", 0),
+            intField(compound, "TileZ", 0),
+        },
+        .direction = @truncate(byteField(compound, "Dir", 0)),
+        .motive = stringField(compound, "Motive") orelse return null,
+    };
 }
 
 fn loadLiving(compound: nbt.Compound) ?Living {
@@ -333,6 +559,84 @@ test "a chicken survives a round trip through its NBT compound" {
 
     try std.testing.expectEqualStrings("Chicken", tag.compound.get("id").?.string);
     try std.testing.expectEqual(original, loadChicken(tag.compound).?);
+}
+
+test "a dropped item survives a round trip with its stack intact" {
+    const gpa = std.testing.allocator;
+    const original = Item{
+        .base = .{ .position = .{ 8.5, 65.0, -2.5 }, .motion = .{ 0.01, 0.2, -0.01 }, .on_ground = true },
+        .stack = .{ .id = .{ .item = .diamond }, .count = 12, .meta = 3 },
+        .health = 5,
+        .age = 240,
+    };
+
+    var tag = try storeItem(gpa, original);
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expectEqualStrings("Item", tag.compound.get("id").?.string);
+    const loaded = loadItem(tag.compound).?;
+    try std.testing.expectEqual(original.stack, loaded.stack);
+    try std.testing.expectEqual(original.age, loaded.age);
+    try std.testing.expectEqual(original.base.position, loaded.base.position);
+}
+
+test "a block stack and an item stack both survive the id split at 256" {
+    const gpa = std.testing.allocator;
+    const stacks = [_]block.Stack{
+        .{ .id = .{ .block = .stone }, .count = 64 },
+        .{ .id = .{ .block = .log }, .count = 1, .meta = 2 },
+        .{ .id = .{ .item = .diamond }, .count = 5 },
+    };
+
+    for (stacks) |stack| {
+        var tag = try storeItem(gpa, .{ .base = .{ .position = .{ 0, 64, 0 } }, .stack = stack });
+        defer nbt.deinit(gpa, &tag);
+        try std.testing.expectEqual(stack, loadItem(tag.compound).?.stack);
+    }
+}
+
+test "an item compound with an empty stack is read as nothing" {
+    const gpa = std.testing.allocator;
+    var tag = try storeItem(gpa, .{
+        .base = .{ .position = .{ 0, 64, 0 } },
+        .stack = .{ .id = .{ .block = .stone }, .count = 0 },
+    });
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expect(loadItem(tag.compound) == null);
+}
+
+test "an arrow survives a round trip stuck in the block it hit" {
+    const gpa = std.testing.allocator;
+    const original = Arrow{
+        .base = .{ .position = .{ -4.5, 70.0, 12.25 }, .yaw = 90.0, .pitch = -45.0 },
+        .tile = .{ -5, 70, 12 },
+        .in_tile = 1,
+        .in_data = 3,
+        .shake = 7,
+        .in_ground = true,
+        .from_player = true,
+    };
+
+    var tag = try storeArrow(gpa, original);
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expectEqualStrings("Arrow", tag.compound.get("id").?.string);
+    try std.testing.expectEqual(original, loadArrow(tag.compound).?);
+}
+
+test "a painting survives a round trip through its motive" {
+    const gpa = std.testing.allocator;
+    const original = Painting{ .tile = .{ 8, 64, -3 }, .direction = 2, .motive = "Pigscene" };
+
+    var tag = try storePainting(gpa, original);
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expectEqualStrings("Painting", tag.compound.get("id").?.string);
+    const loaded = loadPainting(tag.compound).?;
+    try std.testing.expectEqual(original.tile, loaded.tile);
+    try std.testing.expectEqual(original.direction, loaded.direction);
+    try std.testing.expectEqualStrings(original.motive, loaded.motive);
 }
 
 test "each mob is read back only as its own kind" {

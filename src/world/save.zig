@@ -10,12 +10,14 @@ const RegionFile = @import("region.zig");
 pub const saves_dir_name = "saves";
 pub const region_dir_name = "region";
 pub const level_file = "level.dat";
+pub const lock_file = "session.lock";
 pub const level_file_new = "level.dat_new";
 pub const level_file_old = "level.dat_old";
 pub const default_folder = "World";
 pub const max_name_len = 32;
 
 const max_level_bytes = 1024 * 1024;
+const default_health: i16 = 10;
 
 pub const InventoryEntry = struct {
     slot: u8,
@@ -29,7 +31,15 @@ pub const PlayerState = struct {
     motion: [3]f64 = .{ 0, 0, 0 },
     yaw: f32 = 0,
     pitch: f32 = 0,
+    fall_distance: f32 = 0,
+    fire: i16 = 0,
+    air: i16 = 300,
     on_ground: bool = false,
+    health: i16 = default_health,
+    hurt_time: i16 = 0,
+    death_time: i16 = 0,
+    attack_time: i16 = 0,
+    spawn: ?[3]i32 = null,
     inventory: []InventoryEntry = &.{},
 
     pub fn deinit(self: *PlayerState, gpa: std.mem.Allocator) void {
@@ -208,12 +218,38 @@ pub fn regionBytes(io: std.Io, dir: std.Io.Dir) u64 {
     return sumFileSizes(io, region_dir);
 }
 
+pub const LockError = error{SaveInUse};
+
+fn writeLock(io: std.Io, dir: std.Io.Dir, stamp: i64) !void {
+    var bytes: [8]u8 = undefined;
+    std.mem.writeInt(i64, &bytes, stamp, .big);
+
+    const file = try dir.createFile(io, lock_file, .{});
+    defer file.close(io);
+    try file.writeStreamingAll(io, &bytes);
+}
+
+fn readLock(io: std.Io, dir: std.Io.Dir) !i64 {
+    const file = try dir.openFile(io, lock_file, .{});
+    defer file.close(io);
+
+    var bytes: [8]u8 = undefined;
+    if (try file.readPositionalAll(io, &bytes, 0) != bytes.len) return error.EndOfStream;
+    return std.mem.readInt(i64, &bytes, .big);
+}
+
 const RegionKey = struct { x: i32, z: i32 };
 
 pub const Save = struct {
     dir: std.Io.Dir,
     region_dir: std.Io.Dir,
+    lock_stamp: i64,
     regions: std.AutoHashMapUnmanaged(RegionKey, *RegionFile) = .{},
+
+    pub fn checkLock(self: *const Save, io: std.Io) !void {
+        const stamp = readLock(io, self.dir) catch return LockError.SaveInUse;
+        if (stamp != self.lock_stamp) return LockError.SaveInUse;
+    }
 
     pub fn close(self: *Save, gpa: std.mem.Allocator, io: std.Io) void {
         var it = self.regions.valueIterator();
@@ -311,6 +347,8 @@ pub const Save = struct {
         entities: []nbt.Tag,
         tile_entities: []nbt.Tag,
     ) !void {
+        try self.checkLock(io);
+
         var tag = try chunk_nbt.store(gpa, chunk, world_time, populated, entities, tile_entities);
         defer nbt.deinit(gpa, &tag);
 
@@ -327,6 +365,8 @@ pub const Save = struct {
     }
 
     pub fn writeLevel(self: *Save, gpa: std.mem.Allocator, io: std.Io, info: LevelInfo) !void {
+        try self.checkLock(io);
+
         var tag = try levelToTag(gpa, info);
         defer nbt.deinit(gpa, &tag);
 
@@ -353,8 +393,13 @@ pub fn open(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) !Save {
     var dir = try saves_dir.createDirPathOpen(io, folder, .{});
     errdefer dir.close(io);
 
-    const region_dir = try dir.createDirPathOpen(io, region_dir_name, .{ .open_options = .{ .iterate = true } });
-    return .{ .dir = dir, .region_dir = region_dir };
+    var region_dir = try dir.createDirPathOpen(io, region_dir_name, .{ .open_options = .{ .iterate = true } });
+    errdefer region_dir.close(io);
+
+    const stamp = RegionFile.unixMilliseconds(io);
+    try writeLock(io, dir, stamp);
+
+    return .{ .dir = dir, .region_dir = region_dir, .lock_stamp = stamp };
 }
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
@@ -383,8 +428,22 @@ fn playerToTag(gpa: std.mem.Allocator, player: PlayerState) !nbt.Tag {
     try put(gpa, &compound, "Pos", try doubleList(gpa, player.pos));
     try put(gpa, &compound, "Motion", try doubleList(gpa, player.motion));
     try put(gpa, &compound, "Rotation", try floatList(gpa, .{ player.yaw, player.pitch }));
+    try put(gpa, &compound, "FallDistance", .{ .float = player.fall_distance });
+    try put(gpa, &compound, "Fire", .{ .short = player.fire });
+    try put(gpa, &compound, "Air", .{ .short = player.air });
     try put(gpa, &compound, "OnGround", .{ .byte = @intFromBool(player.on_ground) });
+    try put(gpa, &compound, "Health", .{ .short = player.health });
+    try put(gpa, &compound, "HurtTime", .{ .short = player.hurt_time });
+    try put(gpa, &compound, "DeathTime", .{ .short = player.death_time });
+    try put(gpa, &compound, "AttackTime", .{ .short = player.attack_time });
     try put(gpa, &compound, "Dimension", .{ .int = 0 });
+    try put(gpa, &compound, "Sleeping", .{ .byte = 0 });
+    try put(gpa, &compound, "SleepTimer", .{ .short = 0 });
+    if (player.spawn) |spawn| {
+        try put(gpa, &compound, "SpawnX", .{ .int = spawn[0] });
+        try put(gpa, &compound, "SpawnY", .{ .int = spawn[1] });
+        try put(gpa, &compound, "SpawnZ", .{ .int = spawn[2] });
+    }
 
     const items = try gpa.alloc(nbt.Tag, player.inventory.len);
     var built: usize = 0;
@@ -458,6 +517,20 @@ fn intField(compound: nbt.Compound, key: []const u8, fallback: i32) i32 {
     };
 }
 
+fn shortField(compound: nbt.Compound, key: []const u8, fallback: i16) i16 {
+    return switch (compound.get(key) orelse return fallback) {
+        .short => |value| value,
+        else => fallback,
+    };
+}
+
+fn floatField(compound: nbt.Compound, key: []const u8, fallback: f32) f32 {
+    return switch (compound.get(key) orelse return fallback) {
+        .float => |value| value,
+        else => fallback,
+    };
+}
+
 fn stringField(compound: nbt.Compound, key: []const u8) ?[]const u8 {
     return switch (compound.get(key) orelse return null) {
         .string => |value| value,
@@ -502,6 +575,22 @@ fn playerFromTag(gpa: std.mem.Allocator, compound: nbt.Compound) !PlayerState {
         .byte => |value| player.on_ground = value != 0,
         else => {},
     };
+
+    player.fall_distance = floatField(compound, "FallDistance", 0);
+    player.fire = shortField(compound, "Fire", 0);
+    player.air = shortField(compound, "Air", 300);
+    player.health = shortField(compound, "Health", default_health);
+    player.hurt_time = shortField(compound, "HurtTime", 0);
+    player.death_time = shortField(compound, "DeathTime", 0);
+    player.attack_time = shortField(compound, "AttackTime", 0);
+
+    if (compound.get("SpawnX") != null and compound.get("SpawnY") != null and compound.get("SpawnZ") != null) {
+        player.spawn = .{
+            intField(compound, "SpawnX", 0),
+            intField(compound, "SpawnY", 0),
+            intField(compound, "SpawnZ", 0),
+        };
+    }
 
     const slots = switch (compound.get("Inventory") orelse return player) {
         .list => |value| value.items,
@@ -602,7 +691,13 @@ test "a level.dat round-trips seed, spawn, time and player state" {
             .motion = .{ 0.1, -0.2, 0.3 },
             .yaw = 45.5,
             .pitch = -12.25,
+            .fall_distance = 3.5,
+            .fire = 120,
+            .air = 45,
             .on_ground = true,
+            .health = 7,
+            .hurt_time = 6,
+            .death_time = 3,
             .inventory = inventory,
         },
     };
@@ -625,10 +720,32 @@ test "a level.dat round-trips seed, spawn, time and player state" {
     try std.testing.expectEqual(written.player.?.yaw, player.yaw);
     try std.testing.expectEqual(written.player.?.pitch, player.pitch);
     try std.testing.expect(player.on_ground);
+    try std.testing.expectEqual(written.player.?.fall_distance, player.fall_distance);
+    try std.testing.expectEqual(@as(i16, 120), player.fire);
+    try std.testing.expectEqual(@as(i16, 45), player.air);
+    try std.testing.expectEqual(@as(i16, 7), player.health);
+    try std.testing.expectEqual(@as(i16, 6), player.hurt_time);
+    try std.testing.expectEqual(@as(i16, 3), player.death_time);
     try std.testing.expectEqual(@as(usize, 2), player.inventory.len);
     try std.testing.expectEqual(@as(i16, 264), player.inventory[1].id);
     try std.testing.expectEqual(@as(u8, 7), player.inventory[1].slot);
     try std.testing.expectEqual(@as(i16, 5), player.inventory[1].damage);
+}
+
+test "a player written without vitals reads back at the original's fallback health" {
+    const gpa = std.testing.allocator;
+    const player: PlayerState = .{ .pos = .{ 0, 64, 0 } };
+
+    var tag = try playerToTag(gpa, player);
+    defer nbt.deinit(gpa, &tag);
+
+    var removed = tag.compound.fetchOrderedRemove("Health").?;
+    gpa.free(removed.key);
+    nbt.deinit(gpa, &removed.value);
+
+    var loaded = try playerFromTag(gpa, tag.compound);
+    defer loaded.deinit(gpa);
+    try std.testing.expectEqual(default_health, loaded.health);
 }
 
 test "a level.dat without a player still loads" {
@@ -719,6 +836,48 @@ test "a furnace written with its chunk comes back mid-smelt" {
     try std.testing.expectEqual(@as(i32, 64), found.y);
     try std.testing.expectEqual(@as(i32, -71), found.z);
     try std.testing.expectEqual(state, found.state);
+}
+
+test "a second session takes the lock and the first refuses to write over it" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var first = try open(io, tmp.dir, "Contested");
+    defer first.close(gpa, io);
+
+    var info: LevelInfo = .{ .seed = 1, .name = try gpa.dupe(u8, "Contested") };
+    defer info.deinit(gpa);
+    try first.writeLevel(gpa, io, info);
+
+    var second = try open(io, tmp.dir, "Contested");
+    defer second.close(gpa, io);
+    second.lock_stamp = first.lock_stamp + 1;
+    try writeLock(io, second.dir, second.lock_stamp);
+
+    try std.testing.expectError(LockError.SaveInUse, first.writeLevel(gpa, io, info));
+
+    const chunk = Chunk.init(0, 0);
+    try std.testing.expectError(LockError.SaveInUse, first.writeChunk(gpa, io, &chunk, 0, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0)));
+
+    try second.writeLevel(gpa, io, info);
+}
+
+test "a save whose lock file has gone refuses to write" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var world = try open(io, tmp.dir, "Unlocked");
+    defer world.close(gpa, io);
+
+    try world.dir.deleteFile(io, lock_file);
+
+    var info: LevelInfo = .{ .seed = 1, .name = try gpa.dupe(u8, "Unlocked") };
+    defer info.deinit(gpa);
+    try std.testing.expectError(LockError.SaveInUse, world.writeLevel(gpa, io, info));
 }
 
 test "listing worlds returns them newest first and skips folders without a level.dat" {

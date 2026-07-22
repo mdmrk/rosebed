@@ -169,6 +169,19 @@ pub const Id = union(enum) {
         };
     }
 
+    pub fn numeric(self: Id) i16 {
+        return switch (self) {
+            .block => |b| @intCast(@intFromEnum(b)),
+            .item => |i| @bitCast(@as(u16, @intFromEnum(i))),
+        };
+    }
+
+    pub fn fromNumeric(value: i16) Id {
+        const raw: u16 = @bitCast(value);
+        if (raw < 256) return .{ .block = @enumFromInt(@as(u8, @intCast(raw))) };
+        return .{ .item = @enumFromInt(raw) };
+    }
+
     pub fn maxStackSize(self: Id) u8 {
         return switch (self) {
             .block => 64,

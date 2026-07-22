@@ -194,6 +194,11 @@ pub fn unixSeconds(io: std.Io) i64 {
     return @intCast(@divTrunc(nanoseconds, std.time.ns_per_s));
 }
 
+pub fn unixMilliseconds(io: std.Io) i64 {
+    const nanoseconds = std.Io.Timestamp.now(io, .real).nanoseconds;
+    return @intCast(@divTrunc(nanoseconds, std.time.ns_per_ms));
+}
+
 fn stampTimestamp(self: *RegionFile, io: std.Io, index: usize) !void {
     const now: u32 = @intCast(unixSeconds(io));
     self.timestamps[index] = now;

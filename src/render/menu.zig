@@ -1,12 +1,15 @@
 const std = @import("std");
 
 const gl = @import("gl");
+const math = @import("math");
 
 const button = @import("button.zig");
 const gui = @import("gui.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
+const saving_label = "Saving level..";
+const saving_hold_ticks: u32 = 20;
 
 pub const Action = enum { resume_game, statistics, options, quit_to_title };
 
@@ -34,8 +37,18 @@ pub fn actionAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Action {
     return null;
 }
 
+pub fn savingColor(ticks: u32, partial: f32) [4]u8 {
+    const phase = (@as(f32, @floatFromInt(ticks % 10)) + partial) / 10.0;
+    const pulse = math.util.sin(phase * std.math.pi * 2.0) * 0.2 + 0.8;
+    const level: u8 = @intFromFloat(255.0 * pulse);
+    return .{ level, level, level, 255 };
+}
+
 pub fn draw(
     ui: gui.Ui,
+    saving: bool,
+    ticks: u32,
+    partial: f32,
 ) !void {
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
@@ -54,6 +67,10 @@ pub fn draw(
     for (entries(ui.res.width, ui.res.height)) |entry| {
         const hovered = button.contains(entry.button, gx, gy);
         try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
+    }
+
+    if (saving or ticks < saving_hold_ticks) {
+        try gui.appendTextColor(&text, ui.gpa, ui.font, saving_label, 8, ui.res.height - 16, savingColor(ticks, partial), ui.res);
     }
 
     const title = "Game menu";
@@ -82,6 +99,25 @@ test "clicking a disabled button does nothing" {
 test "statistics opens from the right half of the second row" {
     const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?Action, .statistics), actionAt(340, 216, res));
+}
+
+test "the saving pulse swings between the original's dim and bright grey" {
+    try std.testing.expectEqual([4]u8{ 204, 204, 204, 255 }, savingColor(0, 0));
+
+    var dimmest: u8 = 255;
+    var brightest: u8 = 0;
+    for (0..10) |tick| {
+        for (0..10) |step| {
+            const color = savingColor(@intCast(tick), @as(f32, @floatFromInt(step)) / 10.0);
+            try std.testing.expectEqual(color[0], color[1]);
+            try std.testing.expectEqual(color[0], color[2]);
+            try std.testing.expectEqual(@as(u8, 255), color[3]);
+            dimmest = @min(dimmest, color[0]);
+            brightest = @max(brightest, color[0]);
+        }
+    }
+    try std.testing.expectEqual(@as(u8, 153), dimmest);
+    try std.testing.expectEqual(@as(u8, 255), brightest);
 }
 
 test "clicking empty space does nothing" {
