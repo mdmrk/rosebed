@@ -1066,7 +1066,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         .missing_user => |name| reply(app_state, "Can't find user {s}", .{name}),
         .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
         .unparsed_time => |text| reply(app_state, "Unable to convert time value, {s}", .{text}),
-        .unknown_method => app_state.chat.addMessage(app_state.font, game.commands.unknown_method_line),
+        .unknown_method => |text| reply(app_state, "{s}{s}", .{ game.commands.unknown_method_line, text }),
         .unknown => app_state.chat.addMessage(app_state.font, game.commands.unknown_command_line),
     }
 }

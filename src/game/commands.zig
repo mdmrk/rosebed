@@ -73,7 +73,7 @@ pub const Result = union(enum) {
     missing_user: []const u8,
     missing_mob: []const u8,
     unparsed_time: []const u8,
-    unknown_method,
+    unknown_method: []const u8,
     unknown: []const u8,
 };
 
@@ -105,7 +105,7 @@ pub const unknown_command_line = "Unknown command. Type /help for a list.";
 
 pub const kill_line = "Ouch. That look like it hurt.";
 
-pub const unknown_method_line = "Unknown method, use either \"add\" or \"set\"";
+pub const unknown_method_line = "Unknown method, use ";
 
 fn tryParse(text: ?[]const u8, fallback: u8) u8 {
     const raw = std.fmt.parseInt(u32, text orelse return fallback, 10) catch return fallback;
@@ -191,7 +191,8 @@ fn parseSpawn(words: *Words) Result {
 
 fn parseSeed(words: *Words) Result {
     const copy = words.next() orelse return .{ .seed = .{ .copy = false } };
-    if (!std.mem.eql(u8, copy, "copy")) return .{ .unknown = copy };
+    if (words.next() != null) return .nothing;
+    if (!std.mem.eql(u8, copy, "copy")) return .{ .unknown_method = "either \"\" or \"copy\"" };
     return .{ .seed = .{ .copy = true } };
 }
 
@@ -201,7 +202,7 @@ fn parseTime(words: *Words) Result {
     if (words.next() != null) return .nothing;
 
     const amount = std.fmt.parseInt(i32, amount_text, 10) catch return .{ .unparsed_time = amount_text };
-    const method = std.meta.stringToEnum(Time.Method, method_text) orelse return .unknown_method;
+    const method = std.meta.stringToEnum(Time.Method, method_text) orelse return .{ .unknown_method = "either \"add\" or \"set\"" };
     return .{ .time = .{ .method = method, .amount = amount } };
 }
 
