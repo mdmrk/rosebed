@@ -14,7 +14,7 @@ pub fn opacity(id: Block) u8 {
     return switch (id) {
         .flowing_water, .stationary_water, .ice => 3,
         .leaves => 1,
-        .door_wood, .door_iron, .trapdoor, .cake => 0,
+        .door_wood, .door_iron, .trapdoor, .cake, .sign_post, .wall_sign => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }
@@ -489,4 +489,10 @@ test "a stair never borrows light from the block beneath it" {
 
     try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(8, 2, 8));
     try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, 8, 3, 8));
+}
+
+test "a sign lets light straight through, as any block that is not a full cube does" {
+    try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.wall_sign));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.planks));
 }

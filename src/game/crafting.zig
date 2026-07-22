@@ -124,6 +124,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         null,      i(.stick), i(.string),
     }, .{ .item = .bow }, 1),
     shaped(1, 3, &.{ i(.flint), i(.stick), i(.feather) }, .{ .item = .arrow }, 4),
+    shaped(3, 3, &.{
+        b(.planks), b(.planks), b(.planks),
+        b(.planks), b(.planks), b(.planks),
+        null,       i(.stick),  null,
+    }, .{ .item = .sign }, 1),
     shaped(1, 1, &.{i(.reed)}, .{ .item = .sugar }, 1),
     shaped(3, 1, &.{ i(.reed), i(.reed), i(.reed) }, .{ .item = .paper }, 3),
     shaped(1, 3, &.{ i(.paper), i(.paper), i(.paper) }, .{ .item = .book }, 1),
@@ -707,6 +712,17 @@ test "a bow is strung from three sticks and three string, and only that way roun
         string, null,   stick,
         null,   string, stick,
     }) == null);
+}
+
+test "six planks over a stick make a sign" {
+    const plank: world.Id = .{ .block = .planks };
+    const sign = craftOnWorkbench(&.{
+        plank, plank,               plank,
+        plank, plank,               plank,
+        null,  .{ .item = .stick }, null,
+    }).?;
+    try std.testing.expectEqual(world.Id{ .item = .sign }, sign.id);
+    try std.testing.expectEqual(@as(u8, 1), sign.count);
 }
 
 test "flint, a stick and a feather make four arrows" {

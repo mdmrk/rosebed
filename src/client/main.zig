@@ -99,6 +99,7 @@ const AppState = struct {
     splash: []const u8 = splashes[0],
     mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
+    sign_edit: ?render.edit_sign_screen.State = null,
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     paused: bool = false,
@@ -594,6 +595,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     );
     try app_state.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
+    _ = app_state.world_map.removeSign(x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state);
 
@@ -813,7 +815,25 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 }
 
 fn containerOpen(app_state: *const AppState) bool {
-    return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null;
+    return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
+        app_state.sign_edit != null;
+}
+
+fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
+    app_state.sign_edit = .{ .x = x, .y = y, .z = z };
+    sdl3.keyboard.startTextInput(app_state.window) catch {};
+    updateMouseMode(app_state) catch {};
+}
+
+fn closeSignEditor(app_state: *AppState) !void {
+    app_state.sign_edit = null;
+    try sdl3.keyboard.stopTextInput(app_state.window);
+    try updateMouseMode(app_state);
+}
+
+fn editedSign(app_state: *AppState) ?*world.sign.Sign {
+    const open = app_state.sign_edit orelse return null;
+    return app_state.world_map.signAt(open.x, open.y, open.z);
 }
 
 fn worldFocused(app_state: *const AppState) bool {
@@ -1786,6 +1806,41 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
     return true;
 }
 
+fn placeSignAtTarget(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(
+        &app_state.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+    if (hit.face == .down) return false;
+    if (!app_state.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
+
+    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
+    if (!app_state.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return false;
+
+    if (hit.face == .up) {
+        const facing = world.block.signPostFacingFromYaw(app_state.player.yaw);
+        try app_state.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, .sign_post, facing);
+    } else {
+        try app_state.world_map.setBlockAndMetadataWithNotify(
+            target.x,
+            target.y,
+            target.z,
+            .wall_sign,
+            @intFromEnum(hit.face),
+        );
+    }
+
+    _ = try app_state.world_map.addSign(target.x, target.y, target.z);
+    try app_state.stats.use(app_state.gpa, .{ .item = .sign });
+    consumeSelectedStack(app_state);
+    try applyBlockChanges(app_state);
+    openSignEditor(app_state, target.x, target.y, target.z);
+    return true;
+}
+
 fn placeBedAtTarget(app_state: *AppState) !bool {
     const hit = game.raycast.cast(
         &app_state.world_map,
@@ -1810,6 +1865,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
             if (held == .painting) return hangPaintingAtTarget(app_state);
             if (held == .bed) return placeBedAtTarget(app_state);
+            if (held == .sign) return placeSignAtTarget(app_state);
             break :blk held.placedBlock() orelse return placeDoorAtTarget(app_state, held);
         },
     };
@@ -1878,6 +1934,7 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
 fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
     app_state.chat.tick();
+    if (app_state.sign_edit) |*open| open.tick();
 
     const moving_allowed = !containerOpen(app_state) and !app_state.dead;
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
@@ -2222,6 +2279,54 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (arrow_mesh.vertices.items.len > 0) {
         app_state.textures.arrows.bind();
         drawEntityMesh(&arrow_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    var sign_mesh: render.MeshBuilder = .{};
+    defer sign_mesh.deinit(app_state.frame);
+    var sign_text_mesh: render.MeshBuilder = .{};
+    defer sign_text_mesh.deinit(app_state.frame);
+    var signs = app_state.world_map.signs.iterator();
+    while (signs.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        const id = app_state.world_map.getBlock(pos.x, pos.y, pos.z);
+        if (!id.isSign()) continue;
+        const meta = app_state.world_map.getBlockMetadata(pos.x, pos.y, pos.z);
+        try render.sign_render.appendBoard(
+            &sign_mesh,
+            app_state.frame,
+            &app_state.world_map,
+            id,
+            meta,
+            pos.x,
+            pos.y,
+            pos.z,
+        );
+        try render.sign_render.appendText(
+            &sign_text_mesh,
+            app_state.frame,
+            app_state.font,
+            id,
+            meta,
+            pos.x,
+            pos.y,
+            pos.z,
+            entry.value_ptr.*,
+            null,
+        );
+    }
+    if (sign_mesh.vertices.items.len > 0) {
+        app_state.textures.sign.bind();
+        drawEntityMesh(&sign_mesh);
+        app_state.textures.terrain.bind();
+    }
+    if (sign_text_mesh.vertices.items.len > 0) {
+        app_state.font.bind();
+        gl.Disable(gl.CULL_FACE);
+        gl.DepthMask(gl.FALSE);
+        drawEntityMesh(&sign_text_mesh);
+        gl.DepthMask(gl.TRUE);
+        gl.Enable(gl.CULL_FACE);
         app_state.textures.terrain.bind();
     }
 
@@ -2660,6 +2765,11 @@ pub fn iterate(
             app_state.workbench_grid,
             app_state.held_stack,
         );
+    } else if (app_state.sign_edit) |open| {
+        const id = app_state.world_map.getBlock(open.x, open.y, open.z);
+        const meta = app_state.world_map.getBlockMetadata(open.x, open.y, open.z);
+        const state = app_state.world_map.signAt(open.x, open.y, open.z);
+        try render.edit_sign_screen.draw(ui, open, id, meta, if (state) |value| value.* else .{});
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
             ui,
@@ -2761,6 +2871,14 @@ pub fn event(
             }
         } else if (app_state.screen == .confirm_delete) {
             if (k.key == .escape) app_state.screen = .select_world;
+        } else if (app_state.sign_edit != null) {
+            if (k.key == .up) {
+                app_state.sign_edit.?.previousLine();
+            } else if (k.key == .down or k.key == .return_key or k.key == .kp_enter) {
+                app_state.sign_edit.?.nextLine();
+            } else if (k.key == .backspace) {
+                if (editedSign(app_state)) |state| state.backspace(app_state.sign_edit.?.line);
+            }
         } else if (app_state.screen == .playing) {
             if (app_state.dead) {
                 // the game over screen swallows keys until a button is clicked
@@ -2819,7 +2937,14 @@ pub fn event(
             const step = w.scroll_y * render.texture_packs_screen.entry_height;
             app_state.pack_scroll = render.texture_packs_screen.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
         },
-        .text_input => |t| if (app_state.screen == .create_world) {
+        .text_input => |t| if (app_state.sign_edit) |open| {
+            if (editedSign(app_state)) |state| {
+                for (t.text) |c| {
+                    if (!render.chat.isAllowed(c)) continue;
+                    state.append(open.line, c);
+                }
+            }
+        } else if (app_state.screen == .create_world) {
             app_state.create_state.typeText(t.text);
             updateCreateFolder(app_state);
         } else if (app_state.screen == .multiplayer) {
@@ -2861,7 +2986,11 @@ pub fn event(
                 try deathScreenClick(app_state);
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
-            } else if (app_state.chat.open) {} else if (containerOpen(app_state)) {
+            } else if (app_state.chat.open) {} else if (app_state.sign_edit != null) {
+                if (render.edit_sign_screen.hitAt(app_state.mouse_x, app_state.mouse_y, guiSize(app_state))) |hit| switch (hit) {
+                    .done => try closeSignEditor(app_state),
+                };
+            } else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;

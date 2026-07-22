@@ -258,6 +258,7 @@ pub const Item = enum(u16) {
     pork_raw = 319,
     pork_cooked = 320,
     painting = 321,
+    sign = 323,
     door_wood = 324,
     bucket = 325,
     bucket_water = 326,
@@ -352,7 +353,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
-        if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow) return 1;
+        if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self.bucketFill() != null) return 1;
         return if (self.isDamageable()) 1 else 64;
     }
@@ -480,6 +481,7 @@ pub const Item = enum(u16) {
             .slime_ball => 1 * 16 + 14,
             .egg => 12,
             .painting => 1 * 16 + 10,
+            .sign => 2 * 16 + 10,
             .compass => 3 * 16 + 6,
             .clock => 4 * 16 + 6,
             .glowstone_dust => 4 * 16 + 9,
@@ -574,6 +576,7 @@ pub const Item = enum(u16) {
             .slime_ball => "Slimeball",
             .egg => "Egg",
             .painting => "Painting",
+            .sign => "Sign",
             .compass => "Compass",
             .clock => "Clock",
             .glowstone_dust => "Glowstone Dust",

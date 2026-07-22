@@ -11,8 +11,10 @@ pub const crafting_screen = @import("crafting_screen.zig");
 pub const create_world_screen = @import("create_world_screen.zig");
 pub const death_screen = @import("death_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
+pub const edit_sign_screen = @import("edit_sign_screen.zig");
 pub const entity_render = @import("entity_render.zig");
 pub const Font = @import("font.zig");
+pub const sign_render = @import("sign_render.zig");
 pub const furnace_screen = @import("furnace_screen.zig");
 pub const GpuMesh = @import("gpu_mesh.zig");
 pub const gui = @import("gui.zig");
@@ -44,6 +46,8 @@ pub const underwater = @import("underwater.zig");
 pub const video_settings_screen = @import("video_settings_screen.zig");
 
 test {
+    _ = sign_render;
+    _ = edit_sign_screen;
     _ = Atlas;
     _ = MeshBuilder;
     _ = chunk_mesher;

@@ -82,7 +82,7 @@ const StopRule = union(enum) {
 fn stops(rule: StopRule, id: world.Block, metadata: u4) bool {
     return switch (rule) {
         .targeting => |hit_liquids| stopsRay(id, metadata, hit_liquids),
-        .collision => id.isSolid(),
+        .collision => id.hasCollision(),
     };
 }
 

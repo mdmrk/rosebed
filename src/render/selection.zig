@@ -41,6 +41,8 @@ pub fn crackTile(progress: f32) u8 {
 }
 
 pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, meta: u4, x: i32, y: i32, z: i32, progress: f32) !void {
+    if (id.isSign()) return;
+
     const bounds = id.selectionBounds(meta);
     const tile = crackTile(progress);
     const min = [3]f32{
@@ -61,6 +63,32 @@ test "the crack texture walks the ten destroy stages" {
     try std.testing.expectEqual(first_crack_tile + 4, crackTile(0.45));
     try std.testing.expectEqual(first_crack_tile + 9, crackTile(0.95));
     try std.testing.expectEqual(first_crack_tile + 9, crackTile(1.0));
+}
+
+test "a sign takes no crack overlay, having no block model to lay one over" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendCrack(&mesh, gpa, .sign_post, 8, 0, 0, 0, 0.5);
+    try appendCrack(&mesh, gpa, .wall_sign, 2, 0, 0, 0, 0.5);
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+
+    try appendCrack(&mesh, gpa, .planks, 0, 0, 0, 0, 0.5);
+    try std.testing.expect(mesh.vertices.items.len > 0);
+}
+
+test "a sign still takes a selection outline, cut to its own thin bounds" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendOutline(&mesh, gpa, .wall_sign, 2, 0, 0, 0);
+    try std.testing.expectEqual(@as(usize, 12 * 2), mesh.vertices.items.len);
+
+    var lowest_z: f32 = std.math.floatMax(f32);
+    for (mesh.vertices.items) |v| lowest_z = @min(lowest_z, v.z);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 - 2.0 / 16.0 - expand), lowest_z, 1.0e-6);
 }
 
 test "an outline is twelve edges expanded past the block's own bounds" {

@@ -72,6 +72,7 @@ pub const Shape = union(enum) {
     stairs,
     cake,
     bed,
+    sign,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -228,8 +229,10 @@ pub const Block = enum(u8) {
     workbench = 58,
     furnace = 61,
     burning_furnace = 62,
+    sign_post = 63,
     door_wood = 64,
     stairs_cobblestone = 67,
+    wall_sign = 68,
     door_iron = 71,
     ore_redstone = 73,
     snow_layer = 78,
@@ -259,7 +262,7 @@ pub const Block = enum(u8) {
             .block_gold, .block_iron, .block_diamond, .door_iron => .iron,
             .grass, .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
-            .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor, .stairs_wood => .wood,
+            .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor, .stairs_wood, .sign_post, .wall_sign => .wood,
             .leaves => .leaves,
             .sponge => .sponge,
             .wool => .cloth,
@@ -288,6 +291,7 @@ pub const Block = enum(u8) {
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
             .bed => .bed,
+            .sign_post, .wall_sign => .sign,
             .stairs_wood, .stairs_cobblestone => .stairs,
             .cake => .cake,
             .snow_layer => .{ .partial = 0.125 },
@@ -306,6 +310,14 @@ pub const Block = enum(u8) {
 
     pub fn isTrapdoor(self: Block) bool {
         return self.shape() == .trapdoor;
+    }
+
+    pub fn isSign(self: Block) bool {
+        return self.shape() == .sign;
+    }
+
+    pub fn hasCollision(self: Block) bool {
+        return self.isSolid() and !self.isSign();
     }
 
     pub fn isCake(self: Block) bool {
@@ -351,6 +363,7 @@ pub const Block = enum(u8) {
     pub fn isOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
+            .sign_post, .wall_sign => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             else => self.isOpaque() and !self.isLiquid(),
@@ -389,6 +402,8 @@ pub const Block = enum(u8) {
             .trapdoor => trapdoorBounds(metadata),
             .cake => cakeBounds(metadata),
             .bed => bed_bounds,
+            .sign_post => sign_post_bounds,
+            .wall_sign => wallSignBounds(metadata),
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }
@@ -482,6 +497,7 @@ pub const Block = enum(u8) {
             .glowstone => uniform(105),
             .cake => cakeTextures(0),
             .bed => bedTextures(0),
+            .sign_post, .wall_sign => uniform(sign_particle_tile),
             .jack_o_lantern => FaceTextures.init(.{
                 .down = 102,
                 .up = 102,
@@ -577,6 +593,7 @@ pub const Block = enum(u8) {
             .jack_o_lantern => 1.0,
             .cake => 0.5,
             .bed => 0.2,
+            .sign_post, .wall_sign => 1.0,
             else => 0.0,
         };
     }
@@ -667,6 +684,7 @@ pub const Block = enum(u8) {
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
             .bed => "Bed",
+            .sign_post, .wall_sign => "Sign",
             else => "",
         };
     }
@@ -675,6 +693,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .grass => .{ .id = .{ .block = .dirt }, .count = 1 },
+            .sign_post, .wall_sign => .{ .id = .{ .item = .sign }, .count = 1 },
             .slab => .{ .id = .{ .block = .slab }, .count = 1, .meta = meta },
             .slab_double => .{ .id = .{ .block = .slab }, .count = 2, .meta = meta },
             .stairs_wood => .{ .id = .{ .block = .planks }, .count = 1 },
@@ -788,6 +807,12 @@ pub fn furnaceFacingFromYaw(yaw: f32) u4 {
         2 => @intFromEnum(Side.south),
         3 => @intFromEnum(Side.west),
     };
+}
+
+pub fn signPostFacingFromYaw(yaw: f32) u4 {
+    const sixteenths: f32 = (yaw + 180.0) * 16.0 / 360.0;
+    const stepped: i64 = @intFromFloat(@floor(@as(f64, sixteenths) + 0.5));
+    return @intCast(stepped & 15);
 }
 
 pub const door_open_bit: u4 = 4;
@@ -966,6 +991,22 @@ pub const bed_pillow_bit: u4 = 8;
 pub const bed_height: f32 = 9.0 / 16.0;
 pub const bed_leg_height: f32 = 3.0 / 16.0;
 const bed_bounds: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, bed_height, 1 } };
+
+pub const sign_particle_tile: u8 = 4;
+const sign_post_bounds: Bounds = .{ .min = .{ 0.25, 0, 0.25 }, .max = .{ 0.75, 1, 0.75 } };
+const wall_sign_low: f32 = 9.0 / 32.0;
+const wall_sign_high: f32 = 25.0 / 32.0;
+const wall_sign_depth: f32 = 2.0 / 16.0;
+
+pub fn wallSignBounds(metadata: u4) Bounds {
+    return switch (metadata) {
+        2 => .{ .min = .{ 0, wall_sign_low, 1.0 - wall_sign_depth }, .max = .{ 1, wall_sign_high, 1 } },
+        3 => .{ .min = .{ 0, wall_sign_low, 0 }, .max = .{ 1, wall_sign_high, wall_sign_depth } },
+        4 => .{ .min = .{ 1.0 - wall_sign_depth, wall_sign_low, 0 }, .max = .{ 1, wall_sign_high, 1 } },
+        5 => .{ .min = .{ 0, wall_sign_low, 0 }, .max = .{ wall_sign_depth, wall_sign_high, 1 } },
+        else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
+    };
+}
 const bed_tile: u8 = 134;
 
 pub fn bedFacing(metadata: u4) u2 {
@@ -2076,4 +2117,39 @@ test "a bed is a low slab that never culls its neighbours" {
     try std.testing.expect(Block.stone.shouldRenderFace(.bed, .up, true));
     try std.testing.expectEqual(@as(f32, 9.0 / 16.0), Block.bed.selectionBounds(0).max[1]);
     try std.testing.expectEqualStrings("Bed", Block.bed.displayName(0));
+}
+
+test "a placed sign post faces back at whoever set it down" {
+    try std.testing.expectEqual(@as(u4, 8), signPostFacingFromYaw(0));
+    try std.testing.expectEqual(@as(u4, 0), signPostFacingFromYaw(180));
+    try std.testing.expectEqual(@as(u4, 12), signPostFacingFromYaw(90));
+    try std.testing.expectEqual(@as(u4, 4), signPostFacingFromYaw(-90));
+    try std.testing.expectEqual(@as(u4, 0), signPostFacingFromYaw(-180));
+}
+
+test "a sign is climbed through, not walked into, and drops itself when broken" {
+    var rand = JavaRandom.init(1);
+    try std.testing.expect(!Block.sign_post.hasCollision());
+    try std.testing.expect(!Block.wall_sign.hasCollision());
+    try std.testing.expect(Block.planks.hasCollision());
+    try std.testing.expect(Block.sign_post.material().isSolid());
+
+    try std.testing.expectEqual(Id{ .item = .sign }, Block.sign_post.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .item = .sign }, Block.wall_sign.drop(3, &rand).?.id);
+    try std.testing.expect(!Block.sign_post.isOpaqueCube());
+}
+
+test "a wall sign is a thin plate on the face it hangs from" {
+    const north = Block.wall_sign.selectionBounds(2);
+    try std.testing.expectEqual(@as(f32, 1.0 - 2.0 / 16.0), north.min[2]);
+    try std.testing.expectEqual(@as(f32, 9.0 / 32.0), north.min[1]);
+    try std.testing.expectEqual(@as(f32, 25.0 / 32.0), north.max[1]);
+
+    const west = Block.wall_sign.selectionBounds(5);
+    try std.testing.expectEqual(@as(f32, 2.0 / 16.0), west.max[0]);
+
+    const post = Block.sign_post.selectionBounds(0);
+    try std.testing.expectEqual(@as(f32, 0.25), post.min[0]);
+    try std.testing.expectEqual(@as(f32, 0.75), post.max[2]);
+    try std.testing.expectEqual(@as(f32, 1.0), post.max[1]);
 }

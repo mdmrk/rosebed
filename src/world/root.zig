@@ -18,6 +18,7 @@ pub const dungeons = @import("dungeons.zig");
 pub const entity_nbt = @import("entity_nbt.zig");
 pub const fluid = @import("fluid.zig");
 pub const furnace = @import("furnace.zig");
+pub const sign = @import("sign.zig");
 pub const item = @import("item.zig");
 pub const Item = item.Item;
 pub const JavaRandom = @import("java_random.zig");
@@ -55,6 +56,7 @@ test {
     _ = chunk_nbt;
     _ = entity_nbt;
     _ = furnace;
+    _ = sign;
     _ = caves;
     _ = decorate;
     _ = lakes;

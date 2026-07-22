@@ -633,6 +633,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
             for (0..world.constants.chunk_height) |ly| {
                 const id = chunk.getBlock(@intCast(lx), @intCast(ly), @intCast(lz));
                 if (id == .air) continue;
+                if (id.isSign()) continue;
 
                 const bx = origin_x + @as(f32, @floatFromInt(lx));
                 const by: f32 = @floatFromInt(ly);

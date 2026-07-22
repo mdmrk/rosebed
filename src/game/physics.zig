@@ -54,7 +54,7 @@ fn collidingBoxes(world_map: *const world.World, query: math.AABB, out: *[max_co
             var z = min_z;
             while (z <= max_z) : (z += 1) {
                 const id = world_map.getBlock(x, y, z);
-                if (!id.isSolid()) continue;
+                if (!id.hasCollision()) continue;
                 var boxes: [2]math.AABB = undefined;
                 const emitted = blockBoxes(world_map, id, x, y, z, &boxes);
                 for (boxes[0..emitted]) |box| {

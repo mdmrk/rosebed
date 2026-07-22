@@ -9,6 +9,7 @@ const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
+const sign = @import("sign.zig");
 const JavaRandom = @import("java_random.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
@@ -77,6 +78,7 @@ persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
 furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
+signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 
 pub const ticks_per_day: i64 = 24000;
@@ -134,6 +136,7 @@ pub fn deinit(self: *World) void {
     self.falling.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
+    self.signs.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
 }
 
@@ -396,6 +399,21 @@ pub fn removeFurnace(self: *World, x: i32, y: i32, z: i32) ?furnace.Furnace {
     return removed.value;
 }
 
+pub fn signAt(self: *World, x: i32, y: i32, z: i32) ?*sign.Sign {
+    return self.signs.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addSign(self: *World, x: i32, y: i32, z: i32) !*sign.Sign {
+    const entry = try self.signs.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeSign(self: *World, x: i32, y: i32, z: i32) ?sign.Sign {
+    const removed = self.signs.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
 fn isFurnaceBlock(id: Block) bool {
     return id == .furnace or id == .burning_furnace;
 }
@@ -434,11 +452,22 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try furnace.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
+
+    var signs_it = self.signs.iterator();
+    while (signs_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try sign.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
     _ = gpa;
     const self: *World = @ptrCast(@alignCast(context));
+    if (sign.load(compound)) |placed| {
+        (try self.addSign(placed.x, placed.y, placed.z)).* = placed.state;
+        return;
+    }
     const placed = furnace.load(compound) orelse return;
     (try self.addFurnace(placed.x, placed.y, placed.z)).* = placed.state;
 }

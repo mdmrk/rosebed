@@ -543,4 +543,3 @@ test "flames burn opaque orange at the base and fade to nothing at the top" {
 
     for (0..tile) |x| try std.testing.expectEqual(@as(u8, 0), fx.image[x * 4 + 3]);
 }
-

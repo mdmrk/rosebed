@@ -206,8 +206,20 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
         .trapdoor => trapdoorCanStay(world_map, x, y, z),
         .cake => world_map.getBlock(x, y - 1, z).material().isSolid(),
+        .sign_post => world_map.getBlock(x, y - 1, z).material().isSolid(),
+        .wall_sign => wallSignHangsOn(world_map, x, y, z),
         .bed => bedPartnerStands(world_map, x, y, z),
         else => true,
+    };
+}
+
+fn wallSignHangsOn(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return switch (world_map.getBlockMetadata(x, y, z)) {
+        2 => world_map.getBlock(x, y, z + 1).material().isSolid(),
+        3 => world_map.getBlock(x, y, z - 1).material().isSolid(),
+        4 => world_map.getBlock(x + 1, y, z).material().isSolid(),
+        5 => world_map.getBlock(x - 1, y, z).material().isSolid(),
+        else => false,
     };
 }
 
@@ -299,6 +311,7 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) std.mem.Alloc
             .stack = stack,
         });
     }
+    if (id.isSign()) _ = world_map.removeSign(x, y, z);
     try world_map.setBlockWithNotify(x, y, z, .air);
 }
 
@@ -1014,4 +1027,34 @@ test "breaking the pillow end still leaves exactly one bed behind" {
         if (drop.stack.id.eql(.{ .item = .bed })) beds += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), beds);
+}
+
+test "a sign post falls when the ground under it goes" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+    try w.setBlockAndMetadataWithNotify(8, 2, 8, .sign_post, 7);
+    _ = try w.addSign(8, 2, 8);
+    w.dropped.clearRetainingCapacity();
+
+    try w.setBlockWithNotify(8, 1, 8, .air);
+
+    try std.testing.expectEqual(.air, w.getBlock(8, 2, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expect(w.dropped.items[0].stack.id.eql(.{ .item = .sign }));
+    try std.testing.expect(w.signAt(8, 2, 8) == null);
+}
+
+test "a wall sign falls when the wall behind it goes, and only then" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
+    defer w.deinit();
+    try w.setBlockWithNotify(8, 3, 9, .stone);
+    try w.setBlockAndMetadataWithNotify(8, 3, 8, .wall_sign, 2);
+    _ = try w.addSign(8, 3, 8);
+
+    try w.setBlockWithNotify(8, 3, 7, .air);
+    try std.testing.expectEqual(.wall_sign, w.getBlock(8, 3, 8));
+
+    try w.setBlockWithNotify(8, 3, 9, .air);
+    try std.testing.expectEqual(.air, w.getBlock(8, 3, 8));
+    try std.testing.expect(w.signAt(8, 3, 8) == null);
 }
