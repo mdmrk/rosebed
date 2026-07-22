@@ -36,6 +36,7 @@ move_forward: f32 = 0,
 random_yaw_velocity: f32 = 0,
 is_jumping: bool = false,
 in_lava: bool = false,
+drowned: bool = false,
 dead: bool = false,
 look_ticks_left: i32 = 0,
 looking_at_player: bool = false,
@@ -498,6 +499,7 @@ fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.Ja
         self.air -= 1;
         if (self.air == -20) {
             self.air = 0;
+            self.drowned = true;
             _ = self.hurt(drown_damage, null, rand);
         }
         self.fire = 0;
@@ -539,6 +541,7 @@ pub fn tick(
     rand: *world.JavaRandom,
 ) !void {
     self.base.beginTick();
+    self.drowned = false;
     self.updateFireAndWater(world_map, rand);
 
     if (self.isAlive() and self.isInsideOpaqueBlock(world_map)) {
@@ -872,8 +875,17 @@ test "an animal held under water drowns once its air runs out" {
     try std.testing.expectEqual(animal.max_health, animal.health);
     try std.testing.expectEqual(@as(i32, 0), animal.air);
 
-    for (0..20) |_| try animal.tick(gpa, &w, null, &rand);
+    for (0..19) |_| {
+        try animal.tick(gpa, &w, null, &rand);
+        try std.testing.expect(!animal.drowned);
+    }
+
+    try animal.tick(gpa, &w, null, &rand);
+    try std.testing.expect(animal.drowned);
     try std.testing.expectEqual(animal.max_health - drown_damage, animal.health);
+
+    try animal.tick(gpa, &w, null, &rand);
+    try std.testing.expect(!animal.drowned);
 }
 
 test "an animal in open water swims up and never drowns" {

@@ -40,6 +40,7 @@ prev_camera_yaw: f32 = 0,
 camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
 jumped: bool = false,
+drowned: bool = false,
 fire: i32 = 0,
 in_lava: bool = false,
 hurt_resistance: i32 = 0,
@@ -97,6 +98,7 @@ pub fn spawn(position: math.Vec3) Player {
 pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {
     self.base.beginTick();
     self.jumped = false;
+    self.drowned = false;
     self.prev_distance_walked = self.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
@@ -273,6 +275,7 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
         self.air -= 1;
         if (self.air == -20) {
             self.air = 0;
+            self.drowned = true;
             self.hurt(drown_damage);
         }
         self.fire = 0;
@@ -883,6 +886,24 @@ test "air holds for 300 ticks underwater and then drowning starts" {
     for (0..20) |_| player.updateAir(&w);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(i32, 0), player.air);
+}
+
+test "the drowning flag is raised only on the tick the lungs give out" {
+    var w = try floodedWorld(20);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 10, 8));
+    for (0..max_air + 19) |_| {
+        player.drowned = false;
+        player.updateAir(&w);
+        try std.testing.expect(!player.drowned);
+    }
+
+    player.updateAir(&w);
+    try std.testing.expect(player.drowned);
+
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(!player.drowned);
 }
 
 test "a fall costs half a heart for every block past the third" {

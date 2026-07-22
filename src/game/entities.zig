@@ -442,6 +442,23 @@ pub fn spawnWaterSplash(
     rand: *world.JavaRandom,
 ) !void {
     const surface: f64 = @floatFromInt(math.util.floorDouble(base.boundingBox().min_y) + 1);
+
+    var bubbled: f64 = 0;
+    while (bubbled < 1.0 + base.width * 20.0) : (bubbled += 1) {
+        const dx = (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * base.width;
+        const dz = (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * base.width;
+        const sinking = math.Vec3.init(
+            base.motion.x,
+            base.motion.y - @as(f64, rand.nextFloat()) * 0.2,
+            base.motion.z,
+        );
+        try self.particles.append(gpa, Particle.spawnBubble(
+            math.Vec3.init(base.position.x + dx, surface, base.position.z + dz),
+            sinking,
+            rand,
+        ));
+    }
+
     var spawned: f64 = 0;
     while (spawned < 1.0 + base.width * 20.0) : (spawned += 1) {
         const dx = (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * base.width;
@@ -449,6 +466,27 @@ pub fn spawnWaterSplash(
         try self.particles.append(gpa, Particle.spawnSplash(
             math.Vec3.init(base.position.x + dx, surface, base.position.z + dz),
             base.motion,
+            rand,
+        ));
+    }
+}
+
+const drowning_bubbles: usize = 8;
+
+pub fn spawnDrowningBubbles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    position: math.Vec3,
+    motion: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..drowning_bubbles) |_| {
+        const dx: f64 = @floatCast(rand.nextFloat() - rand.nextFloat());
+        const dy: f64 = @floatCast(rand.nextFloat() - rand.nextFloat());
+        const dz: f64 = @floatCast(rand.nextFloat() - rand.nextFloat());
+        try self.particles.append(gpa, Particle.spawnBubble(
+            math.Vec3.init(position.x + dx, position.y + dy, position.z + dz),
+            motion,
             rand,
         ));
     }
@@ -614,6 +652,10 @@ fn tickHerd(
         const mob = &herd.items[i];
         try mob.tick(gpa, world_map, view, rand);
         self.pushNeighbours(&mob.animal);
+
+        if (mob.animal.drowned) {
+            try self.spawnDrowningBubbles(gpa, mob.animal.base.position, mob.animal.base.motion, rand);
+        }
 
         // A chicken can owe both the egg it just laid and the feathers it died leaving.
         while (mob.takeDrops()) |drops| {
@@ -986,6 +1028,28 @@ test "the wool a punched sheep loses is left on the ground in its own colour" {
     }
 }
 
+test "a pig that runs out of air breathes out a burst of bubbles" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 6);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .stationary_water);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 8.5));
+    entities.pigs.items[0].animal.air = -19;
+
+    const player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickAnimals(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(drowning_bubbles, entities.particles.items.len);
+    for (entities.particles.items) |bubble| {
+        try std.testing.expectEqual(Particle.Kind.bubble, bubble.kind);
+    }
+}
+
 test "two herds share one shoving space" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -1022,7 +1086,7 @@ test "a young lava ember sheds a smoke puff as it flies" {
     try std.testing.expectEqual(Particle.Kind.smoke, entities.particles.items[1].kind);
 }
 
-test "wading into water throws a ring of splash droplets at the surface" {
+test "wading into water throws a ring of bubbles and splash droplets at the surface" {
     const gpa = std.testing.allocator;
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -1032,11 +1096,34 @@ test "wading into water throws a ring of splash droplets at the surface" {
     base.motion = math.Vec3.init(0, -0.3, 0);
     try entities.spawnWaterSplash(gpa, base, &rand);
 
-    try std.testing.expectEqual(@as(usize, 13), entities.particles.items.len);
-    for (entities.particles.items) |droplet| {
-        try std.testing.expectEqual(Particle.Kind.splash, droplet.kind);
+    try std.testing.expectEqual(@as(usize, 26), entities.particles.items.len);
+    for (entities.particles.items, 0..) |droplet, i| {
+        const expected: Particle.Kind = if (i < 13) .bubble else .splash;
+        try std.testing.expectEqual(expected, droplet.kind);
         try std.testing.expectApproxEqAbs(@as(f64, 5.0), droplet.base.position.y, 1.0e-9);
         try std.testing.expect(@abs(droplet.base.position.x - 8.0) <= 0.6);
+    }
+}
+
+test "drowning coughs up eight bubbles around the entity" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(6);
+    try entities.spawnDrowningBubbles(
+        gpa,
+        math.Vec3.init(8, 40, 8),
+        math.Vec3.init(0, 0, 0),
+        &rand,
+    );
+
+    try std.testing.expectEqual(drowning_bubbles, entities.particles.items.len);
+    for (entities.particles.items) |bubble| {
+        try std.testing.expectEqual(Particle.Kind.bubble, bubble.kind);
+        try std.testing.expect(@abs(bubble.base.position.x - 8.0) <= 1.0);
+        try std.testing.expect(@abs(bubble.base.position.y - 40.0) <= 1.0);
+        try std.testing.expect(@abs(bubble.base.position.z - 8.0) <= 1.0);
     }
 }
 

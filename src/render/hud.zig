@@ -35,6 +35,11 @@ const armor_empty_u: f32 = 16;
 const armor_half_u: f32 = 25;
 const armor_full_u: f32 = 34;
 
+const bubble_row_v: f32 = 18;
+const bubble_full_u: f32 = 16;
+const bubble_popping_u: f32 = 25;
+const bubble_pitch: f32 = 8;
+
 fn appendIcon(mesh: *MeshBuilder, ui: gui.Ui, u: f32, v: f32, x: f32, y: f32) !void {
     try gui.appendRect(mesh, ui.gpa, x, y, heart_size, heart_size, gui.pixelUv(u, v, heart_size, heart_size, gui.gui_texture_size, gui.gui_texture_size), ui.res);
 }
@@ -44,10 +49,22 @@ pub fn blinking(hurt_resistance: i32) bool {
     return @rem(@divTrunc(hurt_resistance, blink_period), 2) == 1;
 }
 
+pub const AirBubbles = struct {
+    full: i32,
+    popping: i32,
+};
+
+pub fn airBubbles(air: i32) AirBubbles {
+    const full: i32 = @intFromFloat(@ceil(@as(f64, @floatFromInt(air - 2)) * 10.0 / 300.0));
+    const total: i32 = @intFromFloat(@ceil(@as(f64, @floatFromInt(air)) * 10.0 / 300.0));
+    return .{ .full = full, .popping = total - full };
+}
+
 pub fn draw(
     ui: gui.Ui,
     inventory: game.Inventory,
     player: game.Player,
+    submerged: bool,
     update_counter: i32,
 ) !void {
     const health = player.health;
@@ -110,6 +127,16 @@ pub fn draw(
             try appendIcon(&hearts, ui, heart_half_u, 0, heart_x, heart_y);
         }
     }
+
+    if (submerged) {
+        const bubbles = airBubbles(player.air);
+        const bubble_y = heart_row_y - heart_size;
+        for (0..@intCast(bubbles.full + bubbles.popping)) |i| {
+            const bubble_x = hotbar_x + @as(f32, @floatFromInt(i)) * bubble_pitch;
+            const bubble_u: f32 = if (i < @as(usize, @intCast(bubbles.full))) bubble_full_u else bubble_popping_u;
+            try appendIcon(&hearts, ui, bubble_u, bubble_row_v, bubble_x, bubble_y);
+        }
+    }
     try gui.drawTexturedMesh(&hearts, ui.shader, ui.textures.icons);
 
     var block_icons: MeshBuilder = .{};
@@ -135,6 +162,36 @@ pub fn draw(
 
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
+}
+
+test "a full lungful shows ten whole bubbles and none popping" {
+    const full = airBubbles(game.Player.max_air);
+    try std.testing.expectEqual(@as(i32, 10), full.full);
+    try std.testing.expectEqual(@as(i32, 0), full.popping);
+}
+
+test "the leading bubble pops before the row gives one up" {
+    const popping = airBubbles(271);
+    try std.testing.expectEqual(@as(i32, 9), popping.full);
+    try std.testing.expectEqual(@as(i32, 1), popping.popping);
+
+    const settled = airBubbles(270);
+    try std.testing.expectEqual(@as(i32, 9), settled.full);
+    try std.testing.expectEqual(@as(i32, 0), settled.popping);
+}
+
+test "the last bubble is gone by the time the lungs are empty" {
+    const last = airBubbles(1);
+    try std.testing.expectEqual(@as(i32, 0), last.full);
+    try std.testing.expectEqual(@as(i32, 1), last.popping);
+
+    const empty = airBubbles(0);
+    try std.testing.expectEqual(@as(i32, 0), empty.full);
+    try std.testing.expectEqual(@as(i32, 0), empty.popping);
+
+    const drowning = airBubbles(-19);
+    try std.testing.expectEqual(@as(i32, 0), drowning.full);
+    try std.testing.expectEqual(@as(i32, 0), drowning.popping);
 }
 
 test "the hearts blink on and off in three tick stripes after a hit" {

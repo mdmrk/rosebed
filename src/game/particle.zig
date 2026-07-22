@@ -18,7 +18,7 @@ tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -34,6 +34,10 @@ pub const splash_gravity: f64 = 0.04;
 pub const flame_tile: u8 = 48;
 pub const flame_drag: f64 = 0.96;
 pub const flame_drift: f64 = 0.01;
+pub const bubble_tile: u8 = 32;
+pub const bubble_size: f64 = 0.02;
+pub const bubble_lift: f64 = 0.002;
+pub const bubble_drag: f64 = 0.85;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -138,6 +142,22 @@ pub fn spawnFlame(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom
     return particle;
 }
 
+pub fn spawnBubble(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, drift, rand);
+    particle.kind = .bubble;
+    particle.tile = bubble_tile;
+    particle.base.width = bubble_size;
+    particle.base.height = bubble_size;
+    particle.scale *= rand.nextFloat() * 0.6 + 0.2;
+    particle.base.motion = math.Vec3.init(
+        drift.x * 0.2 + (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * 0.02,
+        drift.y * 0.2 + (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * 0.02,
+        drift.z * 0.2 + (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * 0.02,
+    );
+    particle.max_age = @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2));
+    return particle;
+}
+
 pub fn slowedBy(self: Particle, factor: f32) Particle {
     var slowed = self;
     slowed.base.motion.x *= factor;
@@ -206,6 +226,17 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.base.position.z += self.base.motion.z;
             self.applyDrag(flame_drag);
         },
+        .bubble => {
+            self.base.motion.y += bubble_lift;
+            _ = self.base.move(world_map);
+            self.applyDrag(bubble_drag);
+            const block = world_map.getBlock(
+                math.util.floorDouble(self.base.position.x),
+                math.util.floorDouble(self.base.position.y),
+                math.util.floorDouble(self.base.position.z),
+            );
+            if (block.material() != .water) self.expire();
+        },
     }
 }
 
@@ -236,7 +267,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
-        .digging, .splash => 1.0,
+        .digging, .splash, .bubble => 1.0,
         .smoke => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);
@@ -344,6 +375,39 @@ test "a splash droplet launched sideways keeps that drift and hops up" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), particle.base.motion.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 0.1), particle.base.motion.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -0.25), particle.base.motion.z, 1.0e-9);
+}
+
+test "a bubble takes the bubble tile and barely any of the drift it was given" {
+    var rand = world.JavaRandom.init(5);
+    const bubble = spawnBubble(math.Vec3.init(8, 40, 8), math.Vec3.init(0.5, -0.5, 0.5), &rand);
+
+    try std.testing.expectEqual(Kind.bubble, bubble.kind);
+    try std.testing.expectEqual(bubble_tile, bubble.tile);
+    try std.testing.expectEqual(bubble_size, bubble.base.width);
+    try std.testing.expect(bubble.base.motion.x >= 0.08 and bubble.base.motion.x <= 0.12);
+    try std.testing.expect(bubble.base.motion.y >= -0.12 and bubble.base.motion.y <= -0.08);
+}
+
+test "a bubble rises through water and pops as soon as it leaves it" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 4);
+    defer world_map.deinit();
+
+    const chunk = world_map.getChunk(0, 0).?;
+    for (5..9) |y| chunk.setBlock(8, @intCast(y), 8, .stationary_water);
+
+    var rand = world.JavaRandom.init(5);
+    var bubble = spawnBubble(math.Vec3.init(8.5, 5.5, 8.5), math.Vec3.init(0, 0, 0), &rand);
+    bubble.base.motion = math.Vec3.init(0, 0, 0);
+
+    const started = bubble.base.position.y;
+    bubble.tick(&world_map, &rand);
+    try std.testing.expect(bubble.base.position.y > started);
+    try std.testing.expect(!bubble.isExpired());
+
+    bubble.base.position = math.Vec3.init(8.5, 9.5, 8.5);
+    bubble.tick(&world_map, &rand);
+    try std.testing.expect(bubble.isExpired());
 }
 
 test "a lava ember pops upward, glows at full brightness and shrinks away" {

@@ -1884,6 +1884,14 @@ fn tick(app_state: *AppState) !void {
     if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
         try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
     }
+    if (app_state.player.drowned) {
+        try app_state.entities.spawnDrowningBubbles(
+            app_state.gpa,
+            app_state.player.eyePosition(),
+            app_state.player.base.motion,
+            &app_state.world_map.rand,
+        );
+    }
     if (app_state.missed_click_cooldown > 0) app_state.missed_click_cooldown -= 1;
     if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
         try clickLeft(app_state);
@@ -2563,7 +2571,7 @@ pub fn iterate(
                 world.light.brightnessAt(&app_state.world_map, sample[0], sample[1], sample[2], 0),
             );
         }
-        try render.hud.draw(ui, app_state.player.inventory, app_state.player, @truncate(@as(i64, @bitCast(app_state.tick_count))));
+        try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.tick_count))));
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
         try render.chat.draw(ui, &app_state.chat);
     }
