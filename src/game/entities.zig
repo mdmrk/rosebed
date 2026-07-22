@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Arrow = @import("arrow.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Entity = @import("entity.zig");
@@ -20,6 +21,7 @@ const Sheep = @import("sheep.zig");
 const Entities = @This();
 
 items: std.ArrayList(ItemEntity) = .empty,
+arrows: std.ArrayList(Arrow) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
 pigs: std.ArrayList(Pig) = .empty,
 sheep: std.ArrayList(Sheep) = .empty,
@@ -126,18 +128,19 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
     return found;
 }
 
-pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec3, rand: *world.JavaRandom) void {
-    switch (target) {
-        .pig => |index| _ = self.pigs.items[index].animal.hurt(amount, source, rand),
-        .sheep => |index| _ = self.sheep.items[index].hurt(amount, source, rand),
-        .cow => |index| _ = self.cows.items[index].animal.hurt(amount, source, rand),
-        .chicken => |index| _ = self.chickens.items[index].animal.hurt(amount, source, rand),
-        .painting => {},
-    }
+pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec3, rand: *world.JavaRandom) bool {
+    return switch (target) {
+        .pig => |index| self.pigs.items[index].animal.hurt(amount, source, rand),
+        .sheep => |index| self.sheep.items[index].hurt(amount, source, rand),
+        .cow => |index| self.cows.items[index].animal.hurt(amount, source, rand),
+        .chicken => |index| self.chickens.items[index].animal.hurt(amount, source, rand),
+        .painting => false,
+    };
 }
 
 pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
+    self.arrows.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
     self.pickups.deinit(gpa);
@@ -153,7 +156,8 @@ pub fn animalCount(self: *const Entities) usize {
 }
 
 pub fn count(self: *const Entities) usize {
-    return self.items.items.len + self.falling_blocks.items.len + self.paintings.items.len + self.animalCount();
+    return self.items.items.len + self.arrows.items.len + self.falling_blocks.items.len +
+        self.paintings.items.len + self.animalCount();
 }
 
 pub fn dropStackAt(
@@ -489,6 +493,131 @@ pub fn spawnDrowningBubbles(
             motion,
             rand,
         ));
+    }
+}
+
+pub fn shootArrow(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    player: *const Player,
+    rand: *world.JavaRandom,
+) !void {
+    try self.arrows.append(gpa, Arrow.shotBy(player.*, rand));
+}
+
+const ArrowStrike = union(enum) {
+    mob: Target,
+    player,
+};
+
+fn arrowStrike(self: *Entities, arrow: Arrow, player: *const Player, limit: f64) ?ArrowStrike {
+    const start = [3]f64{ arrow.base.position.x, arrow.base.position.y, arrow.base.position.z };
+    const along = [3]f64{ arrow.base.motion.x, arrow.base.motion.y, arrow.base.motion.z };
+    const swept = arrow.base.boundingBox()
+        .addCoord(along[0], along[1], along[2])
+        .expand(1.0, 1.0, 1.0);
+
+    var found: ?ArrowStrike = null;
+    var nearest: f64 = 0;
+
+    const consider = struct {
+        fn hit(
+            box: math.AABB,
+            candidate: ArrowStrike,
+            origin: [3]f64,
+            direction: [3]f64,
+            reach: f64,
+            best: *?ArrowStrike,
+            best_distance: *f64,
+        ) void {
+            const grown = box.expand(Arrow.hit_border, Arrow.hit_border, Arrow.hit_border);
+            const distance = boxRayDistance(grown, origin, direction, reach) orelse return;
+            if (best.* == null or distance < best_distance.*) {
+                best.* = candidate;
+                best_distance.* = distance;
+            }
+        }
+    }.hit;
+
+    inline for (self.herds(), 0..) |herd, kind| {
+        for (herd.items, 0..) |*animal, index| {
+            const box = animal.animal.base.boundingBox();
+            if (box.intersects(swept)) {
+                const candidate: ArrowStrike = switch (kind) {
+                    0 => .{ .mob = .{ .pig = index } },
+                    1 => .{ .mob = .{ .sheep = index } },
+                    2 => .{ .mob = .{ .cow = index } },
+                    else => .{ .mob = .{ .chicken = index } },
+                };
+                consider(box, candidate, start, along, limit, &found, &nearest);
+            }
+        }
+    }
+
+    if (!arrow.from_player or arrow.ticks_in_air >= Arrow.owner_grace_ticks) {
+        const box = player.base.boundingBox();
+        if (box.intersects(swept)) {
+            consider(box, .player, start, along, limit, &found, &nearest);
+        }
+    }
+
+    return found;
+}
+
+pub fn tickArrows(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: *Player,
+    rand: *world.JavaRandom,
+) !void {
+    var i: usize = 0;
+    while (i < self.arrows.items.len) {
+        const arrow = &self.arrows.items[i];
+
+        if (!arrow.settle(world_map, rand)) {
+            const block_hit = arrow.blockImpact(world_map);
+            const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
+
+            if (self.arrowStrike(arrow.*, player, limit)) |strike| {
+                const landed = switch (strike) {
+                    .mob => |target| self.hurtTarget(target, Arrow.damage, player.base.position, rand),
+                    .player => blk: {
+                        const absorbed = player.absorbsHit(Arrow.damage);
+                        player.hurt(Arrow.damage);
+                        break :blk !absorbed;
+                    },
+                };
+                if (landed) arrow.dead = true else arrow.deflect();
+            } else if (block_hit) |hit| {
+                arrow.stickInto(world_map, hit);
+            }
+
+            if (arrow.fly()) |trail| {
+                for (0..Arrow.bubbles_per_trail) |_| {
+                    try self.particles.append(gpa, Particle.spawnBubble(trail.position, trail.drift, rand));
+                }
+            }
+        }
+
+        const reach = player.base.boundingBox().expand(pickup_reach, 0, pickup_reach);
+        if (arrow.canBePickedUp() and player.health > 0 and arrow.base.boundingBox().intersects(reach)) {
+            const stack: Inventory.ItemStack = .{ .id = .{ .item = .arrow }, .count = 1 };
+            if (player.inventory.addStack(stack) == 0) {
+                const collected: ItemEntity = .{
+                    .base = Entity.init(arrow.base.position, ItemEntity.width, ItemEntity.height),
+                    .stack = stack,
+                };
+                try self.pickups.append(gpa, PickupFx.spawn(collected));
+                arrow.dead = true;
+            }
+        }
+
+        if (arrow.dead) {
+            _ = self.arrows.swapRemove(i);
+        } else {
+            i += 1;
+        }
     }
 }
 
@@ -1050,6 +1179,109 @@ test "a pig that runs out of air breathes out a burst of bubbles" {
     }
 }
 
+fn archer(position: math.Vec3, yaw: f32, pitch: f32) Player {
+    var player = Player.spawn(position);
+    player.yaw = yaw;
+    player.pitch = pitch;
+    return player;
+}
+
+test "an arrow shot at a pig sticks in it, hurts it and is gone" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 12.5));
+    const before = entities.pigs.items[0].animal.health;
+
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 15);
+    try entities.shootArrow(gpa, &player, &rand);
+    try std.testing.expectEqual(@as(usize, 1), entities.arrows.items.len);
+
+    for (0..4) |_| try entities.tickArrows(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
+    try std.testing.expectEqual(before - Arrow.damage, entities.pigs.items[0].animal.health);
+}
+
+test "an arrow ignores the archer who just fired it" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 0);
+    try entities.shootArrow(gpa, &player, &rand);
+
+    const chest = math.Vec3.init(player.base.position.x, player.base.position.y + 1.0, player.base.position.z);
+    entities.arrows.items[0].base.position = chest;
+    entities.arrows.items[0].base.motion = math.Vec3.init(0.01, 0, 0);
+    for (0..Arrow.owner_grace_ticks - 1) |_| {
+        try entities.tickArrows(gpa, &w, &player, &rand);
+        entities.arrows.items[0].base.position = chest;
+    }
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+
+    try entities.tickArrows(gpa, &w, &player, &rand);
+    try std.testing.expectEqual(@as(i32, 20 - Arrow.damage), player.health);
+}
+
+test "an arrow resting in a block is collected back into the quiver" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 0);
+
+    var arrow: Arrow = .{
+        .base = Entity.init(math.Vec3.init(8.5, 1.5, 8.5), Arrow.size, Arrow.size),
+        .from_player = true,
+        .in_ground = true,
+        .shake = 2,
+        .tile = .{ 8, 0, 8 },
+    };
+    arrow.in_tile = w.getBlock(8, 0, 8);
+    try entities.arrows.append(gpa, arrow);
+
+    try entities.tickArrows(gpa, &w, &player, &rand);
+    try std.testing.expectEqual(@as(usize, 1), entities.arrows.items.len);
+    try std.testing.expect(player.inventory.slots[0] == null);
+
+    try entities.tickArrows(gpa, &w, &player, &rand);
+    try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
+    try std.testing.expectEqual(world.Id{ .item = .arrow }, player.inventory.slots[0].?.id);
+    try std.testing.expectEqual(@as(u8, 1), player.inventory.slots[0].?.count);
+    try std.testing.expectEqual(@as(usize, 1), entities.pickups.items.len);
+}
+
+test "an arrow still in flight is not collectable" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 0);
+    try entities.shootArrow(gpa, &player, &rand);
+    entities.arrows.items[0].base.position = math.Vec3.init(8.5, 1.5, 8.5);
+
+    try entities.tickArrows(gpa, &w, &player, &rand);
+    try std.testing.expect(player.inventory.slots[0] == null);
+}
+
 test "two herds share one shoving space" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -1306,7 +1538,7 @@ test "a hit takes health off the animal the crosshair found" {
     try entities.spawnCow(gpa, math.Vec3.init(0, 0, 2));
     const before = entities.cows.items[0].animal.health;
 
-    entities.hurtTarget(.{ .cow = 0 }, 4, math.Vec3.init(0, 1, 0), &rand);
+    _ = entities.hurtTarget(.{ .cow = 0 }, 4, math.Vec3.init(0, 1, 0), &rand);
     try std.testing.expectEqual(before - 4, entities.cows.items[0].animal.health);
 }
 
@@ -1319,7 +1551,7 @@ test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
     try entities.spawnSheep(gpa, math.Vec3.init(0, 0, 2), &rand);
     try std.testing.expect(!entities.sheep.items[0].sheared);
 
-    entities.hurtTarget(.{ .sheep = 0 }, 1, math.Vec3.init(0, 1, 0), &rand);
+    _ = entities.hurtTarget(.{ .sheep = 0 }, 1, math.Vec3.init(0, 1, 0), &rand);
     try std.testing.expect(entities.sheep.items[0].sheared);
 }
 

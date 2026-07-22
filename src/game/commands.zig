@@ -226,7 +226,7 @@ test "give rejects ids that name nothing, and air" {
     try std.testing.expectEqual(@as(u32, 0), parse("/give Player 0", local_user).missing_item);
     try std.testing.expectEqual(@as(u32, 250), parse("/give Player 250", local_user).missing_item);
     try std.testing.expectEqual(@as(u32, 400), parse("/give Player 400", local_user).missing_item);
-    try std.testing.expectEqual(@as(u32, 262), parse("/give Player 262", local_user).missing_item);
+    try std.testing.expectEqual(@as(u32, 259), parse("/give Player 259", local_user).missing_item);
     try std.testing.expectEqualStrings("turnip", parse("/give Player turnip", local_user).unparsed_item);
 }
 

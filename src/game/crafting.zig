@@ -118,6 +118,12 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(2, 2, &.{ i(.string), i(.string), i(.string), i(.string) }, .{ .block = .wool }, 1),
     shaped(2, 2, &.{ i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust) }, .{ .block = .glowstone }, 1),
     shaped(1, 2, &.{ i(.coal), i(.stick) }, .{ .block = .torch }, 4),
+    shaped(3, 3, &.{
+        null,      i(.stick), i(.string),
+        i(.stick), null,      i(.string),
+        null,      i(.stick), i(.string),
+    }, .{ .item = .bow }, 1),
+    shaped(1, 3, &.{ i(.flint), i(.stick), i(.feather) }, .{ .item = .arrow }, 4),
     shaped(1, 1, &.{i(.reed)}, .{ .item = .sugar }, 1),
     shaped(3, 1, &.{ i(.reed), i(.reed), i(.reed) }, .{ .item = .paper }, 3),
     shaped(1, 3, &.{ i(.paper), i(.paper), i(.paper) }, .{ .item = .book }, 1),
@@ -682,6 +688,35 @@ test "each tool layout crafts its own head, shifted anywhere it fits" {
         null, stick, null,
         null, stick, null,
     }).?.id);
+}
+
+test "a bow is strung from three sticks and three string, and only that way round" {
+    const stick: world.Id = .{ .item = .stick };
+    const string: world.Id = .{ .item = .string };
+
+    const bow = craftOnWorkbench(&.{
+        null,  stick, string,
+        stick, null,  string,
+        null,  stick, string,
+    }).?;
+    try std.testing.expectEqual(world.Id{ .item = .bow }, bow.id);
+    try std.testing.expectEqual(@as(u8, 1), bow.count);
+
+    try std.testing.expect(craftOnWorkbench(&.{
+        null,   string, stick,
+        string, null,   stick,
+        null,   string, stick,
+    }) == null);
+}
+
+test "flint, a stick and a feather make four arrows" {
+    const arrows = craftOnWorkbench(&.{
+        .{ .item = .flint },   null, null,
+        .{ .item = .stick },   null, null,
+        .{ .item = .feather }, null, null,
+    }).?;
+    try std.testing.expectEqual(world.Id{ .item = .arrow }, arrows.id);
+    try std.testing.expectEqual(@as(u8, 4), arrows.count);
 }
 
 test "the head material picks which tier of tool comes out" {

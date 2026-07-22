@@ -1339,6 +1339,111 @@ fn paintingTileBrightness(
     return world.light.brightnessAt(world_map, x, y, z, 0);
 }
 
+const arrow_scale: f32 = 0.05625;
+const arrow_shaft_u: f32 = 0.5;
+const arrow_shaft_v: f32 = 5.0 / 32.0;
+const arrow_head_u: f32 = 0.15625;
+const arrow_head_v: f32 = 10.0 / 32.0;
+const arrow_shake_speed: f32 = 3.0;
+
+const ArrowPose = struct {
+    origin: [3]f32,
+    yaw: f32,
+    roll: f32,
+
+    fn place(self: ArrowPose, x: f32, y: f32, z: f32, spin: f32) [3]f32 {
+        const sx = (x - 4.0) * arrow_scale;
+        const sy = y * arrow_scale;
+        const sz = z * arrow_scale;
+
+        const spin_cos = @cos(spin);
+        const spin_sin = @sin(spin);
+        const rx = sx;
+        const ry = sy * spin_cos - sz * spin_sin;
+        const rz = sy * spin_sin + sz * spin_cos;
+
+        const roll_cos = @cos(self.roll);
+        const roll_sin = @sin(self.roll);
+        const zx = rx * roll_cos - ry * roll_sin;
+        const zy = rx * roll_sin + ry * roll_cos;
+
+        const yaw_cos = @cos(self.yaw);
+        const yaw_sin = @sin(self.yaw);
+        return .{
+            self.origin[0] + zx * yaw_cos + rz * yaw_sin,
+            self.origin[1] + zy,
+            self.origin[2] - zx * yaw_sin + rz * yaw_cos,
+        };
+    }
+};
+
+pub fn appendArrow(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    arrow: game.Arrow,
+    partial_ticks: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const position = arrow.base.renderPosition(partial_ticks);
+
+    const shake = @as(f32, @floatFromInt(arrow.shake)) - partial_ticks;
+    const wobble: f32 = if (shake > 0.0)
+        -math.util.sin(shake * arrow_shake_speed) * shake
+    else
+        0.0;
+
+    const pose: ArrowPose = .{
+        .origin = .{ @floatCast(position.x), @floatCast(position.y), @floatCast(position.z) },
+        .yaw = (arrow.renderYaw(partial_ticks) - 90.0) * to_radians,
+        .roll = (arrow.renderPitch(partial_ticks) + wobble) * to_radians,
+    };
+
+    const quarter_turn = std.math.pi / 2.0;
+    const tilt: f32 = quarter_turn / 2.0;
+
+    try mesh.quad(gpa, .{
+        pose.place(-7, -2, -2, tilt),
+        pose.place(-7, -2, 2, tilt),
+        pose.place(-7, 2, 2, tilt),
+        pose.place(-7, 2, -2, tilt),
+    }, .{
+        .{ 0, arrow_shaft_v },
+        .{ arrow_head_u, arrow_shaft_v },
+        .{ arrow_head_u, arrow_head_v },
+        .{ 0, arrow_head_v },
+    }, white);
+
+    try mesh.quad(gpa, .{
+        pose.place(-7, 2, -2, tilt),
+        pose.place(-7, 2, 2, tilt),
+        pose.place(-7, -2, 2, tilt),
+        pose.place(-7, -2, -2, tilt),
+    }, .{
+        .{ 0, arrow_shaft_v },
+        .{ arrow_head_u, arrow_shaft_v },
+        .{ arrow_head_u, arrow_head_v },
+        .{ 0, arrow_head_v },
+    }, white);
+
+    for (0..4) |blade| {
+        const spin = tilt + quarter_turn * @as(f32, @floatFromInt(blade + 1));
+        try mesh.quad(gpa, .{
+            pose.place(-8, -2, 0, spin),
+            pose.place(8, -2, 0, spin),
+            pose.place(8, 2, 0, spin),
+            pose.place(-8, 2, 0, spin),
+        }, .{
+            .{ 0, 0 },
+            .{ arrow_shaft_u, 0 },
+            .{ arrow_shaft_u, arrow_shaft_v },
+            .{ 0, arrow_shaft_v },
+        }, white);
+    }
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, arrow.base));
+}
+
 pub fn appendPainting(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,

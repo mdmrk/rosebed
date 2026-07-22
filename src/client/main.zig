@@ -428,7 +428,7 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
 
     if (target == .painting) return breakPainting(app_state, target.painting);
 
-    app_state.entities.hurtTarget(target, damage, app_state.player.base.position, &app_state.world_map.rand);
+    _ = app_state.entities.hurtTarget(target, damage, app_state.player.base.position, &app_state.world_map.rand);
     try app_state.stats.add(app_state.gpa, .{ .general = .damage_dealt }, damage);
 }
 
@@ -1699,6 +1699,18 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     app_state.world_map.skipToDawn();
 }
 
+fn useHeldItem(app_state: *AppState) !void {
+    const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return).id) {
+        .item => |id| id,
+        .block => null,
+    };
+    if (held != .bow) return;
+    if (!app_state.player.inventory.consumeItem(.{ .item = .arrow })) return;
+
+    try app_state.entities.shootArrow(app_state.gpa, &app_state.player, &app_state.world_map.rand);
+    try app_state.stats.use(app_state.gpa, .{ .item = .bow });
+}
+
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
     if (target != .cow) return false;
     const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
@@ -1897,6 +1909,12 @@ fn tick(app_state: *AppState) !void {
         try clickLeft(app_state);
         app_state.last_held_swing_tick = app_state.tick_count;
     }
+    try app_state.entities.tickArrows(
+        app_state.gpa,
+        &app_state.world_map,
+        &app_state.player,
+        &app_state.world_map.rand,
+    );
     app_state.player.tickSwing();
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
@@ -2193,6 +2211,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (painting_mesh.vertices.items.len > 0) {
         app_state.textures.art.bind();
         drawEntityMesh(&painting_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    var arrow_mesh: render.MeshBuilder = .{};
+    defer arrow_mesh.deinit(app_state.frame);
+    for (app_state.entities.arrows.items) |arrow| {
+        try render.entity_render.appendArrow(&arrow_mesh, app_state.frame, &app_state.world_map, arrow, partial);
+    }
+    if (arrow_mesh.vertices.items.len > 0) {
+        app_state.textures.arrows.bind();
+        drawEntityMesh(&arrow_mesh);
         app_state.textures.terrain.bind();
     }
 
@@ -2842,7 +2871,11 @@ pub fn event(
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.dead or app_state.chat.open) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
             } else {
-                if (try useBlockOrPlace(app_state)) app_state.player.swingItem();
+                if (try useBlockOrPlace(app_state)) {
+                    app_state.player.swingItem();
+                } else {
+                    try useHeldItem(app_state);
+                }
             },
             else => {},
         },

@@ -197,6 +197,8 @@ pub const Item = enum(u16) {
     pickaxe_iron = 257,
     axe_iron = 258,
     apple = 260,
+    bow = 261,
+    arrow = 262,
     coal = 263,
     diamond = 264,
     ingot_iron = 265,
@@ -350,7 +352,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
-        if (self == .door_wood or self == .door_iron or self == .cake or self == .bed) return 1;
+        if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow) return 1;
         if (self.bucketFill() != null) return 1;
         return if (self.isDamageable()) 1 else 64;
     }
@@ -448,6 +450,8 @@ pub const Item = enum(u16) {
             .boots_gold => 3 * 16 + 4,
             .leather => 6 * 16 + 7,
             .apple => 10,
+            .bow => 1 * 16 + 5,
+            .arrow => 2 * 16 + 5,
             .coal => 7,
             .diamond => 3 * 16 + 7,
             .ingot_iron => 1 * 16 + 7,
@@ -540,6 +544,8 @@ pub const Item = enum(u16) {
             .boots_gold => "Golden boots",
             .leather => "Leather",
             .apple => "Apple",
+            .bow => "Bow",
+            .arrow => "Arrow",
             .coal => if (metadata == coal_meta_charcoal) "Charcoal" else "Coal",
             .diamond => "Diamond",
             .ingot_iron => "Iron Ingot",

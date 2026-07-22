@@ -103,6 +103,25 @@ pub fn addStack(self: *Inventory, stack: ItemStack) u8 {
     return remaining;
 }
 
+test "consuming an item takes one from the first slot holding it" {
+    var inv: Inventory = .{};
+    inv.slots[2] = .{ .id = .{ .item = .arrow }, .count = 3 };
+    inv.slots[5] = .{ .id = .{ .item = .arrow }, .count = 1 };
+
+    try std.testing.expect(inv.consumeItem(.{ .item = .arrow }));
+    try std.testing.expectEqual(@as(u8, 2), inv.slots[2].?.count);
+    try std.testing.expectEqual(@as(u8, 1), inv.slots[5].?.count);
+}
+
+test "the slot holding the last of an item is emptied, not left at zero" {
+    var inv: Inventory = .{};
+    inv.slots[0] = .{ .id = .{ .item = .arrow }, .count = 1 };
+
+    try std.testing.expect(inv.consumeItem(.{ .item = .arrow }));
+    try std.testing.expect(inv.slots[0] == null);
+    try std.testing.expect(!inv.consumeItem(.{ .item = .arrow }));
+}
+
 test "addStack fills a single slot below the stack limit" {
     var inv: Inventory = .{};
     const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 10 });
@@ -156,6 +175,21 @@ const armor_save_base: u8 = 100;
 
 fn armorSaveSlot(index: usize) u8 {
     return armor_save_base + @as(u8, @intCast(armor_size - 1 - index));
+}
+
+pub fn consumeItem(self: *Inventory, id: world.Id) bool {
+    for (&self.slots) |*slot| {
+        const stack = slot.* orelse continue;
+        if (!std.meta.eql(stack.id, id)) continue;
+
+        if (stack.count <= 1) {
+            slot.* = null;
+        } else {
+            slot.*.?.count = stack.count - 1;
+        }
+        return true;
+    }
+    return false;
 }
 
 pub fn saveEntry(slot: u8, stack: ItemStack) world.save.InventoryEntry {

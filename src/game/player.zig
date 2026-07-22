@@ -303,6 +303,11 @@ fn updateFallState(self: *Player, dy: f64) void {
     }
 }
 
+pub fn absorbsHit(self: Player, amount: i32) bool {
+    if (self.health <= 0 or amount == 0) return true;
+    return self.hurt_resistance > @divTrunc(hurt_resistance_ticks, 2) and amount <= self.last_damage;
+}
+
 pub fn hurt(self: *Player, amount: i32) void {
     if (self.health <= 0 or amount == 0) return;
     self.damage_taken += amount;

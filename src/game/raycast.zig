@@ -74,6 +74,18 @@ fn stopsRay(id: world.Block, metadata: u4, hit_liquids: bool) bool {
     return true;
 }
 
+const StopRule = union(enum) {
+    targeting: bool,
+    collision,
+};
+
+fn stops(rule: StopRule, id: world.Block, metadata: u4) bool {
+    return switch (rule) {
+        .targeting => |hit_liquids| stopsRay(id, metadata, hit_liquids),
+        .collision => id.isSolid(),
+    };
+}
+
 pub fn castWith(
     world_map: *const world.World,
     origin: math.Vec3,
@@ -81,8 +93,28 @@ pub fn castWith(
     max_distance: f64,
     hit_liquids: bool,
 ) ?Hit {
+    const widened = [3]f64{ direction[0], direction[1], direction[2] };
+    return castStopping(world_map, origin, widened, max_distance, .{ .targeting = hit_liquids });
+}
+
+pub fn castCollision(
+    world_map: *const world.World,
+    origin: math.Vec3,
+    direction: [3]f64,
+    max_distance: f64,
+) ?Hit {
+    return castStopping(world_map, origin, direction, max_distance, .collision);
+}
+
+fn castStopping(
+    world_map: *const world.World,
+    origin: math.Vec3,
+    direction: [3]f64,
+    max_distance: f64,
+    rule: StopRule,
+) ?Hit {
     const start = [3]f64{ origin.x, origin.y, origin.z };
-    const along = [3]f64{ direction[0], direction[1], direction[2] };
+    const along = direction;
 
     var cell = [3]i32{
         math.util.floorDouble(start[0]),
@@ -93,7 +125,7 @@ pub fn castWith(
     for (0..max_steps) |_| {
         const id = world_map.getBlock(cell[0], cell[1], cell[2]);
         const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
-        if (stopsRay(id, metadata, hit_liquids)) {
+        if (stops(rule, id, metadata)) {
             if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |hit| {
                 return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = hit.face, .distance = hit.distance };
             }

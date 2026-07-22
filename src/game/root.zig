@@ -1,4 +1,5 @@
 pub const Animal = @import("animal.zig");
+pub const Arrow = @import("arrow.zig");
 pub const Chicken = @import("chicken.zig");
 pub const commands = @import("commands.zig");
 pub const Cow = @import("cow.zig");
@@ -34,6 +35,7 @@ test {
     _ = PickupFx;
     _ = FallingBlock;
     _ = Animal;
+    _ = Arrow;
     _ = Chicken;
     _ = Cow;
     _ = Pig;

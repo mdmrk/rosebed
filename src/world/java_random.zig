@@ -7,6 +7,7 @@ const addend: i64 = 0xB;
 const mask: i64 = (1 << 48) - 1;
 
 seed: i64,
+spare_gaussian: ?f64 = null,
 
 pub fn init(seed: i64) JavaRandom {
     return .{ .seed = (seed ^ multiplier) & mask };
@@ -14,6 +15,7 @@ pub fn init(seed: i64) JavaRandom {
 
 pub fn setSeed(self: *JavaRandom, seed: i64) void {
     self.seed = (seed ^ multiplier) & mask;
+    self.spare_gaussian = null;
 }
 
 fn next(self: *JavaRandom, bits: u6) i32 {
@@ -46,6 +48,24 @@ pub fn nextDouble(self: *JavaRandom) f64 {
 
 pub fn nextFloat(self: *JavaRandom) f32 {
     return @as(f32, @floatFromInt(self.next(24))) / @as(f32, @floatFromInt(@as(i32, 1) << 24));
+}
+
+pub fn nextGaussian(self: *JavaRandom) f64 {
+    if (self.spare_gaussian) |spare| {
+        self.spare_gaussian = null;
+        return spare;
+    }
+
+    while (true) {
+        const v1 = 2.0 * self.nextDouble() - 1.0;
+        const v2 = 2.0 * self.nextDouble() - 1.0;
+        const s = v1 * v1 + v2 * v2;
+        if (s >= 1.0 or s == 0.0) continue;
+
+        const multiplied = @sqrt(-2.0 * @log(s) / s);
+        self.spare_gaussian = v2 * multiplied;
+        return v1 * multiplied;
+    }
 }
 
 pub fn nextLong(self: *JavaRandom) i64 {
@@ -92,6 +112,29 @@ test "nextLong matches java.util.Random(12345).nextLong()" {
     for (expected) |e| {
         try std.testing.expectEqual(e, r.nextLong());
     }
+}
+
+test "nextGaussian matches java.util.Random(12345).nextGaussian()" {
+    var r = JavaRandom.init(12345);
+    const expected = [_]f64{
+        -0.187808989658912,
+        0.5884363051154796,
+        0.9488047804400426,
+        -0.49428072062604445,
+        -1.223411937180115,
+        -0.6979609783968826,
+    };
+    for (expected) |e| {
+        try std.testing.expectApproxEqAbs(e, r.nextGaussian(), 1.0e-15);
+    }
+}
+
+test "the gaussian held back from a pair survives an unrelated draw in between" {
+    var r = JavaRandom.init(1);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.561581040188955), r.nextGaussian(), 1.0e-15);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.20771484130971707), r.nextDouble(), 1.0e-15);
+    try std.testing.expectApproxEqAbs(@as(f64, -0.6081826070068602), r.nextGaussian(), 1.0e-15);
+    try std.testing.expectApproxEqAbs(@as(f64, -0.0542290976338066), r.nextGaussian(), 1.0e-15);
 }
 
 test "setSeed on an existing instance matches a freshly-initialized one" {
