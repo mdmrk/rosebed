@@ -25,36 +25,10 @@
             #loading {
                 position: fixed;
                 inset: 0;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                gap: 14px;
-                background: #101014;
-                color: #e8e8ea;
-                font:
-                    14px/1.4 system-ui,
-                    sans-serif;
-            }
-
-            #track {
-                width: min(300px, 60vw);
-                height: 4px;
-                background: #2b2b32;
-                overflow: hidden;
-            }
-
-            #fill {
+                width: 100%;
                 height: 100%;
-                width: 0;
-                background: #8ab4f8;
-                transition: width 0.15s linear;
-            }
-
-            #status {
-                min-height: 1.2em;
-                font-size: 12px;
-                color: #9a9aa2;
+                background: #000;
+                transition: opacity 0.25s linear;
             }
         </style>
     </head>
@@ -65,35 +39,195 @@
             oncontextmenu="event.preventDefault()"
         ></canvas>
 
-        <div id="loading">
-            <div>Rosebed</div>
-            <div id="track"><div id="fill"></div></div>
-            <div id="status">Loading&hellip;</div>
-        </div>
+        <canvas id="loading"></canvas>
 
         <script>
             var Module = (() => {
+                const DIRT_PNG =
+                    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAAwBQTFRFWT0peVU6dFhEbGxslmxKuYVch4eHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQDLsGAAAABh0RVh0U29mdHdhcmUAUGFpbnQuTkVUIHYzLjM2qefiJQAAAHpJREFUKFMlj4kRACEIA8MJ9l/y7aKOECHhyXRXrQm+JtWAviGITzKkeCQBoPQZSYpaVvCDMXg0XHNotypFKVsXQAO0pAQ2bZnVOCyX9qBXQbXy1S1RPVp+fW2LBx8yfOA6CZF3xl2qPis6AP1kscAO5ZYGHOP2m6LyA0AaAl8NwX0hAAAAAElFTkSuQmCC";
+                const FONT_PNG =
+                    "data:image/png;base64,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";
+
+                const TILE = 32;
+                const DIRT_TINT = "#404040";
+                const SHADOW = "#3f3f3f";
+                const BAR_BACKGROUND = "#808080";
+                const BAR_FILL = "#80ff80";
+                const BAR_WIDTH = 100;
+                const BAR_HEIGHT = 2;
+
                 const loading = document.getElementById("loading");
-                const fill = document.getElementById("fill");
-                const status = document.getElementById("status");
+                const ctx = loading.getContext("2d");
+
+                let dirt = null;
+                let glyphs = null;
+                let shadowGlyphs = null;
+                let widths = null;
+                let message = "Loading...";
+                let progress = 0;
                 let peak = 0;
+                let gone = false;
+
+                const paint = (image, width, height, op, color) => {
+                    const buffer = document.createElement("canvas");
+                    buffer.width = width;
+                    buffer.height = height;
+                    const g = buffer.getContext("2d");
+                    g.imageSmoothingEnabled = false;
+                    g.drawImage(image, 0, 0, width, height);
+                    if (op) {
+                        g.globalCompositeOperation = op;
+                        g.fillStyle = color;
+                        g.fillRect(0, 0, width, height);
+                    }
+                    return buffer;
+                };
+
+                const measure = (atlas) => {
+                    const g = paint(atlas, 128, 128).getContext("2d");
+                    const px = g.getImageData(0, 0, 128, 128).data;
+                    const table = new Uint8Array(256);
+                    for (let c = 0; c < 256; c++) {
+                        const cx = (c % 16) * 8;
+                        const cy = (c >> 4) * 8;
+                        let right = -1;
+                        for (let x = 7; x >= 0 && right < 0; x--) {
+                            for (let y = 0; y < 8; y++) {
+                                if (px[((cy + y) * 128 + cx + x) * 4 + 3] > 0) {
+                                    right = x;
+                                    break;
+                                }
+                            }
+                        }
+                        table[c] = (c === 32 ? 2 : right) + 2;
+                    }
+                    return table;
+                };
+
+                const stringWidth = (text) => {
+                    let total = 0;
+                    for (let i = 0; i < text.length; i++) {
+                        total += widths[text.charCodeAt(i) & 255];
+                    }
+                    return total;
+                };
+
+                const blit = (atlas, text, x, y) => {
+                    for (let i = 0; i < text.length; i++) {
+                        const c = text.charCodeAt(i) & 255;
+                        ctx.drawImage(
+                            atlas,
+                            (c % 16) * 8,
+                            (c >> 4) * 8,
+                            8,
+                            8,
+                            x,
+                            y,
+                            8,
+                            8,
+                        );
+                        x += widths[c];
+                    }
+                };
+
+                const centered = (text, width, y) => {
+                    const x = Math.floor((width - stringWidth(text)) / 2);
+                    blit(shadowGlyphs, text, x + 1, y + 1);
+                    blit(glyphs, text, x, y);
+                };
+
+                const draw = () => {
+                    if (gone || !dirt || !glyphs) return;
+
+                    const dpr = window.devicePixelRatio || 1;
+                    const pw = Math.round(window.innerWidth * dpr);
+                    const ph = Math.round(window.innerHeight * dpr);
+                    if (loading.width !== pw || loading.height !== ph) {
+                        loading.width = pw;
+                        loading.height = ph;
+                    }
+
+                    let factor = 1;
+                    while (
+                        factor < 1000 &&
+                        Math.floor(pw / (factor + 1)) >= 320 &&
+                        Math.floor(ph / (factor + 1)) >= 240
+                    ) {
+                        factor++;
+                    }
+                    const width = Math.ceil(pw / factor);
+                    const height = Math.ceil(ph / factor);
+
+                    ctx.setTransform(factor, 0, 0, factor, 0, 0);
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.fillStyle = ctx.createPattern(dirt, "repeat");
+                    ctx.fillRect(0, 0, width, height);
+
+                    const cx = Math.floor(width / 2);
+                    const cy = Math.floor(height / 2);
+
+                    const barX = cx - BAR_WIDTH / 2;
+                    const barY = cy + 16;
+                    ctx.fillStyle = BAR_BACKGROUND;
+                    ctx.fillRect(barX, barY, BAR_WIDTH, BAR_HEIGHT);
+                    ctx.fillStyle = BAR_FILL;
+                    ctx.fillRect(
+                        barX,
+                        barY,
+                        Math.round(BAR_WIDTH * progress),
+                        BAR_HEIGHT,
+                    );
+
+                    centered(message, width, cy - 4 + 8);
+                };
+
+                const ready = (src, done) => {
+                    const image = new Image();
+                    image.onload = () => {
+                        done(image);
+                        draw();
+                    };
+                    image.src = src;
+                };
+
+                ready(DIRT_PNG, (image) => {
+                    dirt = paint(image, TILE, TILE, "multiply", DIRT_TINT);
+                });
+                ready(FONT_PNG, (image) => {
+                    widths = measure(image);
+                    glyphs = image;
+                    shadowGlyphs = paint(image, 128, 128, "source-in", SHADOW);
+                });
+
+                window.addEventListener("resize", draw);
 
                 return {
                     canvas: document.getElementById("canvas"),
 
                     monitorRunDependencies: (remaining) => {
                         peak = Math.max(peak, remaining);
-                        const done = peak - remaining;
-                        fill.style.width =
-                            (peak ? (done / peak) * 100 : 0) + "%";
+                        if (peak) progress = (peak - remaining) / peak;
+                        draw();
                     },
 
                     setStatus: (text) => {
                         if (!text) {
-                            loading.remove();
+                            gone = true;
+                            loading.style.opacity = 0;
+                            setTimeout(() => loading.remove(), 250);
                             return;
                         }
-                        status.textContent = text;
+                        const parts = /^(.*?)\((\d+(?:\.\d+)?)\/(\d+)\)/.exec(
+                            text,
+                        );
+                        if (parts) {
+                            message = parts[1].trim();
+                            progress = +parts[2] / +parts[3];
+                        } else {
+                            message = text;
+                        }
+                        message = message.replace(/[^\x20-\x7e]/g, "");
+                        draw();
                     },
                 };
             })();
