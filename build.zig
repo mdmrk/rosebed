@@ -23,7 +23,7 @@ pub fn setupModules(
     const debug = optimize == .Debug;
     const linux = target.result.os.tag == .linux;
     const emscripten = target.result.os.tag == .emscripten;
-    const lto: std.zig.LtoMode = if (!debug and (linux or emscripten)) .full else .none;
+    const lto: std.zig.LtoMode = if (!debug and linux) .full else .none;
 
     const gl_bindings =
         if (emscripten) zigglgen.generateModule(b, .{
@@ -247,7 +247,6 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     });
 
     if (optimize != .Debug) {
-        run_emcc.addArg("-flto");
         run_emcc.addArgs(&.{ "--closure", "1" });
     }
     run_emcc.addArg("-sFULL_ES3");
