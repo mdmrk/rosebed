@@ -128,7 +128,7 @@ pub const Tool = struct {
         return switch (self.kind) {
             .pickaxe => switch (target) {
                 .obsidian => level == 3,
-                .block_diamond, .ore_diamond, .block_gold, .ore_gold, .ore_redstone => level >= 2,
+                .block_diamond, .ore_diamond, .block_gold, .ore_gold, .ore_redstone, .ore_redstone_glowing => level >= 2,
                 .block_iron, .ore_iron, .block_lapis, .ore_lapis => level >= 1,
                 else => switch (target.material()) {
                     .rock, .iron => true,
@@ -283,6 +283,7 @@ pub const Item = enum(u16) {
     sugar = 353,
     cake = 354,
     bed = 355,
+    repeater = 356,
     _,
 
     pub fn tool(self: Item) ?Tool {
@@ -361,6 +362,8 @@ pub const Item = enum(u16) {
     pub fn placedBlock(self: Item) ?Block {
         return switch (self) {
             .cake => .cake,
+            .redstone => .redstone_wire,
+            .repeater => .repeater_off,
             else => null,
         };
     }
@@ -472,6 +475,7 @@ pub const Item = enum(u16) {
             .door_wood => 2 * 16 + 11,
             .door_iron => 2 * 16 + 12,
             .redstone => 3 * 16 + 8,
+            .repeater => 5 * 16 + 6,
             .snowball => 14,
             .brick => 1 * 16 + 6,
             .clay_ball => 3 * 16 + 9,
@@ -567,6 +571,7 @@ pub const Item = enum(u16) {
             .door_wood => "Wooden Door",
             .door_iron => "Iron Door",
             .redstone => "Redstone",
+            .repeater => "Redstone Repeater",
             .snowball => "Snowball",
             .brick => "Brick",
             .clay_ball => "Clay",

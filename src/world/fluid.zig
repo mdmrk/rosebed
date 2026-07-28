@@ -284,7 +284,7 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32) !void {
             } else {
                 try world_map.setBlockMetadataWithNotify(x, y, z, @intCast(settled));
                 try world_map.scheduleBlockUpdate(x, y, z, fluid.flowing(), fluid.flowing().tickRate());
-                try world_map.notifyBlocksOfNeighborChange(x, y, z);
+                try world_map.notifyBlocksOfNeighborChange(x, y, z, fluid.flowing());
             }
         } else if (settles) {
             try settle(fluid, world_map, x, y, z);

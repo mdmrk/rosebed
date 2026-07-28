@@ -289,8 +289,8 @@ test "time reads its amount before it judges the method" {
     try std.testing.expectEqualStrings("noon", parse("/time set noon", local_user).unparsed_time);
     try std.testing.expectEqualStrings("noon", parse("/time skip noon", local_user).unparsed_time);
     try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999", local_user).unparsed_time);
-    try std.testing.expectEqual(Result.unknown_method, parse("/time skip 1000", local_user));
-    try std.testing.expectEqual(Result.unknown_method, parse("/time Set 1000", local_user));
+    try std.testing.expect(parse("/time skip 1000", local_user) == .unknown_method);
+    try std.testing.expect(parse("/time Set 1000", local_user) == .unknown_method);
 }
 
 test "time stays silent when the argument count is wrong" {

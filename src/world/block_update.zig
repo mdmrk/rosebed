@@ -177,9 +177,11 @@ pub fn pourLiquid(world_map: *World, x: i32, y: i32, z: i32, fill: item.Fill) !b
     return true;
 }
 
-pub fn placementMetadata(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side, metadata: u4) u4 {
+pub fn placementMetadata(world_map: *World, x: i32, y: i32, z: i32, id: Block, face: block.Side, metadata: u4) u4 {
     if (id == .trapdoor) return block.trapdoorFacingFromFace(face) orelse 0;
-    if (id != .torch) return metadata;
+    if (id == .lever) return leverPlacementFacing(world_map, x, y, z, face) orelse 0;
+    if (id == .button) return buttonPlacementFacing(world_map, x, y, z, face);
+    if (!id.isTorch()) return metadata;
 
     const facing: u4 = switch (face) {
         .up => 5,
@@ -193,6 +195,73 @@ pub fn placementMetadata(world_map: *const World, x: i32, y: i32, z: i32, id: Bl
     return torchAnySupport(world_map, x, y, z) orelse 0;
 }
 
+fn wallFacing(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) ?u4 {
+    return switch (face) {
+        .north => if (world_map.getBlock(x, y, z + 1).isNormalCube()) 4 else null,
+        .south => if (world_map.getBlock(x, y, z - 1).isNormalCube()) 3 else null,
+        .west => if (world_map.getBlock(x + 1, y, z).isNormalCube()) 2 else null,
+        .east => if (world_map.getBlock(x - 1, y, z).isNormalCube()) 1 else null,
+        else => null,
+    };
+}
+
+fn leverCanPlaceOnSide(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) bool {
+    if (face == .up) return world_map.getBlock(x, y - 1, z).isNormalCube();
+    return wallFacing(world_map, x, y, z, face) != null;
+}
+
+fn leverPlacementFacing(world_map: *World, x: i32, y: i32, z: i32, face: block.Side) ?u4 {
+    if (face == .up) {
+        if (!world_map.getBlock(x, y - 1, z).isNormalCube()) return null;
+        return 5 + @as(u4, @intCast(world_map.rand.nextIntBound(2)));
+    }
+    return wallFacing(world_map, x, y, z, face);
+}
+
+fn buttonPlacementFacing(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) u4 {
+    if (wallFacing(world_map, x, y, z, face)) |facing| return facing;
+    if (world_map.getBlock(x - 1, y, z).isNormalCube()) return 1;
+    if (world_map.getBlock(x + 1, y, z).isNormalCube()) return 2;
+    if (world_map.getBlock(x, y, z - 1).isNormalCube()) return 3;
+    if (world_map.getBlock(x, y, z + 1).isNormalCube()) return 4;
+    return 1;
+}
+
+fn leverCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return switch (world_map.getBlockMetadata(x, y, z) & block.facing_mask) {
+        1 => world_map.getBlock(x - 1, y, z).isNormalCube(),
+        2 => world_map.getBlock(x + 1, y, z).isNormalCube(),
+        3 => world_map.getBlock(x, y, z - 1).isNormalCube(),
+        4 => world_map.getBlock(x, y, z + 1).isNormalCube(),
+        else => world_map.getBlock(x, y - 1, z).isNormalCube(),
+    };
+}
+
+fn leverHasAnySupport(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return world_map.getBlock(x - 1, y, z).isNormalCube() or
+        world_map.getBlock(x + 1, y, z).isNormalCube() or
+        world_map.getBlock(x, y, z - 1).isNormalCube() or
+        world_map.getBlock(x, y, z + 1).isNormalCube() or
+        world_map.getBlock(x, y - 1, z).isNormalCube();
+}
+
+fn buttonCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return switch (world_map.getBlockMetadata(x, y, z) & block.facing_mask) {
+        1 => world_map.getBlock(x - 1, y, z).isNormalCube(),
+        2 => world_map.getBlock(x + 1, y, z).isNormalCube(),
+        3 => world_map.getBlock(x, y, z - 1).isNormalCube(),
+        4 => world_map.getBlock(x, y, z + 1).isNormalCube(),
+        else => false,
+    };
+}
+
+fn buttonHasAnySupport(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return world_map.getBlock(x - 1, y, z).isNormalCube() or
+        world_map.getBlock(x + 1, y, z).isNormalCube() or
+        world_map.getBlock(x, y, z - 1).isNormalCube() or
+        world_map.getBlock(x, y, z + 1).isNormalCube();
+}
+
 pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
         .sapling, .dandelion, .rose, .tall_grass, .dead_bush => (light.levelAt(world_map, x, y, z) >= 8 or
@@ -202,7 +271,11 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .reed => reedCanStay(world_map, x, y, z),
         .cactus => cactusCanStay(world_map, x, y, z),
         .snow_layer => world_map.getBlock(x, y - 1, z).isOpaqueCube(),
-        .torch => torchCanStay(world_map, x, y, z),
+        .torch, .torch_redstone_off, .torch_redstone_on => torchCanStay(world_map, x, y, z),
+        .redstone_wire, .pressure_plate_stone, .pressure_plate_planks => world_map.getBlock(x, y - 1, z).isNormalCube(),
+        .repeater_off, .repeater_on => world_map.getBlock(x, y - 1, z).isNormalCube(),
+        .lever => leverCanStay(world_map, x, y, z) and leverHasAnySupport(world_map, x, y, z),
+        .button => buttonCanStay(world_map, x, y, z) and buttonHasAnySupport(world_map, x, y, z),
         .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
         .trapdoor => trapdoorCanStay(world_map, x, y, z),
         .cake => world_map.getBlock(x, y - 1, z).material().isSolid(),
@@ -317,12 +390,16 @@ pub fn placementTarget(world_map: *const World, x: i32, y: i32, z: i32, face: bl
 pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
         .sapling, .dandelion, .rose, .tall_grass, .dead_bush, .mushroom_brown, .mushroom_red => plantGrowsOn(id, world_map.getBlock(x, y - 1, z)),
-        .torch => torchAnySupport(world_map, x, y, z) != null,
+        .torch, .torch_redstone_off, .torch_redstone_on => torchAnySupport(world_map, x, y, z) != null,
+        .lever => leverHasAnySupport(world_map, x, y, z),
+        .button => buttonHasAnySupport(world_map, x, y, z),
         else => canStayAt(world_map, x, y, z, id),
     };
 }
 
 pub fn canPlaceOnSide(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side) bool {
+    if (id == .lever) return leverCanPlaceOnSide(world_map, x, y, z, face);
+    if (id == .button) return wallFacing(world_map, x, y, z, face) != null;
     if (id != .trapdoor) return canPlaceAt(world_map, x, y, z, id);
     const facing = block.trapdoorFacingFromFace(face) orelse return false;
     return trapdoorHolds(world_map, x, y, z, facing);
@@ -1057,7 +1134,7 @@ test "breaking the pillow end still leaves exactly one bed behind" {
 }
 
 test "a respawn spot is found beside the bed, on solid ground with headroom" {
-    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
     defer w.deinit();
 
     try w.setBlockWithNotify(8, 2, 8, .bed);
@@ -1072,14 +1149,14 @@ test "a respawn spot is found beside the bed, on solid ground with headroom" {
 }
 
 test "a bed that is gone offers no respawn spot" {
-    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
     defer w.deinit();
 
     try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8));
 }
 
 test "a bed walled in on every side offers no respawn spot" {
-    var w = try std.testing.flatWorld(std.testing.allocator, 2);
+    var w = try testing_world.flatWorld(std.testing.allocator, 2);
     defer w.deinit();
 
     try w.setBlockWithNotify(8, 2, 8, .bed);

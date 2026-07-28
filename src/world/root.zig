@@ -32,6 +32,7 @@ pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
 pub const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
 pub const NoiseGeneratorPerlin = @import("noise_perlin.zig");
 pub const pathfinder = @import("pathfinder.zig");
+pub const redstone = @import("redstone.zig");
 pub const RegionFile = @import("region.zig");
 pub const save = @import("save.zig");
 pub const springs = @import("springs.zig");

@@ -14,6 +14,7 @@ const JavaRandom = @import("java_random.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
 const nbt = @import("nbt.zig");
+const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const TerrainGenerator = @import("terrain_gen.zig");
 
@@ -43,6 +44,13 @@ pub const BlockPos = struct { x: i32, y: i32, z: i32 };
 pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
 
 pub const FallingBlock = struct { pos: BlockPos, id: Block };
+
+pub const TorchUpdate = struct { pos: BlockPos, time: i64 };
+
+pub const EntityProbe = struct {
+    context: *anyopaque,
+    anyInBox: *const fn (context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool,
+};
 
 pub const ScheduledTick = struct {
     pos: BlockPos,
@@ -74,6 +82,9 @@ update_lcg: i32 = 0,
 time: i64 = 0,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
+editing_blocks: bool = false,
+torch_updates: std.ArrayList(TorchUpdate) = .empty,
+entity_probe: ?EntityProbe = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
@@ -138,6 +149,7 @@ pub fn deinit(self: *World) void {
     self.furnaces.deinit(self.allocator);
     self.signs.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
+    self.torch_updates.deinit(self.allocator);
 }
 
 pub fn getChunk(self: *const World, chunk_x: i32, chunk_z: i32) ?*Chunk {
@@ -383,7 +395,9 @@ pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: B
     const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
     const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
     const previous = chunk.getBlock(local_x, @intCast(y), local_z);
+    const previous_meta = chunk.getBlockMetadata(local_x, @intCast(y), local_z);
     chunk.setBlock(local_x, @intCast(y), local_z, id);
+    if (previous != id) try redstone.onBlockRemoved(self, x, y, z, previous, previous_meta);
     chunk.setBlockMetadata(local_x, @intCast(y), local_z, meta);
     if (previous != id) leaf_decay.onBlockRemoved(self, x, y, z, previous);
     try self.onBlockAdded(x, y, z, id);
@@ -487,28 +501,31 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
 
 pub fn notifyBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
     try self.markChanged(x, y, z);
-    try self.notifyBlocksOfNeighborChange(x, y, z);
+    try self.notifyBlocksOfNeighborChange(x, y, z, self.getBlock(x, y, z));
 }
 
-pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32) !void {
-    try self.onNeighborBlockChange(x - 1, y, z);
-    try self.onNeighborBlockChange(x + 1, y, z);
-    try self.onNeighborBlockChange(x, y - 1, z);
-    try self.onNeighborBlockChange(x, y + 1, z);
-    try self.onNeighborBlockChange(x, y, z - 1);
-    try self.onNeighborBlockChange(x, y, z + 1);
+pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {
+    if (self.editing_blocks) return;
+    try self.onNeighborBlockChange(x - 1, y, z, source);
+    try self.onNeighborBlockChange(x + 1, y, z, source);
+    try self.onNeighborBlockChange(x, y - 1, z, source);
+    try self.onNeighborBlockChange(x, y + 1, z, source);
+    try self.onNeighborBlockChange(x, y, z - 1, source);
+    try self.onNeighborBlockChange(x, y, z + 1, source);
 }
 
 fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+    try redstone.onBlockAdded(self, x, y, z, id);
 }
 
-fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {
     const id = self.getBlock(x, y, z);
     if (id.isLiquid()) try fluid.onNeighborChange(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
     try block_update.onNeighborChange(self, x, y, z);
+    try redstone.onNeighborChange(self, x, y, z, source);
 }
 
 pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) std.mem.Allocator.Error!void {
@@ -519,6 +536,7 @@ pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, dela
         if (self.getBlock(x, y, z) != id) return;
         if (id.isLiquid()) try fluid.tick(self, x, y, z);
         if (id.isFalling()) try block_update.tickFalling(self, x, y, z);
+        if (redstone.handlesTick(id)) try redstone.tick(self, x, y, z, id);
         return;
     }
 
@@ -556,6 +574,7 @@ pub fn tickUpdates(self: *World) !void {
         if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
         if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
         if (entry.id.isFalling()) try block_update.tickFalling(self, pos.x, pos.y, pos.z);
+        if (redstone.handlesTick(entry.id)) try redstone.tick(self, pos.x, pos.y, pos.z, entry.id);
     }
 }
 

@@ -62,6 +62,7 @@ pub fn blockTint(colorizer: Colorizer, id: world.Block, metadata: u4, side: worl
             Colorizer.white
         else
             colorizer.grassColor(temperature, humidity),
+        .redstone_wire => world.block.wire_particle_tint,
         else => Colorizer.white,
     };
 }
@@ -228,7 +229,7 @@ const torch_lean: f32 = 0.4;
 const torch_half: f32 = 1.0 / 16.0;
 const torch_tip: f32 = 0.625;
 
-fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4, bx: f32, by: f32, bz: f32) !void {
+fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4, bx: f32, by: f32, bz: f32, color: [4]u8) !void {
     const shift: f32 = 0.5 - torch_lean;
     const lift: f32 = 0.2;
 
@@ -260,7 +261,6 @@ fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4
 
     const uv = Atlas.tileUv(tile);
     const texel: f32 = 1.0 / 256.0;
-    const color = shadeColor(1.0, Colorizer.white);
 
     const center_x = origin[0] + 0.5;
     const center_z = origin[2] + 0.5;
@@ -325,6 +325,320 @@ fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4
         .{ near_x + lean[0], bottom, center_z - torch_half + lean[1] },
         .{ near_x, top, center_z - torch_half },
     }, uvs, color);
+}
+
+const wire_lift: f32 = 1.0 / 64.0;
+const wire_climb_top: f32 = 7.0 / 320.0;
+const wire_gap: f32 = 5.0 / 16.0;
+const wire_crop: f32 = 5.0 / 256.0;
+
+fn wireColor(metadata: u4, brightness: f32) [4]u8 {
+    const level = @as(f32, @floatFromInt(metadata)) / 15.0;
+    const red = if (metadata == 0) 0.3 else level * 0.6 + 0.4;
+    const green = @max(0.0, level * level * 0.7 - 0.5);
+    const blue = @max(0.0, level * level * 0.6 - 0.7);
+    return .{
+        @intFromFloat(brightness * red * 255.0),
+        @intFromFloat(brightness * green * 255.0),
+        @intFromFloat(brightness * blue * 255.0),
+        255,
+    };
+}
+
+fn buildWire(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+) !void {
+    const brightness = world.light.brightnessAt(world_map, x, y, z, 0);
+    const color = wireColor(metadata, brightness);
+    const links = world.redstone.wireConnections(world_map, x, y, z);
+
+    const along_x = (links.west or links.east) and !links.north and !links.south;
+    const along_z = (links.north or links.south) and !links.west and !links.east;
+    const straight = along_x or along_z;
+
+    const uv = Atlas.tileUv(if (straight) world.block.wire_line_tile else world.block.wire_cross_tile);
+    var x0 = origin[0];
+    var x1 = origin[0] + 1.0;
+    var z0 = origin[2];
+    var z1 = origin[2] + 1.0;
+    var tex_u0 = uv.u0;
+    var tex_u1 = uv.u1;
+    var tex_v0 = uv.v0;
+    var tex_v1 = uv.v1;
+
+    if (!straight and (links.west or links.east or links.north or links.south)) {
+        if (!links.west) {
+            x0 += wire_gap;
+            tex_u0 += wire_crop;
+        }
+        if (!links.east) {
+            x1 -= wire_gap;
+            tex_u1 -= wire_crop;
+        }
+        if (!links.north) {
+            z0 += wire_gap;
+            tex_v0 += wire_crop;
+        }
+        if (!links.south) {
+            z1 -= wire_gap;
+            tex_v1 -= wire_crop;
+        }
+    }
+
+    const flat = origin[1] + wire_lift;
+    const positions = [4][3]f32{
+        .{ x1, flat, z1 }, .{ x1, flat, z0 }, .{ x0, flat, z0 }, .{ x0, flat, z1 },
+    };
+    const uvs: [4][2]f32 = if (along_z)
+        .{ .{ tex_u1, tex_v1 }, .{ tex_u0, tex_v1 }, .{ tex_u0, tex_v0 }, .{ tex_u1, tex_v0 } }
+    else
+        .{ .{ tex_u1, tex_v1 }, .{ tex_u1, tex_v0 }, .{ tex_u0, tex_v0 }, .{ tex_u0, tex_v1 } };
+    try mesh.quad(gpa, positions, uvs, color);
+
+    if (world_map.getBlock(x, y + 1, z).isNormalCube()) return;
+
+    const line = Atlas.tileUv(world.block.wire_line_tile);
+    const top = origin[1] + 1.0 + wire_climb_top;
+    const bottom = origin[1];
+    const west = origin[0] + wire_lift;
+    const east = origin[0] + 1.0 - wire_lift;
+    const north = origin[2] + wire_lift;
+    const south = origin[2] + 1.0 - wire_lift;
+    const near_x = origin[0];
+    const far_x = origin[0] + 1.0;
+    const near_z = origin[2];
+    const far_z = origin[2] + 1.0;
+
+    if (world_map.getBlock(x - 1, y, z).isNormalCube() and world_map.getBlock(x - 1, y + 1, z) == .redstone_wire) {
+        try mesh.quad(gpa, .{
+            .{ west, top, far_z }, .{ west, bottom, far_z }, .{ west, bottom, near_z }, .{ west, top, near_z },
+        }, .{
+            .{ line.u1, line.v0 }, .{ line.u0, line.v0 }, .{ line.u0, line.v1 }, .{ line.u1, line.v1 },
+        }, color);
+    }
+
+    if (world_map.getBlock(x + 1, y, z).isNormalCube() and world_map.getBlock(x + 1, y + 1, z) == .redstone_wire) {
+        try mesh.quad(gpa, .{
+            .{ east, bottom, far_z }, .{ east, top, far_z }, .{ east, top, near_z }, .{ east, bottom, near_z },
+        }, .{
+            .{ line.u0, line.v1 }, .{ line.u1, line.v1 }, .{ line.u1, line.v0 }, .{ line.u0, line.v0 },
+        }, color);
+    }
+
+    if (world_map.getBlock(x, y, z - 1).isNormalCube() and world_map.getBlock(x, y + 1, z - 1) == .redstone_wire) {
+        try mesh.quad(gpa, .{
+            .{ far_x, bottom, north }, .{ far_x, top, north }, .{ near_x, top, north }, .{ near_x, bottom, north },
+        }, .{
+            .{ line.u0, line.v1 }, .{ line.u1, line.v1 }, .{ line.u1, line.v0 }, .{ line.u0, line.v0 },
+        }, color);
+    }
+
+    if (world_map.getBlock(x, y, z + 1).isNormalCube() and world_map.getBlock(x, y + 1, z + 1) == .redstone_wire) {
+        try mesh.quad(gpa, .{
+            .{ far_x, top, south }, .{ far_x, bottom, south }, .{ near_x, bottom, south }, .{ near_x, top, south },
+        }, .{
+            .{ line.u1, line.v0 }, .{ line.u0, line.v0 }, .{ line.u0, line.v1 }, .{ line.u1, line.v1 },
+        }, color);
+    }
+}
+
+const lever_stick_half: f32 = 1.0 / 16.0;
+const lever_stick_length: f32 = 10.0 / 16.0;
+const lever_tilt: f32 = std.math.pi * 2.0 / 9.0;
+
+fn rotateAroundX(point: [3]f32, angle: f32) [3]f32 {
+    const c = @cos(angle);
+    const s = @sin(angle);
+    return .{ point[0], point[1] * c + point[2] * s, point[2] * c - point[1] * s };
+}
+
+fn rotateAroundY(point: [3]f32, angle: f32) [3]f32 {
+    const c = @cos(angle);
+    const s = @sin(angle);
+    return .{ point[0] * c + point[2] * s, point[1], point[2] * c - point[0] * s };
+}
+
+fn leverStickCorners(metadata: u4, origin: [3]f32) [8][3]f32 {
+    const facing = metadata & world.block.facing_mask;
+    const powered = world.block.isPowered(metadata);
+    const half = lever_stick_half;
+    const length = lever_stick_length;
+
+    var corners = [8][3]f32{
+        .{ -half, 0, -half },      .{ half, 0, -half },      .{ half, 0, half },      .{ -half, 0, half },
+        .{ -half, length, -half }, .{ half, length, -half }, .{ half, length, half }, .{ -half, length, half },
+    };
+
+    for (&corners) |*corner| {
+        if (powered) {
+            corner[2] -= 1.0 / 16.0;
+            corner.* = rotateAroundX(corner.*, lever_tilt);
+        } else {
+            corner[2] += 1.0 / 16.0;
+            corner.* = rotateAroundX(corner.*, -lever_tilt);
+        }
+
+        if (facing == 6) corner.* = rotateAroundY(corner.*, std.math.pi * 0.5);
+
+        if (facing < 5) {
+            corner[1] -= 0.375;
+            corner.* = rotateAroundX(corner.*, std.math.pi * 0.5);
+            switch (facing) {
+                3 => corner.* = rotateAroundY(corner.*, std.math.pi),
+                2 => corner.* = rotateAroundY(corner.*, std.math.pi * 0.5),
+                1 => corner.* = rotateAroundY(corner.*, std.math.pi * -0.5),
+                else => {},
+            }
+            corner[0] += origin[0] + 0.5;
+            corner[1] += origin[1] + 0.5;
+            corner[2] += origin[2] + 0.5;
+        } else {
+            corner[0] += origin[0] + 0.5;
+            corner[1] += origin[1] + 2.0 / 16.0;
+            corner[2] += origin[2] + 0.5;
+        }
+    }
+
+    return corners;
+}
+
+const lever_stick_faces = [6][4]usize{
+    .{ 0, 1, 2, 3 },
+    .{ 7, 6, 5, 4 },
+    .{ 1, 0, 4, 5 },
+    .{ 2, 1, 5, 6 },
+    .{ 3, 2, 6, 7 },
+    .{ 0, 3, 7, 4 },
+};
+
+fn buildLever(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    try buildBoundedBox(
+        mesh,
+        gpa,
+        world_map,
+        .lever,
+        world.block.leverBaseBounds(metadata),
+        world.block.FaceTextures.initFill(world.block.cobblestone_tile),
+        x,
+        y,
+        z,
+        origin,
+        options,
+    );
+
+    const corners = leverStickCorners(metadata, origin);
+    const color = shadeColor(world.light.brightnessAt(world_map, x, y, z, 0), Colorizer.white);
+    const uv = Atlas.tileUv(world.block.lever_tile);
+    const texel: f32 = 1.0 / 256.0;
+
+    for (lever_stick_faces, 0..) |face, index| {
+        const u_low = uv.u0 + 7.0 * texel;
+        const u_high = uv.u0 + 9.0 * texel;
+        const v_low = uv.v0 + 6.0 * texel;
+        const v_high = if (index >= 2) uv.v0 + 16.0 * texel else uv.v0 + 8.0 * texel;
+
+        try mesh.quad(gpa, .{
+            corners[face[0]], corners[face[1]], corners[face[2]], corners[face[3]],
+        }, .{
+            .{ u_low, v_high }, .{ u_high, v_high }, .{ u_high, v_low }, .{ u_low, v_low },
+        }, color);
+    }
+}
+
+fn repeaterTopCorners(origin: [3]f32, facing: u2) [4][3]f32 {
+    const height = origin[1] + world.block.repeater_height;
+    const cycle = [4][2]f32{ .{ 0, 0 }, .{ 0, 1 }, .{ 1, 1 }, .{ 1, 0 } };
+    const start = (4 - @as(usize, facing)) % 4;
+
+    var corners: [4][3]f32 = undefined;
+    for (&corners, 0..) |*corner, index| {
+        const cell = cycle[(start + index) % 4];
+        corner.* = .{ origin[0] + cell[0], height, origin[2] + cell[1] };
+    }
+    return corners;
+}
+
+fn buildRepeater(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const bounds: world.block.Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, world.block.repeater_height, 1 } };
+    const textures = world.block.repeaterTextures(id);
+    const emitted = world.light.emission(id);
+
+    for (faces) |face| {
+        if (face.side == .up or face.side == .down) continue;
+        const quad = boxFaceQuad(bounds, origin, face, textures.get(face.side), false);
+        const brightness = world.light.brightnessAt(world_map, x + face.normal[0], y, z + face.normal[2], emitted);
+        try mesh.quad(gpa, quad.positions, quad.uvs, shadeColor(face.shade * brightness, Colorizer.white));
+    }
+    _ = options;
+
+    const facing = world.block.repeaterFacing(metadata);
+    const top_uv = Atlas.tileUv(textures.get(.up));
+    const top_brightness = world.light.brightnessAt(world_map, x, y + 1, z, emitted);
+    try mesh.quad(gpa, repeaterTopCorners(origin, facing), .{
+        .{ top_uv.u0, top_uv.v0 },
+        .{ top_uv.u0, top_uv.v1 },
+        .{ top_uv.u1, top_uv.v1 },
+        .{ top_uv.u1, top_uv.v0 },
+    }, shadeColor(top_brightness, Colorizer.white));
+
+    const offset = world.block.repeater_torch_offsets[world.block.repeaterDelay(metadata)];
+    const lock: f32 = 0.3125;
+    var moving: [2]f32 = .{ 0, 0 };
+    var fixed: [2]f32 = .{ 0, 0 };
+    switch (facing) {
+        0 => {
+            fixed[1] = -lock;
+            moving[1] = offset;
+        },
+        1 => {
+            fixed[0] = lock;
+            moving[0] = -offset;
+        },
+        2 => {
+            fixed[1] = lock;
+            moving[1] = -offset;
+        },
+        3 => {
+            fixed[0] = -lock;
+            moving[0] = offset;
+        },
+    }
+
+    const torch_tile = textures.get(.down);
+    const torch_brightness = (world.light.brightnessAt(world_map, x, y, z, emitted) + 1.0) * 0.5;
+    const torch_color = shadeColor(torch_brightness, Colorizer.white);
+    const torch_drop: f32 = -0.1875;
+
+    try buildTorch(mesh, gpa, torch_tile, 5, origin[0] + moving[0], origin[1] + torch_drop, origin[2] + moving[1], torch_color);
+    try buildTorch(mesh, gpa, torch_tile, 5, origin[0] + fixed[0], origin[1] + torch_drop, origin[2] + fixed[1], torch_color);
 }
 
 fn boxCorner(origin: [3]f32, bounds: world.block.Bounds, corner: [3]f32) [3]f32 {
@@ -656,7 +970,34 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 }
 
                 if (id.shape() == .torch) {
-                    try buildTorch(target, gpa, id.faceTextures().get(.down), metadata, bx, by, bz);
+                    try buildTorch(target, gpa, id.faceTextures().get(.down), metadata, bx, by, bz, shadeColor(1.0, Colorizer.white));
+                    continue;
+                }
+
+                if (id.shape() == .wire) {
+                    try buildWire(target, gpa, world_map, metadata, world_x, world_y, world_z, .{ bx, by, bz });
+                    continue;
+                }
+
+                if (id.shape() == .lever) {
+                    try buildLever(target, gpa, world_map, metadata, world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    continue;
+                }
+
+                if (id.shape() == .button) {
+                    const bounds = world.block.buttonBounds(metadata);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    continue;
+                }
+
+                if (id.shape() == .plate) {
+                    const bounds = world.block.plateBounds(metadata);
+                    try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), world_x, world_y, world_z, .{ bx, by, bz }, options);
+                    continue;
+                }
+
+                if (id.isRepeater()) {
+                    try buildRepeater(target, gpa, world_map, id, metadata, world_x, world_y, world_z, .{ bx, by, bz }, options);
                     continue;
                 }
 
@@ -2023,4 +2364,133 @@ test "a trapdoor in hand is a plate through the middle of its block" {
         v_high = @max(v_high, vertex.v);
     }
     try std.testing.expectApproxEqAbs((uv.v1 - uv.v0) * world.block.trapdoor_thickness, v_high - v_low, 1.0e-6);
+}
+
+fn wireMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mesh {
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlockMetadata(8, 1, 8, metadata);
+    return build(gpa, world_map, chunk, Colorizer.untinted, .{});
+}
+
+fn wireWorldMap(gpa: std.mem.Allocator) !world.World {
+    var world_map = world.World.init(gpa);
+    errdefer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.constants.chunk_width) |x| {
+        for (0..world.constants.chunk_width) |z| {
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+        }
+    }
+    chunk.setBlock(8, 1, 8, .redstone_wire);
+    return world_map;
+}
+
+fn dustVertices(mesh: Mesh, gpa: std.mem.Allocator) ![]MeshBuilder.Vertex {
+    var found: std.ArrayList(MeshBuilder.Vertex) = .empty;
+    errdefer found.deinit(gpa);
+    for (mesh.solid.vertices.items) |v| {
+        if (v.y == 1.0 + wire_lift) try found.append(gpa, v);
+    }
+    return found.toOwnedSlice(gpa);
+}
+
+test "a lone scrap of dust is a single flat quad lifted off the floor" {
+    const gpa = std.testing.allocator;
+    var world_map = try wireWorldMap(gpa);
+    defer world_map.deinit();
+
+    var mesh = try wireMesh(gpa, &world_map, 0);
+    defer mesh.deinit(gpa);
+
+    const dust = try dustVertices(mesh, gpa);
+    defer gpa.free(dust);
+
+    try std.testing.expectEqual(@as(usize, 4), dust.len);
+}
+
+test "unpowered dust is dim and full strength dust is bright red" {
+    const gpa = std.testing.allocator;
+    var world_map = try wireWorldMap(gpa);
+    defer world_map.deinit();
+
+    var dark_mesh = try wireMesh(gpa, &world_map, 0);
+    defer dark_mesh.deinit(gpa);
+    const dark = try dustVertices(dark_mesh, gpa);
+    defer gpa.free(dark);
+
+    var lit_mesh = try wireMesh(gpa, &world_map, 15);
+    defer lit_mesh.deinit(gpa);
+    const lit = try dustVertices(lit_mesh, gpa);
+    defer gpa.free(lit);
+
+    try std.testing.expect(lit[0].color[0] > dark[0].color[0]);
+    try std.testing.expectEqual(@as(u8, 0), dark[0].color[1]);
+    try std.testing.expectEqual(@as(u8, 0), dark[0].color[2]);
+}
+
+fn dustReachesTileEdge(mesh: Mesh, gpa: std.mem.Allocator, edge: f32) !bool {
+    const dust = try dustVertices(mesh, gpa);
+    defer gpa.free(dust);
+    for (dust) |v| {
+        if (v.u == edge) return true;
+    }
+    return false;
+}
+
+test "dust running east to west uses the line tile, not the crossing" {
+    const gpa = std.testing.allocator;
+    var world_map = try wireWorldMap(gpa);
+    defer world_map.deinit();
+
+    const line_edge = Atlas.tileUv(world.block.wire_line_tile).u1;
+
+    var alone = try wireMesh(gpa, &world_map, 0);
+    defer alone.deinit(gpa);
+    try std.testing.expect(!try dustReachesTileEdge(alone, gpa, line_edge));
+
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(7, 1, 8, .redstone_wire);
+    chunk.setBlock(9, 1, 8, .redstone_wire);
+
+    var run = try wireMesh(gpa, &world_map, 0);
+    defer run.deinit(gpa);
+    try std.testing.expect(try dustReachesTileEdge(run, gpa, line_edge));
+}
+
+test "redstone dust breaks into dark red shards, not grey stone ones" {
+    const tint = blockTint(Colorizer.untinted, .redstone_wire, 0, world.Side.up, 0.5, 0.5);
+    try std.testing.expectEqual(world.block.wire_particle_tint, tint);
+    try std.testing.expectEqual(Colorizer.white, blockTint(Colorizer.untinted, .stone, 0, world.Side.up, 0.5, 0.5));
+}
+
+fn stickExtents(metadata: u4) [2][3]f32 {
+    const corners = leverStickCorners(metadata, .{ 0, 0, 0 });
+    var lowest: [3]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };
+    var highest: [3]f32 = .{ -std.math.floatMax(f32), -std.math.floatMax(f32), -std.math.floatMax(f32) };
+    for (corners) |corner| {
+        for (0..3) |axis| {
+            lowest[axis] = @min(lowest[axis], corner[axis]);
+            highest[axis] = @max(highest[axis], corner[axis]);
+        }
+    }
+    return .{ lowest, highest };
+}
+
+fn expectExtents(metadata: u4, lowest: [3]f32, highest: [3]f32) !void {
+    const got = stickExtents(metadata);
+    for (0..3) |axis| {
+        try std.testing.expectApproxEqAbs(lowest[axis], got[0][axis], 1.0e-3);
+        try std.testing.expectApproxEqAbs(highest[axis], got[1][axis], 1.0e-3);
+    }
+}
+
+test "a lever handle stands where RenderBlocks swings it, per wall and floor facing" {
+    try expectExtents(1, .{ 0.045, 0.500, 0.438 }, .{ 0.604, 0.997, 0.562 });
+    try expectExtents(2, .{ 0.396, 0.500, 0.438 }, .{ 0.955, 0.997, 0.562 });
+    try expectExtents(3, .{ 0.438, 0.500, 0.045 }, .{ 0.562, 0.997, 0.604 });
+    try expectExtents(4, .{ 0.438, 0.500, 0.396 }, .{ 0.562, 0.997, 0.955 });
+    try expectExtents(5, .{ 0.438, 0.045, 0.500 }, .{ 0.562, 0.604, 0.997 });
+    try expectExtents(6, .{ 0.500, 0.045, 0.438 }, .{ 0.997, 0.604, 0.562 });
 }

@@ -118,6 +118,15 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(2, 2, &.{ i(.string), i(.string), i(.string), i(.string) }, .{ .block = .wool }, 1),
     shaped(2, 2, &.{ i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust), i(.glowstone_dust) }, .{ .block = .glowstone }, 1),
     shaped(1, 2, &.{ i(.coal), i(.stick) }, .{ .block = .torch }, 4),
+    shaped(1, 2, &.{ i(.redstone), i(.stick) }, .{ .block = .torch_redstone_on }, 1),
+    shaped(1, 2, &.{ i(.stick), b(.cobblestone) }, .{ .block = .lever }, 1),
+    shaped(1, 2, &.{ b(.stone), b(.stone) }, .{ .block = .button }, 1),
+    shaped(2, 1, &.{ b(.stone), b(.stone) }, .{ .block = .pressure_plate_stone }, 1),
+    shaped(2, 1, &.{ b(.planks), b(.planks) }, .{ .block = .pressure_plate_planks }, 1),
+    shaped(3, 2, &.{
+        b(.torch_redstone_on), i(.redstone), b(.torch_redstone_on),
+        b(.stone),             b(.stone),    b(.stone),
+    }, .{ .item = .repeater }, 1),
     shaped(3, 3, &.{
         null,      i(.stick), i(.string),
         i(.stick), null,      i(.string),
@@ -393,11 +402,13 @@ test "two stacked planks craft into sticks" {
     try std.testing.expectEqual(@as(u8, 4), result.count);
 }
 
-test "planks side by side do not match the stick recipe" {
+test "planks side by side lie flat into a pressure plate, not upright into sticks" {
     var grid: [4]?Inventory.ItemStack = @splat(null);
     grid[0] = .{ .id = .{ .block = .planks }, .count = 5 };
     grid[1] = .{ .id = .{ .block = .planks }, .count = 5 };
-    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
+    const result = findMatch(&grid, player_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .pressure_plate_planks }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
 }
 
 test "four clay balls fill the grid to craft a clay block" {
@@ -855,12 +866,13 @@ test "three blocks in a row craft three slabs, tagged with which block they came
     }
 }
 
-test "two blocks in a row are not enough for slabs" {
+test "two blocks in a row make a pressure plate, three are needed for slabs" {
     var grid: [9]?Inventory.ItemStack = @splat(null);
     for ([_]usize{ 3, 4 }) |cell| {
         grid[cell] = .{ .id = .{ .block = .stone }, .count = 1 };
     }
-    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .pressure_plate_stone }, result.id);
 }
 
 test "a staircase of six blocks crafts four stairs of that block" {

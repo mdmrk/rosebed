@@ -55,6 +55,14 @@ pub const Material = enum {
         return self.blocksGrass() and !self.isLiquid();
     }
 
+    pub fn buildsNormalCube(self: Material) bool {
+        return switch (self) {
+            .air, .plants, .circuits, .snow, .water, .lava => false,
+            .leaves, .glass, .tnt, .ice, .cactus => false,
+            else => true,
+        };
+    }
+
     pub fn isHarvestable(self: Material) bool {
         return switch (self) {
             .rock, .iron, .snow, .built_snow => false,
@@ -73,6 +81,11 @@ pub const Shape = union(enum) {
     cake,
     bed,
     sign,
+    wire,
+    lever,
+    button,
+    plate,
+    repeater,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -237,6 +250,7 @@ pub const Block = enum(u8) {
     mob_spawner = 52,
     stairs_wood = 53,
     chest = 54,
+    redstone_wire = 55,
     ore_diamond = 56,
     block_diamond = 57,
     workbench = 58,
@@ -246,8 +260,15 @@ pub const Block = enum(u8) {
     door_wood = 64,
     stairs_cobblestone = 67,
     wall_sign = 68,
+    lever = 69,
+    pressure_plate_stone = 70,
     door_iron = 71,
+    pressure_plate_planks = 72,
     ore_redstone = 73,
+    ore_redstone_glowing = 74,
+    torch_redstone_off = 75,
+    torch_redstone_on = 76,
+    button = 77,
     snow_layer = 78,
     ice = 79,
     snow_block = 80,
@@ -261,6 +282,8 @@ pub const Block = enum(u8) {
     glowstone = 89,
     jack_o_lantern = 91,
     cake = 92,
+    repeater_off = 93,
+    repeater_on = 94,
     trapdoor = 96,
     _,
 
@@ -269,6 +292,7 @@ pub const Block = enum(u8) {
             .air => .air,
             .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner, .stairs_cobblestone => .rock,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => .rock,
+            .ore_redstone_glowing, .pressure_plate_stone => .rock,
             .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
             .slab, .slab_double => .rock,
             .furnace, .burning_furnace => .rock,
@@ -276,6 +300,7 @@ pub const Block = enum(u8) {
             .grass, .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
             .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor, .stairs_wood, .sign_post, .wall_sign => .wood,
+            .pressure_plate_planks => .wood,
             .leaves => .leaves,
             .sponge => .sponge,
             .wool => .cloth,
@@ -292,7 +317,8 @@ pub const Block = enum(u8) {
             .pumpkin, .jack_o_lantern => .pumpkin,
             .bed => .cloth,
             .cake => .cake,
-            .torch => .circuits,
+            .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
+            .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
             else => .rock,
         };
     }
@@ -300,7 +326,12 @@ pub const Block = enum(u8) {
     pub fn shape(self: Block) Shape {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
-            .torch => .torch,
+            .torch, .torch_redstone_off, .torch_redstone_on => .torch,
+            .redstone_wire => .wire,
+            .lever => .lever,
+            .button => .button,
+            .pressure_plate_stone, .pressure_plate_planks => .plate,
+            .repeater_off, .repeater_on => .repeater,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
             .bed => .bed,
@@ -330,7 +361,16 @@ pub const Block = enum(u8) {
     }
 
     pub fn hasCollision(self: Block) bool {
+        if (self.shape() == .plate) return false;
         return self.isSolid() and !self.isSign();
+    }
+
+    pub fn isTorch(self: Block) bool {
+        return self.shape() == .torch;
+    }
+
+    pub fn isRepeater(self: Block) bool {
+        return self.shape() == .repeater;
     }
 
     pub fn isCake(self: Block) bool {
@@ -366,10 +406,15 @@ pub const Block = enum(u8) {
 
     pub fn tickRate(self: Block) u32 {
         if (self.isFalling()) return 3;
-        return switch (self.material()) {
-            .water => 5,
-            .lava => 30,
-            else => 0,
+        return switch (self) {
+            .torch_redstone_off, .torch_redstone_on => 2,
+            .button, .pressure_plate_stone, .pressure_plate_planks => 20,
+            .ore_redstone_glowing => 30,
+            else => switch (self.material()) {
+                .water => 5,
+                .lava => 30,
+                else => 0,
+            },
         };
     }
 
@@ -379,8 +424,14 @@ pub const Block = enum(u8) {
             .sign_post, .wall_sign => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
+            .pressure_plate_stone, .pressure_plate_planks => false,
             else => self.isOpaque() and !self.isLiquid(),
         };
+    }
+
+    pub fn isNormalCube(self: Block) bool {
+        if (!self.material().buildsNormalCube()) return false;
+        return self.shape() == .cube;
     }
 
     pub fn isBreakable(self: Block) bool {
@@ -410,7 +461,12 @@ pub const Block = enum(u8) {
             .mushroom_brown, .mushroom_red => plantBounds(0.2, 0.4),
             .reed => plantBounds(6.0 / 16.0, 1.0),
             .cactus => plantBounds(7.0 / 16.0, 1.0),
-            .torch => torchBounds(metadata),
+            .torch, .torch_redstone_off, .torch_redstone_on => torchBounds(metadata),
+            .redstone_wire => wire_bounds,
+            .lever => leverBounds(metadata),
+            .button => buttonBounds(metadata),
+            .pressure_plate_stone, .pressure_plate_planks => plateBounds(metadata),
+            .repeater_off, .repeater_on => repeater_bounds,
             .door_wood, .door_iron => doorBounds(metadata),
             .trapdoor => trapdoorBounds(metadata),
             .cake => cakeBounds(metadata),
@@ -426,6 +482,8 @@ pub const Block = enum(u8) {
             .cake => &cake_item_boxes,
             .trapdoor => &trapdoor_item_boxes,
             .slab => &slab_item_boxes,
+            .button => &button_item_boxes,
+            .pressure_plate_stone, .pressure_plate_planks => &plate_item_boxes,
             .stairs_wood, .stairs_cobblestone => &stairs_item_boxes,
             else => &full_cube_box,
         };
@@ -486,6 +544,14 @@ pub const Block = enum(u8) {
             .bookshelf => topAndSide(4, 4, 35),
             .obsidian => uniform(37),
             .torch => uniform(80),
+            .ore_redstone_glowing => uniform(51),
+            .redstone_wire => uniform(wire_cross_tile),
+            .lever => uniform(lever_tile),
+            .button, .pressure_plate_stone => uniform(1),
+            .pressure_plate_planks => uniform(4),
+            .torch_redstone_off => uniform(torch_redstone_off_tile),
+            .torch_redstone_on => uniform(torch_redstone_on_tile),
+            .repeater_off, .repeater_on => repeaterTextures(self),
             .block_diamond => uniform(24),
             .workbench => FaceTextures.init(.{
                 .down = 4,
@@ -544,7 +610,7 @@ pub const Block = enum(u8) {
     pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
-            .torch => self.faceTextures().get(.down),
+            .torch, .wire, .lever, .repeater => self.faceTextures().get(.down),
             else => null,
         };
     }
@@ -569,6 +635,9 @@ pub const Block = enum(u8) {
             .sand => 0.5,
             .gravel => 0.6,
             .ore_gold, .ore_iron, .ore_coal, .ore_lapis, .ore_diamond, .ore_redstone => 3.0,
+            .ore_redstone_glowing => 3.0,
+            .redstone_wire, .torch_redstone_off, .torch_redstone_on, .repeater_off, .repeater_on => 0.0,
+            .lever, .button, .pressure_plate_stone, .pressure_plate_planks => 0.5,
             .log => 2.0,
             .leaves => 0.2,
             .clay => 0.6,
@@ -662,7 +731,13 @@ pub const Block = enum(u8) {
             .cobblestone_mossy => "Moss Stone",
             .mob_spawner => "Monster Spawner",
             .ore_diamond => "Diamond Ore",
-            .ore_redstone => "Redstone Ore",
+            .ore_redstone, .ore_redstone_glowing => "Redstone Ore",
+            .redstone_wire => "Redstone Dust",
+            .lever => "Lever",
+            .button => "Button",
+            .pressure_plate_stone, .pressure_plate_planks => "Pressure Plate",
+            .torch_redstone_off, .torch_redstone_on => "Redstone Torch",
+            .repeater_off, .repeater_on => "Redstone Repeater",
             .snow_layer => "Snow",
             .clay => "Clay",
             .cactus => "Cactus",
@@ -717,7 +792,10 @@ pub const Block = enum(u8) {
                 .{ .id = .{ .block = .gravel }, .count = 1 },
             .ore_coal => .{ .id = .{ .item = .coal }, .count = 1 },
             .ore_diamond => .{ .id = .{ .item = .diamond }, .count = 1 },
-            .ore_redstone => .{ .id = .{ .item = .redstone }, .count = @intCast(4 + rand.nextIntBound(2)) },
+            .ore_redstone, .ore_redstone_glowing => .{ .id = .{ .item = .redstone }, .count = @intCast(4 + rand.nextIntBound(2)) },
+            .redstone_wire => .{ .id = .{ .item = .redstone }, .count = 1 },
+            .torch_redstone_off, .torch_redstone_on => .{ .id = .{ .block = .torch_redstone_on }, .count = 1 },
+            .repeater_off, .repeater_on => .{ .id = .{ .item = .repeater }, .count = 1 },
             .ore_lapis => .{ .id = .{ .item = .dye }, .count = @intCast(4 + rand.nextIntBound(5)), .meta = item.dye_meta_lapis },
             .log => .{ .id = .{ .block = .log }, .count = 1, .meta = meta },
             .leaves => if (rand.nextIntBound(20) == 0) .{ .id = .{ .block = .sapling }, .count = 1, .meta = meta & 3 } else null,
@@ -1118,6 +1196,114 @@ pub fn furnaceTextures(id: Block, metadata: u4) FaceTextures {
         if (id == .burning_furnace) furnace_front_lit_tile else furnace_front_tile,
     );
     return textures;
+}
+
+pub const wire_particle_tint: [3]u8 = .{ 128, 0, 0 };
+pub const wire_cross_tile: u8 = 164;
+pub const wire_line_tile: u8 = 165;
+pub const lever_tile: u8 = 96;
+pub const cobblestone_tile: u8 = 16;
+pub const torch_redstone_off_tile: u8 = 115;
+pub const torch_redstone_on_tile: u8 = 99;
+const repeater_top_off_tile: u8 = 131;
+const repeater_top_on_tile: u8 = 147;
+const repeater_side_tile: u8 = 5;
+
+pub const power_bit: u4 = 8;
+pub const facing_mask: u4 = 7;
+
+pub fn isPowered(metadata: u4) bool {
+    return metadata & power_bit != 0;
+}
+
+const wire_bounds: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1.0 / 16.0, 1 } };
+
+pub const repeater_height: f32 = 2.0 / 16.0;
+const repeater_bounds: Bounds = .{ .min = .{ 0, 0, 0 }, .max = .{ 1, repeater_height, 1 } };
+
+pub fn repeaterTextures(id: Block) FaceTextures {
+    var textures = FaceTextures.initFill(repeater_side_tile);
+    const on = id == .repeater_on;
+    textures.set(.down, if (on) torch_redstone_on_tile else torch_redstone_off_tile);
+    textures.set(.up, if (on) repeater_top_on_tile else repeater_top_off_tile);
+    return textures;
+}
+
+pub fn repeaterFacing(metadata: u4) u2 {
+    return @truncate(metadata & 3);
+}
+
+pub fn repeaterDelay(metadata: u4) u2 {
+    return @truncate((metadata & 12) >> 2);
+}
+
+pub fn repeaterTickRate(metadata: u4) u32 {
+    return (@as(u32, repeaterDelay(metadata)) + 1) * 2;
+}
+
+pub fn repeaterFacingFromYaw(yaw: f32) u4 {
+    const quarter = @floor(@as(f64, yaw) * 4.0 / 360.0 + 0.5);
+    const wrapped: u2 = @intFromFloat(@mod(quarter, 4.0));
+    return (@as(u4, wrapped) + 2) % 4;
+}
+
+pub const repeater_torch_offsets: [4]f32 = .{ -1.0 / 16.0, 1.0 / 16.0, 3.0 / 16.0, 5.0 / 16.0 };
+
+pub fn leverBounds(metadata: u4) Bounds {
+    const wall: f32 = 3.0 / 16.0;
+    return switch (metadata & facing_mask) {
+        1 => .{ .min = .{ 0.0, 0.2, 0.5 - wall }, .max = .{ wall * 2.0, 0.8, 0.5 + wall } },
+        2 => .{ .min = .{ 1.0 - wall * 2.0, 0.2, 0.5 - wall }, .max = .{ 1.0, 0.8, 0.5 + wall } },
+        3 => .{ .min = .{ 0.5 - wall, 0.2, 0.0 }, .max = .{ 0.5 + wall, 0.8, wall * 2.0 } },
+        4 => .{ .min = .{ 0.5 - wall, 0.2, 1.0 - wall * 2.0 }, .max = .{ 0.5 + wall, 0.8, 1.0 } },
+        else => .{ .min = .{ 0.25, 0.0, 0.25 }, .max = .{ 0.75, 0.6, 0.75 } },
+    };
+}
+
+pub fn leverBaseBounds(metadata: u4) Bounds {
+    const half: f32 = 0.25;
+    const side: f32 = 3.0 / 16.0;
+    const depth: f32 = 3.0 / 16.0;
+    return switch (metadata & facing_mask) {
+        1 => .{ .min = .{ 0.0, 0.5 - half, 0.5 - side }, .max = .{ depth, 0.5 + half, 0.5 + side } },
+        2 => .{ .min = .{ 1.0 - depth, 0.5 - half, 0.5 - side }, .max = .{ 1.0, 0.5 + half, 0.5 + side } },
+        3 => .{ .min = .{ 0.5 - side, 0.5 - half, 0.0 }, .max = .{ 0.5 + side, 0.5 + half, depth } },
+        4 => .{ .min = .{ 0.5 - side, 0.5 - half, 1.0 - depth }, .max = .{ 0.5 + side, 0.5 + half, 1.0 } },
+        6 => .{ .min = .{ 0.5 - half, 0.0, 0.5 - side }, .max = .{ 0.5 + half, depth, 0.5 + side } },
+        else => .{ .min = .{ 0.5 - side, 0.0, 0.5 - half }, .max = .{ 0.5 + side, depth, 0.5 + half } },
+    };
+}
+
+pub fn buttonBounds(metadata: u4) Bounds {
+    const low: f32 = 6.0 / 16.0;
+    const high: f32 = 10.0 / 16.0;
+    const half: f32 = 3.0 / 16.0;
+    const depth: f32 = if (isPowered(metadata)) 1.0 / 16.0 else 2.0 / 16.0;
+    return switch (metadata & facing_mask) {
+        1 => .{ .min = .{ 0.0, low, 0.5 - half }, .max = .{ depth, high, 0.5 + half } },
+        2 => .{ .min = .{ 1.0 - depth, low, 0.5 - half }, .max = .{ 1.0, high, 0.5 + half } },
+        3 => .{ .min = .{ 0.5 - half, low, 0.0 }, .max = .{ 0.5 + half, high, depth } },
+        else => .{ .min = .{ 0.5 - half, low, 1.0 - depth }, .max = .{ 0.5 + half, high, 1.0 } },
+    };
+}
+
+const button_item_boxes = [1]Bounds{.{
+    .min = .{ 0.5 - 3.0 / 16.0, 0.5 - 2.0 / 16.0, 0.5 - 2.0 / 16.0 },
+    .max = .{ 0.5 + 3.0 / 16.0, 0.5 + 2.0 / 16.0, 0.5 + 2.0 / 16.0 },
+}};
+
+const plate_item_boxes = [1]Bounds{.{
+    .min = .{ 0.0, 0.5 - 2.0 / 16.0, 0.0 },
+    .max = .{ 1.0, 0.5 + 2.0 / 16.0, 1.0 },
+}};
+
+pub fn plateBounds(metadata: u4) Bounds {
+    const margin: f32 = 1.0 / 16.0;
+    const height: f32 = if (metadata == 1) 1.0 / 32.0 else 1.0 / 16.0;
+    return .{
+        .min = .{ margin, 0.0, margin },
+        .max = .{ 1.0 - margin, height, 1.0 - margin },
+    };
 }
 
 test "the furnace turns its face towards the side its metadata names" {
@@ -2165,4 +2351,14 @@ test "a wall sign is a thin plate on the face it hangs from" {
     try std.testing.expectEqual(@as(f32, 0.25), post.min[0]);
     try std.testing.expectEqual(@as(f32, 0.75), post.max[2]);
     try std.testing.expectEqual(@as(f32, 1.0), post.max[1]);
+}
+
+test "dust, levers and repeaters lie flat as items where buttons and plates stay solid" {
+    try std.testing.expectEqual(wire_cross_tile, Block.redstone_wire.flatItemTile(0).?);
+    try std.testing.expectEqual(lever_tile, Block.lever.flatItemTile(0).?);
+    try std.testing.expectEqual(torch_redstone_on_tile, Block.torch_redstone_on.flatItemTile(0).?);
+    try std.testing.expectEqual(torch_redstone_off_tile, Block.repeater_off.flatItemTile(0).?);
+
+    try std.testing.expectEqual(@as(?u8, null), Block.button.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, null), Block.pressure_plate_stone.flatItemTile(0));
 }

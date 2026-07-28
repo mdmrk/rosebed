@@ -489,6 +489,11 @@ fn clickLeft(app_state: *AppState) !void {
             try applyBlockChanges(app_state);
         },
         .cake => try eatCakeSlice(app_state, hit.x, hit.y, hit.z),
+        .lever, .button => {
+            _ = try world.redstone.activate(&app_state.world_map, hit.x, hit.y, hit.z);
+            try applyBlockChanges(app_state);
+        },
+        .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
         else => {},
     }
 }
@@ -528,6 +533,7 @@ fn digStep(app_state: *AppState) !void {
         hit.y,
         hit.z,
         hit.face,
+        block_id.selectionBounds(app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
         block_id.particleTile(app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
         particleTint(app_state, block_id, hit.x, hit.y, hit.z),
         &app_state.world_map.rand,
@@ -1362,6 +1368,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
 
     app_state.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     app_state.world_map.entity_io = app_state.entities.entityIo();
+    app_state.world_map.entity_probe = .{ .context = app_state, .anyInBox = anyEntityInBox };
     app_state.player = playerAtSpawn();
 
     try app_state.stats.add(app_state.gpa, .{ .general = if (stored == null) .create_world else .load_world }, 1);
@@ -1738,10 +1745,29 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try sleepInBed(app_state, hit.x, hit.y, hit.z);
                 return true;
             },
+            .lever, .button, .repeater_off, .repeater_on => {
+                _ = try world.redstone.activate(&app_state.world_map, hit.x, hit.y, hit.z);
+                try applyBlockChanges(app_state);
+                return true;
+            },
+            .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
             else => {},
         }
     }
     return placeBlockAtTarget(app_state);
+}
+
+fn lightRedstoneOre(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    try app_state.entities.spawnRedstoneOreParticles(
+        app_state.gpa,
+        &app_state.world_map,
+        x,
+        y,
+        z,
+        &app_state.world_map.rand,
+    );
+    try world.redstone.lightRedstoneOre(&app_state.world_map, x, y, z);
+    try applyBlockChanges(app_state);
 }
 
 fn eatCakeSlice(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -1983,6 +2009,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
     }
+    try world.redstone.onBlockPlaced(&app_state.world_map, px, py, pz, placed, app_state.player.yaw);
     _ = try world.block_update.mergeSlabBelow(&app_state.world_map, px, py, pz);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
@@ -2024,6 +2051,38 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     } else if (horizontal > 25) {
         try app_state.stats.add(gpa, .{ .general = .distance_flown }, horizontal);
     }
+}
+
+fn anyEntityInBox(context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    const box = math.AABB.init(min[0], min[1], min[2], max[0], max[1], max[2]);
+    if (!app_state.dead and app_state.player.base.boundingBox().intersects(box)) return true;
+    return app_state.entities.anyInBox(box, living_only);
+}
+
+fn collideWithBlocks(app_state: *AppState, box: math.AABB) !void {
+    var x = math.util.floorDouble(box.min_x);
+    const max_x = math.util.floorDouble(box.max_x);
+    const max_y = math.util.floorDouble(box.max_y);
+    const max_z = math.util.floorDouble(box.max_z);
+    while (x <= max_x) : (x += 1) {
+        var y = math.util.floorDouble(box.min_y);
+        while (y <= max_y) : (y += 1) {
+            var z = math.util.floorDouble(box.min_z);
+            while (z <= max_z) : (z += 1) {
+                try world.redstone.onEntityCollided(&app_state.world_map, x, y, z);
+            }
+        }
+    }
+}
+
+fn pressPressurePlates(app_state: *AppState) !void {
+    if (!app_state.dead) try collideWithBlocks(app_state, app_state.player.base.boundingBox());
+    for (app_state.entities.pigs.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
+    for (app_state.entities.sheep.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
+    for (app_state.entities.cows.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
+    for (app_state.entities.chickens.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
+    for (app_state.entities.items.items) |*dropped| try collideWithBlocks(app_state, dropped.base.boundingBox());
 }
 
 fn tick(app_state: *AppState) !void {
@@ -2074,6 +2133,7 @@ fn tick(app_state: *AppState) !void {
     try tickFallingBlocks(app_state);
     const player_chunk = playerChunkCoord(app_state);
     try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
+    try pressPressurePlates(app_state);
     try app_state.world_map.tickUpdates();
     try app_state.world_map.tickFurnaces();
     try applyBlockChanges(app_state);
@@ -2136,6 +2196,38 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 y,
                 z,
                 app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            .redstone_wire => try app_state.entities.spawnWireParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            .torch_redstone_on => try app_state.entities.spawnRedstoneTorchParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            .repeater_on => try app_state.entities.spawnRepeaterParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                app_state.world_map.getBlockMetadata(x, y, z),
+                rand,
+            ),
+            .ore_redstone_glowing => try app_state.entities.spawnRedstoneOreParticles(
+                app_state.gpa,
+                &app_state.world_map,
+                x,
+                y,
+                z,
                 rand,
             ),
             .burning_furnace => try app_state.entities.spawnFurnaceParticles(

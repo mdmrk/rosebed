@@ -18,7 +18,7 @@ tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -38,6 +38,8 @@ pub const bubble_tile: u8 = 32;
 pub const bubble_size: f64 = 0.02;
 pub const bubble_lift: f64 = 0.002;
 pub const bubble_drag: f64 = 0.85;
+pub const reddust_drag: f64 = 0.96;
+pub const reddust_launch: f64 = 0.1;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -158,6 +160,26 @@ pub fn spawnBubble(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRando
     return particle;
 }
 
+pub fn spawnReddust(position: math.Vec3, color: [3]f32, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .reddust;
+    particle.base.motion.x *= reddust_launch;
+    particle.base.motion.y *= reddust_launch;
+    particle.base.motion.z *= reddust_launch;
+
+    const red = if (color[0] == 0.0) 1.0 else color[0];
+    const shade = rand.nextFloat() * 0.4 + 0.6;
+    particle.color = .{
+        (rand.nextFloat() * 0.2 + 0.8) * red * shade,
+        (rand.nextFloat() * 0.2 + 0.8) * color[1] * shade,
+        (rand.nextFloat() * 0.2 + 0.8) * color[2] * shade,
+    };
+    particle.scale *= 12.0 / 16.0;
+    particle.max_age = @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2));
+    particle.tile = 7;
+    return particle;
+}
+
 pub fn slowedBy(self: Particle, factor: f32) Particle {
     var slowed = self;
     slowed.base.motion.x *= factor;
@@ -226,6 +248,18 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.base.position.z += self.base.motion.z;
             self.applyDrag(flame_drag);
         },
+        .reddust => {
+            if (self.age < self.max_age) {
+                self.tile = @intCast(7 - @divTrunc(self.age * 8, self.max_age));
+            }
+            _ = self.base.move(world_map);
+            if (self.base.position.y == self.base.prev_position.y) {
+                self.base.motion.x *= 1.1;
+                self.base.motion.z *= 1.1;
+            }
+            self.applyDrag(reddust_drag);
+            self.applyGroundFriction();
+        },
         .bubble => {
             self.base.motion.y += bubble_lift;
             _ = self.base.move(world_map);
@@ -268,7 +302,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
         .digging, .splash, .bubble => 1.0,
-        .smoke => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
+        .smoke, .reddust => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);
             break :blk @max(0.0, 1.0 - progress * progress);
@@ -486,4 +520,60 @@ test "only lava ignores the light around it, smoke and shards take it as is" {
 
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), smoke.brightness(0.2, 0.0), 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), ember.brightness(0.2, 0.0), 1.0e-6);
+}
+
+test "reddust takes the colour it is handed, dimmed by a random shade" {
+    var rand = world.JavaRandom.init(3);
+    for (0..200) |_| {
+        const particle = spawnReddust(math.Vec3.init(8, 40, 8), .{ 1.0, 0.0, 0.0 }, &rand);
+        try std.testing.expectEqual(Kind.reddust, particle.kind);
+        try std.testing.expectEqual(@as(u8, 7), particle.tile);
+        try std.testing.expect(particle.color[0] >= 0.48 and particle.color[0] <= 1.0);
+        try std.testing.expectEqual(@as(f32, 0.0), particle.color[1]);
+        try std.testing.expectEqual(@as(f32, 0.0), particle.color[2]);
+    }
+}
+
+test "reddust asked for black comes out red, as EntityReddustFX insists" {
+    var rand = world.JavaRandom.init(5);
+    const particle = spawnReddust(math.Vec3.init(8, 40, 8), .{ 0, 0, 0 }, &rand);
+
+    try std.testing.expect(particle.color[0] > 0.4);
+    try std.testing.expectEqual(@as(f32, 0.0), particle.color[1]);
+    try std.testing.expectEqual(@as(f32, 0.0), particle.color[2]);
+}
+
+test "reddust keeps a tenth of its launch speed and never falls under gravity" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(11);
+    const dust = spawnReddust(math.Vec3.init(8, 40, 8), .{ 1, 0, 0 }, &rand);
+    rand = world.JavaRandom.init(11);
+    const shard = spawn(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), 1, &rand);
+
+    try std.testing.expectApproxEqAbs(shard.base.motion.x * reddust_launch, dust.base.motion.x, 1.0e-12);
+
+    var falling = dust;
+    const started = falling.base.motion.y;
+    falling.tick(&world_map, &rand);
+    try std.testing.expect(falling.base.motion.y > started - gravity);
+}
+
+test "reddust steps down its tile strip and shrinks away like smoke" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(2);
+    var particle = spawnReddust(math.Vec3.init(8, 40, 8), .{ 1, 0, 0 }, &rand);
+
+    var last_tile: u8 = 7;
+    while (!particle.isExpired()) {
+        particle.tick(&world_map, &rand);
+        try std.testing.expect(particle.tile <= last_tile);
+        last_tile = particle.tile;
+    }
+    try std.testing.expectEqual(@as(u8, 0), last_tile);
 }

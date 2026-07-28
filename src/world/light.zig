@@ -15,6 +15,7 @@ pub fn opacity(id: Block) u8 {
         .flowing_water, .stationary_water, .ice => 3,
         .leaves => 1,
         .door_wood, .door_iron, .trapdoor, .cake, .sign_post, .wall_sign => 0,
+        .pressure_plate_stone, .pressure_plate_planks => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }
@@ -34,6 +35,8 @@ pub fn emission(id: Block) u4 {
         .flowing_lava, .stationary_lava => 15,
         .torch => 14,
         .burning_furnace => 13,
+        .ore_redstone_glowing, .repeater_on => 9,
+        .torch_redstone_on => 7,
         else => 0,
     };
 }
@@ -495,4 +498,23 @@ test "a sign lets light straight through, as any block that is not a full cube d
     try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
     try std.testing.expectEqual(@as(u8, 0), opacity(.wall_sign));
     try std.testing.expectEqual(@as(u8, 255), opacity(.planks));
+}
+
+test "a pressure plate lets daylight through instead of casting a shadow under itself" {
+    const gpa = std.testing.allocator;
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..constants.chunk_width) |x| {
+        for (0..constants.chunk_width) |z| {
+            chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+        }
+    }
+    chunk.setBlock(8, 1, 8, .pressure_plate_stone);
+
+    try relightChunk(gpa, &world_map, 0, 0);
+
+    try std.testing.expectEqual(max_level, world_map.getSkyLight(8, 1, 8));
+    try std.testing.expectEqual(brightness_table[max_level], brightnessAt(&world_map, 8, 1, 8, 0));
 }
