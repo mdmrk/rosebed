@@ -28,7 +28,7 @@ pub const Pose = struct {
     position: [3]f32,
     yaw: f32,
     roll: f32 = 0,
-    scale: f32 = 1,
+    scale: [3]f32 = .{ 1, 1, 1 },
 };
 
 pub const Model = struct {
@@ -133,6 +133,31 @@ const chicken_parts = [8]Part{
 
 pub const chicken: Model = .{
     .parts = &chicken_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+const slime_body_parts = [4]Part{
+    .{ .box = .{ .origin = .{ -3, 17, -3 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
+    .{ .box = .{ .origin = .{ -3.25, 18, -3.5 }, .size = .{ 2, 2, 2 }, .tex_u = 32, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },
+    .{ .box = .{ .origin = .{ 1.25, 18, -3.5 }, .size = .{ 2, 2, 2 }, .tex_u = 32, .tex_v = 4 }, .pivot = .{ 0, -24, 0 } },
+    .{ .box = .{ .origin = .{ 0, 21, -3.5 }, .size = .{ 1, 1, 1 }, .tex_u = 32, .tex_v = 8 }, .pivot = .{ 0, -24, 0 } },
+};
+
+pub const slime_body: Model = .{
+    .parts = &slime_body_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+const slime_shell_parts = [1]Part{
+    .{ .box = .{ .origin = .{ -4, 16, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },
+};
+
+pub const slime_shell: Model = .{
+    .parts = &slime_shell_parts,
     .head_index = 0,
     .texture_width = 64,
     .texture_height = 32,
@@ -401,8 +426,11 @@ pub fn appendPart(
         for (face.corners, 0..) |c, i| {
             var p = rotateZAxis(rotateY(rotateX(c, part.rotate_x), part.rotate_y), part.rotate_z);
             p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
-            const unit = pixel_scale * pose.scale;
-            const world_scale = .{ p[0] * unit, -p[1] * unit, p[2] * unit };
+            const world_scale = .{
+                p[0] * pixel_scale * pose.scale[0],
+                -p[1] * pixel_scale * pose.scale[1],
+                p[2] * pixel_scale * pose.scale[2],
+            };
             const rolled = rotateZ(world_scale[0], world_scale[1], pose.roll);
             const xz = rotateYaw(rolled[0], world_scale[2], pose.yaw);
             positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };

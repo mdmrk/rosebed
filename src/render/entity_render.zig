@@ -319,7 +319,7 @@ fn appendBiped(
     const pose: mob_model.Pose = .{
         .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
         .yaw = player.renderYaw(partial_ticks) * to_radians,
-        .scale = player_scale,
+        .scale = @splat(player_scale),
     };
 
     for (parts, shown) |part, visible| {
@@ -330,9 +330,29 @@ fn appendBiped(
     mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
 }
 
+pub fn slimeScale(slime: game.Slime, partial_ticks: f32) [3]f32 {
+    const size: f32 = @floatFromInt(slime.size);
+    const squish = slime.renderSquish(partial_ticks) / (size * 0.5 + 1.0);
+    const pinch = 1.0 / (squish + 1.0);
+    return .{ pinch * size, size / pinch, pinch * size };
+}
+
+pub fn appendSlime(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, slime: game.Slime, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, slime.animal, partial_ticks, mob_model.slime_body, .{
+        .scale = slimeScale(slime, partial_ticks),
+    });
+}
+
+pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, slime: game.Slime, partial_ticks: f32) !void {
+    return appendAnimal(mesh, gpa, world_map, slime.animal, partial_ticks, mob_model.slime_shell, .{
+        .scale = slimeScale(slime, partial_ticks),
+    });
+}
+
 const Trim = struct {
     tint: [3]f32 = untinted,
     wing_flap: f32 = 0,
+    scale: [3]f32 = .{ 1, 1, 1 },
 };
 
 fn appendAnimal(
@@ -351,6 +371,7 @@ fn appendAnimal(
         .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
         .yaw = animal.renderYaw(partial_ticks) * to_radians,
         .roll = animal.deathTilt(partial_ticks) * to_radians,
+        .scale = trim.scale,
     };
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
@@ -437,7 +458,7 @@ pub fn appendParticle(
     var top = @as(f32, @floatFromInt(particle.tile / 16)) * tile_size;
     var right = left + 0.999 / 16.0;
     var bottom = top + 0.999 / 16.0;
-    if (particle.kind == .digging) {
+    if (particle.kind == .digging or particle.kind == .slime) {
         left += particle.jitter_u / 4.0 * tile_size;
         top += particle.jitter_v / 4.0 * tile_size;
         right = left + quarter;
@@ -909,6 +930,115 @@ test "a sheep is drawn taller than a pig and stands on its own feet" {
     try std.testing.expectApproxEqAbs(@as(f32, 64.0), sheep_bounds[0][1], 1.0e-5);
     try std.testing.expect(sheep_bounds[1][1] > pig_bounds[1][1]);
     try std.testing.expect(sheep_bounds[1][1] < 64.0 + game.Sheep.height + 0.2);
+}
+
+fn testSlime(position: math.Vec3, size: u8) game.Slime {
+    var rand = world.JavaRandom.init(0);
+    var slime = game.Slime.spawn(position, &rand);
+    slime.setSize(size);
+    return slime;
+}
+
+test "a slime is a body with two eyes and a mouth, inside a shell of its own" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const slime = testSlime(.{ .x = 0, .y = 64, .z = 0 }, 1);
+
+    var body: MeshBuilder = .{};
+    defer body.deinit(gpa);
+    var shell: MeshBuilder = .{};
+    defer shell.deinit(gpa);
+    try appendSlime(&body, gpa, &world_map, slime, 0);
+    try appendSlimeShell(&shell, gpa, &world_map, slime, 0);
+
+    try std.testing.expectEqual(@as(usize, 4 * 6 * 4), body.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 1 * 6 * 4), shell.vertices.items.len);
+
+    const body_bounds = meshBounds(body);
+    const shell_bounds = meshBounds(shell);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), shell_bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.5), shell_bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.25), shell_bounds[0][0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), shell_bounds[1][0], 1.0e-5);
+
+    try std.testing.expect(body_bounds[0][1] > shell_bounds[0][1]);
+    try std.testing.expect(body_bounds[1][1] < shell_bounds[1][1]);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 3.5 / 16.0), body_bounds[1][2], 1.0e-5);
+    try std.testing.expect(body_bounds[1][2] < shell_bounds[1][2]);
+}
+
+fn expectPartSamples(mesh: MeshBuilder, part_index: usize, u: [2]f32, v: [2]f32) !void {
+    for (partVertices(mesh, part_index)) |vertex| {
+        try std.testing.expect(vertex.u >= u[0] - 1.0e-5 and vertex.u <= u[1] + 1.0e-5);
+        try std.testing.expect(vertex.v >= v[0] - 1.0e-5 and vertex.v <= v[1] + 1.0e-5);
+    }
+}
+
+test "the slime's face is cut from the corners of the sheet ModelSlime names" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var body: MeshBuilder = .{};
+    defer body.deinit(gpa);
+    try appendSlime(&body, gpa, &world_map, testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1), 0);
+
+    try expectPartSamples(body, 0, .{ 0.0, 24.0 / 64.0 }, .{ 16.0 / 32.0, 28.0 / 32.0 });
+    try expectPartSamples(body, 1, .{ 32.0 / 64.0, 40.0 / 64.0 }, .{ 0.0, 4.0 / 32.0 });
+    try expectPartSamples(body, 2, .{ 32.0 / 64.0, 40.0 / 64.0 }, .{ 4.0 / 32.0, 8.0 / 32.0 });
+    try expectPartSamples(body, 3, .{ 32.0 / 64.0, 36.0 / 64.0 }, .{ 8.0 / 32.0, 10.0 / 32.0 });
+
+    var shell: MeshBuilder = .{};
+    defer shell.deinit(gpa);
+    try appendSlimeShell(&shell, gpa, &world_map, testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1), 0);
+    try expectPartSamples(shell, 0, .{ 0.0, 32.0 / 64.0 }, .{ 0.0, 16.0 / 32.0 });
+}
+
+test "a slime is drawn as many times bigger as its size says" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var small: MeshBuilder = .{};
+    defer small.deinit(gpa);
+    var big: MeshBuilder = .{};
+    defer big.deinit(gpa);
+
+    try appendSlimeShell(&small, gpa, &world_map, testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1), 0);
+    try appendSlimeShell(&big, gpa, &world_map, testSlime(.{ .x = 0, .y = 0, .z = 0 }, 4), 0);
+
+    const small_bounds = meshBounds(small);
+    const big_bounds = meshBounds(big);
+
+    try std.testing.expectApproxEqAbs(small_bounds[1][1] * 4.0, big_bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(small_bounds[1][0] * 4.0, big_bounds[1][0], 1.0e-5);
+}
+
+test "a squashed slime spreads out as it flattens, and keeps its volume as it stretches" {
+    var landed = testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1);
+    landed.squish = -0.3;
+    landed.prev_squish = -0.3;
+
+    var jumping = testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1);
+    jumping.squish = 0.6;
+    jumping.prev_squish = 0.6;
+
+    const resting = slimeScale(testSlime(.{ .x = 0, .y = 0, .z = 0 }, 1), 0);
+    const flattened = slimeScale(landed, 0);
+    const stretched = slimeScale(jumping, 0);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), resting[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), resting[1], 1.0e-5);
+
+    try std.testing.expect(flattened[0] > resting[0]);
+    try std.testing.expect(flattened[1] < resting[1]);
+
+    try std.testing.expect(stretched[0] < resting[0]);
+    try std.testing.expect(stretched[1] > resting[1]);
 }
 
 test "the fleece is worn outside the body it covers" {

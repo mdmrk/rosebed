@@ -18,6 +18,7 @@ pub const Player = @import("player.zig");
 pub const raycast = @import("raycast.zig");
 pub const Settings = @import("settings.zig");
 pub const Sheep = @import("sheep.zig");
+pub const Slime = @import("slime.zig");
 pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
@@ -40,6 +41,7 @@ test {
     _ = Cow;
     _ = Pig;
     _ = Sheep;
+    _ = Slime;
     _ = spawner;
     _ = crafting;
     _ = Settings;

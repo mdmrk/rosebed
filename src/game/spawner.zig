@@ -9,9 +9,11 @@ const Cow = @import("cow.zig");
 const Entities = @import("entities.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
+const Slime = @import("slime.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;
+pub const max_monsters: i32 = 70;
 pub const chunks_per_cap: i32 = 256;
 pub const max_per_chunk: u32 = 4;
 pub const player_clearance: f64 = 24.0;
@@ -20,6 +22,18 @@ pub const spawn_clearance_squared: f32 = 576.0;
 const pack_attempts: usize = 3;
 const placement_attempts: usize = 4;
 const pack_spread: i32 = 6;
+
+pub const Category = enum {
+    monster,
+    creature,
+
+    pub fn allowancePerChunk(self: Category) i32 {
+        return switch (self) {
+            .monster => max_monsters,
+            .creature => max_creatures,
+        };
+    }
+};
 
 pub const Kind = enum { sheep, pig, chicken, cow };
 
@@ -47,9 +61,16 @@ fn pickCreature(rand: *world.JavaRandom) Creature {
     return creature_list[0];
 }
 
-pub fn populationCap() i32 {
+pub fn populationCap(category: Category) i32 {
     const eligible_chunks = (eligible_radius * 2 + 1) * (eligible_radius * 2 + 1);
-    return @divTrunc(max_creatures * eligible_chunks, chunks_per_cap);
+    return @divTrunc(category.allowancePerChunk() * eligible_chunks, chunks_per_cap);
+}
+
+fn liveCount(entities: *const Entities, category: Category) i32 {
+    return switch (category) {
+        .monster => @intCast(entities.slimes.items.len),
+        .creature => @intCast(entities.animalCount()),
+    };
 }
 
 fn canSpawnAtLocation(world_map: *const world.World, x: i32, y: i32, z: i32) bool {
@@ -72,28 +93,33 @@ pub fn performSpawning(
     world_map: *const world.World,
     player_position: math.Vec3,
     spawn_point: [3]i32,
+    world_seed: i64,
     rand: *world.JavaRandom,
 ) !u32 {
-    if (@as(i32, @intCast(entities.animalCount())) > populationCap()) return 0;
-
     const center_x = math.util.floorDouble(player_position.x / 16.0);
     const center_z = math.util.floorDouble(player_position.z / 16.0);
 
     var spawned: u32 = 0;
-    var offset_x: i32 = -eligible_radius;
-    while (offset_x <= eligible_radius) : (offset_x += 1) {
-        var offset_z: i32 = -eligible_radius;
-        while (offset_z <= eligible_radius) : (offset_z += 1) {
-            spawned += try spawnInChunk(
-                gpa,
-                entities,
-                world_map,
-                player_position,
-                spawn_point,
-                rand,
-                center_x + offset_x,
-                center_z + offset_z,
-            );
+    for (std.enums.values(Category)) |category| {
+        if (liveCount(entities, category) > populationCap(category)) continue;
+
+        var offset_x: i32 = -eligible_radius;
+        while (offset_x <= eligible_radius) : (offset_x += 1) {
+            var offset_z: i32 = -eligible_radius;
+            while (offset_z <= eligible_radius) : (offset_z += 1) {
+                spawned += try spawnInChunk(
+                    gpa,
+                    entities,
+                    world_map,
+                    player_position,
+                    spawn_point,
+                    world_seed,
+                    rand,
+                    category,
+                    center_x + offset_x,
+                    center_z + offset_z,
+                );
+            }
         }
     }
     return spawned;
@@ -105,11 +131,16 @@ fn spawnInChunk(
     world_map: *const world.World,
     player_position: math.Vec3,
     spawn_point: [3]i32,
+    world_seed: i64,
     rand: *world.JavaRandom,
+    category: Category,
     chunk_x: i32,
     chunk_z: i32,
 ) !u32 {
-    const creature = pickCreature(rand);
+    const creature: ?Creature = switch (category) {
+        .creature => pickCreature(rand),
+        .monster => null,
+    };
 
     const origin_x = chunk_x * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
     const origin_y = rand.nextIntBound(world.constants.chunk_height);
@@ -144,7 +175,18 @@ fn spawnInChunk(
             // The mob is built first (a sheep rolls its fleece there, a chicken its first clutch),
             // then turned, then asked whether it can stand where it was put.
             const position = math.Vec3.init(at_x, at_y, at_z);
-            switch (creature.kind) {
+            const kind = (creature orelse {
+                var slime = Slime.spawn(position, rand);
+                slime.animal.faceYaw(rand.nextFloat() * 360.0);
+                if (!slime.canSpawnHere(world_seed, rand)) continue;
+                try entities.slimes.append(gpa, slime);
+
+                spawned += 1;
+                if (spawned >= max_per_chunk) return spawned;
+                continue;
+            }).kind;
+
+            switch (kind) {
                 .pig => {
                     var pig = Pig.spawn(position);
                     pig.animal.faceYaw(rand.nextFloat() * 360.0);
@@ -200,7 +242,29 @@ fn grassPlateau(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, surf
     return w;
 }
 
+fn stoneCavern(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, cavern_y: u32) !world.World {
+    var w = world.World.init(gpa);
+    errdefer w.deinit();
+
+    var chunk_x = from_chunk_x;
+    while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
+        const chunk = try w.createChunk(chunk_x, 0);
+        for (0..world.constants.chunk_width) |x| {
+            for (0..world.constants.chunk_width) |z| {
+                var y: u32 = 0;
+                while (y <= cavern_y + 4) : (y += 1) {
+                    const solid = y < cavern_y or y > cavern_y + 1;
+                    if (solid) chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
+                }
+            }
+        }
+    }
+    return w;
+}
+
 const surface: u32 = 63;
+const cavern: u32 = 8;
+const test_seed: i64 = 9;
 
 fn spawnUntilFirstAnimal(
     gpa: std.mem.Allocator,
@@ -213,7 +277,7 @@ fn spawnUntilFirstAnimal(
 ) !u32 {
     var total: u32 = 0;
     for (0..rounds) |_| {
-        total += try performSpawning(gpa, entities, world_map, player_position, spawn_point, rand);
+        total += try performSpawning(gpa, entities, world_map, player_position, spawn_point, test_seed, rand);
         if (total > 0) break;
     }
     return total;
@@ -260,7 +324,7 @@ test "every kind we can make finds its way into a grassy world" {
     var seen = [_]bool{false} ** std.enums.values(Kind).len;
 
     for (0..4000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand);
+        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
 
         // Empty the fields between rounds, so the population cap never ends the run early.
         inline for (.{ &entities.pigs, &entities.sheep, &entities.chickens, &entities.cows }, 0..) |herd, kind| {
@@ -372,7 +436,7 @@ test "spawning stops once the population cap is reached" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
-    for (0..@intCast(populationCap() + 1)) |_| {
+    for (0..@intCast(populationCap(.creature) + 1)) |_| {
         try entities.spawnPig(gpa, math.Vec3.init(64, surface + 1, 8));
     }
 
@@ -385,8 +449,79 @@ test "spawning stops once the population cap is reached" {
     try std.testing.expectEqual(before, entities.pigs.items.len);
 }
 
+test "slimes spawn in caverns down in the bottom sixteen layers" {
+    const gpa = std.testing.allocator;
+    var w = try stoneCavern(gpa, 2, 5, cavern);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, cavern, 0);
+
+    for (0..8000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+        if (entities.slimes.items.len > 0) break;
+    }
+
+    try std.testing.expect(entities.slimes.items.len > 0);
+    for (entities.slimes.items) |slime| {
+        const at = slime.animal.base.position;
+        try std.testing.expect(at.y < Slime.spawn_ceiling);
+        try std.testing.expectEqual(.stone, w.getBlock(
+            math.util.floorDouble(at.x),
+            math.util.floorDouble(at.y) - 1,
+            math.util.floorDouble(at.z),
+        ));
+        try std.testing.expect(slime.size == 1 or slime.size == 2 or slime.size == 4);
+    }
+    try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
+}
+
+test "slimes never spawn in a cavern above the sixteenth layer" {
+    const gpa = std.testing.allocator;
+    var w = try stoneCavern(gpa, 2, 5, 40);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, 40, 0);
+
+    for (0..8000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), entities.slimes.items.len);
+}
+
+test "the monster cap is counted apart from the animals" {
+    const gpa = std.testing.allocator;
+    var w = try stoneCavern(gpa, 2, 5, cavern);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    for (0..@intCast(populationCap(.monster) + 1)) |_| {
+        try entities.spawnSlime(gpa, math.Vec3.init(64, cavern, 8), &rand);
+    }
+
+    const before = entities.slimes.items.len;
+    const player = math.Vec3.init(0, cavern, 0);
+    for (0..500) |_| {
+        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+    }
+
+    try std.testing.expectEqual(before, entities.slimes.items.len);
+}
+
 test "the population cap follows the vanilla per-chunk allowance" {
-    try std.testing.expectEqual(@as(i32, 16), populationCap());
+    try std.testing.expectEqual(@as(i32, 16), populationCap(.creature));
+    try std.testing.expectEqual(@as(i32, 79), populationCap(.monster));
 }
 
 test "the biome's creature list picks each kind by its own weight" {

@@ -1083,6 +1083,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .cow => try app_state.entities.spawnCow(app_state.gpa, position),
                 .sheep => try app_state.entities.spawnSheep(app_state.gpa, position, &app_state.world_map.rand),
                 .chicken => try app_state.entities.spawnChicken(app_state.gpa, position, &app_state.world_map.rand),
+                .slime => try app_state.entities.spawnSlime(app_state.gpa, position, &app_state.world_map.rand),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
@@ -2143,12 +2144,19 @@ fn tick(app_state: *AppState) !void {
         &app_state.player,
         &app_state.world_map.rand,
     );
+    try app_state.entities.tickSlimes(
+        app_state.gpa,
+        &app_state.world_map,
+        &app_state.player,
+        &app_state.world_map.rand,
+    );
     _ = try game.spawner.performSpawning(
         app_state.gpa,
         &app_state.entities,
         &app_state.world_map,
         app_state.player.base.position,
         app_state.spawn,
+        app_state.generator.world_seed,
         &app_state.world_map.rand,
     );
     try app_state.entities.tickPaintings(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
@@ -2406,14 +2414,25 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const basis = render.entity_render.CameraBasis.fromLook(app_state.player.yaw, app_state.player.pitch);
     var particle_mesh: render.MeshBuilder = .{};
     defer particle_mesh.deinit(app_state.frame);
+    var item_particle_mesh: render.MeshBuilder = .{};
+    defer item_particle_mesh.deinit(app_state.frame);
     for (app_state.entities.particles.items) |particle| {
-        const target = if (particle.kind == .digging) &atlas_mesh else &particle_mesh;
+        const target = switch (particle.kind) {
+            .digging => &atlas_mesh,
+            .slime => &item_particle_mesh,
+            else => &particle_mesh,
+        };
         try render.entity_render.appendParticle(target, app_state.frame, &app_state.world_map, particle, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
     if (particle_mesh.vertices.items.len > 0) {
         app_state.textures.particles.bind();
         drawEntityMesh(&particle_mesh);
+        app_state.textures.terrain.bind();
+    }
+    if (item_particle_mesh.vertices.items.len > 0) {
+        app_state.textures.items.bind();
+        drawEntityMesh(&item_particle_mesh);
         app_state.textures.terrain.bind();
     }
 
@@ -2446,6 +2465,14 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         if (!sheep.sheared) {
             try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep, partial);
         }
+    }
+    var slime_mesh: render.MeshBuilder = .{};
+    defer slime_mesh.deinit(app_state.frame);
+    var slime_shell_mesh: render.MeshBuilder = .{};
+    defer slime_shell_mesh.deinit(app_state.frame);
+    for (app_state.entities.slimes.items) |slime| {
+        try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.world_map, slime, partial);
+        try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.world_map, slime, partial);
     }
     var painting_mesh: render.MeshBuilder = .{};
     defer painting_mesh.deinit(app_state.frame);
@@ -2565,6 +2592,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (chicken_mesh.vertices.items.len > 0) {
         app_state.textures.chicken.bind();
         drawEntityMesh(&chicken_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (slime_mesh.vertices.items.len > 0) {
+        app_state.textures.slime.bind();
+        drawEntityMesh(&slime_mesh);
+        gl.Enable(gl.BLEND);
+        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        drawEntityMesh(&slime_shell_mesh);
+        gl.Disable(gl.BLEND);
         app_state.textures.terrain.bind();
     }
 

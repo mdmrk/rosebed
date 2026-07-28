@@ -81,6 +81,7 @@ const lava_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
 const hurt_resistance_ticks: i32 = 20;
 const hurt_animation_ticks: i32 = 10;
+const knockback_strength: f64 = 0.4;
 
 pub const safe_fall_distance: f32 = 3.0;
 const recorded_fall_distance: f32 = 2.0;
@@ -310,6 +311,14 @@ pub fn absorbsHit(self: Player, amount: i32) bool {
 }
 
 pub fn hurt(self: *Player, amount: i32) void {
+    self.damageFrom(amount, null);
+}
+
+pub fn hurtFrom(self: *Player, amount: i32, source: math.Vec3) void {
+    self.damageFrom(amount, source);
+}
+
+fn damageFrom(self: *Player, amount: i32, source: ?math.Vec3) void {
     if (self.health <= 0 or amount == 0) return;
     self.damage_taken += amount;
 
@@ -327,7 +336,31 @@ pub fn hurt(self: *Player, amount: i32) void {
     self.applyDamage(amount);
     self.hurt_time = hurt_animation_ticks;
     self.max_hurt_time = hurt_animation_ticks;
-    self.attacked_at_yaw = @floatFromInt(@as(i32, @intFromFloat(self.hurt_rand.nextDouble() * 2.0)) * 180);
+
+    const from = source orelse {
+        self.attacked_at_yaw = @floatFromInt(@as(i32, @intFromFloat(self.hurt_rand.nextDouble() * 2.0)) * 180);
+        return;
+    };
+
+    var dx = from.x - self.base.position.x;
+    var dz = from.z - self.base.position.z;
+    while (dx * dx + dz * dz < 1.0e-4) {
+        dx = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
+        dz = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
+    }
+    self.attacked_at_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - self.yaw;
+    self.knockBack(dx, dz);
+}
+
+fn knockBack(self: *Player, dx: f64, dz: f64) void {
+    const distance = @sqrt(dx * dx + dz * dz);
+    self.base.motion.x /= 2.0;
+    self.base.motion.y /= 2.0;
+    self.base.motion.z /= 2.0;
+    self.base.motion.x -= dx / distance * knockback_strength;
+    self.base.motion.y += knockback_strength;
+    self.base.motion.z -= dz / distance * knockback_strength;
+    if (self.base.motion.y > knockback_strength) self.base.motion.y = knockback_strength;
 }
 
 fn applyDamage(self: *Player, amount: i32) void {

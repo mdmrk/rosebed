@@ -18,7 +18,7 @@ tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -40,6 +40,7 @@ pub const bubble_lift: f64 = 0.002;
 pub const bubble_drag: f64 = 0.85;
 pub const reddust_drag: f64 = 0.96;
 pub const reddust_launch: f64 = 0.1;
+pub const slime_tile: u8 = 1 * 16 + 14;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -180,6 +181,14 @@ pub fn spawnReddust(position: math.Vec3, color: [3]f32, rand: *world.JavaRandom)
     return particle;
 }
 
+pub fn spawnSlime(position: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .slime;
+    particle.scale /= 2.0;
+    particle.tile = slime_tile;
+    return particle;
+}
+
 pub fn slowedBy(self: Particle, factor: f32) Particle {
     var slowed = self;
     slowed.base.motion.x *= factor;
@@ -201,7 +210,7 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
     self.age += 1;
 
     switch (self.kind) {
-        .digging => {
+        .digging, .slime => {
             self.base.motion.y -= gravity;
             _ = self.base.move(world_map);
             self.applyDrag(drag);
@@ -301,7 +310,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
-        .digging, .splash, .bubble => 1.0,
+        .digging, .splash, .bubble, .slime => 1.0,
         .smoke, .reddust => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);

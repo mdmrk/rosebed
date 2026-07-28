@@ -42,6 +42,13 @@ look_ticks_left: i32 = 0,
 looking_at_player: bool = false,
 path: ?world.pathfinder.Path = null,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
+action_state: *const fn (
+    *Animal,
+    std.mem.Allocator,
+    *const world.World,
+    ?PlayerView,
+    *world.JavaRandom,
+) anyerror!void = updateActionState,
 
 pub const Spec = struct {
     width: f64,
@@ -321,7 +328,7 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
     self.limb_swing += self.limb_swing_amount;
 }
 
-fn faceEntity(self: *Animal, target: math.Vec3, target_eye_height: f64, yaw_speed: f32, pitch_speed: f32) void {
+pub fn faceEntity(self: *Animal, target: math.Vec3, target_eye_height: f64, yaw_speed: f32, pitch_speed: f32) void {
     const dx = target.x - self.base.position.x;
     const dz = target.z - self.base.position.z;
     const dy = (self.base.position.y + self.eyeHeight()) - (target.y + target_eye_height);
@@ -338,7 +345,7 @@ fn turnTowards(current: f32, target: f32, limit: f32) f32 {
     return current + std.math.clamp(wrapDegrees(target - current), -limit, limit);
 }
 
-fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
+pub fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
     const view = player orelse return;
     const distance_squared = self.distanceSquaredTo(view.position);
 
@@ -455,7 +462,7 @@ fn updateActionState(
     world_map: *const world.World,
     player: ?PlayerView,
     rand: *world.JavaRandom,
-) !void {
+) anyerror!void {
     const wants_new_path = if (self.path == null)
         (rand.nextIntBound(80) == 0 or rand.nextIntBound(80) == 0)
     else
@@ -568,7 +575,7 @@ pub fn tick(
         self.random_yaw_velocity = 0;
         self.clearPath(gpa);
     } else {
-        try self.updateActionState(gpa, world_map, player, rand);
+        try self.action_state(self, gpa, world_map, player, rand);
     }
 
     if (self.is_jumping) {
