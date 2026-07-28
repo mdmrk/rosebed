@@ -329,6 +329,12 @@ fn glGetProcAddress(name: [*:0]const u8) ?gl.PROC {
     return @ptrCast(@alignCast(proc));
 }
 
+fn setIcon(window: sdl3.video.Window) !void {
+    const icon = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(@embedFile("icon_png")), true);
+    defer icon.deinit();
+    try window.setIcon(icon);
+}
+
 pub fn init(
     init_data: sdl3.Init,
 ) !struct { AppState, sdl3.AppResult } {
@@ -349,6 +355,10 @@ pub fn init(
         .fill_document = wasm,
     });
     errdefer window.deinit();
+
+    if (!wasm) setIcon(window) catch |err| {
+        std.log.warn("could not set the window icon: {t}", .{err});
+    };
 
     const gl_context = try sdl3.video.gl.Context.init(window);
     errdefer gl_context.deinit() catch {};

@@ -146,6 +146,9 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    client.root_module.addAnonymousImport("icon_png", .{
+        .root_source_file = b.path("web/favicon-96x96.png"),
+    });
     client.lto = lto;
 
     b.installArtifact(client);
@@ -206,6 +209,9 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
             .{ .name = "game", .module = modules.game_mod },
             .{ .name = "assets", .module = modules.assets_mod },
         },
+    });
+    client_mod.addAnonymousImport("icon_png", .{
+        .root_source_file = b.path("web/favicon-96x96.png"),
     });
     client_mod.addSystemIncludePath(sysroot_include_path);
     const client_lib = b.addLibrary(.{
