@@ -210,7 +210,7 @@ fn starterInventory() game.Inventory {
 fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     const loaded: u32 = @intCast(app_state.chunks.loadedCount());
     const entities: u32 = @intCast(app_state.entities.count());
-    const memory = core.process_memory.sample();
+    const memory = core.process.sample();
     return .{
         .fps = app_state.debug_fps,
         .chunk_updates = app_state.debug_chunk_updates,

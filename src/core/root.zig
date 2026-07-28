@@ -1,7 +1,7 @@
-pub const process_memory = @import("process_memory.zig");
+pub const process = @import("process.zig");
 pub const Timer = @import("timer.zig");
 
 test {
     _ = Timer;
-    _ = process_memory;
+    _ = process;
 }
