@@ -291,4 +291,11 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .install_dir = .{ .custom = "www" },
         .install_subdir = "",
     }).step);
+
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("web"),
+        .install_dir = .{ .custom = "www" },
+        .install_subdir = "",
+        .exclude_extensions = &.{".html"},
+    }).step);
 }
