@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, user-scalable=no"
+        />
+        <title>Rosebed</title>
+        <style>
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
+            }
+
+            canvas {
+                display: block;
+                outline: none;
+            }
+
+            #loading {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 14px;
+                background: #101014;
+                color: #e8e8ea;
+                font:
+                    14px/1.4 system-ui,
+                    sans-serif;
+            }
+
+            #track {
+                width: min(300px, 60vw);
+                height: 4px;
+                background: #2b2b32;
+                overflow: hidden;
+            }
+
+            #fill {
+                height: 100%;
+                width: 0;
+                background: #8ab4f8;
+                transition: width 0.15s linear;
+            }
+
+            #status {
+                min-height: 1.2em;
+                font-size: 12px;
+                color: #9a9aa2;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas
+            id="canvas"
+            tabindex="-1"
+            oncontextmenu="event.preventDefault()"
+        ></canvas>
+
+        <div id="loading">
+            <div>Rosebed</div>
+            <div id="track"><div id="fill"></div></div>
+            <div id="status">Loading&hellip;</div>
+        </div>
+
+        <script>
+            var Module = (() => {
+                const loading = document.getElementById("loading");
+                const fill = document.getElementById("fill");
+                const status = document.getElementById("status");
+                let peak = 0;
+
+                return {
+                    canvas: document.getElementById("canvas"),
+
+                    monitorRunDependencies: (remaining) => {
+                        peak = Math.max(peak, remaining);
+                        const done = peak - remaining;
+                        fill.style.width =
+                            (peak ? (done / peak) * 100 : 0) + "%";
+                    },
+
+                    setStatus: (text) => {
+                        if (!text) {
+                            loading.remove();
+                            return;
+                        }
+                        status.textContent = text;
+                    },
+                };
+            })();
+        </script>
+        {{{ SCRIPT }}}
+    </body>
+</html>

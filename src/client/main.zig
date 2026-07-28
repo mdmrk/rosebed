@@ -23,6 +23,7 @@ const reach_distance = 4.5;
 const bucket_reach = 5.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
+const wasm = builtin.cpu.arch.isWasm();
 
 const splashes: []const []const u8 = blk: {
     @setEvalBranchQuota(100_000);
@@ -312,8 +313,20 @@ fn markMeshableAround(app_state: *AppState, coord: world.World.ChunkCoord) !void
     }
 }
 
+const persist_root = "/rosebed";
+
+extern fn rosebed_persist() void;
+
+fn persist() void {
+    if (wasm) rosebed_persist();
+}
+
 fn glGetProcAddress(name: [*:0]const u8) ?gl.PROC {
-    return @ptrCast(@alignCast(sdl3.video.gl.getProcAddress(std.mem.span(name))));
+    const proc = sdl3.c.SDL_GL_GetProcAddress(name) orelse {
+        std.log.err("GL proc unavailable: {s}", .{name});
+        return null;
+    };
+    return @ptrCast(@alignCast(proc));
 }
 
 pub fn init(
@@ -325,12 +338,15 @@ pub fn init(
     errdefer sdl3.quit(init_flags);
 
     try sdl3.video.gl.setAttribute(.context_major_version, 3);
-    try sdl3.video.gl.setAttribute(.context_minor_version, 3);
-    try sdl3.video.gl.setAttribute(.context_profile_mask, @intFromEnum(sdl3.video.gl.Profile.core));
+    try sdl3.video.gl.setAttribute(.context_minor_version, if (wasm) 0 else 3);
+    try sdl3.video.gl.setAttribute(.context_profile_mask, @intFromEnum(
+        if (wasm) sdl3.video.gl.Profile.es else sdl3.video.gl.Profile.core,
+    ));
 
     const window = try sdl3.video.Window.init("Rosebed", screen_width, screen_height, .{
         .open_gl = true,
         .resizable = true,
+        .fill_document = wasm,
     });
     errdefer window.deinit();
 
@@ -339,11 +355,16 @@ pub fn init(
 
     try sdl3.mouse.setWindowRelativeMode(window, false);
 
-    const gpa = if (builtin.mode == .Debug) debug_allocator.allocator() else std.heap.smp_allocator;
+    const gpa = if (wasm)
+        std.heap.c_allocator
+    else if (builtin.mode == .Debug)
+        debug_allocator.allocator()
+    else
+        std.heap.smp_allocator;
     frame_arena = .init(gpa);
     io_threaded = .init(gpa, .{});
     const io = io_threaded.io();
-    const base_path = try sdl3.filesystem.getBasePath();
+    const base_path = if (wasm) persist_root else try sdl3.filesystem.getBasePath();
     const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
     const saves_dir = try world.save.openSavesDir(io, base_dir);
     const packs_dir = try render.texture_pack.open(io, base_dir);
@@ -1075,6 +1096,7 @@ fn quitToTitle(app_state: *AppState) !void {
     try app_state.stats.add(app_state.gpa, .{ .general = .leave_game }, 1);
     game.stats_file.save(app_state.gpa, app_state.io, app_state.base_dir, game.stats_file.default_username, &app_state.stats) catch {};
     if (app_state.save_handle != null) try saveWorld(app_state);
+    persist();
     closeWorld(app_state);
     app_state.chat.clear();
     app_state.screen = .title;
@@ -1275,6 +1297,7 @@ fn saveWorld(app_state: *AppState) !void {
     if (app_state.save_handle == null) return;
     try app_state.world_map.saveLoadedChunks();
     try saveLevel(app_state);
+    persist();
 }
 
 fn saveLevel(app_state: *AppState) !void {
@@ -3100,6 +3123,7 @@ pub fn quit(
         state.stats_view.deinit(state.gpa);
         state.stats.deinit(state.gpa);
         if (state.save_handle != null) saveWorld(state) catch {};
+        persist();
         if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
         world.save.freeList(state.gpa, state.summaries);
         freeTexturePacks(state);
@@ -3121,5 +3145,5 @@ pub fn quit(
     }
     sdl3.quit(init_flags);
     sdl3.shutdown();
-    if (builtin.mode == .Debug) _ = debug_allocator.deinit();
+    if (builtin.mode == .Debug and !wasm) _ = debug_allocator.deinit();
 }
