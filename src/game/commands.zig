@@ -317,7 +317,8 @@ test "help is built from the verbs, one line each under a heading" {
     try std.testing.expectEqualStrings("   give <player> <id|name> [num]  gives a player a resource", help_lines[2]);
     try std.testing.expectEqualStrings("   kill                           kills the player", help_lines[3]);
     try std.testing.expectEqualStrings("   spawn <mob> [num]              spawns a mob where you look", help_lines[4]);
-    try std.testing.expectEqualStrings("   time <add|set> <amount>        adds to or sets the world time (0-24000)", help_lines[5]);
+    try std.testing.expectEqualStrings("   seed <|copy>                   shows world seed", help_lines[5]);
+    try std.testing.expectEqualStrings("   time <add|set> <amount>        adds to or sets the world time (0-24000)", help_lines[6]);
 }
 
 test "every verb names itself in help and answers to that name" {
