@@ -10,6 +10,7 @@ const Entities = @import("entities.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
+const Wolf = @import("wolf.zig");
 const mob = @import("mob.zig");
 
 pub const eligible_radius: i32 = 8;
@@ -36,30 +37,54 @@ pub const Category = enum {
     }
 };
 
-pub const Kind = enum { sheep, pig, chicken, cow };
+pub const Kind = enum {
+    sheep,
+    pig,
+    chicken,
+    cow,
+    wolf,
+
+    pub fn maxPerChunk(self: Kind) u32 {
+        return switch (self) {
+            .wolf => Wolf.max_spawned_in_chunk,
+            else => max_per_chunk,
+        };
+    }
+};
 
 const Creature = struct { weight: i32, kind: Kind };
 
-const creature_list = [_]Creature{
+const base_creatures = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
     .{ .weight = 10, .kind = .pig },
     .{ .weight = 10, .kind = .chicken },
     .{ .weight = 8, .kind = .cow },
 };
 
-fn totalWeight() i32 {
+const wooded_creatures = base_creatures ++ [_]Creature{
+    .{ .weight = 2, .kind = .wolf },
+};
+
+pub fn creatureList(in_biome: world.biome.Biome) []const Creature {
+    return switch (in_biome) {
+        .forest, .taiga => &wooded_creatures,
+        else => &base_creatures,
+    };
+}
+
+fn totalWeight(list: []const Creature) i32 {
     var total: i32 = 0;
-    for (creature_list) |entry| total += entry.weight;
+    for (list) |entry| total += entry.weight;
     return total;
 }
 
-fn pickCreature(rand: *world.JavaRandom) Creature {
-    var roll = rand.nextIntBound(totalWeight());
-    for (creature_list) |entry| {
+fn pickCreature(list: []const Creature, rand: *world.JavaRandom) Creature {
+    var roll = rand.nextIntBound(totalWeight(list));
+    for (list) |entry| {
         roll -= entry.weight;
         if (roll < 0) return entry;
     }
-    return creature_list[0];
+    return list[0];
 }
 
 pub fn populationCap(category: Category) i32 {
@@ -139,7 +164,10 @@ fn spawnInChunk(
     chunk_z: i32,
 ) !u32 {
     const creature: ?Creature = switch (category) {
-        .creature => pickCreature(rand),
+        .creature => pickCreature(
+            creatureList(world_map.biomeAt(chunk_x * world.constants.chunk_width, chunk_z * world.constants.chunk_width)),
+            rand,
+        ),
         .monster => null,
     };
 
@@ -212,10 +240,16 @@ fn spawnInChunk(
                     if (!chicken.animal.canSpawnHere(world_map)) continue;
                     try entities.adopt(gpa, mob.chicken, chicken);
                 },
+                .wolf => {
+                    var wolf = Wolf.spawn(position);
+                    wolf.animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!wolf.animal.canSpawnHere(world_map)) continue;
+                    try entities.adopt(gpa, mob.wolf, wolf);
+                },
             }
 
             spawned += 1;
-            if (spawned >= max_per_chunk) return spawned;
+            if (spawned >= kind.maxPerChunk()) return spawned;
         }
     }
 
@@ -261,6 +295,18 @@ fn stoneCavern(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, caver
         }
     }
     return w;
+}
+
+fn stampClimate(w: *world.World, from_chunk_x: i32, to_chunk_x: i32, temperature: f32, humidity: f32) void {
+    var chunk_x = from_chunk_x;
+    while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
+        const chunk = w.getChunk(chunk_x, 0).?;
+        for (0..world.constants.chunk_width) |x| {
+            for (0..world.constants.chunk_width) |z| {
+                chunk.setClimate(@intCast(x), @intCast(z), temperature, humidity);
+            }
+        }
+    }
 }
 
 const surface: u32 = 63;
@@ -320,6 +366,8 @@ test "every kind we can make finds its way into a grassy world" {
     const gpa = std.testing.allocator;
     var w = try grassPlateau(gpa, 3, 5, surface);
     defer w.deinit();
+    stampClimate(&w, 3, 5, 0.4, 0.9);
+    try std.testing.expectEqual(world.biome.Biome.taiga, w.biomeAt(3 * world.constants.chunk_width, 0));
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -332,7 +380,7 @@ test "every kind we can make finds its way into a grassy world" {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
 
         // Empty the fields between rounds, so the population cap never ends the run early.
-        inline for (.{ mob.pig, mob.sheep, mob.chicken, mob.cow }, 0..) |type_id, kind| {
+        inline for (.{ mob.sheep, mob.pig, mob.chicken, mob.cow, mob.wolf }, 0..) |type_id, kind| {
             if (entities.countOf(type_id) > 0) seen[kind] = true;
         }
         for (entities.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
@@ -539,16 +587,46 @@ test "the biome's creature list picks each kind by its own weight" {
     var rolls = [_]u32{0} ** std.enums.values(Kind).len;
     const total = 4000;
     for (0..total) |_| {
-        rolls[@intFromEnum(pickCreature(&rand).kind)] += 1;
+        rolls[@intFromEnum(pickCreature(creatureList(.plains), &rand).kind)] += 1;
     }
 
-    // Of the list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
+    // Of the plains list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
     const expected = [_]u32{ 30, 25, 25, 20 };
     for (expected, 0..) |percent, kind| {
         const share = rolls[kind] * 100 / total;
         try std.testing.expect(share > percent - 4 and share < percent + 4);
     }
 
+    try std.testing.expectEqual(@as(u32, 0), rolls[@intFromEnum(Kind.wolf)]);
     try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > rolls[@intFromEnum(Kind.pig)]);
     try std.testing.expect(rolls[@intFromEnum(Kind.pig)] > rolls[@intFromEnum(Kind.cow)]);
+}
+
+test "only forest and taiga put a wolf on the list, at one part in twenty-one" {
+    for (std.enums.values(world.biome.Biome)) |in_biome| {
+        var wolves: i32 = 0;
+        for (creatureList(in_biome)) |entry| {
+            if (entry.kind == .wolf) wolves = entry.weight;
+        }
+
+        const wooded = in_biome == .forest or in_biome == .taiga;
+        try std.testing.expectEqual(if (wooded) @as(i32, 2) else 0, wolves);
+    }
+
+    var rand = world.JavaRandom.init(6);
+    var rolled: u32 = 0;
+    const total = 20000;
+    for (0..total) |_| {
+        if (pickCreature(creatureList(.taiga), &rand).kind == .wolf) rolled += 1;
+    }
+
+    const share = rolled * 1000 / total;
+    try std.testing.expect(share > 35 and share < 60);
+}
+
+test "a wolf pack fills a chunk twice as deep as the other animals" {
+    try std.testing.expectEqual(@as(u32, 8), Kind.wolf.maxPerChunk());
+    for ([_]Kind{ .sheep, .pig, .chicken, .cow }) |kind| {
+        try std.testing.expectEqual(max_per_chunk, kind.maxPerChunk());
+    }
 }

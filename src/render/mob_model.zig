@@ -138,6 +138,109 @@ pub const chicken: Model = .{
     .texture_height = 32,
 };
 
+const wolf_head_index: usize = 0;
+const wolf_body_index: usize = 1;
+const wolf_leg_back_right: usize = 2;
+const wolf_leg_back_left: usize = 3;
+const wolf_leg_front_right: usize = 4;
+const wolf_leg_front_left: usize = 5;
+const wolf_ear_right: usize = 6;
+const wolf_ear_left: usize = 7;
+const wolf_snout_index: usize = 8;
+const wolf_tail_index: usize = 9;
+const wolf_mane_index: usize = 10;
+
+const wolf_parts = [11]Part{
+    .{ .box = .{ .origin = .{ -3, -3, -2 }, .size = .{ 6, 6, 4 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ -1, -10.5, -7 } },
+    .{ .box = .{ .origin = .{ -4, -2, -3 }, .size = .{ 6, 9, 6 }, .tex_u = 18, .tex_v = 14 }, .pivot = .{ 0, -10, 2 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 8, 2 }, .tex_u = 0, .tex_v = 18 }, .pivot = .{ -2.5, -8, 7 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 8, 2 }, .tex_u = 0, .tex_v = 18 }, .pivot = .{ 0.5, -8, 7 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 8, 2 }, .tex_u = 0, .tex_v = 18 }, .pivot = .{ -2.5, -8, -4 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 8, 2 }, .tex_u = 0, .tex_v = 18 }, .pivot = .{ 0.5, -8, -4 } },
+    .{ .box = .{ .origin = .{ -3, -5, 0 }, .size = .{ 2, 2, 1 }, .tex_u = 16, .tex_v = 14 }, .pivot = .{ -1, -10.5, -7 } },
+    .{ .box = .{ .origin = .{ 1, -5, 0 }, .size = .{ 2, 2, 1 }, .tex_u = 16, .tex_v = 14 }, .pivot = .{ -1, -10.5, -7 } },
+    .{ .box = .{ .origin = .{ -2, 0, -5 }, .size = .{ 3, 3, 4 }, .tex_u = 0, .tex_v = 10 }, .pivot = .{ -0.5, -10.5, -7 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 8, 2 }, .tex_u = 9, .tex_v = 18 }, .pivot = .{ -1, -12, 8 } },
+    .{ .box = .{ .origin = .{ -4, -3, -3 }, .size = .{ 8, 6, 7 }, .tex_u = 21, .tex_v = 0 }, .pivot = .{ -1, -10, -3 } },
+};
+
+pub const wolf: Model = .{
+    .parts = &wolf_parts,
+    .head_index = wolf_head_index,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub const WolfPose = struct {
+    limb_swing: f32,
+    limb_swing_amount: f32,
+    head_yaw: f32,
+    head_pitch: f32,
+    tail_rotation: f32,
+    interested_angle: f32,
+    sitting: bool,
+    angry: bool,
+    head_shake: f32,
+    mane_shake: f32,
+    body_shake: f32,
+    tail_shake: f32,
+};
+
+pub fn wolfPosed(pose: WolfPose) [wolf_parts.len]Part {
+    const degrees = std.math.pi / 180.0;
+    const pi = std.math.pi;
+
+    var parts = wolf_parts;
+    const stride = math.util.cos(pose.limb_swing * 0.6662) * 1.4 * pose.limb_swing_amount;
+
+    parts[wolf_tail_index].rotate_y = if (pose.angry) 0 else stride;
+
+    if (pose.sitting) {
+        parts[wolf_mane_index].pivot = .{ -1, -8, -3 };
+        parts[wolf_mane_index].rotate_x = pi * 0.4;
+        parts[wolf_mane_index].rotate_y = 0;
+        parts[wolf_body_index].pivot = .{ 0, -6, 0 };
+        parts[wolf_body_index].rotate_x = pi * 0.25;
+        parts[wolf_tail_index].pivot = .{ -1, -3, 6 };
+        parts[wolf_leg_back_right].pivot = .{ -2.5, -2, 2 };
+        parts[wolf_leg_back_right].rotate_x = pi * 3.0 / 2.0;
+        parts[wolf_leg_back_left].pivot = .{ 0.5, -2, 2 };
+        parts[wolf_leg_back_left].rotate_x = pi * 3.0 / 2.0;
+        parts[wolf_leg_front_right].rotate_x = pi * 1.85;
+        parts[wolf_leg_front_right].pivot = .{ -2.49, -7, -4 };
+        parts[wolf_leg_front_left].rotate_x = pi * 1.85;
+        parts[wolf_leg_front_left].pivot = .{ 0.51, -7, -4 };
+    } else {
+        parts[wolf_body_index].rotate_x = pi * 0.5;
+        parts[wolf_mane_index].rotate_x = parts[wolf_body_index].rotate_x;
+        parts[wolf_leg_back_right].rotate_x = stride;
+        parts[wolf_leg_back_left].rotate_x = -stride;
+        parts[wolf_leg_front_right].rotate_x = -stride;
+        parts[wolf_leg_front_left].rotate_x = stride;
+    }
+
+    const tilt = pose.interested_angle + pose.head_shake;
+    parts[wolf_head_index].rotate_z = tilt;
+    parts[wolf_ear_right].rotate_z = tilt;
+    parts[wolf_ear_left].rotate_z = tilt;
+    parts[wolf_snout_index].rotate_z = tilt;
+    parts[wolf_mane_index].rotate_z = pose.mane_shake;
+    parts[wolf_body_index].rotate_z = pose.body_shake;
+    parts[wolf_tail_index].rotate_z = pose.tail_shake;
+
+    parts[wolf_head_index].rotate_x = pose.head_pitch * degrees;
+    parts[wolf_head_index].rotate_y = pose.head_yaw * degrees;
+    parts[wolf_ear_right].rotate_x = parts[wolf_head_index].rotate_x;
+    parts[wolf_ear_right].rotate_y = parts[wolf_head_index].rotate_y;
+    parts[wolf_ear_left].rotate_x = parts[wolf_head_index].rotate_x;
+    parts[wolf_ear_left].rotate_y = parts[wolf_head_index].rotate_y;
+    parts[wolf_snout_index].rotate_x = parts[wolf_head_index].rotate_x;
+    parts[wolf_snout_index].rotate_y = parts[wolf_head_index].rotate_y;
+    parts[wolf_tail_index].rotate_x = pose.tail_rotation;
+
+    return parts;
+}
+
 const slime_body_parts = [4]Part{
     .{ .box = .{ .origin = .{ -3, 17, -3 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
     .{ .box = .{ .origin = .{ -3.25, 18, -3.5 }, .size = .{ 2, 2, 2 }, .tex_u = 32, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },

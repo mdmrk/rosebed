@@ -18,7 +18,7 @@ tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -41,6 +41,11 @@ pub const bubble_drag: f64 = 0.85;
 pub const reddust_drag: f64 = 0.96;
 pub const reddust_launch: f64 = 0.1;
 pub const slime_tile: u8 = 1 * 16 + 14;
+pub const heart_tile: u8 = 5 * 16 + 0;
+pub const heart_drag: f64 = 0.86;
+pub const heart_scale: f32 = 2.0;
+pub const heart_lift: f64 = 0.1;
+pub const heart_age: i32 = 16;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -181,6 +186,20 @@ pub fn spawnReddust(position: math.Vec3, color: [3]f32, rand: *world.JavaRandom)
     return particle;
 }
 
+pub fn spawnHeart(position: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .heart;
+    particle.base.motion = math.Vec3.init(
+        particle.base.motion.x * 0.01,
+        particle.base.motion.y * 0.01 + heart_lift,
+        particle.base.motion.z * 0.01,
+    );
+    particle.scale *= 12.0 / 16.0 * heart_scale;
+    particle.max_age = heart_age;
+    particle.tile = heart_tile;
+    return particle;
+}
+
 pub fn spawnSlime(position: math.Vec3, rand: *world.JavaRandom) Particle {
     var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
     particle.kind = .slime;
@@ -269,6 +288,15 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.applyDrag(reddust_drag);
             self.applyGroundFriction();
         },
+        .heart => {
+            _ = self.base.move(world_map);
+            if (self.base.position.y == self.base.prev_position.y) {
+                self.base.motion.x *= 1.1;
+                self.base.motion.z *= 1.1;
+            }
+            self.applyDrag(heart_drag);
+            self.applyGroundFriction();
+        },
         .bubble => {
             self.base.motion.y += bubble_lift;
             _ = self.base.move(world_map);
@@ -311,7 +339,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
         .digging, .splash, .bubble, .slime => 1.0,
-        .smoke, .reddust => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
+        .smoke, .reddust, .heart => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);
             break :blk @max(0.0, 1.0 - progress * progress);

@@ -18,6 +18,7 @@ const Pig = @import("pig.zig");
 const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
+const Wolf = @import("wolf.zig");
 const mob = @import("mob.zig");
 
 const Entities = @This();
@@ -183,7 +184,9 @@ pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: math.Vec
     return switch (target) {
         .mob => |index| {
             const entry = self.mobs.items[index];
-            return mob.get(entry.type_id).hurt(entry.animal, amount, source, rand);
+            const hit = mob.get(entry.type_id).hurt(entry.animal, amount, source, rand);
+            if (hit and entry.animal.isAlive()) Wolf.alertOwned(self, source, entry.animal, true);
+            return hit;
         },
         .painting => false,
     };
@@ -201,7 +204,8 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
 }
 
 pub fn animalCount(self: *const Entities) usize {
-    return self.countOf(mob.pig) + self.countOf(mob.sheep) + self.countOf(mob.cow) + self.countOf(mob.chicken);
+    return self.countOf(mob.pig) + self.countOf(mob.sheep) + self.countOf(mob.cow) +
+        self.countOf(mob.chicken) + self.countOf(mob.wolf);
 }
 
 pub fn count(self: *const Entities) usize {
@@ -833,6 +837,45 @@ pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
     _ = try self.spawnMob(gpa, mob.slime, position, rand);
 }
 
+pub fn spawnWolf(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
+    _ = try self.spawnMob(gpa, mob.wolf, position, rand);
+}
+
+pub fn spawnWolfSplash(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    position: math.Vec3,
+    motion: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    try self.particles.append(gpa, Particle.spawnSplash(position, motion, rand));
+}
+
+pub fn spawnTreatReaction(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    animal: Animal,
+    pleased: bool,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..Wolf.treat_particles) |_| {
+        const drift = math.Vec3.init(
+            rand.nextGaussian() * 0.02,
+            rand.nextGaussian() * 0.02,
+            rand.nextGaussian() * 0.02,
+        );
+        const at = math.Vec3.init(
+            animal.base.position.x + @as(f64, rand.nextFloat()) * animal.base.width * 2.0 - animal.base.width,
+            animal.base.position.y + 0.5 + @as(f64, rand.nextFloat()) * animal.base.height,
+            animal.base.position.z + @as(f64, rand.nextFloat()) * animal.base.width * 2.0 - animal.base.width,
+        );
+        try self.particles.append(gpa, if (pleased)
+            Particle.spawnHeart(at, rand)
+        else
+            Particle.spawnSmoke(at, drift, rand));
+    }
+}
+
 const pickup_reach: f64 = 1.0;
 
 pub fn tickItems(
@@ -991,10 +1034,17 @@ pub fn tickMobs(
     player: *Player,
     rand: *world.JavaRandom,
 ) !void {
+    const held: ?world.Item = if (player.inventory.selectedStack()) |stack| switch (stack.id) {
+        .item => |id| id,
+        .block => null,
+    } else null;
+
     const view: Animal.PlayerView = .{
         .position = player.base.position,
         .eye_height = Player.eye_height,
         .alive = player.health > 0,
+        .height = Player.height,
+        .held = held,
     };
 
     var index: usize = 0;
@@ -2213,4 +2263,234 @@ test "a registered type outnumbering the vanilla ones still ticks in insertion o
     try std.testing.expectEqual(mob.cow, entities.mobs.items[0].type_id);
     try std.testing.expectEqual(mob.pig, entities.mobs.items[1].type_id);
     try std.testing.expectEqual(mob.cow, entities.mobs.items[2].type_id);
+}
+
+test "an untamed wolf that rolls a hunt takes a nearby sheep as its target" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    try entities.spawnSheep(gpa, math.Vec3.init(12.5, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    wolf.hunting = true;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+
+    try std.testing.expect(wolf.target != null);
+    try std.testing.expectEqual(&entities.first(Sheep, mob.sheep).?.animal, wolf.target.?.prey);
+    try std.testing.expect(wolf.prey_view != null);
+}
+
+test "a sheep out of range is never hunted" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    try entities.spawnSheep(gpa, math.Vec3.init(80.5, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    wolf.hunting = true;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+
+    try std.testing.expect(wolf.target == null);
+}
+
+test "a wolf's bite lands on the sheep it is hunting" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    try entities.spawnSheep(gpa, math.Vec3.init(9.0, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    const sheep = entities.first(Sheep, mob.sheep).?;
+    wolf.target = .{ .prey = &sheep.animal };
+    wolf.pending_bite = Wolf.bite_damage;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(Sheep.max_health - Wolf.bite_damage, sheep.animal.health);
+    try std.testing.expectEqual(@as(i32, 0), wolf.pending_bite);
+}
+
+test "a wolf whose prey is gone forgets it rather than chasing a ghost" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    try entities.spawnSheep(gpa, math.Vec3.init(10.5, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    const sheep = entities.first(Sheep, mob.sheep).?;
+    wolf.target = .{ .prey = &sheep.animal };
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+    try std.testing.expect(wolf.target != null);
+
+    sheep.animal.health = 0;
+    sheep.animal.dead = true;
+    try entities.tickMobs(gpa, &w, &player, &rand);
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.sheep));
+
+    try entities.tickMobs(gpa, &w, &player, &rand);
+    try std.testing.expect(wolf.target == null);
+    try std.testing.expect(wolf.prey_view == null);
+}
+
+test "hitting one wolf of a pack turns the whole pack on the player" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+    try entities.spawnWolf(gpa, math.Vec3.init(12.5, 1, 8.5), &rand);
+    try entities.spawnWolf(gpa, math.Vec3.init(60.5, 1, 8.5), &rand);
+
+    const struck = entities.mobs.items[0].animal;
+    try std.testing.expect(entities.hurtTarget(.{ .mob = 0 }, 1, math.Vec3.init(6, 1, 8.5), &rand));
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+
+    var pack = entities.of(Wolf, mob.wolf);
+    var angered: u32 = 0;
+    while (pack.next()) |wolf| {
+        if (wolf.angry) angered += 1;
+        if (&wolf.animal == struck) try std.testing.expectEqual(Wolf.Target.player, wolf.target.?);
+    }
+
+    try std.testing.expectEqual(@as(u32, 2), angered);
+}
+
+test "a tamed wolf sets on whatever its owner strikes, unless it is sitting" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnPig(gpa, math.Vec3.init(9.5, 1, 8.5));
+    try entities.spawnWolf(gpa, math.Vec3.init(6.5, 1, 8.5), &rand);
+    try entities.spawnWolf(gpa, math.Vec3.init(7.5, 1, 8.5), &rand);
+
+    var pack = entities.of(Wolf, mob.wolf);
+    const standing = pack.next().?;
+    const seated = pack.next().?;
+    for ([_]*Wolf{ standing, seated }) |wolf| {
+        wolf.tamed = true;
+        wolf.animal.max_health = Wolf.tamed_health;
+        wolf.animal.health = Wolf.tamed_health;
+    }
+    seated.sitting = true;
+
+    const struck = entities.mobs.items[0].animal;
+    try std.testing.expect(entities.hurtTarget(.{ .mob = 0 }, 1, math.Vec3.init(8.5, 1, 8.5), &rand));
+
+    try std.testing.expectEqual(struck, standing.target.?.prey);
+    try std.testing.expect(!standing.sitting);
+    try std.testing.expect(seated.target == null);
+    try std.testing.expect(seated.sitting);
+}
+
+test "an angry wolf standing on the player bites into the health bar" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(2);
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try entities.spawnWolf(gpa, math.Vec3.init(8.9, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    wolf.angry = true;
+    wolf.animal.base.on_ground = true;
+
+    const full = player.health;
+    for (0..60) |_| {
+        try entities.tickMobs(gpa, &w, &player, &rand);
+        if (player.health < full) break;
+    }
+
+    try std.testing.expect(player.health < full);
+    try std.testing.expectEqual(Wolf.Target.player, wolf.target.?);
+}
+
+test "a tamed wolf is never counted out of the world by distance" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    wolf.tamed = true;
+    wolf.animal.can_despawn = false;
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 900));
+    for (0..200) |_| try entities.tickMobs(gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.countOf(mob.wolf));
+}
+
+test "a wolf shaking itself dry throws water off its coat" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnWolf(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
+
+    const wolf = entities.first(Wolf, mob.wolf).?;
+    wolf.shake_running = true;
+    wolf.shake_time = 1.0;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try entities.tickMobs(gpa, &w, &player, &rand);
+
+    try std.testing.expect(entities.particles.items.len > 0);
+    for (entities.particles.items) |particle| {
+        try std.testing.expectEqual(Particle.Kind.splash, particle.kind);
+    }
 }

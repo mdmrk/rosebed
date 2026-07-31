@@ -439,10 +439,34 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+pub fn appendWolf(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, wolf: game.Wolf, partial_ticks: f32) !void {
+    const parts = mob_model.wolfPosed(.{
+        .limb_swing = wolf.animal.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = wolf.animal.limbSwingAmount(partial_ticks),
+        .head_yaw = wolf.animal.headYaw(partial_ticks),
+        .head_pitch = wolf.animal.headPitch(partial_ticks),
+        .tail_rotation = wolf.tailRotation(),
+        .interested_angle = wolf.interestedAngle(partial_ticks),
+        .sitting = wolf.sitting,
+        .angry = wolf.angry,
+        .head_shake = wolf.shakeAngle(partial_ticks, 0),
+        .mane_shake = wolf.shakeAngle(partial_ticks, -0.08),
+        .body_shake = wolf.shakeAngle(partial_ticks, -0.16),
+        .tail_shake = wolf.shakeAngle(partial_ticks, -0.2),
+    });
+
+    return appendAnimal(mesh, gpa, world_map, wolf.animal, partial_ticks, mob_model.wolf, .{
+        .posed = &parts,
+        .shade = if (wolf.shaking) wolf.shadingWhileShaking(partial_ticks) else 1.0,
+    });
+}
+
 const Trim = struct {
     tint: [3]f32 = untinted,
     wing_flap: f32 = 0,
     scale: [3]f32 = .{ 1, 1, 1 },
+    shade: f32 = 1,
+    posed: ?[]const mob_model.Part = null,
 };
 
 fn appendAnimal(
@@ -466,7 +490,7 @@ fn appendAnimal(
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
 
-    for (model.parts) |part| {
+    for (trim.posed orelse model.parts) |part| {
         var p = part;
         switch (part.role) {
             .head => {
@@ -483,7 +507,7 @@ fn appendAnimal(
     }
 
     const brightness = brightnessOf(world_map, animal.base);
-    mesh.scaleColors(first_vertex, brightness);
+    mesh.scaleColors(first_vertex, brightness * trim.shade);
     tintColors(mesh, first_vertex, trim.tint);
     if (animal.hurt_time > 0 or animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
 }
@@ -1945,4 +1969,181 @@ test "a shaft on a head part way out reaches back far enough to meet its base" {
         for (mesh.vertices.items) |vertex| lowest = @min(lowest, vertex.y);
         try std.testing.expect(lowest <= base_top + 1.0e-5);
     }
+}
+
+const wolf_head = 0;
+const wolf_body = 1;
+const wolf_leg_back_right = 2;
+const wolf_leg_back_left = 3;
+const wolf_leg_front_right = 4;
+const wolf_leg_front_left = 5;
+const wolf_ear_right = 6;
+const wolf_ear_left = 7;
+const wolf_snout = 8;
+const wolf_tail = 9;
+const wolf_mane = 10;
+
+test "a wolf renders head, body, four legs, two ears, snout, tail and mane, standing on its feet" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendWolf(&mesh, gpa, &world_map, game.Wolf.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 11 * 6 * 4), mesh.vertices.items.len);
+
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expect(bounds[1][1] > 64.0 + game.Wolf.height);
+}
+
+test "the wolf's snout and ears sit on the head, ahead of and above it" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendWolf(&mesh, gpa, &world_map, game.Wolf.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    const head = partBounds(mesh, wolf_head);
+    const snout = partBounds(mesh, wolf_snout);
+    const right_ear = partBounds(mesh, wolf_ear_right);
+    const left_ear = partBounds(mesh, wolf_ear_left);
+
+    try std.testing.expect(snout[1][2] > head[1][2]);
+    try std.testing.expect(right_ear[0][1] >= head[1][1] - 1.0e-5);
+    try std.testing.expect(left_ear[0][1] >= head[1][1] - 1.0e-5);
+    try std.testing.expect(right_ear[1][0] < left_ear[0][0]);
+}
+
+test "a walking wolf swings diagonal legs together and wags its tail" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var wolf = game.Wolf.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendWolf(&still, gpa, &world_map, wolf, 1.0);
+
+    wolf.animal.limb_swing = 1.0;
+    wolf.animal.limb_swing_amount = 1.0;
+    wolf.animal.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendWolf(&walking, gpa, &world_map, wolf, 1.0);
+
+    var reach: [4]f32 = undefined;
+    for (&reach, [_]usize{
+        wolf_leg_back_right,
+        wolf_leg_back_left,
+        wolf_leg_front_right,
+        wolf_leg_front_left,
+    }) |*value, part| {
+        value.* = partBounds(walking, part)[1][2] + mob_model.wolf.parts[part].pivot[2] / 16.0;
+    }
+
+    try std.testing.expect(reach[0] != reach[1]);
+    try std.testing.expectApproxEqAbs(reach[0], reach[3], 1.0e-5);
+    try std.testing.expectApproxEqAbs(reach[1], reach[2], 1.0e-5);
+
+    try std.testing.expect(partBounds(walking, wolf_tail)[1][0] != partBounds(still, wolf_tail)[1][0]);
+}
+
+test "an angry wolf holds its tail up and still" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var wolf = game.Wolf.spawn(.{ .x = 0, .y = 0, .z = 0 });
+    wolf.animal.limb_swing = 1.0;
+    wolf.animal.limb_swing_amount = 1.0;
+    wolf.animal.prev_limb_swing_amount = 1.0;
+
+    var calm: MeshBuilder = .{};
+    defer calm.deinit(gpa);
+    try appendWolf(&calm, gpa, &world_map, wolf, 1.0);
+
+    wolf.angry = true;
+    var raised: MeshBuilder = .{};
+    defer raised.deinit(gpa);
+    try appendWolf(&raised, gpa, &world_map, wolf, 1.0);
+
+    try std.testing.expect(partBounds(raised, wolf_tail)[1][1] > partBounds(calm, wolf_tail)[1][1]);
+}
+
+test "a sitting wolf drops its hindquarters and folds its front legs under it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var wolf = game.Wolf.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var standing: MeshBuilder = .{};
+    defer standing.deinit(gpa);
+    try appendWolf(&standing, gpa, &world_map, wolf, 0);
+
+    wolf.sitting = true;
+    var seated: MeshBuilder = .{};
+    defer seated.deinit(gpa);
+    try appendWolf(&seated, gpa, &world_map, wolf, 0);
+
+    try std.testing.expect(partBounds(seated, wolf_body)[0][1] < partBounds(standing, wolf_body)[0][1]);
+    try std.testing.expect(partBounds(seated, wolf_tail)[0][1] < partBounds(standing, wolf_tail)[0][1]);
+    try std.testing.expect(partBounds(seated, wolf_mane)[1][1] < partBounds(standing, wolf_mane)[1][1]);
+    try std.testing.expect(partBounds(seated, wolf_leg_back_right)[0][2] > partBounds(standing, wolf_leg_back_right)[0][2]);
+}
+
+test "an interested wolf tips its whole head, ears and snout the same way" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var wolf = game.Wolf.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var level: MeshBuilder = .{};
+    defer level.deinit(gpa);
+    try appendWolf(&level, gpa, &world_map, wolf, 1.0);
+
+    wolf.interest = 1.0;
+    wolf.prev_interest = 1.0;
+    try std.testing.expect(wolf.interestedAngle(1.0) > 0.0);
+
+    var tilted: MeshBuilder = .{};
+    defer tilted.deinit(gpa);
+    try appendWolf(&tilted, gpa, &world_map, wolf, 1.0);
+
+    for ([_]usize{ wolf_head, wolf_ear_right, wolf_ear_left, wolf_snout }) |part| {
+        try std.testing.expect(partBounds(tilted, part)[0][0] != partBounds(level, part)[0][0]);
+    }
+    try std.testing.expectApproxEqAbs(
+        partBounds(tilted, wolf_body)[0][0],
+        partBounds(level, wolf_body)[0][0],
+        1.0e-6,
+    );
+}
+
+test "a shaking wolf is drawn dimmer than a dry one" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 1);
+    defer world_map.deinit();
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var wolf = game.Wolf.spawn(.{ .x = 8.5, .y = 1, .z = 8.5 });
+
+    var dry: MeshBuilder = .{};
+    defer dry.deinit(gpa);
+    try appendWolf(&dry, gpa, &world_map, wolf, 0);
+
+    wolf.shaking = true;
+    var wet: MeshBuilder = .{};
+    defer wet.deinit(gpa);
+    try appendWolf(&wet, gpa, &world_map, wolf, 0);
+
+    try std.testing.expect(wet.vertices.items[0].color[0] < dry.vertices.items[0].color[0]);
 }

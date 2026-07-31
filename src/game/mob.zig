@@ -48,6 +48,7 @@ const vanilla = [_]Type{
     @import("cow.zig").mob_type,
     @import("chicken.zig").mob_type,
     @import("slime.zig").mob_type,
+    @import("wolf.zig").mob_type,
 };
 
 pub const pig: Id = 0;
@@ -55,6 +56,7 @@ pub const sheep: Id = 1;
 pub const cow: Id = 2;
 pub const chicken: Id = 3;
 pub const slime: Id = 4;
+pub const wolf: Id = 5;
 
 var types: [capacity]Type = initialTypes();
 var count: usize = vanilla.len;
@@ -99,7 +101,8 @@ test "the vanilla mob types keep the ids the save format is written against" {
     try std.testing.expectEqual(cow, find("Cow").?);
     try std.testing.expectEqual(chicken, find("Chicken").?);
     try std.testing.expectEqual(slime, find("Slime").?);
-    try std.testing.expectEqual(@as(Id, 5), registered());
+    try std.testing.expectEqual(wolf, find("Wolf").?);
+    try std.testing.expectEqual(@as(Id, 6), registered());
 }
 
 test "a registered type lands after the vanilla ones and answers to its name" {
@@ -115,8 +118,8 @@ test "a registered type lands after the vanilla ones and answers to its name" {
         .destroy = get(pig).destroy,
     });
 
-    try std.testing.expectEqual(@as(Id, 5), custom);
+    try std.testing.expectEqual(@as(Id, 6), custom);
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
-    try std.testing.expectEqual(@as(Id, 6), registered());
+    try std.testing.expectEqual(@as(Id, 7), registered());
 }

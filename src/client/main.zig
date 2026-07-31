@@ -1086,6 +1086,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .sheep => try app_state.entities.spawnSheep(app_state.gpa, position, &app_state.world_map.rand),
                 .chicken => try app_state.entities.spawnChicken(app_state.gpa, position, &app_state.world_map.rand),
                 .slime => try app_state.entities.spawnSlime(app_state.gpa, position, &app_state.world_map.rand),
+                .wolf => try app_state.entities.spawnWolf(app_state.gpa, position, &app_state.world_map.rand),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
@@ -1864,15 +1865,41 @@ fn useHeldItem(app_state: *AppState) !void {
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
     const entry = app_state.entities.mobAt(target) orelse return false;
-    if (entry.type_id != game.mob.cow) return false;
-    const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
+    const held: ?world.Item = if (app_state.player.inventory.selectedStack()) |stack| switch (stack.id) {
         .item => |id| id,
         .block => null,
-    };
-    const milked = game.Cow.interact(held) orelse return false;
+    } else null;
 
+    if (entry.type_id == game.mob.wolf) return interactWithWolf(app_state, entry.animal, held);
+    if (entry.type_id != game.mob.cow) return false;
+
+    const milked = game.Cow.interact(held orelse return false) orelse return false;
     holdStack(app_state, milked);
     try app_state.stats.use(app_state.gpa, .{ .item = held.? });
+    return true;
+}
+
+fn interactWithWolf(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
+    const wolf: *game.Wolf = @fieldParentPtr("animal", animal);
+    const used = wolf.interact(app_state.gpa, held, &app_state.world_map.rand) orelse return false;
+
+    switch (used) {
+        .tamed, .refused => {
+            consumeSelectedStack(app_state);
+            try app_state.entities.spawnTreatReaction(
+                app_state.gpa,
+                wolf.animal,
+                used == .tamed,
+                &app_state.world_map.rand,
+            );
+            try app_state.stats.use(app_state.gpa, .{ .item = .bone });
+        },
+        .fed => {
+            consumeSelectedStack(app_state);
+            try app_state.stats.use(app_state.gpa, .{ .item = held.? });
+        },
+        .sat, .stood => {},
+    }
     return true;
 }
 
@@ -2557,6 +2584,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
         try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
     }
+    var wolf_mesh: render.MeshBuilder = .{};
+    defer wolf_mesh.deinit(app_state.frame);
+    var wolf_tame_mesh: render.MeshBuilder = .{};
+    defer wolf_tame_mesh.deinit(app_state.frame);
+    var wolf_angry_mesh: render.MeshBuilder = .{};
+    defer wolf_angry_mesh.deinit(app_state.frame);
+    var pack = app_state.entities.of(game.Wolf, game.mob.wolf);
+    while (pack.next()) |wolf| {
+        const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
+        try render.entity_render.appendWolf(coat, app_state.frame, &app_state.world_map, wolf.*, partial);
+    }
     var painting_mesh: render.MeshBuilder = .{};
     defer painting_mesh.deinit(app_state.frame);
     for (app_state.entities.paintings.items) |painting| {
@@ -2676,6 +2714,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.chicken.bind();
         drawEntityMesh(&chicken_mesh);
         app_state.textures.terrain.bind();
+    }
+
+    inline for (.{
+        .{ &wolf_mesh, "wolf" },
+        .{ &wolf_tame_mesh, "wolf_tame" },
+        .{ &wolf_angry_mesh, "wolf_angry" },
+    }) |coat| {
+        if (coat[0].vertices.items.len > 0) {
+            @field(app_state.textures, coat[1]).bind();
+            drawEntityMesh(coat[0]);
+            app_state.textures.terrain.bind();
+        }
     }
 
     if (slime_mesh.vertices.items.len > 0) {

@@ -12,6 +12,10 @@ const Animal = @This();
 base: Entity,
 max_health: i32,
 takes_fall_damage: bool = true,
+move_speed: f32 = default_move_speed,
+eye_fraction: f64 = eye_height_fraction,
+look_pitch_speed: f32 = default_look_pitch_speed,
+can_despawn: bool = true,
 yaw: f32 = 0,
 prev_yaw: f32 = 0,
 pitch: f32 = 0,
@@ -56,6 +60,8 @@ pub const Spec = struct {
     max_health: i32 = default_max_health,
     step_height: f64 = default_step_height,
     takes_fall_damage: bool = true,
+    move_speed: f32 = default_move_speed,
+    eye_fraction: f64 = eye_height_fraction,
 };
 
 pub const default_max_health: i32 = 10;
@@ -64,8 +70,10 @@ pub const max_air: i32 = 300;
 pub const eye_height_fraction: f64 = 0.85;
 pub const hurt_resistance_ticks: i32 = 20;
 pub const death_ticks: i32 = 20;
+pub const default_move_speed: f32 = 0.7;
+pub const default_look_pitch_speed: f32 = 40.0;
+pub const chase_path_range: f32 = 16.0;
 
-const move_speed: f32 = 0.7;
 const wander_radius: f32 = 10.0;
 const gravity: f64 = 0.08;
 const vertical_drag: f64 = 0.98;
@@ -100,6 +108,8 @@ pub const PlayerView = struct {
     position: math.Vec3,
     eye_height: f64,
     alive: bool,
+    height: f64 = 1.8,
+    held: ?world.Item = null,
 };
 
 fn leaveNothing(_: *Animal, _: *world.JavaRandom) void {}
@@ -112,6 +122,8 @@ pub fn spawn(position: math.Vec3, spec: Spec) Animal {
         .max_health = spec.max_health,
         .health = spec.max_health,
         .takes_fall_damage = spec.takes_fall_damage,
+        .move_speed = spec.move_speed,
+        .eye_fraction = spec.eye_fraction,
     };
 }
 
@@ -131,15 +143,31 @@ pub fn isAlive(self: Animal) bool {
 }
 
 pub fn eyeHeight(self: Animal) f64 {
-    return self.base.height * eye_height_fraction;
+    return self.base.height * self.eye_fraction;
 }
 
-fn clearPath(self: *Animal, gpa: std.mem.Allocator) void {
+pub fn clearPath(self: *Animal, gpa: std.mem.Allocator) void {
     if (self.path) |*path| path.deinit(gpa);
     self.path = null;
 }
 
-fn pathMob(self: Animal) world.pathfinder.Mob {
+pub fn setPath(self: *Animal, gpa: std.mem.Allocator, found: ?world.pathfinder.Path) void {
+    self.clearPath(gpa);
+    self.path = found;
+}
+
+pub fn pathTowards(
+    self: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    target: math.Vec3,
+    range: f32,
+) !void {
+    const found = try world.pathfinder.toPosition(gpa, world_map, self.pathMob(), target.x, target.y, target.z, range);
+    self.setPath(gpa, found);
+}
+
+pub fn pathMob(self: Animal) world.pathfinder.Mob {
     const box = self.base.boundingBox();
     return .{
         .min_x = box.min_x,
@@ -165,7 +193,7 @@ fn eyePosition(self: Animal) math.Vec3 {
     };
 }
 
-fn distanceSquaredTo(self: Animal, position: math.Vec3) f64 {
+pub fn distanceSquaredTo(self: Animal, position: math.Vec3) f64 {
     const dx = position.x - self.base.position.x;
     const dy = position.y - self.base.position.y;
     const dz = position.z - self.base.position.z;
@@ -346,6 +374,7 @@ fn turnTowards(current: f32, target: f32, limit: f32) f32 {
 }
 
 pub fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
+    if (!self.can_despawn) return;
     const view = player orelse return;
     const distance_squared = self.distanceSquaredTo(view.position);
 
@@ -360,7 +389,7 @@ pub fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom)
     }
 }
 
-fn idleActionState(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
+pub fn idleActionState(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
     self.entity_age += 1;
     self.despawnCheck(player, rand);
     self.move_strafing = 0;
@@ -382,7 +411,7 @@ fn idleActionState(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) 
 
     if (self.looking_at_player and player != null) {
         const view = player.?;
-        self.faceEntity(view.position, view.eye_height, 10.0, 40.0);
+        self.faceEntity(view.position, view.eye_height, 10.0, self.look_pitch_speed);
         self.look_ticks_left -= 1;
         if (self.look_ticks_left < 0 or !view.alive or
             self.distanceSquaredTo(view.position) > look_range * look_range)
@@ -399,7 +428,7 @@ fn idleActionState(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) 
     if (self.base.in_water or self.in_lava) self.is_jumping = rand.nextFloat() < 0.8;
 }
 
-fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const world.World, rand: *world.JavaRandom) !void {
+pub fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const world.World, rand: *world.JavaRandom) !void {
     var best_weight: f32 = -99999.0;
     var best: ?[3]i32 = null;
 
@@ -416,11 +445,16 @@ fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const world
 
     const target = best orelse return;
     const found = try world.pathfinder.toBlock(gpa, world_map, self.pathMob(), target[0], target[1], target[2], wander_radius);
-    self.clearPath(gpa);
-    self.path = found;
+    self.setPath(gpa, found);
 }
 
-fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom) void {
+pub const Chase = struct {
+    position: math.Vec3,
+    eye_height: f64,
+    ceased: bool,
+};
+
+pub fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom, chase: ?Chase) void {
     const feet_y: f64 = @floatFromInt(math.util.floorDouble(self.base.boundingBox().min_y + 0.5));
     const reach = self.base.width * 2.0;
 
@@ -446,11 +480,25 @@ fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom) vo
         const dy = position[1] - feet_y;
 
         const target_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
-        self.move_forward = move_speed;
+        self.move_forward = self.move_speed;
         self.yaw += std.math.clamp(wrapDegrees(target_yaw - self.yaw), -30.0, 30.0);
+
+        if (chase) |target| {
+            if (target.ceased) {
+                const to_x = target.position.x - self.base.position.x;
+                const to_z = target.position.z - self.base.position.z;
+                const held_yaw = self.yaw;
+                self.yaw = @as(f32, @floatCast(std.math.atan2(to_z, to_x) * 180.0 / std.math.pi)) - 90.0;
+                const swing = (held_yaw - self.yaw + 90.0) * std.math.pi / 180.0;
+                self.move_strafing = -math.util.sin(swing) * self.move_forward;
+                self.move_forward = math.util.cos(swing) * self.move_forward;
+            }
+        }
 
         if (dy > 0.0) self.is_jumping = true;
     }
+
+    if (chase) |target| self.faceEntity(target.position, target.eye_height, 30.0, 30.0);
 
     if ((self.base.blocked_horizontally) and self.path == null) self.is_jumping = true;
     if (rand.nextFloat() < 0.8 and (self.base.in_water or self.in_lava)) self.is_jumping = true;
@@ -472,7 +520,7 @@ fn updateActionState(
     self.pitch = 0;
 
     if (self.path != null and rand.nextIntBound(100) != 0) {
-        self.followPath(gpa, rand);
+        self.followPath(gpa, rand, null);
     } else {
         self.idleActionState(player, rand);
         self.clearPath(gpa);
@@ -1071,13 +1119,13 @@ test "the death tilt rolls the corpse onto its side over the death animation" {
 test "an animal walks the way it is facing" {
     var north = testAnimal(math.Vec3.init(8, 1, 8));
     north.yaw = 0;
-    north.moveFlying(0, move_speed, ground_acceleration);
+    north.moveFlying(0, default_move_speed, ground_acceleration);
     try std.testing.expect(north.base.motion.z > 0.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0), north.base.motion.x, 1.0e-6);
 
     var west = testAnimal(math.Vec3.init(8, 1, 8));
     west.yaw = 90;
-    west.moveFlying(0, move_speed, ground_acceleration);
+    west.moveFlying(0, default_move_speed, ground_acceleration);
     try std.testing.expect(west.base.motion.x < 0.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0), west.base.motion.z, 1.0e-6);
 }

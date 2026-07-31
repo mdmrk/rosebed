@@ -9,6 +9,8 @@ pub const sheep_id = "Sheep";
 pub const cow_id = "Cow";
 pub const chicken_id = "Chicken";
 pub const slime_id = "Slime";
+pub const wolf_id = "Wolf";
+pub const wolf_owner = "Player";
 pub const item_id = "Item";
 pub const arrow_id = "Arrow";
 pub const painting_id = "Painting";
@@ -51,6 +53,13 @@ pub const Chicken = struct {
 pub const Slime = struct {
     living: Living,
     size: i32 = 0,
+};
+
+pub const Wolf = struct {
+    living: Living,
+    angry: bool = false,
+    sitting: bool = false,
+    tamed: bool = false,
 };
 
 pub const Base = struct {
@@ -189,6 +198,21 @@ pub fn storeSlime(gpa: std.mem.Allocator, slime: Slime) !nbt.Tag {
 
     try storeLiving(gpa, &compound, slime_id, slime.living);
     try put(gpa, &compound, "Size", .{ .int = slime.size });
+
+    return .{ .compound = compound };
+}
+
+pub fn storeWolf(gpa: std.mem.Allocator, wolf: Wolf) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, wolf_id, wolf.living);
+    try put(gpa, &compound, "Angry", .{ .byte = @intFromBool(wolf.angry) });
+    try put(gpa, &compound, "Sitting", .{ .byte = @intFromBool(wolf.sitting) });
+    try put(gpa, &compound, "Owner", .{ .string = try gpa.dupe(u8, if (wolf.tamed) wolf_owner else "") });
 
     return .{ .compound = compound };
 }
@@ -382,6 +406,10 @@ pub fn isSlime(compound: nbt.Compound) bool {
     return hasId(compound, slime_id);
 }
 
+pub fn isWolf(compound: nbt.Compound) bool {
+    return hasId(compound, wolf_id);
+}
+
 pub fn isItem(compound: nbt.Compound) bool {
     return hasId(compound, item_id);
 }
@@ -524,6 +552,18 @@ pub fn loadSlime(compound: nbt.Compound) ?Slime {
     if (!isSlime(compound)) return null;
     const living = loadLiving(compound) orelse return null;
     return .{ .living = living, .size = intField(compound, "Size", 0) };
+}
+
+pub fn loadWolf(compound: nbt.Compound) ?Wolf {
+    if (!isWolf(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    const owner = stringField(compound, "Owner") orelse "";
+    return .{
+        .living = living,
+        .angry = boolField(compound, "Angry"),
+        .sitting = boolField(compound, "Sitting"),
+        .tamed = owner.len > 0,
+    };
 }
 
 const sample_living = Living{
@@ -686,14 +726,40 @@ test "each mob is read back only as its own kind" {
     defer nbt.deinit(gpa, &cow);
     var chicken = try storeChicken(gpa, .{ .living = living });
     defer nbt.deinit(gpa, &chicken);
+    var wolf = try storeWolf(gpa, .{ .living = living });
+    defer nbt.deinit(gpa, &wolf);
 
-    const compounds = [_]nbt.Compound{ pig.compound, sheep.compound, cow.compound, chicken.compound };
+    const compounds = [_]nbt.Compound{ pig.compound, sheep.compound, cow.compound, chicken.compound, wolf.compound };
     for (compounds, 0..) |compound, kind| {
         try std.testing.expectEqual(kind == 0, loadPig(compound) != null);
         try std.testing.expectEqual(kind == 1, loadSheep(compound) != null);
         try std.testing.expectEqual(kind == 2, loadCow(compound) != null);
         try std.testing.expectEqual(kind == 3, loadChicken(compound) != null);
+        try std.testing.expectEqual(kind == 4, loadWolf(compound) != null);
     }
+}
+
+test "a wolf survives a round trip through its NBT compound" {
+    const gpa = std.testing.allocator;
+    const original = Wolf{ .living = sample_living, .angry = false, .sitting = true, .tamed = true };
+
+    var tag = try storeWolf(gpa, original);
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expectEqualStrings("Wolf", tag.compound.get("id").?.string);
+    try std.testing.expectEqualStrings(wolf_owner, tag.compound.get("Owner").?.string);
+    try std.testing.expectEqual(original, loadWolf(tag.compound).?);
+}
+
+test "an untamed wolf writes an empty owner and reads back untamed" {
+    const gpa = std.testing.allocator;
+    const original = Wolf{ .living = sample_living, .angry = true };
+
+    var tag = try storeWolf(gpa, original);
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expectEqual(@as(usize, 0), tag.compound.get("Owner").?.string.len);
+    try std.testing.expectEqual(original, loadWolf(tag.compound).?);
 }
 
 test "an entity of a kind we do not know is read as nothing at all" {

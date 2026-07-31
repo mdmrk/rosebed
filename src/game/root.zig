@@ -23,6 +23,7 @@ pub const Slime = @import("slime.zig");
 pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
+pub const Wolf = @import("wolf.zig");
 
 test {
     _ = Entity;
@@ -43,6 +44,7 @@ test {
     _ = Pig;
     _ = Sheep;
     _ = Slime;
+    _ = Wolf;
     _ = mob;
     _ = spawner;
     _ = crafting;

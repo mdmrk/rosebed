@@ -4,6 +4,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const biome = @import("biome.zig");
 const block_update = @import("block_update.zig");
 const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
@@ -324,6 +325,13 @@ pub fn getBlock(self: *const World, x: i32, y: i32, z: i32) Block {
     if (y < 0 or y >= constants.chunk_height) return .air;
     const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return .air;
     return chunk.getBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+}
+
+pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
+    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return .plains;
+    const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
+    const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
+    return biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z));
 }
 
 pub fn setBlock(self: *World, x: i32, y: i32, z: i32, id: Block) void {
