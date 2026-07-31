@@ -36,6 +36,7 @@ pub const Material = enum {
     cactus,
     circuits,
     cake,
+    piston,
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
@@ -86,6 +87,9 @@ pub const Shape = union(enum) {
     button,
     plate,
     repeater,
+    piston,
+    piston_head,
+    piston_moving,
     partial: f32,
 
     pub fn heightScale(self: Shape) f32 {
@@ -97,6 +101,94 @@ pub const Shape = union(enum) {
 };
 
 pub const Bounds = struct { min: [3]f32, max: [3]f32 };
+
+pub const Mobility = enum { movable, fragile, immovable };
+
+pub const piston_facing_mask: u4 = 7;
+pub const piston_flag: u4 = 8;
+pub const piston_head_depth: f32 = 4.0 / 16.0;
+pub const piston_shaft_half: f32 = 2.0 / 16.0;
+
+pub fn pistonFacing(metadata: u4) Side {
+    return switch (metadata & piston_facing_mask) {
+        0 => .down,
+        1 => .up,
+        2 => .north,
+        3 => .south,
+        4 => .west,
+        else => .east,
+    };
+}
+
+pub fn pistonFacingValue(side: Side) u4 {
+    return switch (side) {
+        .down => 0,
+        .up => 1,
+        .north => 2,
+        .south => 3,
+        .west => 4,
+        .east => 5,
+    };
+}
+
+pub fn pistonExtended(metadata: u4) bool {
+    return metadata & piston_flag != 0;
+}
+
+pub fn pistonStep(side: Side) [3]i32 {
+    return switch (side) {
+        .down => .{ 0, -1, 0 },
+        .up => .{ 0, 1, 0 },
+        .north => .{ 0, 0, -1 },
+        .south => .{ 0, 0, 1 },
+        .west => .{ -1, 0, 0 },
+        .east => .{ 1, 0, 0 },
+    };
+}
+
+fn shrunkTowards(side: Side, depth: f32) Bounds {
+    return switch (side) {
+        .down => .{ .min = .{ 0, depth, 0 }, .max = .{ 1, 1, 1 } },
+        .up => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1 - depth, 1 } },
+        .north => .{ .min = .{ 0, 0, depth }, .max = .{ 1, 1, 1 } },
+        .south => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 - depth } },
+        .west => .{ .min = .{ depth, 0, 0 }, .max = .{ 1, 1, 1 } },
+        .east => .{ .min = .{ 0, 0, 0 }, .max = .{ 1 - depth, 1, 1 } },
+    };
+}
+
+pub fn pistonBaseBounds(metadata: u4) Bounds {
+    if (!pistonExtended(metadata)) return .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } };
+    return shrunkTowards(pistonFacing(metadata), piston_head_depth);
+}
+
+pub fn pistonHeadPlateBounds(metadata: u4) Bounds {
+    const facing = pistonFacing(metadata);
+    const opposite: Side = switch (facing) {
+        .down => .up,
+        .up => .down,
+        .north => .south,
+        .south => .north,
+        .west => .east,
+        .east => .west,
+    };
+    return shrunkTowards(opposite, 1.0 - piston_head_depth);
+}
+
+pub fn pistonHeadShaftBounds(metadata: u4) Bounds {
+    const q: f32 = 4.0 / 16.0;
+    const n: f32 = 6.0 / 16.0;
+    const w: f32 = 10.0 / 16.0;
+    const t: f32 = 12.0 / 16.0;
+    return switch (pistonFacing(metadata)) {
+        .down => .{ .min = .{ n, q, n }, .max = .{ w, 1, w } },
+        .up => .{ .min = .{ n, 0, n }, .max = .{ w, t, w } },
+        .north => .{ .min = .{ q, n, q }, .max = .{ t, w, 1 } },
+        .south => .{ .min = .{ q, n, 0 }, .max = .{ t, w, t } },
+        .west => .{ .min = .{ n, q, q }, .max = .{ w, t, 1 } },
+        .east => .{ .min = .{ 0, n, q }, .max = .{ t, w, t } },
+    };
+}
 
 const full_cube_box = [1]Bounds{.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }};
 
@@ -230,9 +322,13 @@ pub const Block = enum(u8) {
     sandstone = 24,
     note_block = 25,
     bed = 26,
+    piston_sticky = 29,
     tall_grass = 31,
     dead_bush = 32,
+    piston = 33,
+    piston_head = 34,
     wool = 35,
+    piston_moving = 36,
     dandelion = 37,
     rose = 38,
     mushroom_brown = 39,
@@ -319,6 +415,7 @@ pub const Block = enum(u8) {
             .cake => .cake,
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
+            .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
             else => .rock,
         };
     }
@@ -340,6 +437,9 @@ pub const Block = enum(u8) {
             .cake => .cake,
             .snow_layer => .{ .partial = 0.125 },
             .slab => .{ .partial = 0.5 },
+            .piston, .piston_sticky => .piston,
+            .piston_head => .piston_head,
+            .piston_moving => .piston_moving,
             else => .cube,
         };
     }
@@ -425,8 +525,22 @@ pub const Block = enum(u8) {
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
+            .piston, .piston_sticky, .piston_head, .piston_moving => false,
             else => self.isOpaque() and !self.isLiquid(),
         };
+    }
+
+    pub fn mobility(self: Block) Mobility {
+        return switch (self.material()) {
+            .water, .lava, .leaves, .plants, .circuits => .fragile,
+            .snow, .cactus, .pumpkin, .cake => .fragile,
+            .piston => .immovable,
+            else => .movable,
+        };
+    }
+
+    pub fn isPistonBase(self: Block) bool {
+        return self == .piston or self == .piston_sticky;
     }
 
     pub fn isNormalCube(self: Block) bool {
@@ -473,6 +587,8 @@ pub const Block = enum(u8) {
             .bed => bed_bounds,
             .sign_post => sign_post_bounds,
             .wall_sign => wallSignBounds(metadata),
+            .piston, .piston_sticky => pistonBaseBounds(metadata),
+            .piston_head => pistonHeadPlateBounds(metadata),
             else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, self.heightScale(), 1 } },
         };
     }
@@ -585,6 +701,9 @@ pub const Block = enum(u8) {
                 .west = 118,
                 .east = 118,
             }),
+            .piston, .piston_sticky => pistonBaseTextures(self, piston_item_metadata),
+            .piston_head => pistonHeadTextures(piston_item_metadata),
+            .piston_moving => uniform(piston_side_tile),
             else => uniform(0),
         };
     }
@@ -676,8 +795,14 @@ pub const Block = enum(u8) {
             .cake => 0.5,
             .bed => 0.2,
             .sign_post, .wall_sign => 1.0,
+            .piston, .piston_sticky, .piston_head => 0.5,
+            .piston_moving => -1.0,
             else => 0.0,
         };
+    }
+
+    pub fn isUnbreakable(self: Block) bool {
+        return self.hardness() < 0.0;
     }
 
     pub fn harvestableWith(self: Block, held: ?Stack) bool {
@@ -815,6 +940,7 @@ pub const Block = enum(u8) {
             .cake => null,
             .bed => if (bedIsPillow(meta)) null else .{ .id = .{ .item = .bed }, .count = 1 },
             .flowing_water, .stationary_water, .flowing_lava, .stationary_lava => null,
+            .piston_head, .piston_moving => null,
             else => .{ .id = .{ .block = self }, .count = 1 },
         };
     }
@@ -1185,6 +1311,78 @@ pub fn slabTextures(metadata: u4) FaceTextures {
         slab_cobblestone => uniform(16),
         else => topAndSide(6, 6, 5),
     };
+}
+
+pub const piston_item_metadata: u4 = 1;
+pub const piston_top_sticky_tile: u8 = 106;
+pub const piston_top_tile: u8 = 107;
+pub const piston_side_tile: u8 = 108;
+pub const piston_back_tile: u8 = 109;
+pub const piston_inner_tile: u8 = 110;
+
+fn oppositeSide(side: Side) Side {
+    return switch (side) {
+        .down => .up,
+        .up => .down,
+        .north => .south,
+        .south => .north,
+        .west => .east,
+        .east => .west,
+    };
+}
+
+pub const TileTurn = struct { turns: u2 = 0, mirrored: bool = false };
+
+pub fn pistonSideTurn(facing: Side, face: Side) TileTurn {
+    return switch (facing) {
+        .up => .{},
+        .down => switch (face) {
+            .down, .up => .{},
+            else => .{ .turns = 2 },
+        },
+        .north => switch (face) {
+            .down, .up, .north, .south => .{},
+            .west => .{ .turns = 3 },
+            .east => .{ .turns = 3, .mirrored = true },
+        },
+        .south => switch (face) {
+            .down, .up => .{ .turns = 2 },
+            .north, .south => .{},
+            .west => .{ .turns = 1 },
+            .east => .{ .turns = 1, .mirrored = true },
+        },
+        .west => switch (face) {
+            .down, .up, .south => .{ .turns = 3 },
+            .north => .{ .turns = 3, .mirrored = true },
+            .west, .east => .{},
+        },
+        .east => switch (face) {
+            .down, .up, .south => .{ .turns = 1 },
+            .north => .{ .turns = 1, .mirrored = true },
+            .west, .east => .{},
+        },
+    };
+}
+
+pub fn pistonBaseTextures(id: Block, metadata: u4) FaceTextures {
+    const facing = pistonFacing(metadata);
+    var textures = FaceTextures.initFill(piston_side_tile);
+    textures.set(oppositeSide(facing), piston_back_tile);
+    textures.set(facing, if (pistonExtended(metadata))
+        piston_inner_tile
+    else if (id == .piston_sticky)
+        piston_top_sticky_tile
+    else
+        piston_top_tile);
+    return textures;
+}
+
+pub fn pistonHeadTextures(metadata: u4) FaceTextures {
+    const facing = pistonFacing(metadata);
+    var textures = FaceTextures.initFill(piston_side_tile);
+    textures.set(oppositeSide(facing), piston_top_tile);
+    textures.set(facing, if (metadata & piston_flag != 0) piston_top_sticky_tile else piston_top_tile);
+    return textures;
 }
 
 pub fn furnaceTextures(id: Block, metadata: u4) FaceTextures {
@@ -1748,6 +1946,157 @@ test "a liquid culls the face it shares with its own material or with ice" {
 test "a liquid always draws its top face unless the same liquid sits above it" {
     try std.testing.expect(Block.stationary_water.shouldRenderFace(.stone, .up, true));
     try std.testing.expect(!Block.stationary_water.shouldRenderFace(.stationary_water, .up, true));
+}
+
+test "a piston reads its facing and extension out of the low nibble" {
+    try std.testing.expectEqual(Side.down, pistonFacing(0));
+    try std.testing.expectEqual(Side.up, pistonFacing(1));
+    try std.testing.expectEqual(Side.north, pistonFacing(2));
+    try std.testing.expectEqual(Side.south, pistonFacing(3));
+    try std.testing.expectEqual(Side.west, pistonFacing(4));
+    try std.testing.expectEqual(Side.east, pistonFacing(5));
+
+    try std.testing.expect(!pistonExtended(5));
+    try std.testing.expect(pistonExtended(5 | piston_flag));
+    try std.testing.expectEqual(Side.east, pistonFacing(5 | piston_flag));
+
+    for (std.enums.values(Side)) |side| {
+        try std.testing.expectEqual(side, pistonFacing(pistonFacingValue(side)));
+    }
+}
+
+test "an extended piston pulls its face back by four pixels" {
+    const retracted = pistonBaseBounds(pistonFacingValue(.up));
+    try std.testing.expectEqual(Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }, retracted);
+
+    const up = pistonBaseBounds(pistonFacingValue(.up) | piston_flag);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), up.max[1], 1.0e-6);
+
+    const down = pistonBaseBounds(pistonFacingValue(.down) | piston_flag);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0 / 16.0), down.min[1], 1.0e-6);
+
+    const east = pistonBaseBounds(pistonFacingValue(.east) | piston_flag);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
+}
+
+test "the piston head plate sits at the end it faces" {
+    const up = pistonHeadPlateBounds(pistonFacingValue(.up));
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), up.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), up.max[1], 1.0e-6);
+
+    const down = pistonHeadPlateBounds(pistonFacingValue(.down));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), down.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0 / 16.0), down.max[1], 1.0e-6);
+
+    const north = pistonHeadPlateBounds(pistonFacingValue(.north));
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0 / 16.0), north.max[2], 1.0e-6);
+}
+
+test "the head shaft reaches from the plate back to the base" {
+    const up = pistonHeadShaftBounds(pistonFacingValue(.up));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), up.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), up.max[1], 1.0e-6);
+
+    const east = pistonHeadShaftBounds(pistonFacingValue(.east));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), east.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
+}
+
+test "what a piston can shove follows the material mobility the original gives it" {
+    try std.testing.expectEqual(Mobility.movable, Block.stone.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.wool.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.ice.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.snow_block.mobility());
+
+    try std.testing.expectEqual(Mobility.fragile, Block.torch.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.redstone_wire.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.rose.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.snow_layer.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.cactus.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.pumpkin.mobility());
+    try std.testing.expectEqual(Mobility.fragile, Block.cake.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.bed.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.door_wood.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.door_iron.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.pressure_plate_stone.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.pressure_plate_planks.mobility());
+    try std.testing.expectEqual(Mobility.movable, Block.workbench.mobility());
+
+    try std.testing.expectEqual(Mobility.immovable, Block.piston.mobility());
+    try std.testing.expectEqual(Mobility.immovable, Block.piston_head.mobility());
+    try std.testing.expectEqual(Mobility.immovable, Block.piston_moving.mobility());
+}
+
+test "only the piston base is worth picking up" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(Id{ .block = .piston }, Block.piston.drop(0, &rand).?.id);
+    try std.testing.expectEqual(Id{ .block = .piston_sticky }, Block.piston_sticky.drop(0, &rand).?.id);
+    try std.testing.expect(Block.piston_head.drop(0, &rand) == null);
+    try std.testing.expect(Block.piston_moving.drop(0, &rand) == null);
+
+    try std.testing.expect(Block.piston_moving.isUnbreakable());
+    try std.testing.expect(!Block.piston.isUnbreakable());
+}
+
+test "a piston in the hand shows its face, not the grass tile at index zero" {
+    const plain = Block.piston.faceTextures();
+    try std.testing.expectEqual(piston_top_tile, plain.get(.up));
+    try std.testing.expectEqual(piston_back_tile, plain.get(.down));
+    try std.testing.expectEqual(piston_side_tile, plain.get(.north));
+    try std.testing.expectEqual(piston_side_tile, plain.get(.east));
+
+    const sticky = Block.piston_sticky.faceTextures();
+    try std.testing.expectEqual(piston_top_sticky_tile, sticky.get(.up));
+    try std.testing.expectEqual(piston_back_tile, sticky.get(.down));
+}
+
+test "a piston's faces take the turns RenderBlocks gives them, mirrors and all" {
+    const sides = [6]Side{ .down, .up, .north, .south, .west, .east };
+
+    const expected = [6][6]TileTurn{
+        .{ .{}, .{}, .{ .turns = 2 }, .{ .turns = 2 }, .{ .turns = 2 }, .{ .turns = 2 } },
+        .{ .{}, .{}, .{}, .{}, .{}, .{} },
+        .{ .{}, .{}, .{}, .{}, .{ .turns = 3 }, .{ .turns = 3, .mirrored = true } },
+        .{ .{ .turns = 2 }, .{ .turns = 2 }, .{}, .{}, .{ .turns = 1 }, .{ .turns = 1, .mirrored = true } },
+        .{ .{ .turns = 3 }, .{ .turns = 3 }, .{ .turns = 3, .mirrored = true }, .{ .turns = 3 }, .{}, .{} },
+        .{ .{ .turns = 1 }, .{ .turns = 1 }, .{ .turns = 1, .mirrored = true }, .{ .turns = 1 }, .{}, .{} },
+    };
+
+    for (sides, 0..) |facing, f| {
+        for (sides, 0..) |face, n| {
+            try std.testing.expectEqual(expected[f][n], pistonSideTurn(facing, face));
+        }
+    }
+}
+
+test "a piston is not a normal cube, so it carries no redstone through itself" {
+    try std.testing.expect(!Block.piston.isNormalCube());
+    try std.testing.expect(!Block.piston_sticky.isNormalCube());
+    try std.testing.expect(!Block.piston_head.isNormalCube());
+    try std.testing.expect(!Block.piston.isOpaqueCube());
+    try std.testing.expect(Block.piston.isSolid());
+    try std.testing.expect(Block.piston.isPistonBase() and Block.piston_sticky.isPistonBase());
+    try std.testing.expect(!Block.piston_head.isPistonBase());
+}
+
+test "the piston face shows sticky, plain or the drawn-back inner ring" {
+    const plain = pistonBaseTextures(.piston, pistonFacingValue(.up));
+    try std.testing.expectEqual(piston_top_tile, plain.get(.up));
+    try std.testing.expectEqual(piston_back_tile, plain.get(.down));
+    try std.testing.expectEqual(piston_side_tile, plain.get(.north));
+
+    const sticky = pistonBaseTextures(.piston_sticky, pistonFacingValue(.up));
+    try std.testing.expectEqual(piston_top_sticky_tile, sticky.get(.up));
+
+    const extended = pistonBaseTextures(.piston_sticky, pistonFacingValue(.up) | piston_flag);
+    try std.testing.expectEqual(piston_inner_tile, extended.get(.up));
+
+    const head = pistonHeadTextures(pistonFacingValue(.up));
+    try std.testing.expectEqual(piston_top_tile, head.get(.up));
+    try std.testing.expectEqual(piston_top_tile, head.get(.down));
+
+    const sticky_head = pistonHeadTextures(pistonFacingValue(.up) | piston_flag);
+    try std.testing.expectEqual(piston_top_sticky_tile, sticky_head.get(.up));
 }
 
 test "saplings draw as a cross, with a tile per tree kind" {

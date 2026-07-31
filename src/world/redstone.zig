@@ -5,6 +5,7 @@ const Block = block.Block;
 const Side = block.Side;
 const block_update = @import("block_update.zig");
 const constants = @import("constants.zig");
+const piston = @import("piston.zig");
 const testing_world = @import("testing.zig");
 const World = @import("world_map.zig");
 
@@ -484,6 +485,7 @@ pub fn onBlockAdded(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.me
         },
         .torch_redstone_on => try notifyAround(world_map, x, y, z, id),
         .repeater_off, .repeater_on => try notifyAround(world_map, x, y, z, id),
+        .piston, .piston_sticky => try piston.onBlockAdded(world_map, x, y, z),
         else => {},
     }
 }
@@ -506,6 +508,7 @@ pub fn onBlockRemoved(world_map: *World, x: i32, y: i32, z: i32, id: Block, meta
             try world_map.notifyBlocksOfNeighborChange(x, y, z, id);
             try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
         },
+        .piston_head => try piston.onHeadRemoved(world_map, x, y, z, metadata),
         else => {},
     }
 }
@@ -539,6 +542,8 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32, source: Block
             if (!canProvidePower(source)) return;
             try trapdoorPowerChange(world_map, x, y, z, isBlockIndirectlyGettingPowered(world_map, x, y, z));
         },
+        .piston, .piston_sticky => try piston.onNeighborChange(world_map, x, y, z),
+        .piston_head => try piston.onHeadNeighborChange(world_map, x, y, z),
         else => {},
     }
 }
@@ -624,8 +629,10 @@ pub fn onBlockPlaced(
     y: i32,
     z: i32,
     id: Block,
+    player: [3]f64,
     yaw: f32,
 ) std.mem.Allocator.Error!void {
+    if (id.isPistonBase()) return piston.onBlockPlaced(world_map, x, y, z, player, yaw);
     if (!id.isRepeater()) return;
     const facing = block.repeaterFacingFromYaw(yaw);
     try world_map.setBlockMetadataWithNotify(x, y, z, facing);

@@ -6,6 +6,7 @@ const world = @import("world");
 
 const Atlas = @import("atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
+const Colorizer = @import("colorizer.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 const mob_model = @import("mob_model.zig");
 
@@ -191,6 +192,95 @@ pub fn appendItemIcon(
 
     const degrees = std.math.pi / 180.0;
     try appendCopies(mesh, gpa, world_map, item, (180.0 - view_yaw) * degrees, 0.3, partial_ticks, Billboard.build);
+}
+
+pub fn appendMovingPiston(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    colorizer: Colorizer,
+    pos: world.World.BlockPos,
+    state: world.piston.Moving,
+    partial_ticks: f32,
+) !void {
+    if (state.stored == .air or state.stored == .piston_moving) return;
+
+    const progress = state.renderProgress(partial_ticks);
+    if (progress >= 1.0) return;
+
+    const shift = state.displacement(partial_ticks);
+    const cell: [3]f32 = .{
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
+    };
+    const carried: [3]f32 = .{ cell[0] + shift[0], cell[1] + shift[1], cell[2] + shift[2] };
+    const options: chunk_mesher.Options = .{ .all_faces = true };
+
+    if (state.stored == .piston_head and progress < 0.5) {
+        try chunk_mesher.buildPistonHead(
+            mesh,
+            gpa,
+            world_map,
+            state.stored,
+            state.stored_metadata,
+            pos.x,
+            pos.y,
+            pos.z,
+            carried,
+            chunk_mesher.piston_shaft_length / 2.0,
+            options,
+        );
+        return;
+    }
+
+    if (state.source and !state.extending) {
+        const sticky: u4 = if (state.stored == .piston_sticky) world.block.piston_flag else 0;
+        try chunk_mesher.buildPistonHead(
+            mesh,
+            gpa,
+            world_map,
+            .piston_head,
+            world.block.pistonFacingValue(state.facing) | sticky,
+            pos.x,
+            pos.y,
+            pos.z,
+            carried,
+            if (progress < 0.5) chunk_mesher.piston_shaft_length else chunk_mesher.piston_shaft_length / 2.0,
+            options,
+        );
+
+        try chunk_mesher.buildBlockAt(
+            mesh,
+            gpa,
+            world_map,
+            state.stored,
+            state.stored_metadata | world.block.piston_flag,
+            pos.x,
+            pos.y,
+            pos.z,
+            cell,
+            colorizer,
+            chunk_mesher.climateAt(world_map, pos.x, pos.z),
+            options,
+        );
+        return;
+    }
+
+    try chunk_mesher.buildBlockAt(
+        mesh,
+        gpa,
+        world_map,
+        state.stored,
+        state.stored_metadata,
+        pos.x,
+        pos.y,
+        pos.z,
+        carried,
+        colorizer,
+        chunk_mesher.climateAt(world_map, pos.x, pos.z),
+        options,
+    );
 }
 
 pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, block: game.FallingBlock, partial_ticks: f32) !void {
@@ -663,6 +753,142 @@ test "a true item stack has no world geometry yet" {
     var rand = world.JavaRandom.init(0);
     const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .item = .coal }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, item, 0);
+
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+}
+
+test "a block part way through a push is drawn short of where it will land" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    const pos: world.World.BlockPos = .{ .x = 8, .y = 5, .z = 8 };
+    const state: world.piston.Moving = .{
+        .stored = .cobblestone,
+        .facing = .up,
+        .extending = true,
+        .prev_progress = 0.0,
+        .progress = 0.5,
+    };
+
+    var starting: MeshBuilder = .{};
+    defer starting.deinit(gpa);
+    try appendMovingPiston(&starting, gpa, &world_map, Colorizer.untinted, pos, state, 0.0);
+
+    var halfway: MeshBuilder = .{};
+    defer halfway.deinit(gpa);
+    try appendMovingPiston(&halfway, gpa, &world_map, Colorizer.untinted, pos, state, 1.0);
+
+    var landed: MeshBuilder = .{};
+    defer landed.deinit(gpa);
+    try appendMovingPiston(&landed, gpa, &world_map, Colorizer.untinted, pos, .{
+        .stored = .cobblestone,
+        .facing = .up,
+        .extending = true,
+        .prev_progress = 0.75,
+        .progress = 0.75,
+    }, 0.0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), starting.vertices.items.len);
+
+    // It starts a whole block back down the barrel and closes on its cell.
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), meshBounds(starting)[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), meshBounds(halfway)[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.75), meshBounds(landed)[0][1], 1.0e-5);
+}
+
+test "a moving block holding nothing draws nothing" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendMovingPiston(&mesh, gpa, &world_map, Colorizer.untinted, .{ .x = 0, .y = 0, .z = 0 }, .{ .stored = .air }, 0);
+
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+}
+
+test "a retracting piston holds its body still and pulls only the head home" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    const pos: world.World.BlockPos = .{ .x = 0, .y = 4, .z = 0 };
+    const state: world.piston.Moving = .{
+        .stored = .piston,
+        .stored_metadata = world.block.pistonFacingValue(.up),
+        .facing = .up,
+        .extending = false,
+        .source = true,
+    };
+
+    var out: MeshBuilder = .{};
+    defer out.deinit(gpa);
+    try appendMovingPiston(&out, gpa, &world_map, Colorizer.untinted, pos, state, 0.0);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), meshBounds(out)[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 6.0), meshBounds(out)[1][1], 1.0e-5);
+
+    var home: MeshBuilder = .{};
+    defer home.deinit(gpa);
+    try appendMovingPiston(&home, gpa, &world_map, Colorizer.untinted, pos, .{
+        .stored = .piston,
+        .stored_metadata = world.block.pistonFacingValue(.up),
+        .facing = .up,
+        .extending = false,
+        .source = true,
+        .prev_progress = 0.75,
+        .progress = 0.75,
+    }, 0.0);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), meshBounds(home)[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 5.25), meshBounds(home)[1][1], 1.0e-5);
+}
+
+test "a sticky piston pulls a sticky head back, not a plain one" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendMovingPiston(&mesh, gpa, &world_map, Colorizer.untinted, .{ .x = 0, .y = 4, .z = 0 }, .{
+        .stored = .piston_sticky,
+        .stored_metadata = world.block.pistonFacingValue(.up),
+        .facing = .up,
+        .extending = false,
+        .source = true,
+    }, 0.0);
+
+    const sticky = Atlas.tileUv(world.block.piston_top_sticky_tile);
+    var wears_sticky_face = false;
+    for (mesh.vertices.items) |vertex| {
+        if (vertex.u >= sticky.u0 - 1.0e-4 and vertex.u <= sticky.u1 + 1.0e-4 and
+            vertex.v >= sticky.v0 - 1.0e-4 and vertex.v <= sticky.v1 + 1.0e-4) wears_sticky_face = true;
+    }
+    try std.testing.expect(wears_sticky_face);
+}
+
+test "a moving block that has arrived is left to the static mesh" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendMovingPiston(&mesh, gpa, &world_map, Colorizer.untinted, .{ .x = 0, .y = 4, .z = 0 }, .{
+        .stored = .cobblestone,
+        .facing = .up,
+        .extending = true,
+        .prev_progress = 1.0,
+        .progress = 1.0,
+    }, 0.0);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
@@ -1691,5 +1917,32 @@ pub fn appendPainting(
 
             mesh.scaleColors(tile_first, shade);
         }
+    }
+}
+
+test "a shaft on a head part way out reaches back far enough to meet its base" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    const pos: world.World.BlockPos = .{ .x = 0, .y = 4, .z = 0 };
+    const base_top = @as(f32, @floatFromInt(pos.y)) - world.block.piston_head_depth;
+
+    for ([_]f32{ 0.0, 0.25, 0.5, 0.75 }) |progress| {
+        var mesh: MeshBuilder = .{};
+        defer mesh.deinit(gpa);
+        try appendMovingPiston(&mesh, gpa, &world_map, Colorizer.untinted, pos, .{
+            .stored = .piston_head,
+            .stored_metadata = world.block.pistonFacingValue(.up),
+            .facing = .up,
+            .extending = true,
+            .prev_progress = progress,
+            .progress = progress,
+        }, 0.0);
+
+        var lowest: f32 = std.math.floatMax(f32);
+        for (mesh.vertices.items) |vertex| lowest = @min(lowest, vertex.y);
+        try std.testing.expect(lowest <= base_top + 1.0e-5);
     }
 }

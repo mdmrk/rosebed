@@ -2010,7 +2010,15 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
     }
-    try world.redstone.onBlockPlaced(&app_state.world_map, px, py, pz, placed, app_state.player.yaw);
+    try world.redstone.onBlockPlaced(
+        &app_state.world_map,
+        px,
+        py,
+        pz,
+        placed,
+        .{ app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z },
+        app_state.player.yaw,
+    );
     _ = try world.block_update.mergeSlabBelow(&app_state.world_map, px, py, pz);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
@@ -2137,6 +2145,8 @@ fn tick(app_state: *AppState) !void {
     try pressPressurePlates(app_state);
     try app_state.world_map.tickUpdates();
     try app_state.world_map.tickFurnaces();
+    try app_state.world_map.tickPistons();
+    try app_state.entities.applyPistonShoves(&app_state.world_map, &app_state.player);
     try applyBlockChanges(app_state);
     try app_state.entities.tickAnimals(
         app_state.gpa,
@@ -2410,6 +2420,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
     for (app_state.entities.falling_blocks.items) |block| {
         try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
+    }
+    var moving_pistons = app_state.world_map.pistons.iterator();
+    while (moving_pistons.next()) |entry| {
+        try render.entity_render.appendMovingPiston(
+            &atlas_mesh,
+            app_state.frame,
+            &app_state.world_map,
+            app_state.colorizer,
+            entry.key_ptr.*,
+            entry.value_ptr.*,
+            partial,
+        );
     }
     const basis = render.entity_render.CameraBasis.fromLook(app_state.player.yaw, app_state.player.pitch);
     var particle_mesh: render.MeshBuilder = .{};
@@ -2799,7 +2821,18 @@ fn drawBreakingCrack(app_state: *AppState) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    try render.selection.appendCrack(&mesh, app_state.frame, id, app_state.world_map.getBlockMetadata(digging.x, digging.y, digging.z), digging.x, digging.y, digging.z, digging.progress);
+    try render.selection.appendCrack(
+        &mesh,
+        app_state.frame,
+        &app_state.world_map,
+        app_state.colorizer,
+        id,
+        app_state.world_map.getBlockMetadata(digging.x, digging.y, digging.z),
+        digging.x,
+        digging.y,
+        digging.z,
+        digging.progress,
+    );
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.DST_COLOR, gl.SRC_COLOR);

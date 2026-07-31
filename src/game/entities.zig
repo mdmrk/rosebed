@@ -1112,6 +1112,69 @@ pub fn tickSlimes(
     }
 }
 
+fn shoveBox(shove: world.World.PistonShove) ?math.AABB {
+    const stored = shove.state.stored;
+    if (stored == .air or stored == .piston_moving) return null;
+    if (!stored.hasCollision()) return null;
+
+    const bounds = stored.selectionBounds(shove.state.stored_metadata);
+    const along = shove.state.offsetAt(shove.progress);
+    const delta = world.block.pistonStep(shove.state.facing);
+    const shift = [3]f64{
+        @as(f64, along) * @as(f64, @floatFromInt(delta[0])),
+        @as(f64, along) * @as(f64, @floatFromInt(delta[1])),
+        @as(f64, along) * @as(f64, @floatFromInt(delta[2])),
+    };
+
+    return math.AABB.init(
+        @as(f64, @floatFromInt(shove.pos.x)) + bounds.min[0] + shift[0],
+        @as(f64, @floatFromInt(shove.pos.y)) + bounds.min[1] + shift[1],
+        @as(f64, @floatFromInt(shove.pos.z)) + bounds.min[2] + shift[2],
+        @as(f64, @floatFromInt(shove.pos.x)) + bounds.max[0] + shift[0],
+        @as(f64, @floatFromInt(shove.pos.y)) + bounds.max[1] + shift[1],
+        @as(f64, @floatFromInt(shove.pos.z)) + bounds.max[2] + shift[2],
+    );
+}
+
+pub fn applyPistonShoves(self: *Entities, world_map: *world.World, player: *Player) !void {
+    for (world_map.piston_shoves.items) |shove| {
+        const box = shoveBox(shove) orelse continue;
+        const push = shove.state.shoveAlong(shove.amount);
+
+        if (player.base.boundingBox().intersects(box)) {
+            player.base.motion.x += push[0];
+            player.base.motion.y += push[1];
+            player.base.motion.z += push[2];
+            _ = player.base.move(world_map);
+            player.base.motion.x -= push[0];
+            player.base.motion.y -= push[1];
+            player.base.motion.z -= push[2];
+        }
+
+        inline for (self.herds()) |herd| {
+            for (herd.items) |*mob| {
+                if (!mob.animal.base.boundingBox().intersects(box)) continue;
+                shoveEntity(&mob.animal.base, world_map, push);
+            }
+        }
+        for (self.slimes.items) |*slime| {
+            if (!slime.animal.base.boundingBox().intersects(box)) continue;
+            shoveEntity(&slime.animal.base, world_map, push);
+        }
+        for (self.items.items) |*dropped| {
+            if (!dropped.base.boundingBox().intersects(box)) continue;
+            shoveEntity(&dropped.base, world_map, push);
+        }
+    }
+}
+
+fn shoveEntity(base: *Entity, world_map: *const world.World, push: [3]f64) void {
+    const kept = base.motion;
+    base.motion = .{ .x = push[0], .y = push[1], .z = push[2] };
+    _ = base.move(world_map);
+    base.motion = kept;
+}
+
 pub fn tickAnimals(
     self: *Entities,
     gpa: std.mem.Allocator,

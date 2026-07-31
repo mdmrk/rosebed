@@ -31,6 +31,26 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
             }
             return 2;
         },
+        .piston => world.block.pistonBaseBounds(world_map.getBlockMetadata(x, y, z)),
+        .piston_moving => {
+            const state = world_map.pistons.get(.{ .x = x, .y = y, .z = z }) orelse return 0;
+            if (state.stored == .air or state.stored == .piston_moving) return 0;
+            if (!state.stored.hasCollision()) return 0;
+
+            const shift = state.displacement(0);
+            const bounds = state.stored.selectionBounds(state.stored_metadata);
+            out[0] = offsetBox(.{
+                .min = .{ bounds.min[0] + shift[0], bounds.min[1] + shift[1], bounds.min[2] + shift[2] },
+                .max = .{ bounds.max[0] + shift[0], bounds.max[1] + shift[1], bounds.max[2] + shift[2] },
+            }, x, y, z);
+            return 1;
+        },
+        .piston_head => {
+            const metadata = world_map.getBlockMetadata(x, y, z);
+            out[0] = offsetBox(world.block.pistonHeadPlateBounds(metadata), x, y, z);
+            out[1] = offsetBox(world.block.pistonHeadShaftBounds(metadata), x, y, z);
+            return 2;
+        },
         .partial => |height| world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, height, 1 } },
         else => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
     };

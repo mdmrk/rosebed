@@ -2,6 +2,8 @@ const std = @import("std");
 
 const world = @import("world");
 
+const chunk_mesher = @import("chunk_mesher.zig");
+const Colorizer = @import("colorizer.zig");
 const MeshBuilder = @import("mesh_builder.zig");
 
 pub const expand: f32 = 0.002;
@@ -40,22 +42,39 @@ pub fn crackTile(progress: f32) u8 {
     return first_crack_tile + @min(stage, crack_stages - 1);
 }
 
-pub fn appendCrack(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, meta: u4, x: i32, y: i32, z: i32, progress: f32) !void {
-    if (id.isSign()) return;
+pub const crack_color: [4]u8 = .{ 255, 255, 255, 255 };
 
-    const bounds = id.selectionBounds(meta);
-    const tile = crackTile(progress);
-    const min = [3]f32{
-        @as(f32, @floatFromInt(x)) + bounds.min[0],
-        @as(f32, @floatFromInt(y)) + bounds.min[1],
-        @as(f32, @floatFromInt(z)) + bounds.min[2],
-    };
-    const max = [3]f32{
-        @as(f32, @floatFromInt(x)) + bounds.max[0],
-        @as(f32, @floatFromInt(y)) + bounds.max[1],
-        @as(f32, @floatFromInt(z)) + bounds.max[2],
-    };
-    try @import("chunk_mesher.zig").buildCubeColored(mesh, gpa, min, max, world.block.FaceTextures.initFill(tile), 0.0, .{ 255, 255, 255, 255 });
+pub fn appendCrack(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    colorizer: Colorizer,
+    id: world.Block,
+    meta: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    progress: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const origin = [3]f32{ @floatFromInt(x), @floatFromInt(y), @floatFromInt(z) };
+
+    try chunk_mesher.buildBlockAt(
+        mesh,
+        gpa,
+        world_map,
+        id,
+        meta,
+        x,
+        y,
+        z,
+        origin,
+        colorizer,
+        chunk_mesher.climateAt(world_map, x, z),
+        .{ .override_tile = crackTile(progress) },
+    );
+
+    mesh.paintColors(first_vertex, crack_color);
 }
 
 test "the crack texture walks the ten destroy stages" {
@@ -65,17 +84,89 @@ test "the crack texture walks the ten destroy stages" {
     try std.testing.expectEqual(first_crack_tile + 9, crackTile(1.0));
 }
 
+fn crackMesh(gpa: std.mem.Allocator, mesh: *MeshBuilder, id: world.Block, meta: u4) !void {
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    try appendCrack(mesh, gpa, &world_map, Colorizer.untinted, id, meta, 0, 0, 0, 0.5);
+}
+
 test "a sign takes no crack overlay, having no block model to lay one over" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendCrack(&mesh, gpa, .sign_post, 8, 0, 0, 0, 0.5);
-    try appendCrack(&mesh, gpa, .wall_sign, 2, 0, 0, 0, 0.5);
+    try crackMesh(gpa, &mesh, .sign_post, 8);
+    try crackMesh(gpa, &mesh, .wall_sign, 2);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 
-    try appendCrack(&mesh, gpa, .planks, 0, 0, 0, 0, 0.5);
+    try crackMesh(gpa, &mesh, .planks, 0);
     try std.testing.expect(mesh.vertices.items.len > 0);
+}
+
+test "the crack is cropped to a slab's bounds rather than squashed onto them" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try crackMesh(gpa, &mesh, .slab, 0);
+
+    const uv = @import("atlas.zig").tileUv(crackTile(0.5));
+    const north = mesh.vertices.items[2 * 4 ..][0..4];
+    var v_low: f32 = std.math.floatMax(f32);
+    var v_high: f32 = -std.math.floatMax(f32);
+    for (north) |vertex| {
+        v_low = @min(v_low, vertex.v);
+        v_high = @max(v_high, vertex.v);
+    }
+
+    try std.testing.expectApproxEqAbs((uv.v0 + uv.v1) / 2.0, v_low, 1.0e-6);
+    try std.testing.expectApproxEqAbs(uv.v1, v_high, 1.0e-6);
+}
+
+test "cracking a piston head marks its shaft as well as its plate" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try crackMesh(gpa, &mesh, .piston_head, world.block.pistonFacingValue(.up));
+
+    var lowest_y: f32 = std.math.floatMax(f32);
+    for (mesh.vertices.items) |vertex| lowest_y = @min(lowest_y, vertex.y);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0 - 1.0), lowest_y, 1.0e-6);
+}
+
+test "a lever cracks over its own stick, not over the box it is picked by" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try crackMesh(gpa, &mesh, .lever, 5);
+
+    const bounds = world.Block.lever.selectionBounds(5);
+    var leans_out = false;
+    for (mesh.vertices.items) |vertex| {
+        if (vertex.z > bounds.max[2] + 1.0e-4) leans_out = true;
+    }
+    try std.testing.expect(leans_out);
+
+    const uv = @import("atlas.zig").tileUv(crackTile(0.5));
+    for (mesh.vertices.items) |vertex| {
+        try std.testing.expect(vertex.u >= uv.u0 - 1.0e-4 and vertex.u <= uv.u1 + 1.0e-4);
+        try std.testing.expect(vertex.v >= uv.v0 - 1.0e-4 and vertex.v <= uv.v1 + 1.0e-4);
+    }
+}
+
+test "the crack takes a flat white so the block's own tint cannot colour it" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try crackMesh(gpa, &mesh, .grass, 0);
+
+    try std.testing.expect(mesh.vertices.items.len > 0);
+    for (mesh.vertices.items) |vertex| try std.testing.expectEqual(crack_color, vertex.color);
 }
 
 test "a sign still takes a selection outline, cut to its own thin bounds" {

@@ -51,6 +51,10 @@ pub fn scaleColors(self: *MeshBuilder, first_vertex: usize, factor: f32) void {
     }
 }
 
+pub fn paintColors(self: *MeshBuilder, first_vertex: usize, color: [4]u8) void {
+    for (self.vertices.items[first_vertex..]) |*vertex| vertex.color = color;
+}
+
 pub fn line(
     self: *MeshBuilder,
     gpa: std.mem.Allocator,

@@ -9,6 +9,7 @@ const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
+const piston = @import("piston.zig");
 const sign = @import("sign.zig");
 const JavaRandom = @import("java_random.zig");
 const leaf_decay = @import("leaf_decay.zig");
@@ -90,7 +91,10 @@ entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
 furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
+pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
+piston_updates: std.ArrayList(BlockPos) = .empty,
+piston_shoves: std.ArrayList(PistonShove) = .empty,
 
 pub const ticks_per_day: i64 = 24000;
 
@@ -148,6 +152,9 @@ pub fn deinit(self: *World) void {
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
     self.signs.deinit(self.allocator);
+    self.pistons.deinit(self.allocator);
+    self.piston_updates.deinit(self.allocator);
+    self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
     self.torch_updates.deinit(self.allocator);
 }
@@ -441,6 +448,74 @@ pub fn removeSign(self: *World, x: i32, y: i32, z: i32) ?sign.Sign {
     return removed.value;
 }
 
+pub fn movingPistonAt(self: *World, x: i32, y: i32, z: i32) ?*piston.Moving {
+    return self.pistons.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addMovingPiston(self: *World, x: i32, y: i32, z: i32, state: piston.Moving) !void {
+    try self.pistons.put(self.allocator, .{ .x = x, .y = y, .z = z }, state);
+}
+
+pub fn removeMovingPiston(self: *World, x: i32, y: i32, z: i32) ?piston.Moving {
+    const removed = self.pistons.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
+pub fn finishMovingPiston(self: *World, x: i32, y: i32, z: i32) !void {
+    const state = self.removeMovingPiston(x, y, z) orelse return;
+    if (self.getBlock(x, y, z) != .piston_moving) return;
+    try self.setBlockAndMetadataWithNotify(x, y, z, state.stored, state.stored_metadata);
+}
+
+pub const PistonShove = struct {
+    pos: BlockPos,
+    state: piston.Moving,
+    progress: f32,
+    amount: f32,
+};
+
+pub fn tickPistons(self: *World) !void {
+    self.piston_updates.clearRetainingCapacity();
+    self.piston_shoves.clearRetainingCapacity();
+
+    var it = self.pistons.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getBlock(pos.x, pos.y, pos.z) != .piston_moving) {
+            try self.piston_updates.append(self.allocator, pos);
+            continue;
+        }
+
+        const state = entry.value_ptr;
+        state.prev_progress = state.progress;
+        if (state.prev_progress >= 1.0) {
+            try self.piston_shoves.append(self.allocator, .{
+                .pos = pos,
+                .state = state.*,
+                .progress = 1.0,
+                .amount = piston.final_shove,
+            });
+            try self.piston_updates.append(self.allocator, pos);
+            continue;
+        }
+
+        state.progress = @min(state.progress + piston.progress_per_tick, 1.0);
+        if (state.extending) {
+            try self.piston_shoves.append(self.allocator, .{
+                .pos = pos,
+                .state = state.*,
+                .progress = state.progress,
+                .amount = state.progress - state.prev_progress + piston.shove_lead,
+            });
+        }
+    }
+
+    for (self.piston_updates.items) |pos| {
+        try self.finishMovingPiston(pos.x, pos.y, pos.z);
+        _ = self.pistons.remove(pos);
+    }
+}
+
 fn isFurnaceBlock(id: Block) bool {
     return id == .furnace or id == .burning_furnace;
 }
@@ -486,6 +561,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try sign.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
+
+    var pistons_it = self.pistons.iterator();
+    while (pistons_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try piston.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
@@ -493,6 +575,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     const self: *World = @ptrCast(@alignCast(context));
     if (sign.load(compound)) |placed| {
         (try self.addSign(placed.x, placed.y, placed.z)).* = placed.state;
+        return;
+    }
+    if (piston.load(compound)) |placed| {
+        try self.addMovingPiston(placed.x, placed.y, placed.z, placed.state);
         return;
     }
     const placed = furnace.load(compound) orelse return;

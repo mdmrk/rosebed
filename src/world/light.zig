@@ -16,6 +16,7 @@ pub fn opacity(id: Block) u8 {
         .leaves => 1,
         .door_wood, .door_iron, .trapdoor, .cake, .sign_post, .wall_sign => 0,
         .pressure_plate_stone, .pressure_plate_planks => 0,
+        .piston, .piston_sticky, .piston_head, .piston_moving => 0,
         else => if (id.isOpaque()) 255 else 0,
     };
 }
@@ -498,6 +499,13 @@ test "a sign lets light straight through, as any block that is not a full cube d
     try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
     try std.testing.expectEqual(@as(u8, 0), opacity(.wall_sign));
     try std.testing.expectEqual(@as(u8, 255), opacity(.planks));
+}
+
+test "a piston lets light past it, stone though its material is" {
+    try std.testing.expectEqual(@as(u8, 0), opacity(.piston));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_sticky));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_head));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_moving));
 }
 
 test "a pressure plate lets daylight through instead of casting a shadow under itself" {

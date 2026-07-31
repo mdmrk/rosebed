@@ -198,6 +198,12 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks),   b(.planks),
     }, .{ .block = .note_block }, 1),
     shaped(3, 3, &.{
+        b(.planks),      b(.planks),     b(.planks),
+        b(.cobblestone), i(.ingot_iron), b(.cobblestone),
+        b(.cobblestone), i(.redstone),   b(.cobblestone),
+    }, .{ .block = .piston }, 1),
+    shaped(1, 2, &.{ i(.slime_ball), b(.piston) }, .{ .block = .piston_sticky }, 1),
+    shaped(3, 3, &.{
         b(.planks), b(.planks), b(.planks),
         i(.book),   i(.book),   i(.book),
         b(.planks), b(.planks), b(.planks),
@@ -922,6 +928,46 @@ test "the bucket's iron must be in a v, not a row or a full square" {
         row[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
     }
     try std.testing.expect(findMatch(&row, workbench_grid_size) == null);
+}
+
+test "planks over cobble with iron and redstone craft a piston" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
+    for ([_]usize{ 3, 5, 6, 8 }) |cell| {
+        grid[cell] = .{ .id = .{ .block = .cobblestone }, .count = 1 };
+    }
+    grid[4] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+    grid[7] = .{ .id = .{ .item = .redstone }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .piston }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the piston's iron and redstone cannot swap places" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
+    for ([_]usize{ 3, 5, 6, 8 }) |cell| {
+        grid[cell] = .{ .id = .{ .block = .cobblestone }, .count = 1 };
+    }
+    grid[4] = .{ .id = .{ .item = .redstone }, .count = 1 };
+    grid[7] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+}
+
+test "a slimeball on top of a piston makes it sticky" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .slime_ball }, .count = 1 };
+    grid[3] = .{ .id = .{ .block = .piston }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .piston_sticky }, result.id);
+
+    var upside_down: [9]?Inventory.ItemStack = @splat(null);
+    upside_down[0] = .{ .id = .{ .block = .piston }, .count = 1 };
+    upside_down[3] = .{ .id = .{ .item = .slime_ball }, .count = 1 };
+    try std.testing.expect(findMatch(&upside_down, workbench_grid_size) == null);
 }
 
 test "milk, sugar, egg and wheat craft one cake" {
