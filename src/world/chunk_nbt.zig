@@ -39,6 +39,74 @@ fn bytesField(compound: nbt.Compound, key: []const u8, expected: usize) ![]u8 {
     return bytes;
 }
 
+pub const palette_key = "BlockPalette";
+
+fn moddedPalette(gpa: std.mem.Allocator, chunk: *const Chunk) !?nbt.Tag {
+    var used = std.StaticBitSet(256).initEmpty();
+    for (chunk.blocks) |id| used.set(@intFromEnum(id));
+
+    var entries: std.ArrayList(nbt.Tag) = .empty;
+    errdefer {
+        var owned: nbt.Tag = .{ .list = .{ .element_type = .compound, .items = entries.items } };
+        nbt.deinit(gpa, &owned);
+        entries.deinit(gpa);
+    }
+
+    var walk = used.iterator(.{});
+    while (walk.next()) |raw| {
+        const id: Block = @enumFromInt(raw);
+        if (id.isVanilla()) continue;
+        const key = id.def().key;
+        if (key.len == 0) continue;
+
+        var entry: nbt.Compound = .{};
+        try put(gpa, &entry, "Id", .{ .short = @intCast(raw) });
+        try put(gpa, &entry, "Key", .{ .string = try gpa.dupe(u8, key) });
+        try entries.append(gpa, .{ .compound = entry });
+    }
+
+    if (entries.items.len == 0) {
+        entries.deinit(gpa);
+        return null;
+    }
+    return .{ .list = .{ .element_type = .compound, .items = try entries.toOwnedSlice(gpa) } };
+}
+
+fn remapFromPalette(level: nbt.Compound, chunk: *Chunk) void {
+    const list = switch (level.get(palette_key) orelse return) {
+        .list => |value| value,
+        else => return,
+    };
+
+    var remap: [256]Block = undefined;
+    for (&remap, 0..) |*slot, id| slot.* = @enumFromInt(id);
+
+    var changed = false;
+    for (list.items) |item| {
+        const entry = switch (item) {
+            .compound => |value| value,
+            else => continue,
+        };
+        const saved: u8 = switch (entry.get("Id") orelse continue) {
+            .short => |value| @intCast(value),
+            .byte => |value| @bitCast(value),
+            else => continue,
+        };
+        const key = switch (entry.get("Key") orelse continue) {
+            .string => |value| value,
+            else => continue,
+        };
+
+        const current = Block.fromKey(key) orelse .air;
+        if (current == @as(Block, @enumFromInt(saved))) continue;
+        remap[saved] = current;
+        changed = true;
+    }
+    if (!changed) return;
+
+    for (&chunk.blocks) |*id| id.* = remap[@intFromEnum(id.*)];
+}
+
 pub fn store(
     gpa: std.mem.Allocator,
     chunk: *const Chunk,
@@ -62,6 +130,9 @@ pub fn store(
     try put(gpa, &level, "BlockLight", .{ .byte_array = try gpa.dupe(u8, &chunk.block_light.data) });
     try put(gpa, &level, "HeightMap", .{ .byte_array = try gpa.dupe(u8, &chunk.height_map) });
     try put(gpa, &level, "TerrainPopulated", .{ .byte = @intFromBool(populated) });
+    if (try moddedPalette(gpa, chunk)) |palette| {
+        try put(gpa, &level, palette_key, palette);
+    }
     try put(gpa, &level, "Entities", .{ .list = .{ .element_type = .compound, .items = entities } });
     try put(gpa, &level, "TileEntities", .{ .list = .{ .element_type = .compound, .items = tile_entities } });
 
@@ -111,6 +182,8 @@ pub fn load(root: nbt.Tag) !Loaded {
         .byte => |value| value != 0,
         else => return Error.WrongFieldType,
     };
+
+    remapFromPalette(level, &chunk);
 
     return .{
         .chunk = chunk,
@@ -218,4 +291,80 @@ test "a truncated block array is rejected" {
     blocks.byte_array = try gpa.dupe(u8, &.{ 1, 2, 3 });
 
     try std.testing.expectError(Error.WrongArrayLength, load(tag));
+}
+
+test "a world of nothing but vanilla blocks writes no palette at all" {
+    const gpa = std.testing.allocator;
+    const original = sampleChunk();
+
+    var tag = try store(gpa, &original, 1, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+    defer nbt.deinit(gpa, &tag);
+
+    const level = tag.compound.get(level_key).?.compound;
+    try std.testing.expect(level.get(palette_key) == null);
+}
+
+test "a registered block writes its key into the palette" {
+    const gpa = std.testing.allocator;
+    defer Block.resetRegistry();
+
+    const quartz: Block = @enumFromInt(200);
+    quartz.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
+
+    var chunk = sampleChunk();
+    chunk.setBlock(3, 5, 3, quartz);
+
+    var tag = try store(gpa, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+    defer nbt.deinit(gpa, &tag);
+
+    const level = tag.compound.get(level_key).?.compound;
+    const palette = level.get(palette_key).?.list;
+    try std.testing.expectEqual(@as(usize, 1), palette.items.len);
+
+    const entry = palette.items[0].compound;
+    try std.testing.expectEqual(@as(i16, 200), entry.get("Id").?.short);
+    try std.testing.expectEqualStrings("rosebed:quartz", entry.get("Key").?.string);
+}
+
+test "a block whose id moved between runs comes back at its new id" {
+    const gpa = std.testing.allocator;
+    defer Block.resetRegistry();
+
+    const was: Block = @enumFromInt(200);
+    was.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
+
+    var chunk = sampleChunk();
+    chunk.setBlock(3, 5, 3, was);
+
+    var tag = try store(gpa, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+    defer nbt.deinit(gpa, &tag);
+
+    Block.resetRegistry();
+    const now: Block = @enumFromInt(213);
+    now.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
+
+    const loaded = try load(tag);
+    try std.testing.expectEqual(now, loaded.chunk.getBlock(3, 5, 3));
+    try std.testing.expectEqual(Block.stone, loaded.chunk.getBlock(3, 1, 3));
+}
+
+test "a block whose mod is gone loads as air rather than as whatever took its id" {
+    const gpa = std.testing.allocator;
+    defer Block.resetRegistry();
+
+    const quartz: Block = @enumFromInt(200);
+    quartz.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
+
+    var chunk = sampleChunk();
+    chunk.setBlock(3, 5, 3, quartz);
+
+    var tag = try store(gpa, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+    defer nbt.deinit(gpa, &tag);
+
+    Block.resetRegistry();
+    const squatter: Block = @enumFromInt(200);
+    squatter.register(.{ .key = "othermod:copper", .name = "Copper" });
+
+    const loaded = try load(tag);
+    try std.testing.expectEqual(Block.air, loaded.chunk.getBlock(3, 5, 3));
 }

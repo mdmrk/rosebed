@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const block = @import("block.zig");
+const ItemId = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
 
 pub const pig_id = "Pig";
@@ -211,6 +212,9 @@ pub fn storeItem(gpa: std.mem.Allocator, item: Item) !nbt.Tag {
     try put(gpa, &stack, "id", .{ .short = item.stack.id.numeric() });
     try put(gpa, &stack, "Count", .{ .byte = @bitCast(item.stack.count) });
     try put(gpa, &stack, "Damage", .{ .short = @bitCast(item.stack.meta) });
+    if (!item.stack.id.isVanilla() and item.stack.id.key().len != 0) {
+        try put(gpa, &stack, "Key", .{ .string = try gpa.dupe(u8, item.stack.id.key()) });
+    }
     try put(gpa, &compound, "Item", .{ .compound = stack });
 
     return .{ .compound = compound };
@@ -419,10 +423,12 @@ pub fn loadItem(compound: nbt.Compound) ?Item {
     const count = byteField(stored, "Count", 0);
     if (count == 0) return null;
 
+    const id = block.Id.resolve(shortField(stored, "id", 0), stringField(stored, "Key") orelse "") orelse return null;
+
     return .{
         .base = base,
         .stack = .{
-            .id = block.Id.fromNumeric(shortField(stored, "id", 0)),
+            .id = id,
             .count = count,
             .meta = @bitCast(shortField(stored, "Damage", 0)),
         },
@@ -727,4 +733,55 @@ test "a pig compound missing its position is rejected" {
     nbt.deinit(gpa, &removed.value);
 
     try std.testing.expect(loadPig(tag.compound) == null);
+}
+
+test "a vanilla stack carries no key, so its compound is unchanged" {
+    const gpa = std.testing.allocator;
+    var tag = try storeItem(gpa, .{
+        .base = .{ .position = .{ 0, 64, 0 } },
+        .stack = .{ .id = .{ .item = .diamond }, .count = 1 },
+    });
+    defer nbt.deinit(gpa, &tag);
+
+    try std.testing.expect(tag.compound.get("Item").?.compound.get("Key") == null);
+}
+
+test "a dropped modded item comes back at whatever id its key holds now" {
+    const gpa = std.testing.allocator;
+    defer ItemId.resetRegistry();
+
+    const was: ItemId = @enumFromInt(400);
+    was.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
+
+    var tag = try storeItem(gpa, .{
+        .base = .{ .position = .{ 0, 64, 0 } },
+        .stack = .{ .id = .{ .item = was }, .count = 1, .meta = 7 },
+    });
+    defer nbt.deinit(gpa, &tag);
+    try std.testing.expectEqualStrings("rosebed:quartz_pickaxe", tag.compound.get("Item").?.compound.get("Key").?.string);
+
+    ItemId.resetRegistry();
+    const now: ItemId = @enumFromInt(511);
+    now.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
+
+    const loaded = loadItem(tag.compound).?;
+    try std.testing.expectEqual(block.Id{ .item = now }, loaded.stack.id);
+    try std.testing.expectEqual(@as(u16, 7), loaded.stack.meta);
+}
+
+test "a dropped item whose mod is gone is read as nothing" {
+    const gpa = std.testing.allocator;
+    defer ItemId.resetRegistry();
+
+    const was: ItemId = @enumFromInt(400);
+    was.register(.{ .key = "rosebed:quartz_pickaxe" });
+
+    var tag = try storeItem(gpa, .{
+        .base = .{ .position = .{ 0, 64, 0 } },
+        .stack = .{ .id = .{ .item = was }, .count = 1 },
+    });
+    defer nbt.deinit(gpa, &tag);
+
+    ItemId.resetRegistry();
+    try std.testing.expect(loadItem(tag.compound) == null);
 }

@@ -3,6 +3,7 @@ const std = @import("std");
 const item = @import("item.zig");
 const Item = item.Item;
 const JavaRandom = @import("java_random.zig");
+const World = @import("world_map.zig");
 
 pub const Side = enum(u3) {
     down,
@@ -103,6 +104,68 @@ pub const Shape = union(enum) {
 pub const Bounds = struct { min: [3]f32, max: [3]f32 };
 
 pub const Mobility = enum { movable, fragile, immovable };
+
+pub const Def = struct {
+    key: []const u8 = "",
+    name: []const u8 = "",
+    material: Material = .rock,
+    shape: Shape = .cube,
+    face_textures: FaceTextures = FaceTextures.initFill(0),
+    item_render_boxes: []const Bounds = &full_cube_box,
+    hardness: f32 = 0.0,
+    side_inset: f32 = 0.0,
+    tick_rate: u32 = 0,
+    opaque_cube: bool = true,
+    breakable: bool = false,
+    translucent: bool = false,
+    falling: bool = false,
+    piston_base: bool = false,
+    replaceable: bool = false,
+    drop: ?*const fn (Block, u4, *JavaRandom) ?Stack = null,
+    selection_bounds: ?*const fn (Block, u4) Bounds = null,
+    cross_tile: ?*const fn (Block, u4) u8 = null,
+    display_name: ?*const fn (Block, u4) []const u8 = null,
+    on_tick: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
+    on_random_tick: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
+    on_neighbor_change: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
+    on_activated: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!bool = null,
+};
+
+const vanilla_keys: [256][]const u8 = keysFromEnum();
+
+fn keysFromEnum() [256][]const u8 {
+    var out: [256][]const u8 = @splat("");
+    for (@typeInfo(Block).@"enum".fields) |entry| out[entry.value] = entry.name;
+    return out;
+}
+
+var defs: [256]Def = vanillaDefs();
+
+fn vanillaDefs() [256]Def {
+    @setEvalBranchQuota(200_000);
+    var out: [256]Def = undefined;
+    for (&out, 0..) |*entry, id| {
+        const self: Block = @enumFromInt(id);
+        entry.* = .{
+            .key = vanilla_keys[id],
+            .name = self.vanillaName(),
+            .material = self.vanillaMaterial(),
+            .shape = self.vanillaShape(),
+            .face_textures = self.vanillaFaceTextures(),
+            .item_render_boxes = self.vanillaItemRenderBoxes(),
+            .hardness = self.vanillaHardness(),
+            .side_inset = self.vanillaSideInset(),
+            .tick_rate = self.vanillaTickRate(),
+            .opaque_cube = self.vanillaOpaqueCube(),
+            .breakable = self.vanillaBreakable(),
+            .translucent = self.vanillaTranslucent(),
+            .falling = self.vanillaFalling(),
+            .piston_base = self.vanillaPistonBase(),
+            .replaceable = self.vanillaReplaceable(),
+        };
+    }
+    return out;
+}
 
 pub const piston_facing_mask: u4 = 7;
 pub const piston_flag: u4 = 8;
@@ -293,6 +356,27 @@ pub const Id = union(enum) {
             .item => |id| id.maxStackSize(),
         };
     }
+
+    pub fn key(self: Id) []const u8 {
+        return switch (self) {
+            .block => |id| id.def().key,
+            .item => |id| id.def().key,
+        };
+    }
+
+    pub fn isVanilla(self: Id) bool {
+        return switch (self) {
+            .block => |id| id.isVanilla(),
+            .item => |id| id.isVanilla(),
+        };
+    }
+
+    pub fn resolve(stored: i16, name: []const u8) ?Id {
+        if (name.len == 0) return fromNumeric(stored);
+        const raw: u16 = @bitCast(stored);
+        if (raw < 256) return .{ .block = Block.fromKey(name) orelse return null };
+        return .{ .item = Item.fromKey(name) orelse return null };
+    }
 };
 
 pub const Block = enum(u8) {
@@ -383,7 +467,35 @@ pub const Block = enum(u8) {
     trapdoor = 96,
     _,
 
+    pub fn def(self: Block) *const Def {
+        return &defs[@intFromEnum(self)];
+    }
+
+    pub fn register(self: Block, definition: Def) void {
+        defs[@intFromEnum(self)] = definition;
+    }
+
+    pub fn resetRegistry() void {
+        defs = vanillaDefs();
+    }
+
+    pub fn isVanilla(self: Block) bool {
+        return vanilla_keys[@intFromEnum(self)].len != 0;
+    }
+
+    pub fn fromKey(key: []const u8) ?Block {
+        if (key.len == 0) return null;
+        for (defs, 0..) |entry, id| {
+            if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(id);
+        }
+        return null;
+    }
+
     pub fn material(self: Block) Material {
+        return self.def().material;
+    }
+
+    fn vanillaMaterial(self: Block) Material {
         return switch (self) {
             .air => .air,
             .stone, .cobblestone, .cobblestone_mossy, .bedrock, .mob_spawner, .stairs_cobblestone => .rock,
@@ -421,6 +533,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn shape(self: Block) Shape {
+        return self.def().shape;
+    }
+
+    fn vanillaShape(self: Block) Shape {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
@@ -486,6 +602,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn sideInset(self: Block) f32 {
+        return self.def().side_inset;
+    }
+
+    fn vanillaSideInset(self: Block) f32 {
         return switch (self) {
             .cactus => 1.0 / 16.0,
             else => 0.0,
@@ -505,12 +625,16 @@ pub const Block = enum(u8) {
     }
 
     pub fn tickRate(self: Block) u32 {
-        if (self.isFalling()) return 3;
+        return self.def().tick_rate;
+    }
+
+    fn vanillaTickRate(self: Block) u32 {
+        if (self.vanillaFalling()) return 3;
         return switch (self) {
             .torch_redstone_off, .torch_redstone_on => 2,
             .button, .pressure_plate_stone, .pressure_plate_planks => 20,
             .ore_redstone_glowing => 30,
-            else => switch (self.material()) {
+            else => switch (self.vanillaMaterial()) {
                 .water => 5,
                 .lava => 30,
                 else => 0,
@@ -519,6 +643,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn isOpaqueCube(self: Block) bool {
+        return self.def().opaque_cube;
+    }
+
+    fn vanillaOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .sign_post, .wall_sign => false,
@@ -526,7 +654,7 @@ pub const Block = enum(u8) {
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
             .piston, .piston_sticky, .piston_head, .piston_moving => false,
-            else => self.isOpaque() and !self.isLiquid(),
+            else => self.vanillaMaterial().blocksGrass() and !self.vanillaMaterial().isLiquid(),
         };
     }
 
@@ -540,6 +668,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn isPistonBase(self: Block) bool {
+        return self.def().piston_base;
+    }
+
+    fn vanillaPistonBase(self: Block) bool {
         return self == .piston or self == .piston_sticky;
     }
 
@@ -549,14 +681,26 @@ pub const Block = enum(u8) {
     }
 
     pub fn isBreakable(self: Block) bool {
+        return self.def().breakable;
+    }
+
+    fn vanillaBreakable(self: Block) bool {
         return self == .glass or self == .ice;
     }
 
     pub fn isTranslucent(self: Block) bool {
-        return self.material() == .water or self == .ice;
+        return self.def().translucent;
+    }
+
+    fn vanillaTranslucent(self: Block) bool {
+        return self.vanillaMaterial() == .water or self == .ice;
     }
 
     pub fn isFalling(self: Block) bool {
+        return self.def().falling;
+    }
+
+    fn vanillaFalling(self: Block) bool {
         return self == .sand or self == .gravel;
     }
 
@@ -565,10 +709,19 @@ pub const Block = enum(u8) {
     }
 
     pub fn isReplaceable(self: Block) bool {
-        return self == .air or self.isLiquid() or self == .snow_layer;
+        return self.def().replaceable;
+    }
+
+    fn vanillaReplaceable(self: Block) bool {
+        return self == .air or self.vanillaMaterial().isLiquid() or self == .snow_layer;
     }
 
     pub fn selectionBounds(self: Block, metadata: u4) Bounds {
+        if (self.def().selection_bounds) |hook| return hook(self, metadata);
+        return self.vanillaSelectionBounds(metadata);
+    }
+
+    fn vanillaSelectionBounds(self: Block, metadata: u4) Bounds {
         return switch (self) {
             .tall_grass, .dead_bush => plantBounds(0.4, 0.8),
             .dandelion, .rose => plantBounds(0.2, 0.6),
@@ -594,6 +747,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn itemRenderBoxes(self: Block) []const Bounds {
+        return self.def().item_render_boxes;
+    }
+
+    fn vanillaItemRenderBoxes(self: Block) []const Bounds {
         return switch (self) {
             .cake => &cake_item_boxes,
             .trapdoor => &trapdoor_item_boxes,
@@ -622,6 +779,10 @@ pub const Block = enum(u8) {
     }
 
     pub fn faceTextures(self: Block) FaceTextures {
+        return self.def().face_textures;
+    }
+
+    fn vanillaFaceTextures(self: Block) FaceTextures {
         return switch (self) {
             .stone => uniform(1),
             .grass => topAndSide(0, 2, 3),
@@ -709,6 +870,12 @@ pub const Block = enum(u8) {
     }
 
     pub fn crossTile(self: Block, metadata: u4) u8 {
+        if (self.def().cross_tile) |hook| return hook(self, metadata);
+        if (!self.isVanilla()) return self.def().face_textures.get(.down);
+        return self.vanillaCrossTile(metadata);
+    }
+
+    fn vanillaCrossTile(self: Block, metadata: u4) u8 {
         return switch (self) {
             .sapling => switch (metadata & 3) {
                 1 => 63,
@@ -742,6 +909,10 @@ pub const Block = enum(u8) {
     }
 
     fn hardness(self: Block) f32 {
+        return self.def().hardness;
+    }
+
+    fn vanillaHardness(self: Block) f32 {
         return switch (self) {
             .stone => 1.5,
             .grass => 0.6,
@@ -830,9 +1001,16 @@ pub const Block = enum(u8) {
     }
 
     pub fn displayName(self: Block, metadata: u4) []const u8 {
+        if (self.def().display_name) |hook| return hook(self, metadata);
         return switch (self) {
             .wool => wool_names[~metadata],
             .slab, .slab_double => slabName(metadata),
+            else => self.def().name,
+        };
+    }
+
+    fn vanillaName(self: Block) []const u8 {
+        return switch (self) {
             .stone => "Stone",
             .grass => "Grass",
             .dirt => "Dirt",
@@ -903,6 +1081,11 @@ pub const Block = enum(u8) {
     }
 
     pub fn drop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
+        if (self.def().drop) |hook| return hook(self, meta, rand);
+        return self.vanillaDrop(meta, rand);
+    }
+
+    fn vanillaDrop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
         return switch (self) {
             .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
             .grass => .{ .id = .{ .block = .dirt }, .count = 1 },
@@ -2710,4 +2893,176 @@ test "dust, levers and repeaters lie flat as items where buttons and plates stay
 
     try std.testing.expectEqual(@as(?u8, null), Block.button.flatItemTile(0));
     try std.testing.expectEqual(@as(?u8, null), Block.pressure_plate_stone.flatItemTile(0));
+}
+
+test "every constant block fact reaches its caller through the registry table" {
+    try std.testing.expectEqual(Material.rock, Block.stone.material());
+    try std.testing.expectEqual(@as(f32, 1.5), Block.stone.hardness());
+    try std.testing.expectEqual(@as(u8, 1), Block.stone.faceTextures().get(.up));
+    try std.testing.expectEqual(Shape.cross, Block.rose.shape());
+    try std.testing.expectEqual(@as(f32, 0.5), Block.slab.shape().heightScale());
+    try std.testing.expectEqual(@as(u32, 5), Block.stationary_water.tickRate());
+    try std.testing.expectEqual(@as(u32, 3), Block.sand.tickRate());
+    try std.testing.expectEqual(@as(f32, 1.0 / 16.0), Block.cactus.sideInset());
+    try std.testing.expect(!Block.glass.isOpaqueCube());
+    try std.testing.expect(Block.glass.isBreakable());
+    try std.testing.expect(Block.stationary_water.isTranslucent());
+    try std.testing.expect(Block.gravel.isFalling());
+    try std.testing.expect(Block.piston_sticky.isPistonBase());
+    try std.testing.expect(Block.snow_layer.isReplaceable());
+    try std.testing.expectEqualStrings("Obsidian", Block.obsidian.displayName(0));
+    try std.testing.expectEqual(@as(usize, 2), Block.stairs_wood.itemRenderBoxes().len);
+}
+
+test "an id no vanilla block claims falls back to the empty definition" {
+    const unclaimed: Block = @enumFromInt(100);
+    try std.testing.expectEqual(Material.rock, unclaimed.material());
+    try std.testing.expectEqual(Shape.cube, unclaimed.shape());
+    try std.testing.expectEqual(@as(f32, 0.0), unclaimed.hardness());
+    try std.testing.expectEqual(@as(u32, 0), unclaimed.tickRate());
+    try std.testing.expect(unclaimed.isOpaqueCube());
+    try std.testing.expect(!unclaimed.isReplaceable());
+    try std.testing.expectEqualStrings("", unclaimed.displayName(0));
+}
+
+test "registering over an unclaimed id changes what every caller sees" {
+    const custom: Block = @enumFromInt(101);
+    const restore = custom.def().*;
+    defer custom.register(restore);
+
+    custom.register(.{
+        .name = "Rose Quartz",
+        .material = .glass,
+        .shape = .{ .partial = 0.25 },
+        .face_textures = uniform(9),
+        .hardness = 2.5,
+        .opaque_cube = false,
+        .translucent = true,
+    });
+
+    try std.testing.expectEqualStrings("Rose Quartz", custom.displayName(0));
+    try std.testing.expectEqual(@as(f32, 0.25), custom.heightScale());
+    try std.testing.expectEqual(@as(u8, 9), custom.faceTextures().get(.north));
+    try std.testing.expect(custom.isTranslucent());
+    try std.testing.expect(!custom.isOpaqueCube());
+    try std.testing.expect(!custom.isNormalCube());
+    try std.testing.expect(custom.isSolid());
+    try std.testing.expectEqual(1.0 / 2.5 / 30.0, custom.strength(null, 1.0));
+}
+
+test "registry keys come straight off the enum tags, so they cannot drift" {
+    try std.testing.expectEqualStrings("stone", Block.stone.def().key);
+    try std.testing.expectEqualStrings("torch_redstone_on", Block.torch_redstone_on.def().key);
+    try std.testing.expectEqual(Block.obsidian, Block.fromKey("obsidian").?);
+    try std.testing.expect(Block.fromKey("nothing_of_the_sort") == null);
+    try std.testing.expect(Block.fromKey("") == null);
+
+    try std.testing.expect(Block.stone.isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(23))).isVanilla());
+}
+
+test "a registered block answers to its own key without shadowing a vanilla one" {
+    defer Block.resetRegistry();
+
+    const custom: Block = @enumFromInt(200);
+    custom.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
+
+    try std.testing.expectEqual(custom, Block.fromKey("rosebed:quartz").?);
+    try std.testing.expectEqual(Block.stone, Block.fromKey("stone").?);
+    try std.testing.expect(!custom.isVanilla());
+}
+
+test "a key is read against the namespace the saved number came from" {
+    for ([_][]const u8{ "brick", "cake", "bed", "reed", "door_wood", "door_iron" }) |name| {
+        const as_block = Id.resolve(45, name).?;
+        const as_item = Id.resolve(336, name).?;
+        try std.testing.expect(as_block == .block);
+        try std.testing.expect(as_item == .item);
+        try std.testing.expectEqualStrings(name, as_block.key());
+        try std.testing.expectEqualStrings(name, as_item.key());
+    }
+}
+
+test "a key that moved id comes back at the id it holds now" {
+    defer Block.resetRegistry();
+    defer Item.resetRegistry();
+
+    (@as(Block, @enumFromInt(213))).register(.{ .key = "rosebed:quartz" });
+    (@as(Item, @enumFromInt(500))).register(.{ .key = "rosebed:quartz_pickaxe" });
+
+    try std.testing.expectEqual(@as(Block, @enumFromInt(213)), Id.resolve(200, "rosebed:quartz").?.block);
+    try std.testing.expectEqual(@as(Item, @enumFromInt(500)), Id.resolve(400, "rosebed:quartz_pickaxe").?.item);
+}
+
+fn quartzDrop(_: Block, meta: u4, _: *JavaRandom) ?Stack {
+    return .{ .id = .{ .item = .diamond }, .count = 1, .meta = meta };
+}
+
+fn quartzBounds(_: Block, meta: u4) Bounds {
+    const height: f32 = @as(f32, @floatFromInt(meta)) / 16.0;
+    return .{ .min = .{ 0, 0, 0 }, .max = .{ 1, height, 1 } };
+}
+
+fn quartzSprite(_: Block, meta: u4) u8 {
+    return 40 + @as(u8, meta);
+}
+
+fn quartzName(_: Block, meta: u4) []const u8 {
+    return if (meta == 0) "Rose Quartz" else "Cracked Rose Quartz";
+}
+
+test "a registered block's metadata hooks answer in place of the vanilla switch" {
+    defer Block.resetRegistry();
+    var rand = JavaRandom.init(0);
+
+    const custom: Block = @enumFromInt(200);
+    custom.register(.{
+        .key = "rosebed:quartz",
+        .name = "Rose Quartz",
+        .drop = quartzDrop,
+        .selection_bounds = quartzBounds,
+        .cross_tile = quartzSprite,
+        .display_name = quartzName,
+    });
+
+    try std.testing.expectEqual(Id{ .item = .diamond }, custom.drop(3, &rand).?.id);
+    try std.testing.expectEqual(@as(u16, 3), custom.drop(3, &rand).?.meta);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), custom.selectionBounds(8).max[1], 1.0e-6);
+    try std.testing.expectEqual(@as(u8, 42), custom.crossTile(2));
+    try std.testing.expectEqualStrings("Cracked Rose Quartz", custom.displayName(1));
+    try std.testing.expectEqualStrings("Rose Quartz", custom.displayName(0));
+}
+
+test "a vanilla block ignores the hooks entirely and keeps its own switch" {
+    var rand = JavaRandom.init(0);
+    try std.testing.expectEqual(Id{ .block = .cobblestone }, Block.stone.drop(0, &rand).?.id);
+    try std.testing.expectEqual(@as(u8, 12), Block.rose.crossTile(0));
+    try std.testing.expectEqualStrings("Obsidian", Block.obsidian.displayName(0));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), Block.slab.selectionBounds(0).max[1], 1.0e-6);
+}
+
+test "a registered sprite with no tile hook draws its own texture, not tile zero" {
+    defer Block.resetRegistry();
+
+    const custom: Block = @enumFromInt(201);
+    custom.register(.{
+        .key = "rosebed:fern",
+        .shape = .cross,
+        .face_textures = uniform(77),
+    });
+
+    try std.testing.expectEqual(@as(u8, 77), custom.crossTile(0));
+    try std.testing.expectEqual(@as(u8, 77), custom.particleTile(0));
+    try std.testing.expectEqual(@as(u8, 77), custom.flatItemTile(0).?);
+}
+
+test "a registered block with no drop hook drops itself, as the vanilla fallthrough does" {
+    defer Block.resetRegistry();
+    var rand = JavaRandom.init(0);
+
+    const custom: Block = @enumFromInt(202);
+    custom.register(.{ .key = "rosebed:marble" });
+
+    try std.testing.expectEqual(Id{ .block = custom }, custom.drop(0, &rand).?.id);
 }

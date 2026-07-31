@@ -12,10 +12,21 @@ const TextureFx = @This();
 const tile = 16;
 const cells = tile * tile;
 
-const water_still_tile = world.Block.stationary_water.faceTextures().get(.up);
-const water_flow_tile = world.Block.stationary_water.faceTextures().get(.north);
-const lava_still_tile = world.Block.stationary_lava.faceTextures().get(.up);
-const lava_flow_tile = world.Block.stationary_lava.faceTextures().get(.north);
+fn waterStillTile() u8 {
+    return world.Block.stationary_water.faceTextures().get(.up);
+}
+
+fn waterFlowTile() u8 {
+    return world.Block.stationary_water.faceTextures().get(.north);
+}
+
+fn lavaStillTile() u8 {
+    return world.Block.stationary_lava.faceTextures().get(.up);
+}
+
+fn lavaFlowTile() u8 {
+    return world.Block.stationary_lava.faceTextures().get(.north);
+}
 
 fn wrapped(x: i32, y: i32) usize {
     return @intCast((x & 15) + (y & 15) * tile);
@@ -346,10 +357,10 @@ fn uploadTile(image: []const u8, index: u8, span: gl.int) void {
 
 pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
     terrain.bind();
-    uploadTile(&self.water.image, water_still_tile, 1);
-    uploadTile(&self.water_flow.image, water_flow_tile, 2);
-    uploadTile(&self.lava.image, lava_still_tile, 1);
-    uploadTile(&self.lava_flow.image, lava_flow_tile, 2);
+    uploadTile(&self.water.image, waterStillTile(), 1);
+    uploadTile(&self.water_flow.image, waterFlowTile(), 2);
+    uploadTile(&self.lava.image, lavaStillTile(), 1);
+    uploadTile(&self.lava_flow.image, lavaFlowTile(), 2);
     uploadTile(&self.flames.image, fire_tile, 1);
     uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1);
 
@@ -359,10 +370,10 @@ pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
 }
 
 test "the animated tiles are the ones the fluid blocks draw with" {
-    try std.testing.expectEqual(@as(u8, 205), water_still_tile);
-    try std.testing.expectEqual(@as(u8, 206), water_flow_tile);
-    try std.testing.expectEqual(@as(u8, 237), lava_still_tile);
-    try std.testing.expectEqual(@as(u8, 238), lava_flow_tile);
+    try std.testing.expectEqual(@as(u8, 205), waterStillTile());
+    try std.testing.expectEqual(@as(u8, 206), waterFlowTile());
+    try std.testing.expectEqual(@as(u8, 237), lavaStillTile());
+    try std.testing.expectEqual(@as(u8, 238), lavaFlowTile());
 }
 
 test "a settled water tile is the flat blue TextureWaterFX starts from" {

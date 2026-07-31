@@ -661,6 +661,7 @@ pub fn tickUpdates(self: *World) !void {
         if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
         if (entry.id.isFalling()) try block_update.tickFalling(self, pos.x, pos.y, pos.z);
         if (redstone.handlesTick(entry.id)) try redstone.tick(self, pos.x, pos.y, pos.z, entry.id);
+        if (entry.id.def().on_tick) |hook| try hook(self, pos.x, pos.y, pos.z, entry.id);
     }
 }
 
@@ -680,13 +681,16 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
                 const local_x: u32 = @intCast(bits & 15);
                 const local_z: u32 = @intCast((bits >> 8) & 15);
                 const local_y: u32 = @intCast((bits >> 16) & 127);
-                if (chunk.getBlock(local_x, local_y, local_z) != .leaves) continue;
-                try leaf_decay.tick(
-                    self,
-                    chunk_x * constants.chunk_width + @as(i32, @intCast(local_x)),
-                    @intCast(local_y),
-                    chunk_z * constants.chunk_width + @as(i32, @intCast(local_z)),
-                );
+                const sampled = chunk.getBlock(local_x, local_y, local_z);
+                const at_x = chunk_x * constants.chunk_width + @as(i32, @intCast(local_x));
+                const at_y: i32 = @intCast(local_y);
+                const at_z = chunk_z * constants.chunk_width + @as(i32, @intCast(local_z));
+
+                if (sampled == .leaves) {
+                    try leaf_decay.tick(self, at_x, at_y, at_z);
+                    continue;
+                }
+                if (sampled.def().on_random_tick) |hook| try hook(self, at_x, at_y, at_z, sampled);
             }
         }
     }
@@ -1095,4 +1099,108 @@ test "day and night follow how much skylight is taken away" {
     try std.testing.expect(!world_map.isDaytime());
     world_map.skylight_subtracted = 11;
     try std.testing.expect(!world_map.isDaytime());
+}
+
+var hook_hits: usize = 0;
+
+fn countHook(_: *World, _: i32, _: i32, _: i32, _: Block) std.mem.Allocator.Error!void {
+    hook_hits += 1;
+}
+
+fn clearHook(world_map: *World, x: i32, y: i32, z: i32, _: Block) std.mem.Allocator.Error!void {
+    hook_hits += 1;
+    try world_map.setBlockWithNotify(x, y, z, .air);
+}
+
+fn loadedWorld(allocator: std.mem.Allocator) !World {
+    var w = World.init(allocator);
+    errdefer w.deinit();
+    var chunk_x: i32 = -1;
+    while (chunk_x <= 1) : (chunk_x += 1) {
+        var chunk_z: i32 = -1;
+        while (chunk_z <= 1) : (chunk_z += 1) _ = try w.createChunk(chunk_x, chunk_z);
+    }
+    return w;
+}
+
+test "a registered block's scheduled tick hook runs when its update falls due" {
+    defer Block.resetRegistry();
+    hook_hits = 0;
+
+    const custom: Block = @enumFromInt(200);
+    custom.register(.{ .key = "rosebed:ticker", .on_tick = countHook });
+
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    w.setBlock(8, 5, 8, custom);
+    try w.scheduleBlockUpdate(8, 5, 8, custom, 1);
+    w.time += 2;
+    try w.tickUpdates();
+
+    try std.testing.expectEqual(@as(usize, 1), hook_hits);
+}
+
+test "a block with no tick hook costs nothing on the same path" {
+    hook_hits = 0;
+
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    w.setBlock(8, 5, 8, .stone);
+    try w.scheduleBlockUpdate(8, 5, 8, .stone, 1);
+    w.time += 2;
+    try w.tickUpdates();
+
+    try std.testing.expectEqual(@as(usize, 0), hook_hits);
+}
+
+test "a registered block's neighbour hook runs when the block beside it changes" {
+    defer Block.resetRegistry();
+    hook_hits = 0;
+
+    const custom: Block = @enumFromInt(201);
+    custom.register(.{ .key = "rosebed:listener", .on_neighbor_change = countHook });
+
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    w.setBlock(8, 5, 8, custom);
+    try w.setBlockWithNotify(9, 5, 8, .stone);
+
+    try std.testing.expect(hook_hits >= 1);
+}
+
+test "a neighbour hook that removes its own block stops the support check running on air" {
+    defer Block.resetRegistry();
+    hook_hits = 0;
+
+    const custom: Block = @enumFromInt(202);
+    custom.register(.{ .key = "rosebed:crumbler", .on_neighbor_change = clearHook });
+
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    w.setBlock(8, 5, 8, custom);
+    try w.setBlockWithNotify(9, 5, 8, .stone);
+
+    try std.testing.expectEqual(.air, w.getBlock(8, 5, 8));
+    try std.testing.expect(hook_hits >= 1);
+}
+
+test "a registered block's random tick hook runs when the sampler lands on it" {
+    defer Block.resetRegistry();
+    hook_hits = 0;
+
+    const custom: Block = @enumFromInt(203);
+    custom.register(.{ .key = "rosebed:grower", .on_random_tick = countHook });
+
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    const chunk = w.getChunk(0, 0).?;
+    @memset(&chunk.blocks, custom);
+
+    try w.tickRandomBlocks(0, 0);
+    try std.testing.expectEqual(random_tick_samples, hook_hits);
 }

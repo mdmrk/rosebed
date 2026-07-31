@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const block = @import("block.zig");
 const Chunk = @import("chunk.zig");
 const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
@@ -24,6 +25,7 @@ pub const InventoryEntry = struct {
     id: i16,
     count: u8,
     damage: i16 = 0,
+    key: []const u8 = "",
 };
 
 pub const PlayerState = struct {
@@ -461,6 +463,7 @@ fn playerToTag(gpa: std.mem.Allocator, player: PlayerState) !nbt.Tag {
         try put(gpa, &slot, "id", .{ .short = entry.id });
         try put(gpa, &slot, "Count", .{ .byte = @bitCast(entry.count) });
         try put(gpa, &slot, "Damage", .{ .short = entry.damage });
+        if (entry.key.len != 0) try put(gpa, &slot, "Key", .{ .string = try gpa.dupe(u8, entry.key) });
         item.* = .{ .compound = slot };
         built += 1;
     }
@@ -621,11 +624,19 @@ fn playerFromTag(gpa: std.mem.Allocator, compound: nbt.Compound) !PlayerState {
             .short => |value| value,
             else => 0,
         };
+        const stored_key = switch (slot.get("Key") orelse nbt.Tag{ .string = @constCast("") }) {
+            .string => |value| value,
+            else => "",
+        };
+
+        const resolved = block.Id.resolve(id, stored_key) orelse continue;
+
         try entries.append(gpa, .{
             .slot = @bitCast(slot_index),
-            .id = id,
+            .id = resolved.numeric(),
             .count = @bitCast(count),
             .damage = damage,
+            .key = resolved.key(),
         });
     }
 

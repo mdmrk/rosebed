@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
+const Side = @import("block.zig").Side;
+const World = @import("world_map.zig");
 
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
@@ -192,6 +194,56 @@ pub const Armor = struct {
     }
 };
 
+pub const Def = struct {
+    key: []const u8 = "",
+    name: []const u8 = "",
+    icon: ?u8 = null,
+    tool: ?Tool = null,
+    armor: ?Armor = null,
+    placed_block: ?Block = null,
+    bucket_fill: ?Fill = null,
+    max_stack_size: u8 = 64,
+    icon_tile: ?*const fn (Item, u16) ?u8 = null,
+    display_name: ?*const fn (Item, u16) []const u8 = null,
+    on_use: ?*const fn (*World, i32, i32, i32, Side, Item, u16) std.mem.Allocator.Error!bool = null,
+};
+
+pub const first_item_id: u16 = 256;
+pub const def_capacity: u16 = 1024;
+
+const vanilla_keys: [def_capacity][]const u8 = keysFromEnum();
+
+fn keysFromEnum() [def_capacity][]const u8 {
+    var out: [def_capacity][]const u8 = @splat("");
+    for (@typeInfo(Item).@"enum".fields) |entry| {
+        if (entry.value < first_item_id or entry.value - first_item_id >= def_capacity) continue;
+        out[entry.value - first_item_id] = entry.name;
+    }
+    return out;
+}
+
+var defs: [def_capacity]Def = vanillaDefs();
+const unregistered: Def = .{};
+
+fn vanillaDefs() [def_capacity]Def {
+    @setEvalBranchQuota(2_000_000);
+    var out: [def_capacity]Def = undefined;
+    for (&out, 0..) |*entry, offset| {
+        const self: Item = @enumFromInt(first_item_id + offset);
+        entry.* = .{
+            .key = vanilla_keys[offset],
+            .name = self.vanillaName(),
+            .icon = self.vanillaIcon(),
+            .tool = self.vanillaTool(),
+            .armor = self.vanillaArmor(),
+            .placed_block = self.vanillaPlacedBlock(),
+            .bucket_fill = self.vanillaBucketFill(),
+            .max_stack_size = self.vanillaMaxStackSize(),
+        };
+    }
+    return out;
+}
+
 pub const Item = enum(u16) {
     shovel_iron = 256,
     pickaxe_iron = 257,
@@ -286,7 +338,41 @@ pub const Item = enum(u16) {
     repeater = 356,
     _,
 
+    pub fn def(self: Item) *const Def {
+        const raw = @intFromEnum(self);
+        if (raw < first_item_id or raw - first_item_id >= def_capacity) return &unregistered;
+        return &defs[raw - first_item_id];
+    }
+
+    pub fn register(self: Item, definition: Def) void {
+        const raw = @intFromEnum(self);
+        std.debug.assert(raw >= first_item_id and raw - first_item_id < def_capacity);
+        defs[raw - first_item_id] = definition;
+    }
+
+    pub fn resetRegistry() void {
+        defs = vanillaDefs();
+    }
+
+    pub fn isVanilla(self: Item) bool {
+        const raw = @intFromEnum(self);
+        if (raw < first_item_id or raw - first_item_id >= def_capacity) return false;
+        return vanilla_keys[raw - first_item_id].len != 0;
+    }
+
+    pub fn fromKey(key: []const u8) ?Item {
+        if (key.len == 0) return null;
+        for (defs, 0..) |entry, offset| {
+            if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(first_item_id + offset);
+        }
+        return null;
+    }
+
     pub fn tool(self: Item) ?Tool {
+        return self.def().tool;
+    }
+
+    fn vanillaTool(self: Item) ?Tool {
         return switch (self) {
             .sword_wood => .{ .kind = .sword, .material = .wood },
             .shovel_wood => .{ .kind = .shovel, .material = .wood },
@@ -318,6 +404,10 @@ pub const Item = enum(u16) {
     }
 
     pub fn armor(self: Item) ?Armor {
+        return self.def().armor;
+    }
+
+    fn vanillaArmor(self: Item) ?Armor {
         return switch (self) {
             .helmet_leather => .{ .slot = .helmet, .material = .leather },
             .chestplate_leather => .{ .slot = .chestplate, .material = .leather },
@@ -354,12 +444,26 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxStackSize(self: Item) u8 {
+        return self.def().max_stack_size;
+    }
+
+    fn vanillaMaxDamage(self: Item) u16 {
+        if (self.vanillaTool()) |t| return t.material.maxUses();
+        if (self.vanillaArmor()) |a| return a.maxDamage();
+        return 0;
+    }
+
+    fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
-        if (self.bucketFill() != null) return 1;
-        return if (self.isDamageable()) 1 else 64;
+        if (self.vanillaBucketFill() != null) return 1;
+        return if (self.vanillaMaxDamage() > 0) 1 else 64;
     }
 
     pub fn placedBlock(self: Item) ?Block {
+        return self.def().placed_block;
+    }
+
+    fn vanillaPlacedBlock(self: Item) ?Block {
         return switch (self) {
             .cake => .cake,
             .redstone => .redstone_wire,
@@ -369,6 +473,10 @@ pub const Item = enum(u16) {
     }
 
     pub fn bucketFill(self: Item) ?Fill {
+        return self.def().bucket_fill;
+    }
+
+    fn vanillaBucketFill(self: Item) ?Fill {
         return switch (self) {
             .bucket => .empty,
             .bucket_water => .water,
@@ -400,9 +508,16 @@ pub const Item = enum(u16) {
     }
 
     pub fn iconTile(self: Item, damage: u16) ?u8 {
+        if (self.def().icon_tile) |hook| return hook(self, damage);
         const dye_color: u8 = @as(u4, @truncate(damage));
         return switch (self) {
             .dye => 4 * 16 + 14 + dye_color % 8 * 16 + dye_color / 8,
+            else => self.def().icon,
+        };
+    }
+
+    fn vanillaIcon(self: Item) ?u8 {
+        return switch (self) {
             .bucket => 4 * 16 + 10,
             .bucket_water => 4 * 16 + 11,
             .bucket_lava => 4 * 16 + 12,
@@ -498,6 +613,15 @@ pub const Item = enum(u16) {
     }
 
     pub fn displayName(self: Item, metadata: u16) []const u8 {
+        if (self.def().display_name) |hook| return hook(self, metadata);
+        return switch (self) {
+            .coal => if (metadata == coal_meta_charcoal) "Charcoal" else "Coal",
+            .dye => dye_names[@as(u4, @truncate(metadata))],
+            else => self.def().name,
+        };
+    }
+
+    fn vanillaName(self: Item) []const u8 {
         return switch (self) {
             .bucket => "Bucket",
             .bucket_water => "Water Bucket",
@@ -552,7 +676,6 @@ pub const Item = enum(u16) {
             .apple => "Apple",
             .bow => "Bow",
             .arrow => "Arrow",
-            .coal => if (metadata == coal_meta_charcoal) "Charcoal" else "Coal",
             .diamond => "Diamond",
             .ingot_iron => "Iron Ingot",
             .ingot_gold => "Gold Ingot",
@@ -585,7 +708,6 @@ pub const Item = enum(u16) {
             .compass => "Compass",
             .clock => "Clock",
             .glowstone_dust => "Glowstone Dust",
-            .dye => dye_names[@as(u4, @truncate(metadata))],
             .bone => "Bone",
             .sugar => "Sugar",
             .cake => "Cake",
@@ -759,4 +881,119 @@ test "a hoe and anything that is not a tool swing for one" {
 test "a gold sword hits no harder than a wooden one" {
     try std.testing.expectEqual(Item.sword_wood.damageVsEntity(), Item.sword_gold.damageVsEntity());
     try std.testing.expectEqual(@as(i32, 0), ToolMaterial.gold.damageVsEntity());
+}
+
+test "every constant item fact reaches its caller through the registry table" {
+    try std.testing.expectEqual(ToolKind.pickaxe, Item.pickaxe_iron.tool().?.kind);
+    try std.testing.expectEqual(ArmorSlot.boots, Item.boots_gold.armor().?.slot);
+    try std.testing.expectEqual(Block.redstone_wire, Item.redstone.placedBlock().?);
+    try std.testing.expectEqual(Fill.lava, Item.bucket_lava.bucketFill().?);
+    try std.testing.expectEqual(@as(u8, 1), Item.bed.maxStackSize());
+    try std.testing.expectEqual(@as(u8, 64), Item.stick.maxStackSize());
+    try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
+    try std.testing.expectEqualStrings("Gold Ingot", Item.ingot_gold.displayName(0));
+}
+
+test "an id no vanilla item claims falls back to the empty definition" {
+    for ([_]u16{ 0, 255, 400, first_item_id + def_capacity }) |raw| {
+        const unclaimed: Item = @enumFromInt(raw);
+        try std.testing.expect(unclaimed.tool() == null);
+        try std.testing.expect(unclaimed.armor() == null);
+        try std.testing.expect(unclaimed.placedBlock() == null);
+        try std.testing.expect(unclaimed.bucketFill() == null);
+        try std.testing.expectEqual(@as(u8, 64), unclaimed.maxStackSize());
+        try std.testing.expectEqual(@as(?u8, null), unclaimed.iconTile(0));
+        try std.testing.expectEqualStrings("", unclaimed.displayName(0));
+    }
+}
+
+test "registering over an unclaimed id changes what every caller sees" {
+    const custom: Item = @enumFromInt(400);
+    const restore = custom.def().*;
+    defer custom.register(restore);
+
+    custom.register(.{
+        .name = "Quartz Pickaxe",
+        .icon = 6 * 16 + 5,
+        .tool = .{ .kind = .pickaxe, .material = .diamond },
+        .max_stack_size = 1,
+    });
+
+    try std.testing.expectEqualStrings("Quartz Pickaxe", custom.displayName(0));
+    try std.testing.expectEqual(@as(?u8, 101), custom.iconTile(0));
+    try std.testing.expectEqual(@as(u8, 1), custom.maxStackSize());
+    try std.testing.expectEqual(@as(u16, 1561), custom.maxDamage());
+    try std.testing.expect(custom.isDamageable());
+    try std.testing.expectEqual(@as(i32, 5), custom.damageVsEntity());
+    try std.testing.expect(custom.canHarvestBlock(.obsidian));
+}
+
+test "registry keys come straight off the enum tags, so they cannot drift" {
+    try std.testing.expectEqualStrings("diamond", Item.diamond.def().key);
+    try std.testing.expectEqualStrings("pickaxe_iron", Item.pickaxe_iron.def().key);
+    try std.testing.expectEqual(Item.bucket_lava, Item.fromKey("bucket_lava").?);
+    try std.testing.expect(Item.fromKey("nothing_of_the_sort") == null);
+    try std.testing.expect(Item.fromKey("") == null);
+
+    try std.testing.expect(Item.diamond.isVanilla());
+    try std.testing.expect(!(@as(Item, @enumFromInt(400))).isVanilla());
+    try std.testing.expect(!(@as(Item, @enumFromInt(0))).isVanilla());
+}
+
+test "a registered item answers to its own key without shadowing a vanilla one" {
+    defer Item.resetRegistry();
+
+    const custom: Item = @enumFromInt(400);
+    custom.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
+
+    try std.testing.expectEqual(custom, Item.fromKey("rosebed:quartz_pickaxe").?);
+    try std.testing.expectEqual(Item.diamond, Item.fromKey("diamond").?);
+    try std.testing.expect(!custom.isVanilla());
+}
+
+fn quartzIcon(_: Item, damage: u16) ?u8 {
+    return @intCast(100 + damage);
+}
+
+fn quartzLabel(_: Item, damage: u16) []const u8 {
+    return if (damage == 0) "Quartz Pickaxe" else "Chipped Quartz Pickaxe";
+}
+
+test "a registered item's metadata hooks answer in place of the vanilla switch" {
+    defer Item.resetRegistry();
+
+    const custom: Item = @enumFromInt(400);
+    custom.register(.{
+        .key = "rosebed:quartz_pickaxe",
+        .name = "Quartz Pickaxe",
+        .icon = 12,
+        .icon_tile = quartzIcon,
+        .display_name = quartzLabel,
+        .tool = .{ .kind = .pickaxe, .material = .diamond },
+    });
+
+    try std.testing.expectEqual(@as(?u8, 105), custom.iconTile(5));
+    try std.testing.expectEqualStrings("Chipped Quartz Pickaxe", custom.displayName(2));
+    try std.testing.expectEqualStrings("Quartz Pickaxe", custom.displayName(0));
+    try std.testing.expectEqual(@as(u16, 1561), custom.maxDamage());
+}
+
+test "a vanilla item ignores the hooks and keeps the switch it always had" {
+    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 142), Item.dye.iconTile(dye_meta_lapis));
+    try std.testing.expectEqualStrings("Charcoal", Item.coal.displayName(coal_meta_charcoal));
+    try std.testing.expectEqualStrings("Coal", Item.coal.displayName(0));
+    try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(0));
+}
+
+test "a registered item with no hooks falls back to its constant icon and name" {
+    defer Item.resetRegistry();
+
+    const custom: Item = @enumFromInt(401);
+    custom.register(.{ .key = "rosebed:marble", .name = "Marble", .icon = 55 });
+
+    try std.testing.expectEqual(@as(?u8, 55), custom.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 55), custom.iconTile(9));
+    try std.testing.expectEqualStrings("Marble", custom.displayName(3));
+    try std.testing.expect(custom.def().on_use == null);
 }

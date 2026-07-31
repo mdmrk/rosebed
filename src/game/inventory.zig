@@ -193,7 +193,13 @@ pub fn consumeItem(self: *Inventory, id: world.Id) bool {
 }
 
 pub fn saveEntry(slot: u8, stack: ItemStack) world.save.InventoryEntry {
-    return .{ .slot = slot, .id = stack.id.numeric(), .count = stack.count, .damage = @bitCast(stack.meta) };
+    return .{
+        .slot = slot,
+        .id = stack.id.numeric(),
+        .count = stack.count,
+        .damage = @bitCast(stack.meta),
+        .key = if (stack.id.isVanilla()) "" else stack.id.key(),
+    };
 }
 
 pub fn stackFromEntry(entry: world.save.InventoryEntry) ?ItemStack {
