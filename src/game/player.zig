@@ -259,6 +259,11 @@ pub fn isSubmerged(self: Player, world_map: *const world.World) bool {
     return game_physics.isInsideWater(world_map, eye.x, eye.y, eye.z);
 }
 
+pub fn isEyeInLava(self: Player, world_map: *const world.World) bool {
+    const eye = self.eyePosition();
+    return game_physics.isInsideMaterial(world_map, .lava, eye.x, eye.y, eye.z);
+}
+
 fn updateFire(self: *Player, world_map: *const world.World) void {
     if (self.fire > 0) {
         if (@rem(self.fire, 20) == 0) self.hurt(burn_damage);

@@ -79,6 +79,8 @@ const AppState = struct {
     tick_count: u64 = 0,
     frame_end_ns: u64 = 0,
     cloud_offset: u64 = 0,
+    fog_brightness: f32 = 0,
+    prev_fog_brightness: f32 = 0,
     chunks_drawn: u32 = 0,
     equip: render.held_item.Equip = .{},
     player: game.Player = playerAtSpawn(),
@@ -2096,6 +2098,7 @@ fn pressPressurePlates(app_state: *AppState) !void {
 
 fn tick(app_state: *AppState) !void {
     app_state.tick_count += 1;
+    stepFogBrightness(app_state);
     app_state.chat.tick();
     if (app_state.sign_edit) |*open| open.tick();
 
@@ -2314,9 +2317,41 @@ fn drawEntityMesh(mesh: *const render.MeshBuilder) void {
 const underwater_fog_color = render.sky.Color{ 0.02, 0.02, 0.2 };
 const underwater_fog_density: f32 = 0.1;
 const underwater_fov_degrees: f32 = 60.0;
+const lava_fog_color = render.sky.Color{ 0.6, 0.1, 0.0 };
+const lava_fog_density: f32 = 2.0;
 
 fn cameraSubmerged(app_state: *const AppState) bool {
     return app_state.player.isSubmerged(&app_state.world_map);
+}
+
+fn cameraInLava(app_state: *const AppState) bool {
+    return app_state.player.isEyeInLava(&app_state.world_map);
+}
+
+fn cameraFogDensity(app_state: *const AppState) ?f32 {
+    if (cameraSubmerged(app_state)) return underwater_fog_density;
+    if (cameraInLava(app_state)) return lava_fog_density;
+    return null;
+}
+
+fn fogBrightness(app_state: *const AppState) f32 {
+    const partial = app_state.timer.render_partial_ticks;
+    return app_state.prev_fog_brightness + (app_state.fog_brightness - app_state.prev_fog_brightness) * partial;
+}
+
+fn stepFogBrightness(app_state: *AppState) void {
+    const position = app_state.player.base.position;
+    const light = world.light.brightnessAt(
+        &app_state.world_map,
+        math.util.floorDouble(position.x),
+        math.util.floorDouble(position.y),
+        math.util.floorDouble(position.z),
+        0,
+    );
+    const target = render.sky.fogBrightnessTarget(light, @intFromEnum(app_state.settings.render_distance));
+
+    app_state.prev_fog_brightness = app_state.fog_brightness;
+    app_state.fog_brightness += (target - app_state.fog_brightness) * render.sky.fog_brightness_step;
 }
 
 fn compassAngle(app_state: *const AppState) f64 {
@@ -2332,27 +2367,34 @@ fn clockAngle(app_state: *const AppState) f64 {
 }
 
 fn horizonColor(app_state: *const AppState) render.sky.Color {
-    if (cameraSubmerged(app_state)) return underwater_fog_color;
-    const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
-        math.util.floorDouble(app_state.player.base.position.x),
-        math.util.floorDouble(app_state.player.base.position.z),
-    ));
-    const render_distance = @intFromEnum(app_state.settings.render_distance);
-    const angle = app_state.world_map.celestialAngle(app_state.timer.render_partial_ticks);
-    return render.sky.blendedFogColor(
-        render.sky.skyColor(temperature, angle),
-        render.sky.fogColor(angle),
-        render_distance,
-    );
+    const near = if (cameraSubmerged(app_state))
+        underwater_fog_color
+    else if (cameraInLava(app_state))
+        lava_fog_color
+    else blended: {
+        const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
+            math.util.floorDouble(app_state.player.base.position.x),
+            math.util.floorDouble(app_state.player.base.position.z),
+        ));
+        const render_distance = @intFromEnum(app_state.settings.render_distance);
+        const angle = app_state.world_map.celestialAngle(app_state.timer.render_partial_ticks);
+        break :blended render.sky.blendedFogColor(
+            render.sky.skyColor(temperature, angle),
+            render.sky.fogColor(angle),
+            render_distance,
+        );
+    };
+
+    return render.sky.dimmed(near, fogBrightness(app_state));
 }
 
 fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
     app_state.shader.setInt("u_fog_enabled", 1);
     app_state.shader.setVec3("u_fog_color", horizon);
 
-    if (cameraSubmerged(app_state)) {
+    if (cameraFogDensity(app_state)) |density| {
         app_state.shader.setInt("u_fog_exponential", 1);
-        app_state.shader.setFloat("u_fog_density", underwater_fog_density);
+        app_state.shader.setFloat("u_fog_density", density);
         return;
     }
 
@@ -2390,7 +2432,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const eye = app_state.player.base.renderPosition(partial);
 
     app_state.shader.use();
-    try drawSky(app_state, proj, partial);
+    try drawSky(app_state, proj, partial, horizon);
 
     app_state.shader.setMat4("u_view_proj", view_proj.m);
     app_state.shader.setVec3("u_camera_pos", .{
@@ -2784,7 +2826,7 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     }, app_state.settings.fancy_graphics);
 }
 
-fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
+fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.sky.Color) !void {
     const render_distance = @intFromEnum(app_state.settings.render_distance);
     if (!render.SkyRenderer.visibleAt(render_distance)) return;
 
@@ -2807,8 +2849,9 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .view_rotation = rotation,
         .celestial_angle = angle,
         .sky_color = render.sky.skyColor(temperature, angle),
-        .fog_color = render.sky.fogColor(angle),
+        .fog_color = horizon,
         .far_plane_distance = render.sky.farPlaneDistance(render_distance),
+        .fog_density = cameraFogDensity(app_state),
     });
 }
 

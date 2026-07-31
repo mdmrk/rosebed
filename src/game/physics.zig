@@ -304,10 +304,14 @@ pub fn isOffsetPositionInLiquid(world_map: *const world.World, box: math.AABB, d
 }
 
 pub fn isInsideWater(world_map: *const world.World, eye_x: f64, eye_y: f64, eye_z: f64) bool {
+    return isInsideMaterial(world_map, .water, eye_x, eye_y, eye_z);
+}
+
+pub fn isInsideMaterial(world_map: *const world.World, material: world.Material, eye_x: f64, eye_y: f64, eye_z: f64) bool {
     const x = math.util.floorDouble(eye_x);
     const y = math.util.floorDouble(eye_y);
     const z = math.util.floorDouble(eye_z);
-    if (world_map.getBlock(x, y, z).material() != .water) return false;
+    if (world_map.getBlock(x, y, z).material() != material) return false;
 
     const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z)) - 1.0 / 9.0;
     const surface: f32 = @as(f32, @floatFromInt(y + 1)) - air;

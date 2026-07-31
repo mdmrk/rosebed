@@ -133,10 +133,10 @@ pub fn sunriseColors(celestial_angle: f32) ?Sunrise {
 pub fn appendSunriseGlow(mesh: *MeshBuilder, gpa: std.mem.Allocator, sunrise: Sunrise) !void {
     const segments = 16;
     const center: [4]u8 = .{
-        level(sunrise.color[0]),
-        level(sunrise.color[1]),
-        level(sunrise.color[2]),
-        level(sunrise.color[3]),
+        colorByte(sunrise.color[0]),
+        colorByte(sunrise.color[1]),
+        colorByte(sunrise.color[2]),
+        colorByte(sunrise.color[3]),
     };
     const rim: [4]u8 = .{ center[0], center[1], center[2], 0 };
 
@@ -194,7 +194,7 @@ pub fn appendClouds(
     const offset_u: f64 = anchor_x * cloud_uv_scale;
     const offset_v: f64 = anchor_z * cloud_uv_scale;
 
-    const tint: [4]u8 = .{ level(color[0]), level(color[1]), level(color[2]), cloud_alpha };
+    const tint: [4]u8 = .{ colorByte(color[0]), colorByte(color[1]), colorByte(color[2]), cloud_alpha };
 
     var x: i32 = -cloud_reach;
     while (x < cloud_reach) : (x += cloud_cell) {
@@ -228,9 +228,9 @@ const fancy_inset: f32 = 1.0 / 1024.0;
 
 fn cloudShade(color: Color, factor: f32) [4]u8 {
     return .{
-        level(color[0] * factor),
-        level(color[1] * factor),
-        level(color[2] * factor),
+        colorByte(color[0] * factor),
+        colorByte(color[1] * factor),
+        colorByte(color[2] * factor),
         cloud_alpha,
     };
 }
@@ -367,6 +367,10 @@ fn level(value: f32) u8 {
     return @intFromFloat(value * 255.0 + 0.5);
 }
 
+fn colorByte(value: f32) u8 {
+    return @intFromFloat(value * 255.0);
+}
+
 fn hsbToRgb(hue: f32, saturation: f32, brightness: f32) [3]u8 {
     if (saturation == 0.0) {
         const gray = level(brightness);
@@ -427,6 +431,17 @@ pub fn blendedFogColor(sky: Color, fog: Color, render_distance: u2) Color {
     };
 }
 
+pub const fog_brightness_step: f32 = 0.1;
+
+pub fn fogBrightnessTarget(light: f32, render_distance: u2) f32 {
+    const floor = @as(f32, @floatFromInt(3 - @as(u32, render_distance))) / 3.0;
+    return light * (1.0 - floor) + floor;
+}
+
+pub fn dimmed(color: Color, brightness: f32) Color {
+    return .{ color[0] * brightness, color[1] * brightness, color[2] * brightness };
+}
+
 test "skyColorByTemp matches java.awt.Color.getHSBColor for the vanilla temperature range" {
     try std.testing.expectEqual([3]u8{ 0x80, 0xa1, 0xff }, skyColorByTemp(0.0));
     try std.testing.expectEqual([3]u8{ 0x7e, 0xa3, 0xff }, skyColorByTemp(0.2));
@@ -442,6 +457,13 @@ test "fogColor at noon matches WorldProvider's daylight value" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.752941191), fog[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.847058833), fog[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), fog[2], 1.0e-6);
+}
+
+test "the fog only follows the light where the render distance is short" {
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fogBrightnessTarget(0.05, 0), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), fogBrightnessTarget(0.05, 3), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fogBrightnessTarget(1.0, 3), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), fogBrightnessTarget(0.1, 2), 1.0e-6);
 }
 
 test "a shorter render distance pulls the horizon closer and leaves less sky in the fog" {
@@ -548,10 +570,10 @@ test "clouds dim at night the way the cloud colour curve says" {
 fn cloudFaceColors(mesh: MeshBuilder) [4]bool {
     var seen: [4]bool = .{ false, false, false, false };
     for (mesh.vertices.items) |v| {
-        if (v.color[0] == level(1.0)) seen[0] = true;
-        if (v.color[0] == level(0.7)) seen[1] = true;
-        if (v.color[0] == level(0.9)) seen[2] = true;
-        if (v.color[0] == level(0.8)) seen[3] = true;
+        if (v.color[0] == colorByte(1.0)) seen[0] = true;
+        if (v.color[0] == colorByte(0.7)) seen[1] = true;
+        if (v.color[0] == colorByte(0.9)) seen[2] = true;
+        if (v.color[0] == colorByte(0.8)) seen[3] = true;
     }
     return seen;
 }

@@ -79,6 +79,7 @@ pub const Frame = struct {
     sky_color: sky.Color,
     fog_color: sky.Color,
     far_plane_distance: f32,
+    fog_density: ?f32 = null,
 };
 
 pub fn voidPlaneColor(sky_color: sky.Color) [4]f32 {
@@ -101,10 +102,15 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
     frame.shader.setInt("u_alpha_test", 0);
 
     frame.shader.setInt("u_fog_enabled", 1);
-    frame.shader.setInt("u_fog_exponential", 0);
     frame.shader.setVec3("u_fog_color", frame.fog_color);
-    frame.shader.setFloat("u_fog_start", 0.0);
-    frame.shader.setFloat("u_fog_end", frame.far_plane_distance * 0.8);
+    if (frame.fog_density) |density| {
+        frame.shader.setInt("u_fog_exponential", 1);
+        frame.shader.setFloat("u_fog_density", density);
+    } else {
+        frame.shader.setInt("u_fog_exponential", 0);
+        frame.shader.setFloat("u_fog_start", 0.0);
+        frame.shader.setFloat("u_fog_end", frame.far_plane_distance * 0.8);
+    }
     frame.shader.setVec4("u_tint", .{ frame.sky_color[0], frame.sky_color[1], frame.sky_color[2], 1.0 });
     self.dome.draw();
     frame.shader.setInt("u_fog_enabled", 0);
@@ -146,7 +152,6 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
 
     const brightness = sky.starBrightness(frame.celestial_angle);
     if (brightness > 0.0) {
-        frame.shader.setMat4("u_view_proj", view_proj.m);
         frame.shader.setVec4("u_tint", .{ brightness, brightness, brightness, brightness });
         self.stars.draw();
     }
