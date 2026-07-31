@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Mob = @import("mob.zig");
 
 const Sheep = @This();
 
@@ -209,4 +210,61 @@ test "a sheep keeps its colour and its shearing across a record round trip" {
     try std.testing.expectEqual(@as(i32, 4), restored.animal.health);
     try std.testing.expectApproxEqAbs(@as(f32, 42.0), restored.animal.yaw, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, -3.25), restored.animal.base.position.z, 1.0e-9);
+}
+
+pub const mob_type: Mob.Type = .{
+    .name = world.entity_nbt.sheep_id,
+    .spawn = mobSpawn,
+    .tick = mobTick,
+    .takeDrops = mobTakeDrops,
+    .store = mobStore,
+    .load = mobLoad,
+    .destroy = mobDestroy,
+    .hurt = mobHurt,
+};
+
+fn mobHurt(animal: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    return self.hurt(amount, source, rand);
+}
+
+fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
+    const self = try gpa.create(Sheep);
+    self.* = spawn(position, rand);
+    return &self.animal;
+}
+
+fn mobTick(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    view: Animal.PlayerView,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    try self.tick(gpa, world_map, view, rand);
+}
+
+fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    const drops = self.takeDrops() orelse return null;
+    return .{ .count = drops.count, .stack = drops.stack() };
+}
+
+fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    return world.entity_nbt.storeSheep(gpa, self.toRecord());
+}
+
+fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+    const record = world.entity_nbt.loadSheep(entity) orelse return null;
+    const self = try gpa.create(Sheep);
+    self.* = Sheep.fromRecord(record);
+    return &self.animal;
+}
+
+fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    self.deinit(gpa);
+    gpa.destroy(self);
 }

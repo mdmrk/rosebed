@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Mob = @import("mob.zig");
 
 const Chicken = @This();
 
@@ -309,4 +310,55 @@ test "a chicken keeps its wounds across a record round trip and starts a fresh c
     try restored.tick(gpa, &w, null, &rand);
     try std.testing.expect(restored.egg_timer.? >= egg_interval - 1);
     try std.testing.expect(restored.takeDrops() == null);
+}
+
+pub const mob_type: Mob.Type = .{
+    .name = world.entity_nbt.chicken_id,
+    .spawn = mobSpawn,
+    .tick = mobTick,
+    .takeDrops = mobTakeDrops,
+    .store = mobStore,
+    .load = mobLoad,
+    .destroy = mobDestroy,
+};
+
+fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
+    const self = try gpa.create(Chicken);
+    self.* = spawn(position, rand);
+    return &self.animal;
+}
+
+fn mobTick(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    view: Animal.PlayerView,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const self: *Chicken = @fieldParentPtr("animal", animal);
+    try self.tick(gpa, world_map, view, rand);
+}
+
+fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
+    const self: *Chicken = @fieldParentPtr("animal", animal);
+    const drops = self.takeDrops() orelse return null;
+    return .{ .count = drops.count, .stack = drops.stack() };
+}
+
+fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
+    const self: *Chicken = @fieldParentPtr("animal", animal);
+    return world.entity_nbt.storeChicken(gpa, self.toRecord());
+}
+
+fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+    const record = world.entity_nbt.loadChicken(entity) orelse return null;
+    const self = try gpa.create(Chicken);
+    self.* = Chicken.fromRecord(record);
+    return &self.animal;
+}
+
+fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
+    const self: *Chicken = @fieldParentPtr("animal", animal);
+    self.deinit(gpa);
+    gpa.destroy(self);
 }

@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Mob = @import("mob.zig");
 const raycast = @import("raycast.zig");
 
 const Slime = @This();
@@ -557,3 +558,89 @@ test "a slime keeps its size across a record round trip, and comes back healed" 
     try std.testing.expect(restored.animal.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.animal.base.position.x, 1.0e-9);
 }
+
+pub const mob_type: Mob.Type = .{
+    .name = world.entity_nbt.slime_id,
+    .spawn = mobSpawn,
+    .tick = mobTick,
+    .takeDrops = mobTakeDrops,
+    .store = mobStore,
+    .load = mobLoad,
+    .destroy = mobDestroy,
+    .afterTick = mobAfterTick,
+    .onDeath = mobOnDeath,
+};
+
+fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
+    const self = try gpa.create(Slime);
+    self.* = spawn(position, rand);
+    return &self.animal;
+}
+
+fn mobTick(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    view: Animal.PlayerView,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    try self.tick(gpa, world_map, view, rand);
+}
+
+fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    const drops = self.takeDrops() orelse return null;
+    return .{ .count = drops.count, .stack = drops.stack() };
+}
+
+fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    return world.entity_nbt.storeSlime(gpa, self.toRecord());
+}
+
+fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+    const record = world.entity_nbt.loadSlime(entity) orelse return null;
+    const self = try gpa.create(Slime);
+    self.* = Slime.fromRecord(record);
+    return &self.animal;
+}
+
+fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    self.deinit(gpa);
+    gpa.destroy(self);
+}
+
+fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
+    const Entities = @import("entities.zig");
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    const entities: *Entities = @ptrCast(@alignCast(tick_context.entities));
+
+    if (self.landed) try entities.spawnSlimeLandingParticles(tick_context.gpa, self.*, tick_context.rand);
+
+    const player = tick_context.player;
+    if (player.health <= 0 or !self.animal.isAlive()) return;
+
+    const reach = player.base.boundingBox().expand(collide_reach, 0, collide_reach);
+    if (!self.animal.base.boundingBox().intersects(reach)) return;
+    if (self.attackDamage(tick_context.world_map, tick_context.view)) |damage| {
+        player.hurtFrom(damage, self.animal.base.position);
+    }
+}
+
+fn mobOnDeath(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
+    const Entities = @import("entities.zig");
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    if (!self.splitsApart()) return;
+
+    const entities: *Entities = @ptrCast(@alignCast(tick_context.entities));
+    for (0..split_count) |index| {
+        const child = try entities.spawnMob(tick_context.gpa, Mob.slime, self.splitOffset(index), tick_context.rand);
+        const born: *Slime = @fieldParentPtr("animal", child);
+        born.setSize(self.size / 2);
+        born.animal.faceYaw(tick_context.rand.nextFloat() * 360.0);
+    }
+}
+
+pub const collide_reach: f64 = 1.0;

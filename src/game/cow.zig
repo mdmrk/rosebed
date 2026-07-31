@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Mob = @import("mob.zig");
 
 const Cow = @This();
 
@@ -139,4 +140,55 @@ test "a cow fills an empty bucket with milk, and ignores anything else" {
     try std.testing.expect(Cow.interact(.bucket_milk) == null);
     try std.testing.expect(Cow.interact(.sword_iron) == null);
     try std.testing.expect(Cow.interact(null) == null);
+}
+
+pub const mob_type: Mob.Type = .{
+    .name = world.entity_nbt.cow_id,
+    .spawn = mobSpawn,
+    .tick = mobTick,
+    .takeDrops = mobTakeDrops,
+    .store = mobStore,
+    .load = mobLoad,
+    .destroy = mobDestroy,
+};
+
+fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, _: *world.JavaRandom) anyerror!*Animal {
+    const self = try gpa.create(Cow);
+    self.* = spawn(position);
+    return &self.animal;
+}
+
+fn mobTick(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    view: Animal.PlayerView,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const self: *Cow = @fieldParentPtr("animal", animal);
+    try self.tick(gpa, world_map, view, rand);
+}
+
+fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
+    const self: *Cow = @fieldParentPtr("animal", animal);
+    const drops = self.takeDrops() orelse return null;
+    return .{ .count = drops.count, .stack = drops.stack() };
+}
+
+fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
+    const self: *Cow = @fieldParentPtr("animal", animal);
+    return world.entity_nbt.storeCow(gpa, self.toRecord());
+}
+
+fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+    const record = world.entity_nbt.loadCow(entity) orelse return null;
+    const self = try gpa.create(Cow);
+    self.* = Cow.fromRecord(record);
+    return &self.animal;
+}
+
+fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
+    const self: *Cow = @fieldParentPtr("animal", animal);
+    self.deinit(gpa);
+    gpa.destroy(self);
 }

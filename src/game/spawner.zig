@@ -10,6 +10,7 @@ const Entities = @import("entities.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
+const mob = @import("mob.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;
@@ -68,7 +69,7 @@ pub fn populationCap(category: Category) i32 {
 
 fn liveCount(entities: *const Entities, category: Category) i32 {
     return switch (category) {
-        .monster => @intCast(entities.slimes.items.len),
+        .monster => @intCast(entities.countOf(mob.slime)),
         .creature => @intCast(entities.animalCount()),
     };
 }
@@ -179,7 +180,7 @@ fn spawnInChunk(
                 var slime = Slime.spawn(position, rand);
                 slime.animal.faceYaw(rand.nextFloat() * 360.0);
                 if (!slime.canSpawnHere(world_seed, rand)) continue;
-                try entities.slimes.append(gpa, slime);
+                try entities.adopt(gpa, mob.slime, slime);
 
                 spawned += 1;
                 if (spawned >= max_per_chunk) return spawned;
@@ -191,25 +192,25 @@ fn spawnInChunk(
                     var pig = Pig.spawn(position);
                     pig.animal.faceYaw(rand.nextFloat() * 360.0);
                     if (!pig.animal.canSpawnHere(world_map)) continue;
-                    try entities.pigs.append(gpa, pig);
+                    try entities.adopt(gpa, mob.pig, pig);
                 },
                 .sheep => {
                     var sheep = Sheep.spawn(position, rand);
                     sheep.animal.faceYaw(rand.nextFloat() * 360.0);
                     if (!sheep.animal.canSpawnHere(world_map)) continue;
-                    try entities.sheep.append(gpa, sheep);
+                    try entities.adopt(gpa, mob.sheep, sheep);
                 },
                 .cow => {
                     var cow = Cow.spawn(position);
                     cow.animal.faceYaw(rand.nextFloat() * 360.0);
                     if (!cow.animal.canSpawnHere(world_map)) continue;
-                    try entities.cows.append(gpa, cow);
+                    try entities.adopt(gpa, mob.cow, cow);
                 },
                 .chicken => {
                     var chicken = Chicken.spawn(position, rand);
                     chicken.animal.faceYaw(rand.nextFloat() * 360.0);
                     if (!chicken.animal.canSpawnHere(world_map)) continue;
-                    try entities.chickens.append(gpa, chicken);
+                    try entities.adopt(gpa, mob.chicken, chicken);
                 },
             }
 
@@ -305,10 +306,14 @@ test "animals spawn onto lit grass away from the player" {
     const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
     try std.testing.expect(total > 0);
-    for (entities.pigs.items) |pig| try expectStandingOnGrass(&w, pig.animal);
-    for (entities.sheep.items) |sheep| try expectStandingOnGrass(&w, sheep.animal);
-    for (entities.cows.items) |cow| try expectStandingOnGrass(&w, cow.animal);
-    for (entities.chickens.items) |chicken| try expectStandingOnGrass(&w, chicken.animal);
+    var walk_pigs = entities.of(Pig, mob.pig);
+    while (walk_pigs.next()) |pig| try expectStandingOnGrass(&w, pig.animal);
+    var walk_sheep = entities.of(Sheep, mob.sheep);
+    while (walk_sheep.next()) |sheep| try expectStandingOnGrass(&w, sheep.animal);
+    var walk_cows = entities.of(Cow, mob.cow);
+    while (walk_cows.next()) |cow| try expectStandingOnGrass(&w, cow.animal);
+    var walk_chickens = entities.of(Chicken, mob.chicken);
+    while (walk_chickens.next()) |chicken| try expectStandingOnGrass(&w, chicken.animal);
 }
 
 test "every kind we can make finds its way into a grassy world" {
@@ -327,11 +332,11 @@ test "every kind we can make finds its way into a grassy world" {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
 
         // Empty the fields between rounds, so the population cap never ends the run early.
-        inline for (.{ &entities.pigs, &entities.sheep, &entities.chickens, &entities.cows }, 0..) |herd, kind| {
-            if (herd.items.len > 0) seen[kind] = true;
-            for (herd.items) |*animal| animal.deinit(gpa);
-            herd.clearRetainingCapacity();
+        inline for (.{ mob.pig, mob.sheep, mob.chicken, mob.cow }, 0..) |type_id, kind| {
+            if (entities.countOf(type_id) > 0) seen[kind] = true;
         }
+        for (entities.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
+        entities.mobs.clearRetainingCapacity();
 
         if (std.mem.allEqual(bool, &seen, true)) break;
     }
@@ -415,10 +420,14 @@ test "nothing spawns within twenty-four blocks of the world spawn point" {
     const spawn_point = [3]i32{ 64, @intCast(surface + 1), 8 };
     _ = try spawnUntilFirstAnimal(gpa, &entities, &w, player, spawn_point, &rand, 4000);
 
-    for (entities.pigs.items) |pig| try expectClearOf(spawn_point, pig.animal);
-    for (entities.sheep.items) |sheep| try expectClearOf(spawn_point, sheep.animal);
-    for (entities.cows.items) |cow| try expectClearOf(spawn_point, cow.animal);
-    for (entities.chickens.items) |chicken| try expectClearOf(spawn_point, chicken.animal);
+    var clear_pigs = entities.of(Pig, mob.pig);
+    while (clear_pigs.next()) |pig| try expectClearOf(spawn_point, pig.animal);
+    var clear_sheep = entities.of(Sheep, mob.sheep);
+    while (clear_sheep.next()) |sheep| try expectClearOf(spawn_point, sheep.animal);
+    var clear_cows = entities.of(Cow, mob.cow);
+    while (clear_cows.next()) |cow| try expectClearOf(spawn_point, cow.animal);
+    var clear_chickens = entities.of(Chicken, mob.chicken);
+    while (clear_chickens.next()) |chicken| try expectClearOf(spawn_point, chicken.animal);
 }
 
 fn expectClearOf(spawn_point: [3]i32, animal: Animal) !void {
@@ -442,11 +451,11 @@ test "spawning stops once the population cap is reached" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    const before = entities.pigs.items.len;
+    const before = entities.countOf(mob.pig);
     const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 500);
 
     try std.testing.expectEqual(@as(u32, 0), total);
-    try std.testing.expectEqual(before, entities.pigs.items.len);
+    try std.testing.expectEqual(before, entities.countOf(mob.pig));
 }
 
 test "slimes spawn in caverns down in the bottom sixteen layers" {
@@ -462,11 +471,12 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
 
     for (0..8000) |_| {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
-        if (entities.slimes.items.len > 0) break;
+        if (entities.countOf(mob.slime) > 0) break;
     }
 
-    try std.testing.expect(entities.slimes.items.len > 0);
-    for (entities.slimes.items) |slime| {
+    try std.testing.expect(entities.countOf(mob.slime) > 0);
+    var walk_slimes = entities.of(Slime, mob.slime);
+    while (walk_slimes.next()) |slime| {
         const at = slime.animal.base.position;
         try std.testing.expect(at.y < Slime.spawn_ceiling);
         try std.testing.expectEqual(.stone, w.getBlock(
@@ -494,7 +504,7 @@ test "slimes never spawn in a cavern above the sixteenth layer" {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
     }
 
-    try std.testing.expectEqual(@as(usize, 0), entities.slimes.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.slime));
 }
 
 test "the monster cap is counted apart from the animals" {
@@ -510,13 +520,13 @@ test "the monster cap is counted apart from the animals" {
         try entities.spawnSlime(gpa, math.Vec3.init(64, cavern, 8), &rand);
     }
 
-    const before = entities.slimes.items.len;
+    const before = entities.countOf(mob.slime);
     const player = math.Vec3.init(0, cavern, 0);
     for (0..500) |_| {
         _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
     }
 
-    try std.testing.expectEqual(before, entities.slimes.items.len);
+    try std.testing.expectEqual(before, entities.countOf(mob.slime));
 }
 
 test "the population cap follows the vanilla per-chunk allowance" {

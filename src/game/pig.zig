@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
+const Mob = @import("mob.zig");
 
 const Pig = @This();
 
@@ -156,4 +157,55 @@ test "a pig is the size EntityPig sets itself to" {
     try std.testing.expectEqual(@as(f64, 0.9), pig.animal.base.width);
     try std.testing.expectEqual(@as(f64, 0.9), pig.animal.base.height);
     try std.testing.expectEqual(max_health, pig.animal.health);
+}
+
+pub const mob_type: Mob.Type = .{
+    .name = world.entity_nbt.pig_id,
+    .spawn = mobSpawn,
+    .tick = mobTick,
+    .takeDrops = mobTakeDrops,
+    .store = mobStore,
+    .load = mobLoad,
+    .destroy = mobDestroy,
+};
+
+fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, _: *world.JavaRandom) anyerror!*Animal {
+    const self = try gpa.create(Pig);
+    self.* = spawn(position);
+    return &self.animal;
+}
+
+fn mobTick(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    view: Animal.PlayerView,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const self: *Pig = @fieldParentPtr("animal", animal);
+    try self.tick(gpa, world_map, view, rand);
+}
+
+fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
+    const self: *Pig = @fieldParentPtr("animal", animal);
+    const drops = self.takeDrops() orelse return null;
+    return .{ .count = drops.count, .stack = drops.stack() };
+}
+
+fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
+    const self: *Pig = @fieldParentPtr("animal", animal);
+    return world.entity_nbt.storePig(gpa, self.toRecord());
+}
+
+fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+    const record = world.entity_nbt.loadPig(entity) orelse return null;
+    const self = try gpa.create(Pig);
+    self.* = Pig.fromRecord(record);
+    return &self.animal;
+}
+
+fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
+    const self: *Pig = @fieldParentPtr("animal", animal);
+    self.deinit(gpa);
+    gpa.destroy(self);
 }

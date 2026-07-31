@@ -9,6 +9,7 @@ pub const Entity = @import("entity.zig");
 pub const FallingBlock = @import("falling_block.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
+pub const mob = @import("mob.zig");
 pub const Painting = @import("painting.zig");
 pub const Particle = @import("particle.zig");
 pub const physics = @import("physics.zig");
@@ -42,6 +43,7 @@ test {
     _ = Pig;
     _ = Sheep;
     _ = Slime;
+    _ = mob;
     _ = spawner;
     _ = crafting;
     _ = Settings;

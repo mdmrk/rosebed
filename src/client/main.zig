@@ -1754,7 +1754,14 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 return true;
             },
             .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
-            else => {},
+            else => |id| {
+                if (id.def().on_activated) |hook| {
+                    if (try hook(&app_state.world_map, hit.x, hit.y, hit.z, id)) {
+                        try applyBlockChanges(app_state);
+                        return true;
+                    }
+                }
+            },
         }
     }
     return placeBlockAtTarget(app_state);
@@ -1856,7 +1863,8 @@ fn useHeldItem(app_state: *AppState) !void {
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
-    if (target != .cow) return false;
+    const entry = app_state.entities.mobAt(target) orelse return false;
+    if (entry.type_id != game.mob.cow) return false;
     const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return false).id) {
         .item => |id| id,
         .block => null,
@@ -1990,7 +1998,22 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held == .painting) return hangPaintingAtTarget(app_state);
             if (held == .bed) return placeBedAtTarget(app_state);
             if (held == .sign) return placeSignAtTarget(app_state);
-            break :blk held.placedBlock() orelse return placeDoorAtTarget(app_state, held);
+            break :blk held.placedBlock() orelse {
+                if (held.def().on_use) |hook| {
+                    if (game.raycast.cast(
+                        &app_state.world_map,
+                        app_state.player.eyePosition(),
+                        app_state.player.lookVector(),
+                        reach_distance,
+                    )) |hit| {
+                        if (try hook(&app_state.world_map, hit.x, hit.y, hit.z, hit.face, held, stack.meta)) {
+                            try applyBlockChanges(app_state);
+                            return true;
+                        }
+                    }
+                }
+                return placeDoorAtTarget(app_state, held);
+            };
         },
     };
     const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
@@ -2089,10 +2112,7 @@ fn collideWithBlocks(app_state: *AppState, box: math.AABB) !void {
 
 fn pressPressurePlates(app_state: *AppState) !void {
     if (!app_state.dead) try collideWithBlocks(app_state, app_state.player.base.boundingBox());
-    for (app_state.entities.pigs.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
-    for (app_state.entities.sheep.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
-    for (app_state.entities.cows.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
-    for (app_state.entities.chickens.items) |*mob| try collideWithBlocks(app_state, mob.animal.base.boundingBox());
+    for (app_state.entities.mobs.items) |entry| try collideWithBlocks(app_state, entry.animal.base.boundingBox());
     for (app_state.entities.items.items) |*dropped| try collideWithBlocks(app_state, dropped.base.boundingBox());
 }
 
@@ -2151,13 +2171,7 @@ fn tick(app_state: *AppState) !void {
     try app_state.world_map.tickPistons();
     try app_state.entities.applyPistonShoves(&app_state.world_map, &app_state.player);
     try applyBlockChanges(app_state);
-    try app_state.entities.tickAnimals(
-        app_state.gpa,
-        &app_state.world_map,
-        &app_state.player,
-        &app_state.world_map.rand,
-    );
-    try app_state.entities.tickSlimes(
+    try app_state.entities.tickMobs(
         app_state.gpa,
         &app_state.world_map,
         &app_state.player,
@@ -2504,39 +2518,44 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer pig_mesh.deinit(app_state.frame);
     var saddle_mesh: render.MeshBuilder = .{};
     defer saddle_mesh.deinit(app_state.frame);
-    for (app_state.entities.pigs.items) |pig| {
-        try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig, partial);
+    var pigs = app_state.entities.of(game.Pig, game.mob.pig);
+    while (pigs.next()) |pig| {
+        try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig.*, partial);
         if (pig.saddled) {
-            try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig, partial);
+            try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig.*, partial);
         }
     }
     var cow_mesh: render.MeshBuilder = .{};
     defer cow_mesh.deinit(app_state.frame);
-    for (app_state.entities.cows.items) |cow| {
-        try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.world_map, cow, partial);
+    var cows = app_state.entities.of(game.Cow, game.mob.cow);
+    while (cows.next()) |cow| {
+        try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.world_map, cow.*, partial);
     }
     var chicken_mesh: render.MeshBuilder = .{};
     defer chicken_mesh.deinit(app_state.frame);
-    for (app_state.entities.chickens.items) |chicken| {
-        try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.world_map, chicken, partial);
+    var chickens = app_state.entities.of(game.Chicken, game.mob.chicken);
+    while (chickens.next()) |chicken| {
+        try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.world_map, chicken.*, partial);
     }
     var sheep_mesh: render.MeshBuilder = .{};
     defer sheep_mesh.deinit(app_state.frame);
     var fleece_mesh: render.MeshBuilder = .{};
     defer fleece_mesh.deinit(app_state.frame);
-    for (app_state.entities.sheep.items) |sheep| {
-        try render.entity_render.appendSheep(&sheep_mesh, app_state.frame, &app_state.world_map, sheep, partial);
+    var flock = app_state.entities.of(game.Sheep, game.mob.sheep);
+    while (flock.next()) |sheep| {
+        try render.entity_render.appendSheep(&sheep_mesh, app_state.frame, &app_state.world_map, sheep.*, partial);
         if (!sheep.sheared) {
-            try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep, partial);
+            try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep.*, partial);
         }
     }
     var slime_mesh: render.MeshBuilder = .{};
     defer slime_mesh.deinit(app_state.frame);
     var slime_shell_mesh: render.MeshBuilder = .{};
     defer slime_shell_mesh.deinit(app_state.frame);
-    for (app_state.entities.slimes.items) |slime| {
-        try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.world_map, slime, partial);
-        try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.world_map, slime, partial);
+    var slimes = app_state.entities.of(game.Slime, game.mob.slime);
+    while (slimes.next()) |slime| {
+        try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
+        try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
     }
     var painting_mesh: render.MeshBuilder = .{};
     defer painting_mesh.deinit(app_state.frame);
