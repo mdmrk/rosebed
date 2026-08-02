@@ -47,10 +47,10 @@ pub fn tick(
     self: *Sheep,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 }
 
 pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
@@ -62,7 +62,7 @@ pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     return if (rand.nextIntBound(500) == 0) pink else white;
 }
 
-pub fn hurt(self: *Sheep, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Sheep, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     if (source != null and !self.sheared) {
         self.sheared = true;
         self.pending_wool = min_wool + @as(u8, @intCast(rand.nextIntBound(wool_spread)));
@@ -116,7 +116,7 @@ test "a hit from an attacker shears the sheep and drops one to three wool of its
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
     sheep.fleece_color = brown;
 
-    try std.testing.expect(sheep.hurt(2, math.Vec3.init(6, 1, 8), &rand));
+    try std.testing.expect(sheep.hurt(2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
     try std.testing.expect(sheep.sheared);
 
     const drops = sheep.takeDrops().?;
@@ -129,11 +129,11 @@ test "a sheared sheep has no more wool to give" {
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    _ = sheep.hurt(1, math.Vec3.init(6, 1, 8), &rand);
+    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
     _ = sheep.takeDrops();
 
     sheep.animal.hurt_resistance = 0;
-    _ = sheep.hurt(1, math.Vec3.init(6, 1, 8), &rand);
+    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expect(sheep.takeDrops() == null);
 }
@@ -152,7 +152,7 @@ test "a sheep still takes the damage of the hit that shears it" {
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    _ = sheep.hurt(3, math.Vec3.init(6, 1, 8), &rand);
+    _ = sheep.hurt(3, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expectEqual(max_health - 3, sheep.animal.health);
     try std.testing.expect(sheep.animal.base.motion.x > 0.0);
@@ -168,7 +168,7 @@ test "a sheep killed outright drops no wool of its own" {
     defer sheep.deinit(gpa);
 
     for (0..200) |_| {
-        try sheep.animal.tick(gpa, &w, null, &rand);
+        try sheep.animal.tick(gpa, &w, .{}, &rand);
         if (!sheep.animal.isAlive()) break;
     }
 
@@ -223,7 +223,7 @@ pub const mob_type: Mob.Type = .{
     .hurt = mobHurt,
 };
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Sheep = @fieldParentPtr("animal", animal);
     return self.hurt(amount, source, rand);
 }
@@ -238,11 +238,11 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Sheep = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(animal: *Animal) ?Mob.Drops {

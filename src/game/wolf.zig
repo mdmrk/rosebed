@@ -19,6 +19,7 @@ prey_view: ?Animal.PlayerView = null,
 hunting: bool = false,
 pending_bite: i32 = 0,
 alerts_pack: bool = false,
+owner_id: Animal.Entity.Id = Animal.Entity.no_id,
 interested: bool = false,
 interest: f32 = 0,
 prev_interest: f32 = 0,
@@ -28,7 +29,7 @@ shake_time: f32 = 0,
 prev_shake_time: f32 = 0,
 
 pub const Target = union(enum) {
-    player,
+    player: Animal.Entity.Id,
     prey: *Animal,
 };
 
@@ -94,12 +95,12 @@ pub fn tick(
     self: *Wolf,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 
-    self.interested = self.looksWithInterest(player);
+    self.interested = self.looksWithInterest(players);
 
     if (self.shaking and !self.shake_running and self.animal.path == null and self.animal.base.on_ground) {
         self.shake_running = true;
@@ -133,9 +134,10 @@ fn isWet(self: Wolf) bool {
     return self.animal.base.in_water;
 }
 
-fn looksWithInterest(self: Wolf, player: ?Animal.PlayerView) bool {
-    if (!self.animal.looking_at_player or self.animal.path != null or self.angry) return false;
-    const view = player orelse return false;
+fn looksWithInterest(self: Wolf, players: Animal.Players) bool {
+    const watching = self.animal.watched_player orelse return false;
+    if (self.animal.path != null or self.angry) return false;
+    const view = players.byId(watching) orelse return false;
     const held = view.held orelse return false;
     if (!self.tamed) return held == .bone;
     return isFavouriteMeat(held);
@@ -145,18 +147,22 @@ fn isMovementCeased(self: Wolf) bool {
     return self.sitting or self.shake_running;
 }
 
-fn targetView(self: Wolf, player: ?Animal.PlayerView) ?Animal.PlayerView {
+fn targetView(self: Wolf, players: Animal.Players) ?Animal.PlayerView {
     return switch (self.target orelse return null) {
-        .player => player,
+        .player => |id| players.byId(id),
         .prey => self.prey_view,
     };
 }
 
-fn findPlayerToAttack(self: Wolf, player: ?Animal.PlayerView) ?Target {
+fn findPlayerToAttack(self: Wolf, players: Animal.Players) ?Target {
     if (!self.angry) return null;
-    const view = player orelse return null;
-    if (self.animal.distanceSquaredTo(view.position) >= sight_range * sight_range) return null;
-    return .player;
+    const view = players.closestTo(self.animal.base.position, sight_range) orelse return null;
+    return .{ .player = view.id };
+}
+
+fn ownerView(self: Wolf, players: Animal.Players) ?Animal.PlayerView {
+    if (self.owner_id != Animal.Entity.no_id) return players.byId(self.owner_id);
+    return players.closestTo(self.animal.base.position, -1.0);
 }
 
 fn canSee(self: Wolf, world_map: *const world.World, view: Animal.PlayerView) bool {
@@ -203,9 +209,9 @@ fn pathToTarget(
     self: *Wolf,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
 ) !void {
-    const view = self.targetView(player) orelse return;
+    const view = self.targetView(players) orelse return;
     try self.animal.pathTowards(gpa, world_map, view.position, Animal.chase_path_range);
 }
 
@@ -261,16 +267,16 @@ fn creatureActionState(
     self: *Wolf,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
     const animal = &self.animal;
     self.movement_ceased = self.isMovementCeased();
 
     if (self.target == null) {
-        self.target = self.findPlayerToAttack(player);
-        if (self.target != null) try self.pathToTarget(gpa, world_map, player);
-    } else if (self.targetView(player)) |view| {
+        self.target = self.findPlayerToAttack(players);
+        if (self.target != null) try self.pathToTarget(gpa, world_map, players);
+    } else if (self.targetView(players)) |view| {
         if (!view.alive) {
             self.target = null;
         } else {
@@ -286,21 +292,21 @@ fn creatureActionState(
             try animal.findWanderPath(gpa, world_map, rand);
         }
     } else {
-        try self.pathToTarget(gpa, world_map, player);
+        try self.pathToTarget(gpa, world_map, players);
     }
 
     animal.pitch = 0;
     animal.look_pitch_speed = if (self.sitting) sitting_look_pitch else Animal.default_look_pitch_speed;
 
     if (animal.path != null and rand.nextIntBound(100) != 0) {
-        const chase: ?Animal.Chase = if (self.targetView(player)) |view| .{
+        const chase: ?Animal.Chase = if (self.targetView(players)) |view| .{
             .position = view.position,
             .eye_height = view.eye_height,
             .ceased = self.movement_ceased,
         } else null;
         animal.followPath(gpa, rand, chase);
     } else {
-        animal.idleActionState(player, rand);
+        animal.idleActionState(players, rand);
         animal.clearPath(gpa);
     }
 }
@@ -309,14 +315,14 @@ fn updateActionState(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Wolf = @fieldParentPtr("animal", animal);
-    try self.creatureActionState(gpa, world_map, player, rand);
+    try self.creatureActionState(gpa, world_map, players, rand);
 
     if (!self.movement_ceased and animal.path == null and self.tamed) {
-        if (player) |owner| {
+        if (self.ownerView(players)) |owner| {
             const distance: f32 = @floatCast(@sqrt(animal.distanceSquaredTo(owner.position)));
             if (distance > follow_distance) try self.approachOwner(gpa, world_map, owner, distance);
         } else if (!animal.base.in_water) {
@@ -329,17 +335,18 @@ fn updateActionState(
     if (animal.base.in_water) self.sitting = false;
 }
 
-pub fn hurt(self: *Wolf, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Wolf, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     self.sitting = false;
     if (!self.animal.hurt(amount, source, rand)) return false;
     if (source == null) return true;
 
+    const attacker = source.?.player;
     if (!self.tamed and !self.angry) {
         self.angry = true;
-        self.target = .player;
+        self.target = .{ .player = attacker };
         self.alerts_pack = true;
     } else if (!self.tamed) {
-        self.target = .player;
+        self.target = .{ .player = attacker };
     }
     return true;
 }
@@ -347,6 +354,16 @@ pub fn hurt(self: *Wolf, amount: i32, source: ?math.Vec3, rand: *world.JavaRando
 pub const Use = enum { tamed, refused, fed, sat, stood };
 
 pub fn interact(self: *Wolf, gpa: std.mem.Allocator, held: ?world.Item, rand: *world.JavaRandom) ?Use {
+    return self.interactWith(gpa, Animal.Entity.no_id, held, rand);
+}
+
+pub fn interactWith(
+    self: *Wolf,
+    gpa: std.mem.Allocator,
+    player: Animal.Entity.Id,
+    held: ?world.Item,
+    rand: *world.JavaRandom,
+) ?Use {
     if (!self.tamed) {
         const item = held orelse return null;
         if (item != .bone or self.angry) return null;
@@ -354,6 +371,7 @@ pub fn interact(self: *Wolf, gpa: std.mem.Allocator, held: ?world.Item, rand: *w
         if (rand.nextIntBound(tame_odds) != 0) return .refused;
 
         self.tamed = true;
+        self.owner_id = player;
         self.sitting = true;
         self.animal.max_health = tamed_health;
         self.animal.health = tamed_health;
@@ -455,18 +473,18 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Wolf = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(_: *Animal) ?Mob.Drops {
     return null;
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Wolf = @fieldParentPtr("animal", animal);
     return self.hurt(amount, source, rand);
 }
@@ -524,7 +542,7 @@ fn rousePack(self: *Wolf, entities: anytype) void {
         if (other == self) continue;
         if (!box.intersects(other.animal.base.boundingBox())) continue;
         if (other.tamed or other.target != null) continue;
-        other.target = .player;
+        other.target = self.target;
         other.angry = true;
     }
 }
@@ -576,14 +594,15 @@ fn refreshPrey(self: *Wolf, entities: anytype) void {
 
 fn bite(self: *Wolf, entities: anytype, context: Mob.Tick, damage: i32) void {
     switch (self.target orelse return) {
-        .player => {
-            if (context.player.health <= 0) return;
-            context.player.hurtFrom(damage, self.animal.base.position);
+        .player => |id| {
+            const player = context.playerById(id) orelse return;
+            if (player.health <= 0) return;
+            player.hurtFrom(damage, self.animal.base.position);
         },
         .prey => |hunted| {
             for (entities.mobs.items) |entry| {
                 if (entry.animal != hunted) continue;
-                _ = Mob.get(entry.type_id).hurt(hunted, damage, self.animal.base.position, context.rand);
+                _ = Mob.get(entry.type_id).hurt(hunted, damage, .{ .position = self.animal.base.position }, context.rand);
                 return;
             }
         },
@@ -606,21 +625,17 @@ fn splash(self: *Wolf, entities: anytype, gpa: std.mem.Allocator, rand: *world.J
     }
 }
 
-pub fn alertOwned(entities: anytype, player_position: math.Vec3, victim: *Animal, skip_sitting: bool) void {
-    const box = math.AABB.init(
-        player_position.x,
-        player_position.y,
-        player_position.z,
-        player_position.x + 1.0,
-        player_position.y + 1.0,
-        player_position.z + 1.0,
-    ).expand(pack_reach, pack_lift, pack_reach);
+pub fn alertOwned(entities: anytype, attacker: Animal.Attacker, victim: *Animal, skip_sitting: bool) void {
+    const at = attacker.position;
+    const box = math.AABB.init(at.x, at.y, at.z, at.x + 1.0, at.y + 1.0, at.z + 1.0)
+        .expand(pack_reach, pack_lift, pack_reach);
 
     var pack = entities.of(Wolf, Mob.wolf);
     while (pack.next()) |wolf| {
         if (&wolf.animal == victim) continue;
         if (!box.intersects(wolf.animal.base.boundingBox())) continue;
         if (!wolf.tamed or wolf.target != null) continue;
+        if (wolf.owner_id != Animal.Entity.no_id and wolf.owner_id != attacker.player) continue;
         if (skip_sitting and wolf.sitting) continue;
         wolf.sitting = false;
         wolf.target = .{ .prey = victim };
@@ -729,12 +744,12 @@ test "hitting an untamed wolf angers it at the player and rouses the pack" {
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
     wolf.sitting = true;
 
-    try std.testing.expect(wolf.hurt(1, math.Vec3.init(6, 1, 8), &rand));
+    try std.testing.expect(wolf.hurt(1, .{ .position = math.Vec3.init(6, 1, 8), .player = 7 }, &rand));
 
     try std.testing.expect(wolf.angry);
     try std.testing.expect(!wolf.sitting);
     try std.testing.expect(wolf.alerts_pack);
-    try std.testing.expectEqual(Wolf.Target.player, wolf.target.?);
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 7), wolf.target.?.player);
 }
 
 test "a tamed wolf never turns on the hand that feeds it" {
@@ -744,7 +759,7 @@ test "a tamed wolf never turns on the hand that feeds it" {
     wolf.animal.max_health = tamed_health;
     wolf.animal.health = tamed_health;
 
-    try std.testing.expect(wolf.hurt(2, math.Vec3.init(6, 1, 8), &rand));
+    try std.testing.expect(wolf.hurt(2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
 
     try std.testing.expect(!wolf.angry);
     try std.testing.expect(wolf.target == null);
@@ -816,7 +831,7 @@ test "a sitting wolf stays put however long it is left alone" {
         .eye_height = 1.62,
         .alive = true,
     };
-    for (0..300) |_| try wolf.tick(gpa, &w, owner, &rand);
+    for (0..300) |_| try wolf.tick(gpa, &w, Animal.Players.one(&owner), &rand);
 
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), wolf.animal.base.position.x, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), wolf.animal.base.position.z, 1.0e-6);
@@ -841,7 +856,7 @@ test "a tamed wolf left standing walks back towards its owner" {
     };
 
     const started = wolf.animal.distanceSquaredTo(owner.position);
-    for (0..300) |_| try wolf.tick(gpa, &w, owner, &rand);
+    for (0..300) |_| try wolf.tick(gpa, &w, Animal.Players.one(&owner), &rand);
 
     try std.testing.expect(wolf.animal.distanceSquaredTo(owner.position) < started);
 }
@@ -867,7 +882,7 @@ test "a wolf dropped in water shakes itself dry once it is back on land" {
     defer wolf.deinit(gpa);
     wolf.animal.base.on_ground = true;
 
-    try wolf.tick(gpa, &w, null, &rand);
+    try wolf.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(wolf.animal.base.in_water);
     try std.testing.expect(wolf.shaking);
     try std.testing.expect(!wolf.shake_running);
@@ -876,7 +891,7 @@ test "a wolf dropped in water shakes itself dry once it is back on land" {
 
     var shook = false;
     for (0..400) |_| {
-        try wolf.tick(gpa, &w, null, &rand);
+        try wolf.tick(gpa, &w, .{}, &rand);
         if (wolf.shake_running) shook = true;
         if (!wolf.shaking) break;
     }
@@ -896,7 +911,7 @@ test "a shaking wolf holds still until it has finished" {
     wolf.animal.base.on_ground = true;
     wolf.shake_running = true;
 
-    try wolf.tick(gpa, &w, null, &rand);
+    try wolf.tick(gpa, &w, .{}, &rand);
 
     try std.testing.expect(wolf.movement_ceased);
     try std.testing.expect(wolf.animal.path == null);
@@ -959,31 +974,35 @@ test "an angry wolf comes back angry, and still able to despawn" {
 
 test "a wolf only takes an interest in what it is old enough to want" {
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
-    wolf.animal.looking_at_player = true;
+    wolf.animal.watched_player = 1;
 
     const holding = struct {
-        fn view(item: ?world.Item) Animal.PlayerView {
-            return .{
+        var held: [1]Animal.PlayerView = undefined;
+
+        fn players(item: ?world.Item) Animal.Players {
+            held[0] = .{
+                .id = 1,
                 .position = math.Vec3.init(9, 1, 8),
                 .eye_height = 1.62,
                 .alive = true,
                 .held = item,
             };
+            return .of(&held);
         }
     };
 
-    try std.testing.expect(wolf.looksWithInterest(holding.view(.bone)));
-    try std.testing.expect(!wolf.looksWithInterest(holding.view(.pork_raw)));
-    try std.testing.expect(!wolf.looksWithInterest(holding.view(null)));
+    try std.testing.expect(wolf.looksWithInterest(holding.players(.bone)));
+    try std.testing.expect(!wolf.looksWithInterest(holding.players(.pork_raw)));
+    try std.testing.expect(!wolf.looksWithInterest(holding.players(null)));
 
     wolf.tamed = true;
-    try std.testing.expect(!wolf.looksWithInterest(holding.view(.bone)));
-    try std.testing.expect(wolf.looksWithInterest(holding.view(.pork_raw)));
-    try std.testing.expect(wolf.looksWithInterest(holding.view(.pork_cooked)));
-    try std.testing.expect(!wolf.looksWithInterest(holding.view(.bread)));
+    try std.testing.expect(!wolf.looksWithInterest(holding.players(.bone)));
+    try std.testing.expect(wolf.looksWithInterest(holding.players(.pork_raw)));
+    try std.testing.expect(wolf.looksWithInterest(holding.players(.pork_cooked)));
+    try std.testing.expect(!wolf.looksWithInterest(holding.players(.bread)));
 
     wolf.angry = true;
-    try std.testing.expect(!wolf.looksWithInterest(holding.view(.pork_raw)));
+    try std.testing.expect(!wolf.looksWithInterest(holding.players(.pork_raw)));
 }
 
 test "the interested head tilt eases in while the treat is out and back once it is gone" {
@@ -1024,7 +1043,7 @@ test "an angry wolf runs down the player it can see, and stops at a wall" {
     };
 
     const started = wolf.animal.distanceSquaredTo(player.position);
-    for (0..200) |_| try wolf.tick(gpa, &w, player, &rand);
+    for (0..200) |_| try wolf.tick(gpa, &w, Animal.Players.one(&player), &rand);
 
     try std.testing.expect(wolf.target != null);
     try std.testing.expect(wolf.animal.distanceSquaredTo(player.position) < started);
@@ -1105,4 +1124,66 @@ test "a wall between the wolf and the player hides the player from it" {
     var y: u32 = 1;
     while (y <= 3) : (y += 1) w.setBlock(10, @intCast(y), 8, .stone);
     try std.testing.expect(!wolf.canSee(&w, player));
+}
+
+test "a struck wolf turns on the player who struck it, not the nearest one" {
+    var rand = world.JavaRandom.init(0);
+    var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
+
+    try std.testing.expect(wolf.hurt(1, .{ .position = math.Vec3.init(30, 1, 8), .player = 42 }, &rand));
+
+    try std.testing.expect(wolf.angry);
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.target.?.player);
+}
+
+test "an angry wolf with no memory of an attacker picks the closest player it can see" {
+    var wolf = Wolf.spawn(math.Vec3.init(0, 1, 0));
+    wolf.angry = true;
+
+    const views = [_]Animal.PlayerView{
+        .{ .id = 1, .position = math.Vec3.init(12, 1, 0), .eye_height = 1.62, .alive = true },
+        .{ .id = 2, .position = math.Vec3.init(3, 1, 0), .eye_height = 1.62, .alive = true },
+    };
+
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 2), wolf.findPlayerToAttack(.of(&views)).?.player);
+
+    const distant = [_]Animal.PlayerView{
+        .{ .id = 1, .position = math.Vec3.init(40, 1, 0), .eye_height = 1.62, .alive = true },
+    };
+    try std.testing.expect(wolf.findPlayerToAttack(.of(&distant)) == null);
+}
+
+test "a tamed wolf follows the owner that tamed it, not whoever is nearest" {
+    const gpa = std.testing.allocator;
+    var wolf = Wolf.spawn(math.Vec3.init(0, 1, 0));
+    defer wolf.deinit(gpa);
+    wolf.tamed = true;
+    wolf.owner_id = 7;
+
+    const views = [_]Animal.PlayerView{
+        .{ .id = 3, .position = math.Vec3.init(2, 1, 0), .eye_height = 1.62, .alive = true },
+        .{ .id = 7, .position = math.Vec3.init(30, 1, 0), .eye_height = 1.62, .alive = true },
+    };
+
+    try std.testing.expectEqual(@as(f64, 30), wolf.ownerView(.of(&views)).?.position.x);
+
+    const owner_gone = [_]Animal.PlayerView{views[0]};
+    try std.testing.expect(wolf.ownerView(.of(&owner_gone)) == null);
+}
+
+test "a wolf tamed at runtime remembers who tamed it" {
+    const gpa = std.testing.allocator;
+
+    var seed: u64 = 0;
+    while (seed < 100) : (seed += 1) {
+        var rand = world.JavaRandom.init(@intCast(seed));
+        var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
+        defer wolf.deinit(gpa);
+
+        if (wolf.interactWith(gpa, 11, .bone, &rand) != .tamed) continue;
+
+        try std.testing.expectEqual(@as(Animal.Entity.Id, 11), wolf.owner_id);
+        return;
+    }
+    try std.testing.expect(false);
 }

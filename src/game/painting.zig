@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const Entity = @import("entity.zig");
 const game_physics = @import("physics.zig");
 
 const Painting = @This();
@@ -84,6 +85,7 @@ pub const recheck_ticks = 100;
 const hang_depth: f32 = 9.0 / 16.0;
 const box_shrink: f64 = 0.1 / 16.0;
 
+id: Entity.Id = Entity.no_id,
 tile: [3]i32,
 direction: u2,
 art: Art,

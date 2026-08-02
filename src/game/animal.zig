@@ -4,7 +4,7 @@ const math = @import("math");
 const world = @import("world");
 const testing_world = world.testing;
 
-const Entity = @import("entity.zig");
+pub const Entity = @import("entity.zig");
 const physics = @import("physics.zig");
 
 const Animal = @This();
@@ -43,14 +43,14 @@ in_lava: bool = false,
 drowned: bool = false,
 dead: bool = false,
 look_ticks_left: i32 = 0,
-looking_at_player: bool = false,
+watched_player: ?Entity.Id = null,
 path: ?world.pathfinder.Path = null,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
 action_state: *const fn (
     *Animal,
     std.mem.Allocator,
     *const world.World,
-    ?PlayerView,
+    Players,
     *world.JavaRandom,
 ) anyerror!void = updateActionState,
 
@@ -105,11 +105,54 @@ const safe_fall_distance: f32 = 3.0;
 const knockback_strength: f64 = 0.4;
 
 pub const PlayerView = struct {
+    id: Entity.Id = Entity.no_id,
     position: math.Vec3,
     eye_height: f64,
     alive: bool,
     height: f64 = 1.8,
     held: ?world.Item = null,
+};
+
+pub const Attacker = struct {
+    position: math.Vec3,
+    player: Entity.Id = Entity.no_id,
+};
+
+pub const Players = struct {
+    views: []const PlayerView = &.{},
+
+    pub fn of(views: []const PlayerView) Players {
+        return .{ .views = views };
+    }
+
+    pub fn one(view: *const PlayerView) Players {
+        return .{ .views = view[0..1] };
+    }
+
+    pub fn closestTo(self: Players, position: math.Vec3, range: f64) ?PlayerView {
+        var nearest: ?PlayerView = null;
+        var nearest_distance: f64 = -1.0;
+        for (self.views) |view| {
+            const dx = view.position.x - position.x;
+            const dy = view.position.y - position.y;
+            const dz = view.position.z - position.z;
+            const distance = dx * dx + dy * dy + dz * dz;
+            if ((range < 0.0 or distance < range * range) and
+                (nearest_distance == -1.0 or distance < nearest_distance))
+            {
+                nearest_distance = distance;
+                nearest = view;
+            }
+        }
+        return nearest;
+    }
+
+    pub fn byId(self: Players, id: Entity.Id) ?PlayerView {
+        for (self.views) |view| {
+            if (view.id == id) return view;
+        }
+        return null;
+    }
 };
 
 fn leaveNothing(_: *Animal, _: *world.JavaRandom) void {}
@@ -232,7 +275,7 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
 }
 
-pub fn hurt(self: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Animal, amount: i32, source: ?Attacker, rand: *world.JavaRandom) bool {
     self.entity_age = 0;
     if (self.health <= 0) return false;
 
@@ -254,8 +297,8 @@ pub fn hurt(self: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRan
     self.attacked_at_yaw = 0;
     if (reacts) {
         if (source) |from| {
-            var dx = from.x - self.base.position.x;
-            var dz = from.z - self.base.position.z;
+            var dx = from.position.x - self.base.position.x;
+            var dz = from.position.z - self.base.position.z;
             while (dx * dx + dz * dz < 1.0e-4) {
                 dx = (rand.nextDouble() - rand.nextDouble()) * 0.01;
                 dz = (rand.nextDouble() - rand.nextDouble()) * 0.01;
@@ -373,9 +416,9 @@ fn turnTowards(current: f32, target: f32, limit: f32) f32 {
     return current + std.math.clamp(wrapDegrees(target - current), -limit, limit);
 }
 
-pub fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
+pub fn despawnCheck(self: *Animal, players: Players, rand: *world.JavaRandom) void {
     if (!self.can_despawn) return;
-    const view = player orelse return;
+    const view = players.closestTo(self.base.position, -1.0) orelse return;
     const distance_squared = self.distanceSquaredTo(view.position);
 
     if (distance_squared > despawn_distance_squared) self.dead = true;
@@ -389,37 +432,33 @@ pub fn despawnCheck(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom)
     }
 }
 
-pub fn idleActionState(self: *Animal, player: ?PlayerView, rand: *world.JavaRandom) void {
+pub fn idleActionState(self: *Animal, players: Players, rand: *world.JavaRandom) void {
     self.entity_age += 1;
-    self.despawnCheck(player, rand);
+    self.despawnCheck(players, rand);
     self.move_strafing = 0;
     self.move_forward = 0;
 
     if (rand.nextFloat() < 0.02) {
-        const nearby = if (player) |view|
-            (view.alive and self.distanceSquaredTo(view.position) < look_range * look_range)
-        else
-            false;
-
-        if (nearby) {
-            self.looking_at_player = true;
+        const nearby = players.closestTo(self.base.position, look_range);
+        if (nearby != null and nearby.?.alive) {
+            self.watched_player = nearby.?.id;
             self.look_ticks_left = 10 + rand.nextIntBound(20);
         } else {
             self.random_yaw_velocity = (rand.nextFloat() - 0.5) * 20.0;
         }
     }
 
-    if (self.looking_at_player and player != null) {
-        const view = player.?;
+    const watched = if (self.watched_player) |id| players.byId(id) else null;
+    if (watched) |view| {
         self.faceEntity(view.position, view.eye_height, 10.0, self.look_pitch_speed);
         self.look_ticks_left -= 1;
         if (self.look_ticks_left < 0 or !view.alive or
             self.distanceSquaredTo(view.position) > look_range * look_range)
         {
-            self.looking_at_player = false;
+            self.watched_player = null;
         }
     } else {
-        self.looking_at_player = false;
+        self.watched_player = null;
         if (rand.nextFloat() < 0.05) self.random_yaw_velocity = (rand.nextFloat() - 0.5) * 20.0;
         self.yaw += self.random_yaw_velocity;
         self.pitch = 0;
@@ -508,7 +547,7 @@ fn updateActionState(
     self: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?PlayerView,
+    players: Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const wants_new_path = if (self.path == null)
@@ -522,7 +561,7 @@ fn updateActionState(
     if (self.path != null and rand.nextIntBound(100) != 0) {
         self.followPath(gpa, rand, null);
     } else {
-        self.idleActionState(player, rand);
+        self.idleActionState(players, rand);
         self.clearPath(gpa);
     }
 }
@@ -592,7 +631,7 @@ pub fn tick(
     self: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?PlayerView,
+    players: Players,
     rand: *world.JavaRandom,
 ) !void {
     self.base.beginTick();
@@ -623,7 +662,7 @@ pub fn tick(
         self.random_yaw_velocity = 0;
         self.clearPath(gpa);
     } else {
-        try self.action_state(self, gpa, world_map, player, rand);
+        try self.action_state(self, gpa, world_map, players, rand);
     }
 
     if (self.is_jumping) {
@@ -742,10 +781,10 @@ test "gravity pulls a spawned animal down" {
     var animal = testAnimal(math.Vec3.init(8, 5, 8));
     defer animal.deinit(gpa);
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, -0.0784), animal.base.motion.y, 1.0e-9);
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(animal.base.position.y < 5.0);
 }
 
@@ -761,7 +800,7 @@ test "an animal on grass eventually picks a path and walks it" {
 
     var walked = false;
     for (0..400) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         if (animal.path != null) walked = true;
     }
 
@@ -780,7 +819,7 @@ test "a wandering animal walks along the surface rather than sinking or floating
     animal.base.on_ground = true;
 
     for (0..200) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
 
         try std.testing.expectApproxEqAbs(@as(f64, 1.0), animal.base.position.y, 1.0e-6);
     }
@@ -805,7 +844,7 @@ test "a hit from a known source knocks the animal away from it" {
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
 
-    _ = animal.hurt(1, math.Vec3.init(6, 1, 8), &rand);
+    _ = animal.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expect(animal.base.motion.x > 0.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), animal.base.motion.y, 1.0e-9);
@@ -847,11 +886,11 @@ test "a killed animal lingers for twenty ticks before it is removed" {
 
     _ = animal.hurt(animal.max_health, null, &rand);
     for (0..death_ticks) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         try std.testing.expect(!animal.dead);
     }
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(animal.dead);
 }
 
@@ -865,7 +904,7 @@ test "a long fall hurts by the distance beyond three blocks" {
     defer animal.deinit(gpa);
 
     for (0..100) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         if (animal.base.on_ground) break;
     }
 
@@ -888,7 +927,7 @@ test "an animal that takes no fall damage lands from any height unhurt" {
     defer animal.deinit(gpa);
 
     for (0..300) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         if (animal.base.on_ground) break;
     }
 
@@ -907,7 +946,7 @@ test "a short drop is walked off without damage" {
     defer animal.deinit(gpa);
 
     for (0..60) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         if (animal.base.on_ground) break;
     }
 
@@ -926,20 +965,20 @@ test "an animal held under water drowns once its air runs out" {
     var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
     defer animal.deinit(gpa);
 
-    for (0..max_air) |_| try animal.tick(gpa, &w, null, &rand);
+    for (0..max_air) |_| try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expectEqual(animal.max_health, animal.health);
     try std.testing.expectEqual(@as(i32, 0), animal.air);
 
     for (0..19) |_| {
-        try animal.tick(gpa, &w, null, &rand);
+        try animal.tick(gpa, &w, .{}, &rand);
         try std.testing.expect(!animal.drowned);
     }
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(animal.drowned);
     try std.testing.expectEqual(animal.max_health - drown_damage, animal.health);
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(!animal.drowned);
 }
 
@@ -960,7 +999,7 @@ test "an animal in open water swims up and never drowns" {
     var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
     defer animal.deinit(gpa);
 
-    for (0..max_air + 100) |_| try animal.tick(gpa, &w, null, &rand);
+    for (0..max_air + 100) |_| try animal.tick(gpa, &w, .{}, &rand);
 
     try std.testing.expectEqual(animal.max_health, animal.health);
     try std.testing.expect(animal.base.position.y > 4.0);
@@ -975,7 +1014,7 @@ test "an animal buried in stone suffocates" {
     var animal = testAnimal(math.Vec3.init(8.5, 3, 8.5));
     defer animal.deinit(gpa);
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expectEqual(animal.max_health - suffocation_damage, animal.health);
 }
 
@@ -995,7 +1034,7 @@ test "an animal standing in lava catches fire and burns" {
     var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
     defer animal.deinit(gpa);
 
-    try animal.tick(gpa, &w, null, &rand);
+    try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expectEqual(animal.max_health - lava_damage, animal.health);
     try std.testing.expect(animal.fire > 0);
 }
@@ -1011,7 +1050,7 @@ test "an animal far from the player despawns" {
 
     const far_away = PlayerView{ .position = math.Vec3.init(8.5, 1, 400), .eye_height = 1.62, .alive = true };
     for (0..200) |_| {
-        try animal.tick(gpa, &w, far_away, &rand);
+        try animal.tick(gpa, &w, Players.one(&far_away), &rand);
         if (animal.dead) break;
     }
 
@@ -1029,7 +1068,7 @@ test "an animal near the player is kept alive however old it gets" {
     animal.entity_age = 5000;
 
     const nearby = PlayerView{ .position = math.Vec3.init(10.5, 1, 8.5), .eye_height = 1.62, .alive = true };
-    for (0..600) |_| try animal.tick(gpa, &w, nearby, &rand);
+    for (0..600) |_| try animal.tick(gpa, &w, Players.one(&nearby), &rand);
 
     try std.testing.expect(!animal.dead);
 }
@@ -1047,8 +1086,8 @@ test "an idle animal turns to watch a player who walks up to it" {
     const nearby = PlayerView{ .position = math.Vec3.init(11.5, 1, 8.5), .eye_height = 1.62, .alive = true };
     var watched = false;
     for (0..300) |_| {
-        try animal.tick(gpa, &w, nearby, &rand);
-        if (animal.looking_at_player) watched = true;
+        try animal.tick(gpa, &w, Players.one(&nearby), &rand);
+        if (animal.watched_player != null) watched = true;
     }
 
     try std.testing.expect(watched);
@@ -1146,4 +1185,96 @@ test "the eyes sit at the same fraction of the body however tall it is" {
 
     try std.testing.expectApproxEqAbs(@as(f64, 0.765), pig_sized.eyeHeight(), 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.105), sheep_sized.eyeHeight(), 1.0e-9);
+}
+
+fn viewAt(id: Entity.Id, x: f64, z: f64) PlayerView {
+    return .{ .id = id, .position = math.Vec3.init(x, 1, z), .eye_height = 1.62, .alive = true };
+}
+
+test "the closest player is the nearest one inside the range, and none beyond it" {
+    const views = [_]PlayerView{ viewAt(1, 20, 0), viewAt(2, 4, 0), viewAt(3, 9, 0) };
+    const players = Players.of(&views);
+    const origin = math.Vec3.init(0, 1, 0);
+
+    try std.testing.expectEqual(@as(Entity.Id, 2), players.closestTo(origin, -1.0).?.id);
+    try std.testing.expectEqual(@as(Entity.Id, 2), players.closestTo(origin, 10.0).?.id);
+    try std.testing.expect(players.closestTo(origin, 3.0) == null);
+
+    const far = math.Vec3.init(18, 1, 0);
+    try std.testing.expectEqual(@as(Entity.Id, 1), players.closestTo(far, -1.0).?.id);
+}
+
+test "an empty world has no closest player and no player by id" {
+    const players: Players = .{};
+    try std.testing.expect(players.closestTo(math.Vec3.init(0, 0, 0), -1.0) == null);
+    try std.testing.expect(players.byId(1) == null);
+}
+
+test "a player is found by the id it was given" {
+    const views = [_]PlayerView{ viewAt(4, 0, 0), viewAt(9, 5, 0) };
+    const players = Players.of(&views);
+
+    try std.testing.expectEqual(@as(f64, 5), players.byId(9).?.position.x);
+    try std.testing.expect(players.byId(5) == null);
+}
+
+test "an animal watches whichever player is nearer, and forgets one that walks away" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(2);
+    var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
+    defer animal.deinit(gpa);
+    animal.base.on_ground = true;
+
+    var views = [_]PlayerView{ viewAt(1, 40.5, 8.5), viewAt(2, 11.5, 8.5) };
+    const players = Players.of(&views);
+
+    var watched: ?Entity.Id = null;
+    for (0..300) |_| {
+        try animal.tick(gpa, &w, players, &rand);
+        if (animal.watched_player) |id| watched = id;
+    }
+    try std.testing.expectEqual(@as(Entity.Id, 2), watched.?);
+
+    views[1] = viewAt(2, 400.5, 8.5);
+    for (0..40) |_| try animal.tick(gpa, &w, players, &rand);
+    try std.testing.expect(animal.watched_player == null);
+}
+
+test "an animal beside one player is kept alive however far the other has wandered" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
+    defer animal.deinit(gpa);
+
+    const views = [_]PlayerView{ viewAt(1, 8.5, 900), viewAt(2, 10.5, 8.5) };
+    for (0..200) |_| {
+        try animal.tick(gpa, &w, Players.of(&views), &rand);
+        if (animal.dead) break;
+    }
+
+    try std.testing.expect(!animal.dead);
+}
+
+test "an animal every player has left behind despawns" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
+    defer animal.deinit(gpa);
+
+    const views = [_]PlayerView{ viewAt(1, 8.5, 900), viewAt(2, 900, 8.5) };
+    for (0..200) |_| {
+        try animal.tick(gpa, &w, Players.of(&views), &rand);
+        if (animal.dead) break;
+    }
+
+    try std.testing.expect(animal.dead);
 }

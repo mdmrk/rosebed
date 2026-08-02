@@ -15,27 +15,34 @@ pub const Tick = struct {
     entities: *anyopaque,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: *Player,
-    view: Animal.PlayerView,
+    roster: []const *Player,
+    players: Animal.Players,
     rand: *world.JavaRandom,
+
+    pub fn playerById(self: Tick, id: Animal.Entity.Id) ?*Player {
+        for (self.roster) |player| {
+            if (player.base.id == id) return player;
+        }
+        return null;
+    }
 };
 
 pub const Type = struct {
     name: []const u8,
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
-    tick: *const fn (*Animal, std.mem.Allocator, *const world.World, Animal.PlayerView, *world.JavaRandom) anyerror!void,
+    tick: *const fn (*Animal, std.mem.Allocator, *const world.World, Animal.Players, *world.JavaRandom) anyerror!void,
     takeDrops: *const fn (*Animal) ?Drops,
     store: *const fn (*Animal, std.mem.Allocator) anyerror!world.nbt.Tag,
     load: *const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal,
     destroy: *const fn (*Animal, std.mem.Allocator) void,
-    hurt: *const fn (*Animal, i32, ?math.Vec3, *world.JavaRandom) bool = hurtBase,
+    hurt: *const fn (*Animal, i32, ?Animal.Attacker, *world.JavaRandom) bool = hurtBase,
     afterTick: *const fn (*Animal, Tick) anyerror!void = ignore,
     onDeath: *const fn (*Animal, Tick) anyerror!void = ignore,
 };
 
 fn ignore(_: *Animal, _: Tick) anyerror!void {}
 
-fn hurtBase(animal: *Animal, amount: i32, source: ?math.Vec3, rand: *world.JavaRandom) bool {
+fn hurtBase(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     return animal.hurt(amount, source, rand);
 }
 

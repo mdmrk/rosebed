@@ -71,12 +71,9 @@ const AppState = struct {
     sky: render.SkyRenderer,
     font: render.Font,
     shader: render.Shader,
-    generator: world.TerrainGenerator,
-    world_map: world.World,
+    level: game.Level,
     chunks: render.ChunkRenderer = .{},
-    entities: game.Entities = .{},
     timer: Timer,
-    tick_count: u64 = 0,
     frame_end_ns: u64 = 0,
     cloud_offset: u64 = 0,
     fog_brightness: f32 = 0,
@@ -145,7 +142,6 @@ const AppState = struct {
     multiplayer_state: render.multiplayer_screen.State = undefined,
     loading: Loading = .{},
     needs_spawn: bool = false,
-    spawn: [3]i32 = .{ 0, 64, 0 },
     ticks_since_save: u32 = 0,
     pause_save_frames: u32 = 0,
     pause_ticks: u32 = 0,
@@ -211,7 +207,7 @@ fn starterInventory() game.Inventory {
 
 fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
     const loaded: u32 = @intCast(app_state.chunks.loadedCount());
-    const entities: u32 = @intCast(app_state.entities.count());
+    const entities: u32 = @intCast(app_state.level.entities.count());
     const memory = core.process.sample();
     return .{
         .fps = app_state.debug_fps,
@@ -220,8 +216,8 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
         .renderers_loaded = loaded,
         .entities_rendered = entities,
         .entities_total = entities,
-        .particles = @intCast(app_state.entities.particles.items.len + app_state.entities.pickups.items.len),
-        .chunk_cache = @intCast(app_state.world_map.chunks.count()),
+        .particles = @intCast(app_state.level.entities.particles.items.len + app_state.level.entities.pickups.items.len),
+        .chunk_cache = @intCast(app_state.level.world_map.chunks.count()),
         .x = app_state.player.base.position.x,
         .y = app_state.player.base.position.y,
         .z = app_state.player.base.position.z,
@@ -265,8 +261,8 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
     while (cx <= center.x + radius + 1) : (cx += 1) {
         var cz = center.z - radius - 1;
         while (cz <= center.z + radius + 1) : (cz += 1) {
-            if (app_state.world_map.isDecorated(cx, cz)) {
-                if (!app_state.chunks.hasMesh(cx, cz) and neighborhoodDecorated(&app_state.world_map, cx, cz)) {
+            if (app_state.level.world_map.isDecorated(cx, cz)) {
+                if (!app_state.chunks.hasMesh(cx, cz) and neighborhoodDecorated(&app_state.level.world_map, cx, cz)) {
                     try app_state.chunks.markDirty(app_state.gpa, cx, cz);
                 }
                 continue;
@@ -284,7 +280,7 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
 
     const started = sdl3.timer.getNanosecondsSinceInit();
     for (pending.items) |entry| {
-        try app_state.world_map.ensureDecorated(app_state.generator, entry.coord.x, entry.coord.z);
+        try app_state.level.world_map.ensureDecorated(app_state.level.generator, entry.coord.x, entry.coord.z);
         try markMeshableAround(app_state, entry.coord);
         if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) break;
     }
@@ -308,7 +304,7 @@ fn markMeshableAround(app_state: *AppState, coord: world.World.ChunkCoord) !void
         while (dz <= 1) : (dz += 1) {
             const cx = coord.x + dx;
             const cz = coord.z + dz;
-            if (app_state.chunks.hasMesh(cx, cz) or neighborhoodDecorated(&app_state.world_map, cx, cz)) {
+            if (app_state.chunks.hasMesh(cx, cz) or neighborhoodDecorated(&app_state.level.world_map, cx, cz)) {
                 try app_state.chunks.markDirty(app_state.gpa, cx, cz);
             }
         }
@@ -394,8 +390,7 @@ pub fn init(
         .sky = undefined,
         .font = undefined,
         .shader = undefined,
-        .generator = undefined,
-        .world_map = world.World.init(gpa),
+        .level = .{ .world_map = world.World.init(gpa), .generator = undefined },
         .timer = Timer.init(ticks_per_second, sdl3.timer.getNanosecondsSinceInit()),
         .io = io,
         .base_path = base_path,
@@ -411,8 +406,8 @@ pub fn init(
     app_state.stats = try game.stats_file.load(gpa, io, base_dir, game.stats_file.default_username);
     errdefer app_state.stats.deinit(gpa);
 
-    app_state.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
-    app_state.splash = pickSplash(&app_state.world_map.rand);
+    app_state.level.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
+    app_state.splash = pickSplash(&app_state.level.world_map.rand);
 
     app_state.textures = try render.Textures.load(gpa, null);
     errdefer app_state.textures.deinit();
@@ -435,8 +430,8 @@ pub fn init(
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
 
-    app_state.generator = try world.TerrainGenerator.init(gpa, 0);
-    errdefer app_state.generator.deinit(gpa);
+    app_state.level.generator = try world.TerrainGenerator.init(gpa, 0);
+    errdefer app_state.level.deinit(gpa);
 
     return .{ app_state, .run };
 }
@@ -445,11 +440,11 @@ const missed_click_ticks = 10;
 
 fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
     var reach: f64 = reach_distance;
-    if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+    if (game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
         reach = hit.distance;
     }
     reach = @min(reach, game.Entities.entity_reach);
-    return app_state.entities.pick(app_state.player.eyePosition(), app_state.player.lookVector(), reach);
+    return app_state.level.entities.pick(app_state.player.eyePosition(), app_state.player.lookVector(), reach);
 }
 
 fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
@@ -465,7 +460,10 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
 
     if (target == .painting) return breakPainting(app_state, target.painting);
 
-    _ = app_state.entities.hurtTarget(target, damage, app_state.player.base.position, &app_state.world_map.rand);
+    _ = app_state.level.entities.hurtTarget(target, damage, .{
+        .position = app_state.player.base.position,
+        .player = app_state.player.base.id,
+    }, &app_state.level.world_map.rand);
     try app_state.stats.add(app_state.gpa, .{ .general = .damage_dealt }, damage);
 }
 
@@ -476,23 +474,23 @@ fn clickLeft(app_state: *AppState) !void {
         try attackEntity(app_state, target);
         return;
     }
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
         app_state.missed_click_cooldown = missed_click_ticks;
         return;
     };
     if (app_state.digging != null) return;
-    switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
+    switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
         .door_wood => {
-            try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
         .trapdoor => {
-            try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
+            try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
         .cake => try eatCakeSlice(app_state, hit.x, hit.y, hit.z),
         .lever, .button => {
-            _ = try world.redstone.activate(&app_state.world_map, hit.x, hit.y, hit.z);
+            _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
         .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
@@ -507,7 +505,7 @@ fn digStep(app_state: *AppState) !void {
     }
     if (app_state.missed_click_cooldown > 0) return;
 
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
         app_state.digging = null;
         return;
     };
@@ -516,10 +514,10 @@ fn digStep(app_state: *AppState) !void {
         app_state.digging = .{ .x = hit.x, .y = hit.y, .z = hit.z, .progress = 0 };
     }
 
-    const block_id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
+    const block_id = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
     const strength = block_id.strength(
         app_state.player.inventory.selectedStack(),
-        app_state.player.digSpeedFactor(&app_state.world_map),
+        app_state.player.digSpeedFactor(&app_state.level.world_map),
     );
     if (strength <= 0.0) return;
     if (strength >= 1.0) {
@@ -529,16 +527,16 @@ fn digStep(app_state: *AppState) !void {
     }
 
     app_state.digging.?.progress += strength;
-    try app_state.entities.spawnBlockHitParticle(
+    try app_state.level.entities.spawnBlockHitParticle(
         app_state.gpa,
         hit.x,
         hit.y,
         hit.z,
         hit.face,
-        block_id.selectionBounds(app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
-        block_id.particleTile(app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
+        block_id.selectionBounds(app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
+        block_id.particleTile(app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
         particleTint(app_state, block_id, hit.x, hit.y, hit.z),
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
     if (app_state.digging.?.progress >= 1.0) {
         try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
@@ -549,60 +547,43 @@ fn digStep(app_state: *AppState) !void {
 fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: i32) [3]u8 {
     if (id == .grass) return .{ 255, 255, 255 };
     const width = world.constants.chunk_width;
-    const chunk = app_state.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
+    const chunk = app_state.level.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
     const lx: u32 = @intCast(@mod(x, width));
     const lz: u32 = @intCast(@mod(z, width));
     return render.chunk_mesher.blockTint(
         app_state.colorizer,
         id,
-        app_state.world_map.getBlockMetadata(x, y, z),
+        app_state.level.world_map.getBlockMetadata(x, y, z),
         world.Side.up,
         chunk.getTemperature(lx, lz),
         chunk.getHumidity(lx, lz),
     );
 }
 
+fn markBlockNeedsUpdate(context: *anyopaque, x: i32, _: i32, z: i32) std.mem.Allocator.Error!void {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
+}
+
+fn updateAllRenderers(context: *anyopaque) std.mem.Allocator.Error!void {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    try app_state.chunks.markAllDirty(app_state.gpa);
+}
+
+fn worldAccess(app_state: *AppState) world.World.Access {
+    return .{
+        .context = app_state,
+        .markBlockNeedsUpdate = markBlockNeedsUpdate,
+        .updateAllRenderers = updateAllRenderers,
+    };
+}
+
 fn applyBlockChanges(app_state: *AppState) !void {
-    const width = world.constants.chunk_width;
-    var columns: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{};
-    defer columns.deinit(app_state.frame);
-
-    for (app_state.world_map.changed.items) |pos| {
-        const chunk_x = @divFloor(pos.x, width);
-        const chunk_z = @divFloor(pos.z, width);
-        const local_x = @mod(pos.x, width);
-        const local_z = @mod(pos.z, width);
-
-        try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z }, {});
-        if (local_x == 0) try columns.put(app_state.frame, .{ .x = chunk_x - 1, .z = chunk_z }, {});
-        if (local_x == width - 1) try columns.put(app_state.frame, .{ .x = chunk_x + 1, .z = chunk_z }, {});
-        if (local_z == 0) try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z - 1 }, {});
-        if (local_z == width - 1) try columns.put(app_state.frame, .{ .x = chunk_x, .z = chunk_z + 1 }, {});
-
-        try app_state.chunks.markBlockDirty(app_state.gpa, pos.x, pos.z);
-    }
-    app_state.world_map.changed.clearRetainingCapacity();
-
-    var it = columns.keyIterator();
-    while (it.next()) |coord| try world.light.relightChunk(app_state.gpa, &app_state.world_map, coord.x, coord.z);
-
-    for (app_state.world_map.dropped.items) |drop| {
-        try spawnDroppedItem(app_state, drop.pos.x, drop.pos.y, drop.pos.z, .{
-            .id = drop.stack.id,
-            .count = drop.stack.count,
-            .meta = drop.stack.meta,
-        });
-    }
-    app_state.world_map.dropped.clearRetainingCapacity();
-
-    for (app_state.world_map.falling.items) |fall| {
-        try app_state.entities.spawnFallingBlock(app_state.gpa, fall.pos.x, fall.pos.y, fall.pos.z, fall.id);
-    }
-    app_state.world_map.falling.clearRetainingCapacity();
+    try app_state.level.applyBlockChanges(app_state.gpa, app_state.frame);
 }
 
 fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
-    try app_state.entities.dropStack(app_state.gpa, x, y, z, stack, &app_state.world_map.rand);
+    try app_state.level.dropStackAt(app_state.gpa, x, y, z, stack);
 }
 
 fn wearHeldItem(app_state: *AppState) !void {
@@ -624,33 +605,33 @@ fn wearHeldItem(app_state: *AppState) !void {
 }
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
-    const meta = app_state.world_map.getBlockMetadata(x, y, z);
+    const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
     const harvested = block_id.harvestableWith(app_state.player.inventory.selectedStack());
-    try app_state.entities.spawnBlockDestroyParticles(
+    try app_state.level.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
         y,
         z,
         block_id.particleTile(meta),
         particleTint(app_state, block_id, x, y, z),
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
-    try app_state.world_map.setBlockWithNotify(x, y, z, .air);
+    try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
-    _ = app_state.world_map.removeSign(x, y, z);
+    _ = app_state.level.world_map.removeSign(x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state);
 
     if (harvested) {
         try app_state.stats.mine(app_state.gpa, block_id);
-        if (block_id.drop(meta, &app_state.world_map.rand)) |d| {
+        if (block_id.drop(meta, &app_state.level.world_map.rand)) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
     }
 }
 
 fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    var removed = app_state.world_map.removeFurnace(x, y, z) orelse return;
+    var removed = app_state.level.world_map.removeFurnace(x, y, z) orelse return;
 
     if (app_state.furnace_open) |open| {
         if (open.x == x and open.y == y and open.z == z) try closeContainer(app_state);
@@ -662,42 +643,15 @@ fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     }
 }
 
-fn tickFallingBlocks(app_state: *AppState) !void {
-    var i: usize = 0;
-    while (i < app_state.entities.falling_blocks.items.len) {
-        const block = &app_state.entities.falling_blocks.items[i];
-        const outcome = block.tick(&app_state.world_map);
-
-        if (outcome == .falling) {
-            i += 1;
-            continue;
-        }
-
-        const x: i32 = @intFromFloat(@floor(block.base.position.x));
-        const y: i32 = @intFromFloat(@floor(block.base.position.y));
-        const z: i32 = @intFromFloat(@floor(block.base.position.z));
-
-        const landing_empty = !app_state.world_map.getBlock(x, y, z).isSolid();
-        const support_solid = !app_state.world_map.getBlock(x, y - 1, z).canFallInto();
-        if (outcome == .landed and landing_empty and support_solid) {
-            try app_state.world_map.setBlockWithNotify(x, y, z, block.block_id);
-        } else {
-            try spawnDroppedItem(app_state, x, y, z, .{ .id = .{ .block = block.block_id }, .count = 1 });
-        }
-
-        _ = app_state.entities.falling_blocks.swapRemove(i);
-    }
-}
-
 fn dropSelectedItem(app_state: *AppState) !void {
     const inventory = &app_state.player.inventory;
     const slot = &inventory.slots[inventory.selected];
     var stack = slot.* orelse return;
-    try app_state.entities.throwFromPlayer(
+    try app_state.level.entities.throwFromPlayer(
         app_state.gpa,
         &app_state.player,
         .{ .id = stack.id, .count = 1, .meta = stack.meta },
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
     stack.count -= 1;
     slot.* = if (stack.count == 0) null else stack;
@@ -875,7 +829,7 @@ fn closeSignEditor(app_state: *AppState) !void {
 
 fn editedSign(app_state: *AppState) ?*world.sign.Sign {
     const open = app_state.sign_edit orelse return null;
-    return app_state.world_map.signAt(open.x, open.y, open.z);
+    return app_state.level.world_map.signAt(open.x, open.y, open.z);
 }
 
 fn worldFocused(app_state: *const AppState) bool {
@@ -902,14 +856,14 @@ fn openWorkbench(app_state: *AppState) !void {
 }
 
 fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    _ = try app_state.world_map.addFurnace(x, y, z);
+    _ = try app_state.level.world_map.addFurnace(x, y, z);
     app_state.furnace_open = .{ .x = x, .y = y, .z = z };
     try updateMouseMode(app_state);
 }
 
 fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
     const pos = app_state.furnace_open orelse return null;
-    return app_state.world_map.furnaceAt(pos.x, pos.y, pos.z);
+    return app_state.level.world_map.furnaceAt(pos.x, pos.y, pos.z);
 }
 
 fn toggleInventory(app_state: *AppState) !void {
@@ -938,14 +892,15 @@ fn stepPauseSave(app_state: *AppState) !void {
     }
     if (app_state.pause_save_frames == 0) {
         try saveLevel(app_state);
-        try app_state.world_map.beginSaveRound();
+        try app_state.level.world_map.beginSaveRound();
     }
     app_state.pause_save_frames += 1;
-    app_state.pause_saving = try app_state.world_map.saveQueuedChunks(save_chunks_per_pass) > 0;
+    app_state.pause_saving = try app_state.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0;
 }
 
 fn killPlayer(app_state: *AppState) !void {
     app_state.dead = true;
+    app_state.level.setOccupantActive(false);
     if (containerOpen(app_state)) try closeContainer(app_state);
     try dropInventoryOnDeath(app_state);
     app_state.keys = .{};
@@ -962,20 +917,21 @@ fn dropInventoryOnDeath(app_state: *AppState) !void {
 
 fn scatterSlotOnDeath(app_state: *AppState, slot: *?game.Inventory.ItemStack) !void {
     const stack = slot.* orelse return;
-    try app_state.entities.scatterFromPlayer(
+    try app_state.level.entities.scatterFromPlayer(
         app_state.gpa,
         &app_state.player,
         stack,
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
     slot.* = null;
 }
 
 fn respawnPlayer(app_state: *AppState) !void {
     if (app_state.player.spawn_point) |bed| {
-        if (world.block_update.bedRespawnSpot(&app_state.world_map, bed[0], bed[1], bed[2])) |spot| {
-            app_state.player.respawn(spawnPlacement(&app_state.world_map, spot));
+        if (world.block_update.bedRespawnSpot(&app_state.level.world_map, bed[0], bed[1], bed[2])) |spot| {
+            app_state.player.respawn(spawnPlacement(&app_state.level.world_map, spot));
             app_state.dead = false;
+            app_state.level.setOccupantActive(true);
             try updateMouseMode(app_state);
             return;
         }
@@ -984,8 +940,9 @@ fn respawnPlayer(app_state: *AppState) !void {
     }
 
     try adjustSpawnLocation(app_state);
-    app_state.player.respawn(spawnPlacement(&app_state.world_map, app_state.spawn));
+    app_state.player.respawn(spawnPlacement(&app_state.level.world_map, app_state.level.spawn));
     app_state.dead = false;
+    app_state.level.setOccupantActive(true);
     try updateMouseMode(app_state);
 }
 
@@ -1032,13 +989,13 @@ fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void 
 
 fn lookedAtPosition(app_state: *AppState) math.Vec3 {
     const hit = game.raycast.cast(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         reach_distance,
     ) orelse return app_state.player.base.position;
 
-    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     return math.Vec3.init(
         @as(f64, @floatFromInt(target.x)) + 0.5,
         @floatFromInt(target.y),
@@ -1058,7 +1015,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .seed => |seed| {
             var buffer: [64]u8 = undefined;
-            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.generator.world_seed}, 0);
+            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.level.generator.world_seed}, 0);
             const copy_msg = if (seed.copy)
                 " (Copied to clipboard)"
             else
@@ -1070,34 +1027,34 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             reply(app_state, "{s}{s}", .{ world_seed, copy_msg });
         },
         .give => |give| {
-            try app_state.entities.throwFromPlayer(
+            try app_state.level.entities.throwFromPlayer(
                 app_state.gpa,
                 &app_state.player,
                 .{ .id = give.id, .count = give.count },
-                &app_state.world_map.rand,
+                &app_state.level.world_map.rand,
             );
             reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
             for (0..spawn.count) |_| switch (spawn.mob) {
-                .pig => try app_state.entities.spawnPig(app_state.gpa, position),
-                .cow => try app_state.entities.spawnCow(app_state.gpa, position),
-                .sheep => try app_state.entities.spawnSheep(app_state.gpa, position, &app_state.world_map.rand),
-                .chicken => try app_state.entities.spawnChicken(app_state.gpa, position, &app_state.world_map.rand),
-                .slime => try app_state.entities.spawnSlime(app_state.gpa, position, &app_state.world_map.rand),
-                .wolf => try app_state.entities.spawnWolf(app_state.gpa, position, &app_state.world_map.rand),
+                .pig => try app_state.level.entities.spawnPig(app_state.gpa, position),
+                .cow => try app_state.level.entities.spawnCow(app_state.gpa, position),
+                .sheep => try app_state.level.entities.spawnSheep(app_state.gpa, position, &app_state.level.world_map.rand),
+                .chicken => try app_state.level.entities.spawnChicken(app_state.gpa, position, &app_state.level.world_map.rand),
+                .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
+                .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
         .time => |command| {
             switch (command.method) {
                 .add => {
-                    app_state.world_map.setTime(app_state.world_map.time + command.amount);
+                    app_state.level.world_map.setTime(app_state.level.world_map.time + command.amount);
                     reply(app_state, "Added {d} to time", .{command.amount});
                 },
                 .set => {
-                    app_state.world_map.setTime(command.amount);
+                    app_state.level.world_map.setTime(command.amount);
                     reply(app_state, "Set time to {d}", .{command.amount});
                 },
             }
@@ -1122,7 +1079,8 @@ fn quitToTitle(app_state: *AppState) !void {
     app_state.screen = .title;
     app_state.paused = false;
     app_state.dead = false;
-    app_state.splash = pickSplash(&app_state.world_map.rand);
+    app_state.level.setOccupantActive(true);
+    app_state.splash = pickSplash(&app_state.level.world_map.rand);
     try updateMouseMode(app_state);
 }
 
@@ -1315,7 +1273,7 @@ fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
 
 fn saveWorld(app_state: *AppState) !void {
     if (app_state.save_handle == null) return;
-    try app_state.world_map.saveLoadedChunks();
+    try app_state.level.world_map.saveLoadedChunks();
     try saveLevel(app_state);
     persist();
 }
@@ -1328,9 +1286,9 @@ fn saveLevel(app_state: *AppState) !void {
     const player = try playerState(app_state, &entries);
 
     const info: world.save.LevelInfo = .{
-        .seed = app_state.generator.world_seed,
-        .spawn = app_state.spawn,
-        .time = app_state.world_map.time,
+        .seed = app_state.level.generator.world_seed,
+        .spawn = app_state.level.spawn,
+        .time = app_state.level.world_map.time,
         .last_played = world.RegionFile.unixMilliseconds(app_state.io),
         .size_on_disk = @intCast(handle.diskSize(app_state.io)),
         .name = @constCast(app_state.open_name.text()),
@@ -1342,15 +1300,9 @@ fn saveLevel(app_state: *AppState) !void {
 fn closeWorld(app_state: *AppState) void {
     if (app_state.save_handle) |*handle| handle.close(app_state.gpa, app_state.io);
     app_state.save_handle = null;
-    app_state.world_map.persistence = null;
-    const rand = app_state.world_map.rand;
-    app_state.world_map.deinit();
-    app_state.world_map = world.World.init(app_state.gpa);
-    app_state.world_map.rand = rand;
+    app_state.level.closeWorld(app_state.gpa);
     app_state.chunks.deinit(app_state.gpa);
     app_state.chunks = .{};
-    app_state.entities.deinit(app_state.gpa);
-    app_state.entities = .{};
 }
 
 fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: ?i64) !void {
@@ -1365,15 +1317,14 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     var stored = handle.readLevel(app_state.gpa, app_state.io) catch null;
     defer if (stored) |*info| info.deinit(app_state.gpa);
 
-    const level_seed = if (stored) |info| info.seed else seed orelse app_state.world_map.rand.nextLong();
+    const level_seed = if (stored) |info| info.seed else seed orelse app_state.level.world_map.rand.nextLong();
 
-    app_state.generator.deinit(app_state.gpa);
-    app_state.generator = try world.TerrainGenerator.init(app_state.gpa, level_seed);
+    try app_state.level.reseed(app_state.gpa, level_seed);
 
-    app_state.world_map.persistence = .{ .handle = handle, .io = app_state.io };
-    app_state.world_map.entity_io = app_state.entities.entityIo();
-    app_state.world_map.entity_probe = .{ .context = app_state, .anyInBox = anyEntityInBox };
+    app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
+    app_state.level.world_map.access = worldAccess(app_state);
     app_state.player = playerAtSpawn();
+    try app_state.level.enter(app_state.gpa, &app_state.player);
 
     try app_state.stats.add(app_state.gpa, .{ .general = if (stored == null) .create_world else .load_world }, 1);
     try app_state.stats.add(app_state.gpa, .{ .general = .start_game }, 1);
@@ -1381,15 +1332,15 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     app_state.needs_spawn = true;
     if (stored) |info| {
         app_state.open_name.set(info.name);
-        app_state.world_map.time = info.time;
-        app_state.spawn = info.spawn;
+        app_state.level.world_map.time = info.time;
+        app_state.level.spawn = info.spawn;
         if (info.player) |player| {
             applyPlayerState(app_state, player);
             app_state.needs_spawn = false;
         }
     } else {
-        app_state.world_map.time = 0;
-        app_state.spawn = try findInitialSpawn(app_state);
+        app_state.level.world_map.time = 0;
+        app_state.level.spawn = try findInitialSpawn(app_state);
     }
 
     app_state.loading = .{
@@ -1403,8 +1354,8 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
 
 fn loadingChunkCoord(app_state: *const AppState, index: i32) world.World.ChunkCoord {
     const side = spawn_load_radius * 2 + 1;
-    const center_x = @divFloor(app_state.spawn[0], world.constants.chunk_width);
-    const center_z = @divFloor(app_state.spawn[2], world.constants.chunk_width);
+    const center_x = @divFloor(app_state.level.spawn[0], world.constants.chunk_width);
+    const center_z = @divFloor(app_state.level.spawn[2], world.constants.chunk_width);
     return .{
         .x = center_x + @mod(index, side) - spawn_load_radius,
         .z = center_z + @divFloor(index, side) - spawn_load_radius,
@@ -1416,7 +1367,7 @@ fn stepLoading(app_state: *AppState) !void {
 
     while (app_state.loading.done < app_state.loading.total) {
         const coord = loadingChunkCoord(app_state, app_state.loading.next);
-        try app_state.world_map.ensureDecorated(app_state.generator, coord.x, coord.z);
+        try app_state.level.world_map.ensureDecorated(app_state.level.generator, coord.x, coord.z);
         app_state.loading.next += 1;
         app_state.loading.done += 1;
         if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) return;
@@ -1427,28 +1378,28 @@ fn stepLoading(app_state: *AppState) !void {
 
 fn firstUncoveredBlock(app_state: *AppState, x: i32, z: i32) !world.Block {
     const width = world.constants.chunk_width;
-    try app_state.world_map.ensureDecorated(app_state.generator, @divFloor(x, width), @divFloor(z, width));
+    try app_state.level.world_map.ensureDecorated(app_state.level.generator, @divFloor(x, width), @divFloor(z, width));
 
     var y: i32 = 63;
-    while (app_state.world_map.getBlock(x, y + 1, z) != .air) : (y += 1) {}
-    return app_state.world_map.getBlock(x, y, z);
+    while (app_state.level.world_map.getBlock(x, y + 1, z) != .air) : (y += 1) {}
+    return app_state.level.world_map.getBlock(x, y, z);
 }
 
 fn findInitialSpawn(app_state: *AppState) ![3]i32 {
     var x: i32 = 0;
     var z: i32 = 0;
     while ((try firstUncoveredBlock(app_state, x, z)) != .sand) {
-        x += app_state.world_map.rand.nextIntBound(64) - app_state.world_map.rand.nextIntBound(64);
-        z += app_state.world_map.rand.nextIntBound(64) - app_state.world_map.rand.nextIntBound(64);
+        x += app_state.level.world_map.rand.nextIntBound(64) - app_state.level.world_map.rand.nextIntBound(64);
+        z += app_state.level.world_map.rand.nextIntBound(64) - app_state.level.world_map.rand.nextIntBound(64);
     }
     return .{ x, 64, z };
 }
 
 fn adjustSpawnLocation(app_state: *AppState) !void {
-    if (app_state.spawn[1] <= 0) app_state.spawn[1] = 64;
-    while ((try firstUncoveredBlock(app_state, app_state.spawn[0], app_state.spawn[2])) == .air) {
-        app_state.spawn[0] += app_state.world_map.rand.nextIntBound(8) - app_state.world_map.rand.nextIntBound(8);
-        app_state.spawn[2] += app_state.world_map.rand.nextIntBound(8) - app_state.world_map.rand.nextIntBound(8);
+    if (app_state.level.spawn[1] <= 0) app_state.level.spawn[1] = 64;
+    while ((try firstUncoveredBlock(app_state, app_state.level.spawn[0], app_state.level.spawn[2])) == .air) {
+        app_state.level.spawn[0] += app_state.level.world_map.rand.nextIntBound(8) - app_state.level.world_map.rand.nextIntBound(8);
+        app_state.level.spawn[2] += app_state.level.world_map.rand.nextIntBound(8) - app_state.level.world_map.rand.nextIntBound(8);
     }
 }
 
@@ -1467,7 +1418,7 @@ fn spawnPlacement(world_map: *const world.World, spawn: [3]i32) math.Vec3 {
 
 fn finishLoading(app_state: *AppState) !void {
     if (app_state.needs_spawn) {
-        app_state.player.base.position = spawnPlacement(&app_state.world_map, app_state.spawn);
+        app_state.player.base.position = spawnPlacement(&app_state.level.world_map, app_state.level.spawn);
         app_state.player.base.prev_position = app_state.player.base.position;
         app_state.needs_spawn = false;
     }
@@ -1571,7 +1522,7 @@ fn confirmCreateWorld(app_state: *AppState) !void {
             const folder = try world.save.unusedFolderName(app_state.gpa, app_state.io, app_state.saves_dir, name);
             defer app_state.gpa.free(folder);
 
-            const random_seed = app_state.world_map.rand.nextLong();
+            const random_seed = app_state.level.world_map.rand.nextLong();
             const seed = render.create_world_screen.seedFromText(app_state.create_state.seed.text(), random_seed);
             try startWorld(app_state, folder, name, seed);
         },
@@ -1720,8 +1671,8 @@ fn consumeSelectedStack(app_state: *AppState) void {
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
     if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
-    if (game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
-        switch (app_state.world_map.getBlock(hit.x, hit.y, hit.z)) {
+    if (game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+        switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
             .workbench => {
                 try openWorkbench(app_state);
                 return true;
@@ -1731,13 +1682,13 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 return true;
             },
             .door_wood => {
-                try world.block_update.toggleDoor(&app_state.world_map, hit.x, hit.y, hit.z);
+                try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .door_iron => return true,
             .trapdoor => {
-                try world.block_update.toggleTrapdoor(&app_state.world_map, hit.x, hit.y, hit.z);
+                try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
                 try applyBlockChanges(app_state);
                 return true;
             },
@@ -1750,14 +1701,14 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 return true;
             },
             .lever, .button, .repeater_off, .repeater_on => {
-                _ = try world.redstone.activate(&app_state.world_map, hit.x, hit.y, hit.z);
+                _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
             else => |id| {
                 if (id.def().on_activated) |hook| {
-                    if (try hook(&app_state.world_map, hit.x, hit.y, hit.z, id)) {
+                    if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, id)) {
                         try applyBlockChanges(app_state);
                         return true;
                     }
@@ -1769,15 +1720,15 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
 }
 
 fn lightRedstoneOre(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    try app_state.entities.spawnRedstoneOreParticles(
+    try app_state.level.entities.spawnRedstoneOreParticles(
         app_state.gpa,
-        &app_state.world_map,
+        &app_state.level.world_map,
         x,
         y,
         z,
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
-    try world.redstone.lightRedstoneOre(&app_state.world_map, x, y, z);
+    try world.redstone.lightRedstoneOre(&app_state.level.world_map, x, y, z);
     try applyBlockChanges(app_state);
 }
 
@@ -1785,28 +1736,28 @@ fn eatCakeSlice(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (app_state.player.health >= 20) return;
     app_state.player.heal(3);
 
-    const eaten = app_state.world_map.getBlockMetadata(x, y, z) + 1;
+    const eaten = app_state.level.world_map.getBlockMetadata(x, y, z) + 1;
     if (eaten >= world.block.cake_slices) {
-        try app_state.world_map.setBlockWithNotify(x, y, z, .air);
+        try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
     } else {
-        try app_state.world_map.setBlockMetadataWithNotify(x, y, z, @intCast(eaten));
+        try app_state.level.world_map.setBlockMetadataWithNotify(x, y, z, @intCast(eaten));
     }
     try applyBlockChanges(app_state);
 }
 
-fn breakPainting(app_state: *AppState, index: usize) !void {
-    const painting = app_state.entities.paintings.orderedRemove(index);
-    try app_state.entities.dropStackAt(
+fn breakPainting(app_state: *AppState, id: game.Entity.Id) !void {
+    const painting = app_state.level.entities.removePainting(id) orelse return;
+    try app_state.level.entities.dropStackAt(
         app_state.gpa,
         painting.position,
         .{ .id = .{ .item = .painting }, .count = 1 },
-        &app_state.world_map.rand,
+        &app_state.level.world_map.rand,
     );
 }
 
 fn hangPaintingAtTarget(app_state: *AppState) !bool {
     const hit = game.raycast.cast(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         reach_distance,
@@ -1816,12 +1767,12 @@ fn hangPaintingAtTarget(app_state: *AppState) !bool {
     const hung = game.Painting.pickArt(
         .{ hit.x, hit.y, hit.z },
         direction,
-        &app_state.world_map,
-        app_state.entities.paintings.items,
-        &app_state.world_map.rand,
+        &app_state.level.world_map,
+        app_state.level.entities.paintings.items,
+        &app_state.level.world_map.rand,
     ) orelse return true;
 
-    try app_state.entities.spawnPainting(app_state.gpa, hung);
+    try app_state.level.entities.spawnPainting(app_state.gpa, hung);
     try app_state.stats.use(app_state.gpa, .{ .item = .painting });
     consumeSelectedStack(app_state);
     return true;
@@ -1833,11 +1784,11 @@ const bed_reach_y: f64 = 2.0;
 
 fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     var pillow: [3]i32 = .{ x, y, z };
-    if (!world.block.bedIsPillow(app_state.world_map.getBlockMetadata(x, y, z))) {
-        pillow = world.block_update.bedPartner(&app_state.world_map, x, y, z) orelse return;
+    if (!world.block.bedIsPillow(app_state.level.world_map.getBlockMetadata(x, y, z))) {
+        pillow = world.block_update.bedPartner(&app_state.level.world_map, x, y, z) orelse return;
     }
 
-    if (app_state.world_map.isDaytime()) {
+    if (app_state.level.world_map.isDaytime()) {
         app_state.chat.addMessage(app_state.font, "You can only sleep at night");
         return;
     }
@@ -1847,7 +1798,7 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     if (@abs(position.y - @as(f64, @floatFromInt(pillow[1]))) > bed_reach_y) return;
     if (@abs(position.z - @as(f64, @floatFromInt(pillow[2]))) > bed_reach_x) return;
 
-    app_state.world_map.skipToDawn();
+    app_state.level.world_map.skipToDawn();
     app_state.player.spawn_point = pillow;
 }
 
@@ -1859,12 +1810,12 @@ fn useHeldItem(app_state: *AppState) !void {
     if (held != .bow) return;
     if (!app_state.player.inventory.consumeItem(.{ .item = .arrow })) return;
 
-    try app_state.entities.shootArrow(app_state.gpa, &app_state.player, &app_state.world_map.rand);
+    try app_state.level.entities.shootArrow(app_state.gpa, &app_state.player, &app_state.level.world_map.rand);
     try app_state.stats.use(app_state.gpa, .{ .item = .bow });
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
-    const entry = app_state.entities.mobAt(target) orelse return false;
+    const entry = app_state.level.entities.mobAt(target) orelse return false;
     const held: ?world.Item = if (app_state.player.inventory.selectedStack()) |stack| switch (stack.id) {
         .item => |id| id,
         .block => null,
@@ -1881,16 +1832,16 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
 
 fn interactWithWolf(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
     const wolf: *game.Wolf = @fieldParentPtr("animal", animal);
-    const used = wolf.interact(app_state.gpa, held, &app_state.world_map.rand) orelse return false;
+    const used = wolf.interactWith(app_state.gpa, app_state.player.base.id, held, &app_state.level.world_map.rand) orelse return false;
 
     switch (used) {
         .tamed, .refused => {
             consumeSelectedStack(app_state);
-            try app_state.entities.spawnTreatReaction(
+            try app_state.level.entities.spawnTreatReaction(
                 app_state.gpa,
                 wolf.animal,
                 used == .tamed,
-                &app_state.world_map.rand,
+                &app_state.level.world_map.rand,
             );
             try app_state.stats.use(app_state.gpa, .{ .item = .bone });
         },
@@ -1910,7 +1861,7 @@ fn holdStack(app_state: *AppState, held: world.Item) void {
 
 fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !bool {
     const hit = game.raycast.castWith(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         bucket_reach,
@@ -1919,7 +1870,7 @@ fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !boo
 
     switch (fill) {
         .empty => {
-            const scooped = try world.block_update.scoopLiquid(&app_state.world_map, hit.x, hit.y, hit.z) orelse return false;
+            const scooped = try world.block_update.scoopLiquid(&app_state.level.world_map, hit.x, hit.y, hit.z) orelse return false;
             holdStack(app_state, scooped.bucketItem());
         },
         .milk => holdStack(app_state, .bucket),
@@ -1928,7 +1879,7 @@ fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !boo
             const px = hit.x + step[0];
             const py = hit.y + step[1];
             const pz = hit.z + step[2];
-            if (!try world.block_update.pourLiquid(&app_state.world_map, px, py, pz, fill)) return false;
+            if (!try world.block_update.pourLiquid(&app_state.level.world_map, px, py, pz, fill)) return false;
             holdStack(app_state, .bucket);
         },
     }
@@ -1955,9 +1906,9 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
         .door_iron => .door_iron,
         else => return false,
     };
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
     if (hit.face != .up) return false;
-    if (!try world.block_update.placeDoor(&app_state.world_map, hit.x, hit.y + 1, hit.z, placed, app_state.player.yaw)) return false;
+    if (!try world.block_update.placeDoor(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, placed, app_state.player.yaw)) return false;
 
     try app_state.stats.use(app_state.gpa, .{ .item = held });
     consumeSelectedStack(app_state);
@@ -1967,23 +1918,23 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
 
 fn placeSignAtTarget(app_state: *AppState) !bool {
     const hit = game.raycast.cast(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         reach_distance,
     ) orelse return false;
     if (hit.face == .down) return false;
-    if (!app_state.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
+    if (!app_state.level.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
 
-    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
-    if (!app_state.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return false;
+    if (!app_state.level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return false;
 
     if (hit.face == .up) {
         const facing = world.block.signPostFacingFromYaw(app_state.player.yaw);
-        try app_state.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, .sign_post, facing);
+        try app_state.level.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, .sign_post, facing);
     } else {
-        try app_state.world_map.setBlockAndMetadataWithNotify(
+        try app_state.level.world_map.setBlockAndMetadataWithNotify(
             target.x,
             target.y,
             target.z,
@@ -1992,7 +1943,7 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
         );
     }
 
-    _ = try app_state.world_map.addSign(target.x, target.y, target.z);
+    _ = try app_state.level.world_map.addSign(target.x, target.y, target.z);
     try app_state.stats.use(app_state.gpa, .{ .item = .sign });
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -2002,13 +1953,13 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
 
 fn placeBedAtTarget(app_state: *AppState) !bool {
     const hit = game.raycast.cast(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         reach_distance,
     ) orelse return false;
     if (hit.face != .up) return false;
-    if (!try world.block_update.placeBed(&app_state.world_map, hit.x, hit.y + 1, hit.z, app_state.player.yaw)) return false;
+    if (!try world.block_update.placeBed(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, app_state.player.yaw)) return false;
 
     try app_state.stats.use(app_state.gpa, .{ .item = .bed });
     consumeSelectedStack(app_state);
@@ -2028,12 +1979,12 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
                     if (game.raycast.cast(
-                        &app_state.world_map,
+                        &app_state.level.world_map,
                         app_state.player.eyePosition(),
                         app_state.player.lookVector(),
                         reach_distance,
                     )) |hit| {
-                        if (try hook(&app_state.world_map, hit.x, hit.y, hit.z, hit.face, held, stack.meta)) {
+                        if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face, held, stack.meta)) {
                             try applyBlockChanges(app_state);
                             return true;
                         }
@@ -2043,27 +1994,27 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             };
         },
     };
-    const hit = game.raycast.cast(&app_state.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
-    const target = world.block_update.placementTarget(&app_state.world_map, hit.x, hit.y, hit.z, hit.face);
+    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     const px = target.x;
     const py = target.y;
     const pz = target.z;
     if (py < 0 or py >= world.constants.chunk_height) return false;
-    if (!app_state.world_map.getBlock(px, py, pz).isReplaceable()) return false;
-    if (!world.block_update.canPlaceOnSide(&app_state.world_map, px, py, pz, placed, target.face)) return false;
-    const meta = world.block_update.placementMetadata(&app_state.world_map, px, py, pz, placed, target.face, stack.blockMeta());
-    try app_state.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
+    if (!app_state.level.world_map.getBlock(px, py, pz).isReplaceable()) return false;
+    if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, px, py, pz, placed, target.face)) return false;
+    const meta = world.block_update.placementMetadata(&app_state.level.world_map, px, py, pz, placed, target.face, stack.blockMeta());
+    try app_state.level.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     if (placed == .furnace) {
         const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
-        try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
-        _ = try app_state.world_map.addFurnace(px, py, pz);
+        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        _ = try app_state.level.world_map.addFurnace(px, py, pz);
     }
     if (placed.isStairs()) {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
-        try app_state.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
     }
     try world.redstone.onBlockPlaced(
-        &app_state.world_map,
+        &app_state.level.world_map,
         px,
         py,
         pz,
@@ -2071,7 +2022,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         .{ app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z },
         app_state.player.yaw,
     );
-    _ = try world.block_update.mergeSlabBelow(&app_state.world_map, px, py, pz);
+    _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, px, py, pz);
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -2102,7 +2053,7 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     const dz = player.base.position.z - before.z;
     const horizontal = centimetres(@sqrt(dx * dx + dz * dz));
 
-    if (player.isSubmerged(&app_state.world_map)) {
+    if (player.isSubmerged(&app_state.level.world_map)) {
         const travelled = centimetres(@sqrt(dx * dx + dy * dy + dz * dz));
         if (travelled > 0) try app_state.stats.add(gpa, .{ .general = .distance_dove }, travelled);
     } else if (player.base.in_water) {
@@ -2114,37 +2065,7 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     }
 }
 
-fn anyEntityInBox(context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool {
-    const app_state: *AppState = @ptrCast(@alignCast(context));
-    const box = math.AABB.init(min[0], min[1], min[2], max[0], max[1], max[2]);
-    if (!app_state.dead and app_state.player.base.boundingBox().intersects(box)) return true;
-    return app_state.entities.anyInBox(box, living_only);
-}
-
-fn collideWithBlocks(app_state: *AppState, box: math.AABB) !void {
-    var x = math.util.floorDouble(box.min_x);
-    const max_x = math.util.floorDouble(box.max_x);
-    const max_y = math.util.floorDouble(box.max_y);
-    const max_z = math.util.floorDouble(box.max_z);
-    while (x <= max_x) : (x += 1) {
-        var y = math.util.floorDouble(box.min_y);
-        while (y <= max_y) : (y += 1) {
-            var z = math.util.floorDouble(box.min_z);
-            while (z <= max_z) : (z += 1) {
-                try world.redstone.onEntityCollided(&app_state.world_map, x, y, z);
-            }
-        }
-    }
-}
-
-fn pressPressurePlates(app_state: *AppState) !void {
-    if (!app_state.dead) try collideWithBlocks(app_state, app_state.player.base.boundingBox());
-    for (app_state.entities.mobs.items) |entry| try collideWithBlocks(app_state, entry.animal.base.boundingBox());
-    for (app_state.entities.items.items) |*dropped| try collideWithBlocks(app_state, dropped.base.boundingBox());
-}
-
 fn tick(app_state: *AppState) !void {
-    app_state.tick_count += 1;
     stepFogBrightness(app_state);
     app_state.chat.tick();
     if (app_state.sign_edit) |*open| open.tick();
@@ -2155,7 +2076,7 @@ fn tick(app_state: *AppState) !void {
     const before_move = app_state.player.base.position;
     const was_in_water = app_state.player.base.in_water;
     app_state.player.tick(
-        &app_state.world_map,
+        &app_state.level.world_map,
         strafe,
         forward,
         moving_allowed and app_state.keys.jump,
@@ -2163,69 +2084,41 @@ fn tick(app_state: *AppState) !void {
     );
     try recordPlayerTick(app_state, before_move);
     if (app_state.player.isDead() and !app_state.dead) try killPlayer(app_state);
-    if (!was_in_water and app_state.player.base.in_water and app_state.tick_count > 1) {
-        try app_state.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.world_map.rand);
+    if (!was_in_water and app_state.player.base.in_water and app_state.level.tick_count > 0) {
+        try app_state.level.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.level.world_map.rand);
     }
     if (app_state.player.drowned) {
-        try app_state.entities.spawnDrowningBubbles(
+        try app_state.level.entities.spawnDrowningBubbles(
             app_state.gpa,
             app_state.player.eyePosition(),
             app_state.player.base.motion,
-            &app_state.world_map.rand,
+            &app_state.level.world_map.rand,
         );
     }
     if (app_state.missed_click_cooldown > 0) app_state.missed_click_cooldown -= 1;
-    if (app_state.mouse_left_down and app_state.tick_count - app_state.last_held_swing_tick >= 5) {
+    if (app_state.mouse_left_down and app_state.level.tick_count - app_state.last_held_swing_tick >= 5) {
         try clickLeft(app_state);
-        app_state.last_held_swing_tick = app_state.tick_count;
+        app_state.last_held_swing_tick = app_state.level.tick_count;
     }
-    try app_state.entities.tickArrows(
-        app_state.gpa,
-        &app_state.world_map,
-        &app_state.player,
-        &app_state.world_map.rand,
-    );
     app_state.player.tickSwing();
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
-    try app_state.entities.tickItems(app_state.gpa, &app_state.world_map, &app_state.player);
-    try tickFallingBlocks(app_state);
-    const player_chunk = playerChunkCoord(app_state);
-    try app_state.world_map.tickRandomBlocks(player_chunk.x, player_chunk.z);
-    try pressPressurePlates(app_state);
-    try app_state.world_map.tickUpdates();
-    try app_state.world_map.tickFurnaces();
-    try app_state.world_map.tickPistons();
-    try app_state.entities.applyPistonShoves(&app_state.world_map, &app_state.player);
-    try applyBlockChanges(app_state);
-    try app_state.entities.tickMobs(
-        app_state.gpa,
-        &app_state.world_map,
-        &app_state.player,
-        &app_state.world_map.rand,
-    );
-    _ = try game.spawner.performSpawning(
-        app_state.gpa,
-        &app_state.entities,
-        &app_state.world_map,
-        app_state.player.base.position,
-        app_state.spawn,
-        app_state.generator.world_seed,
-        &app_state.world_map.rand,
-    );
-    try app_state.entities.tickPaintings(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
-    try app_state.entities.tickParticles(app_state.gpa, &app_state.world_map, &app_state.world_map.rand);
-    app_state.entities.tickPickups();
+
+    try app_state.level.tick(app_state.gpa, app_state.frame);
+
+    app_state.cloud_offset += 1;
+
+    try app_state.level.entities.tickParticles(app_state.gpa, &app_state.level.world_map, &app_state.level.world_map.rand);
+    app_state.level.entities.tickPickups();
     try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
-    try advanceWorldTime(app_state);
 
     app_state.ticks_since_save += 1;
     if (app_state.ticks_since_save >= autosave_interval_ticks) {
         app_state.ticks_since_save = 0;
         try saveLevel(app_state);
-        try app_state.world_map.beginSaveRound();
-        _ = try app_state.world_map.saveQueuedChunks(save_chunks_per_pass);
+        try app_state.level.world_map.beginSaveRound();
+        _ = try app_state.level.world_map.saveQueuedChunks(save_chunks_per_pass);
     }
 }
 
@@ -2233,7 +2126,7 @@ const display_particle_samples = 1000;
 const display_particle_range = 16;
 
 fn spawnDisplayParticles(app_state: *AppState) !void {
-    const rand = &app_state.world_map.rand;
+    const rand = &app_state.level.world_map.rand;
     const px = math.util.floorDouble(app_state.player.base.position.x);
     const py = math.util.floorDouble(app_state.player.base.position.y);
     const pz = math.util.floorDouble(app_state.player.base.position.z);
@@ -2241,78 +2134,67 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
         const x = px + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const y = py + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const z = pz + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
-        switch (app_state.world_map.getBlock(x, y, z)) {
+        switch (app_state.level.world_map.getBlock(x, y, z)) {
             .flowing_lava, .stationary_lava => {
-                if (app_state.world_map.getBlock(x, y + 1, z) != .air) continue;
+                if (app_state.level.world_map.getBlock(x, y + 1, z) != .air) continue;
                 if (rand.nextIntBound(100) != 0) continue;
                 const position = math.Vec3.init(
                     @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()),
                     @as(f64, @floatFromInt(y)) + 1.0,
                     @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()),
                 );
-                try app_state.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
+                try app_state.level.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
             },
-            .torch => try app_state.entities.spawnTorchParticles(
+            .torch => try app_state.level.entities.spawnTorchParticles(
                 app_state.gpa,
                 x,
                 y,
                 z,
-                app_state.world_map.getBlockMetadata(x, y, z),
+                app_state.level.world_map.getBlockMetadata(x, y, z),
                 rand,
             ),
-            .redstone_wire => try app_state.entities.spawnWireParticles(
+            .redstone_wire => try app_state.level.entities.spawnWireParticles(
                 app_state.gpa,
                 x,
                 y,
                 z,
-                app_state.world_map.getBlockMetadata(x, y, z),
+                app_state.level.world_map.getBlockMetadata(x, y, z),
                 rand,
             ),
-            .torch_redstone_on => try app_state.entities.spawnRedstoneTorchParticles(
+            .torch_redstone_on => try app_state.level.entities.spawnRedstoneTorchParticles(
                 app_state.gpa,
                 x,
                 y,
                 z,
-                app_state.world_map.getBlockMetadata(x, y, z),
+                app_state.level.world_map.getBlockMetadata(x, y, z),
                 rand,
             ),
-            .repeater_on => try app_state.entities.spawnRepeaterParticles(
+            .repeater_on => try app_state.level.entities.spawnRepeaterParticles(
                 app_state.gpa,
                 x,
                 y,
                 z,
-                app_state.world_map.getBlockMetadata(x, y, z),
+                app_state.level.world_map.getBlockMetadata(x, y, z),
                 rand,
             ),
-            .ore_redstone_glowing => try app_state.entities.spawnRedstoneOreParticles(
+            .ore_redstone_glowing => try app_state.level.entities.spawnRedstoneOreParticles(
                 app_state.gpa,
-                &app_state.world_map,
+                &app_state.level.world_map,
                 x,
                 y,
                 z,
                 rand,
             ),
-            .burning_furnace => try app_state.entities.spawnFurnaceParticles(
+            .burning_furnace => try app_state.level.entities.spawnFurnaceParticles(
                 app_state.gpa,
                 x,
                 y,
                 z,
-                app_state.world_map.getBlockMetadata(x, y, z),
+                app_state.level.world_map.getBlockMetadata(x, y, z),
                 rand,
             ),
             else => {},
         }
-    }
-}
-
-fn advanceWorldTime(app_state: *AppState) !void {
-    app_state.world_map.time += 1;
-    app_state.cloud_offset += 1;
-
-    const subtracted = app_state.world_map.calculateSkylightSubtracted(1.0);
-    if (subtracted != app_state.world_map.skylight_subtracted) {
-        app_state.world_map.skylight_subtracted = subtracted;
-        try app_state.chunks.markAllDirty(app_state.gpa);
     }
 }
 
@@ -2362,11 +2244,11 @@ const lava_fog_color = render.sky.Color{ 0.6, 0.1, 0.0 };
 const lava_fog_density: f32 = 2.0;
 
 fn cameraSubmerged(app_state: *const AppState) bool {
-    return app_state.player.isSubmerged(&app_state.world_map);
+    return app_state.player.isSubmerged(&app_state.level.world_map);
 }
 
 fn cameraInLava(app_state: *const AppState) bool {
-    return app_state.player.isEyeInLava(&app_state.world_map);
+    return app_state.player.isEyeInLava(&app_state.level.world_map);
 }
 
 fn cameraFogDensity(app_state: *const AppState) ?f32 {
@@ -2383,7 +2265,7 @@ fn fogBrightness(app_state: *const AppState) f32 {
 fn stepFogBrightness(app_state: *AppState) void {
     const position = app_state.player.base.position;
     const light = world.light.brightnessAt(
-        &app_state.world_map,
+        &app_state.level.world_map,
         math.util.floorDouble(position.x),
         math.util.floorDouble(position.y),
         math.util.floorDouble(position.z),
@@ -2397,14 +2279,14 @@ fn stepFogBrightness(app_state: *AppState) void {
 
 fn compassAngle(app_state: *const AppState) f64 {
     if (app_state.screen != .playing) return 0.0;
-    const to_spawn_x = @as(f64, @floatFromInt(app_state.spawn[0])) - app_state.player.base.position.x;
-    const to_spawn_z = @as(f64, @floatFromInt(app_state.spawn[2])) - app_state.player.base.position.z;
+    const to_spawn_x = @as(f64, @floatFromInt(app_state.level.spawn[0])) - app_state.player.base.position.x;
+    const to_spawn_z = @as(f64, @floatFromInt(app_state.level.spawn[2])) - app_state.player.base.position.z;
     return @as(f64, app_state.player.yaw - 90.0) * std.math.pi / 180.0 - std.math.atan2(to_spawn_z, to_spawn_x);
 }
 
 fn clockAngle(app_state: *const AppState) f64 {
     if (app_state.screen != .playing) return 0.0;
-    return -@as(f64, app_state.world_map.celestialAngle(1.0)) * std.math.pi * 2.0;
+    return -@as(f64, app_state.level.world_map.celestialAngle(1.0)) * std.math.pi * 2.0;
 }
 
 fn horizonColor(app_state: *const AppState) render.sky.Color {
@@ -2413,12 +2295,12 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
     else if (cameraInLava(app_state))
         lava_fog_color
     else blended: {
-        const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
+        const temperature: f32 = @floatCast(app_state.level.generator.climate.temperatureAt(
             math.util.floorDouble(app_state.player.base.position.x),
             math.util.floorDouble(app_state.player.base.position.z),
         ));
         const render_distance = @intFromEnum(app_state.settings.render_distance);
-        const angle = app_state.world_map.celestialAngle(app_state.timer.render_partial_ticks);
+        const angle = app_state.level.world_map.celestialAngle(app_state.timer.render_partial_ticks);
         break :blended render.sky.blendedFogColor(
             render.sky.skyColor(temperature, angle),
             render.sky.fogColor(angle),
@@ -2446,7 +2328,7 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
 }
 
 fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
-    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.world_map, app_state.colorizer, .{
+    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.level.world_map, app_state.colorizer, .{
         .smooth = app_state.settings.ambient_occlusion,
         .fancy = app_state.settings.fancy_graphics,
     }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_end_ns));
@@ -2461,7 +2343,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const partial = app_state.timer.render_partial_ticks;
     const eye_view = app_state.player.viewMatrix(partial);
     const camera = if (app_state.third_person) pulled: {
-        const distance = app_state.player.thirdPersonDistance(&app_state.world_map, partial);
+        const distance = app_state.player.thirdPersonDistance(&app_state.level.world_map, partial);
         break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
     } else eye_view;
     const hurt = app_state.player.hurtMatrix(partial);
@@ -2494,22 +2376,22 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
-    for (app_state.entities.items.items) |item| {
-        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.world_map, item, partial);
+    for (app_state.level.entities.items.items) |item| {
+        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.level.world_map, item, partial);
     }
-    for (app_state.entities.pickups.items) |fx| {
+    for (app_state.level.entities.pickups.items) |fx| {
         const swallowed = fx.swallowed(&app_state.player, partial);
-        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.world_map, swallowed, partial);
+        try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.level.world_map, swallowed, partial);
     }
-    for (app_state.entities.falling_blocks.items) |block| {
-        try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.world_map, block, partial);
+    for (app_state.level.entities.falling_blocks.items) |block| {
+        try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.level.world_map, block, partial);
     }
-    var moving_pistons = app_state.world_map.pistons.iterator();
+    var moving_pistons = app_state.level.world_map.pistons.iterator();
     while (moving_pistons.next()) |entry| {
         try render.entity_render.appendMovingPiston(
             &atlas_mesh,
             app_state.frame,
-            &app_state.world_map,
+            &app_state.level.world_map,
             app_state.colorizer,
             entry.key_ptr.*,
             entry.value_ptr.*,
@@ -2521,13 +2403,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer particle_mesh.deinit(app_state.frame);
     var item_particle_mesh: render.MeshBuilder = .{};
     defer item_particle_mesh.deinit(app_state.frame);
-    for (app_state.entities.particles.items) |particle| {
+    for (app_state.level.entities.particles.items) |particle| {
         const target = switch (particle.kind) {
             .digging => &atlas_mesh,
             .slime => &item_particle_mesh,
             else => &particle_mesh,
         };
-        try render.entity_render.appendParticle(target, app_state.frame, &app_state.world_map, particle, basis, partial);
+        try render.entity_render.appendParticle(target, app_state.frame, &app_state.level.world_map, particle, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
     if (particle_mesh.vertices.items.len > 0) {
@@ -2545,44 +2427,44 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer pig_mesh.deinit(app_state.frame);
     var saddle_mesh: render.MeshBuilder = .{};
     defer saddle_mesh.deinit(app_state.frame);
-    var pigs = app_state.entities.of(game.Pig, game.mob.pig);
+    var pigs = app_state.level.entities.of(game.Pig, game.mob.pig);
     while (pigs.next()) |pig| {
-        try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.world_map, pig.*, partial);
+        try render.entity_render.appendPig(&pig_mesh, app_state.frame, &app_state.level.world_map, pig.*, partial);
         if (pig.saddled) {
-            try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.world_map, pig.*, partial);
+            try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.level.world_map, pig.*, partial);
         }
     }
     var cow_mesh: render.MeshBuilder = .{};
     defer cow_mesh.deinit(app_state.frame);
-    var cows = app_state.entities.of(game.Cow, game.mob.cow);
+    var cows = app_state.level.entities.of(game.Cow, game.mob.cow);
     while (cows.next()) |cow| {
-        try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.world_map, cow.*, partial);
+        try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.level.world_map, cow.*, partial);
     }
     var chicken_mesh: render.MeshBuilder = .{};
     defer chicken_mesh.deinit(app_state.frame);
-    var chickens = app_state.entities.of(game.Chicken, game.mob.chicken);
+    var chickens = app_state.level.entities.of(game.Chicken, game.mob.chicken);
     while (chickens.next()) |chicken| {
-        try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.world_map, chicken.*, partial);
+        try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.level.world_map, chicken.*, partial);
     }
     var sheep_mesh: render.MeshBuilder = .{};
     defer sheep_mesh.deinit(app_state.frame);
     var fleece_mesh: render.MeshBuilder = .{};
     defer fleece_mesh.deinit(app_state.frame);
-    var flock = app_state.entities.of(game.Sheep, game.mob.sheep);
+    var flock = app_state.level.entities.of(game.Sheep, game.mob.sheep);
     while (flock.next()) |sheep| {
-        try render.entity_render.appendSheep(&sheep_mesh, app_state.frame, &app_state.world_map, sheep.*, partial);
+        try render.entity_render.appendSheep(&sheep_mesh, app_state.frame, &app_state.level.world_map, sheep.*, partial);
         if (!sheep.sheared) {
-            try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.world_map, sheep.*, partial);
+            try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.level.world_map, sheep.*, partial);
         }
     }
     var slime_mesh: render.MeshBuilder = .{};
     defer slime_mesh.deinit(app_state.frame);
     var slime_shell_mesh: render.MeshBuilder = .{};
     defer slime_shell_mesh.deinit(app_state.frame);
-    var slimes = app_state.entities.of(game.Slime, game.mob.slime);
+    var slimes = app_state.level.entities.of(game.Slime, game.mob.slime);
     while (slimes.next()) |slime| {
-        try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
-        try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.world_map, slime.*, partial);
+        try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
+        try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
     }
     var wolf_mesh: render.MeshBuilder = .{};
     defer wolf_mesh.deinit(app_state.frame);
@@ -2590,15 +2472,15 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer wolf_tame_mesh.deinit(app_state.frame);
     var wolf_angry_mesh: render.MeshBuilder = .{};
     defer wolf_angry_mesh.deinit(app_state.frame);
-    var pack = app_state.entities.of(game.Wolf, game.mob.wolf);
+    var pack = app_state.level.entities.of(game.Wolf, game.mob.wolf);
     while (pack.next()) |wolf| {
         const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
-        try render.entity_render.appendWolf(coat, app_state.frame, &app_state.world_map, wolf.*, partial);
+        try render.entity_render.appendWolf(coat, app_state.frame, &app_state.level.world_map, wolf.*, partial);
     }
     var painting_mesh: render.MeshBuilder = .{};
     defer painting_mesh.deinit(app_state.frame);
-    for (app_state.entities.paintings.items) |painting| {
-        try render.entity_render.appendPainting(&painting_mesh, app_state.frame, &app_state.world_map, painting);
+    for (app_state.level.entities.paintings.items) |painting| {
+        try render.entity_render.appendPainting(&painting_mesh, app_state.frame, &app_state.level.world_map, painting);
     }
     if (painting_mesh.vertices.items.len > 0) {
         app_state.textures.art.bind();
@@ -2608,8 +2490,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var arrow_mesh: render.MeshBuilder = .{};
     defer arrow_mesh.deinit(app_state.frame);
-    for (app_state.entities.arrows.items) |arrow| {
-        try render.entity_render.appendArrow(&arrow_mesh, app_state.frame, &app_state.world_map, arrow, partial);
+    for (app_state.level.entities.arrows.items) |arrow| {
+        try render.entity_render.appendArrow(&arrow_mesh, app_state.frame, &app_state.level.world_map, arrow, partial);
     }
     if (arrow_mesh.vertices.items.len > 0) {
         app_state.textures.arrows.bind();
@@ -2621,16 +2503,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     defer sign_mesh.deinit(app_state.frame);
     var sign_text_mesh: render.MeshBuilder = .{};
     defer sign_text_mesh.deinit(app_state.frame);
-    var signs = app_state.world_map.signs.iterator();
+    var signs = app_state.level.world_map.signs.iterator();
     while (signs.next()) |entry| {
         const pos = entry.key_ptr.*;
-        const id = app_state.world_map.getBlock(pos.x, pos.y, pos.z);
+        const id = app_state.level.world_map.getBlock(pos.x, pos.y, pos.z);
         if (!id.isSign()) continue;
-        const meta = app_state.world_map.getBlockMetadata(pos.x, pos.y, pos.z);
+        const meta = app_state.level.world_map.getBlockMetadata(pos.x, pos.y, pos.z);
         try render.sign_render.appendBoard(
             &sign_mesh,
             app_state.frame,
-            &app_state.world_map,
+            &app_state.level.world_map,
             id,
             meta,
             pos.x,
@@ -2667,12 +2549,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var icon_mesh: render.MeshBuilder = .{};
     defer icon_mesh.deinit(app_state.frame);
-    for (app_state.entities.items.items) |item| {
-        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, item, app_state.player.yaw, partial);
+    for (app_state.level.entities.items.items) |item| {
+        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.level.world_map, item, app_state.player.yaw, partial);
     }
-    for (app_state.entities.pickups.items) |fx| {
+    for (app_state.level.entities.pickups.items) |fx| {
         const swallowed = fx.swallowed(&app_state.player, partial);
-        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.world_map, swallowed, app_state.player.yaw, partial);
+        try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.level.world_map, swallowed, app_state.player.yaw, partial);
     }
     if (icon_mesh.vertices.items.len > 0) {
         app_state.textures.items.bind();
@@ -2793,7 +2675,7 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.world_map, player, holding_item, partial);
+    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial);
     app_state.textures.char.bind();
     drawEntityMesh(&mesh);
 
@@ -2805,7 +2687,7 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
 
         var armor_mesh: render.MeshBuilder = .{};
         defer armor_mesh.deinit(app_state.frame);
-        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.world_map, player, holding_item, partial, layer);
+        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer);
         app_state.textures.armor(piece.material, layer.second_texture).bind();
         drawEntityMesh(&armor_mesh);
     }
@@ -2816,7 +2698,7 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const feet = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
-        &app_state.world_map,
+        &app_state.level.world_map,
         math.util.floorDouble(feet.x),
         math.util.floorDouble(feet.y),
         math.util.floorDouble(feet.z),
@@ -2875,7 +2757,7 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 }
 
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
-    const angle = app_state.world_map.celestialAngle(partial);
+    const angle = app_state.level.world_map.celestialAngle(partial);
     const eye = app_state.player.base.renderPosition(partial);
     const hurt = app_state.player.hurtMatrix(partial);
     const rotation = if (app_state.settings.view_bobbing)
@@ -2899,8 +2781,8 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
     const render_distance = @intFromEnum(app_state.settings.render_distance);
     if (!render.SkyRenderer.visibleAt(render_distance)) return;
 
-    const angle = app_state.world_map.celestialAngle(partial);
-    const temperature: f32 = @floatCast(app_state.generator.climate.temperatureAt(
+    const angle = app_state.level.world_map.celestialAngle(partial);
+    const temperature: f32 = @floatCast(app_state.level.generator.climate.temperatureAt(
         math.util.floorDouble(app_state.player.base.position.x),
         math.util.floorDouble(app_state.player.base.position.z),
     ));
@@ -2928,7 +2810,7 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     const digging = app_state.digging orelse return;
     if (digging.progress <= 0.0) return;
 
-    const id = app_state.world_map.getBlock(digging.x, digging.y, digging.z);
+    const id = app_state.level.world_map.getBlock(digging.x, digging.y, digging.z);
     if (id == .air) return;
 
     var mesh: render.MeshBuilder = .{};
@@ -2936,10 +2818,10 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     try render.selection.appendCrack(
         &mesh,
         app_state.frame,
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.colorizer,
         id,
-        app_state.world_map.getBlockMetadata(digging.x, digging.y, digging.z),
+        app_state.level.world_map.getBlockMetadata(digging.x, digging.y, digging.z),
         digging.x,
         digging.y,
         digging.z,
@@ -2962,7 +2844,7 @@ fn drawBreakingCrack(app_state: *AppState) !void {
 
 fn drawSelectionOutline(app_state: *AppState) !void {
     const hit = game.raycast.cast(
-        &app_state.world_map,
+        &app_state.level.world_map,
         app_state.player.eyePosition(),
         app_state.player.lookVector(),
         reach_distance,
@@ -2970,8 +2852,8 @@ fn drawSelectionOutline(app_state: *AppState) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    const id = app_state.world_map.getBlock(hit.x, hit.y, hit.z);
-    try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.world_map.getBlockMetadata(hit.x, hit.y, hit.z), hit.x, hit.y, hit.z);
+    const id = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
+    try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z), hit.x, hit.y, hit.z);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -3055,7 +2937,7 @@ pub fn iterate(
     gl.ClearColor(horizon[0], horizon[1], horizon[2], 1.0);
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    if (app_state.third_person and app_state.player.isInsideOpaqueBlock(&app_state.world_map)) {
+    if (app_state.third_person and app_state.player.isInsideOpaqueBlock(&app_state.level.world_map)) {
         app_state.third_person = false;
     }
 
@@ -3074,10 +2956,10 @@ pub fn iterate(
                 app_state.textures.water,
                 app_state.player.yaw,
                 app_state.player.pitch,
-                world.light.brightnessAt(&app_state.world_map, sample[0], sample[1], sample[2], 0),
+                world.light.brightnessAt(&app_state.level.world_map, sample[0], sample[1], sample[2], 0),
             );
         }
-        try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.tick_count))));
+        try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
         try render.chat.draw(ui, &app_state.chat);
     }
@@ -3138,9 +3020,9 @@ pub fn iterate(
             app_state.held_stack,
         );
     } else if (app_state.sign_edit) |open| {
-        const id = app_state.world_map.getBlock(open.x, open.y, open.z);
-        const meta = app_state.world_map.getBlockMetadata(open.x, open.y, open.z);
-        const state = app_state.world_map.signAt(open.x, open.y, open.z);
+        const id = app_state.level.world_map.getBlock(open.x, open.y, open.z);
+        const meta = app_state.level.world_map.getBlockMetadata(open.x, open.y, open.z);
+        const state = app_state.level.world_map.signAt(open.x, open.y, open.z);
         try render.edit_sign_screen.draw(ui, open, id, meta, if (state) |value| value.* else .{});
     } else if (app_state.inventory_open) {
         try render.inventory_screen.draw(
@@ -3366,7 +3248,7 @@ pub fn event(
                 try openContainerClickAt(app_state, .left);
             } else {
                 app_state.mouse_left_down = true;
-                app_state.last_held_swing_tick = app_state.tick_count;
+                app_state.last_held_swing_tick = app_state.level.tick_count;
                 try clickLeft(app_state);
             },
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.dead or app_state.chat.open) {} else if (containerOpen(app_state)) {
@@ -3415,9 +3297,7 @@ pub fn quit(
         state.packs_dir.close(state.io);
         state.base_dir.close(state.io);
         state.chunks.deinit(state.gpa);
-        state.entities.deinit(state.gpa);
-        state.world_map.deinit();
-        state.generator.deinit(state.gpa);
+        state.level.deinit(state.gpa);
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();

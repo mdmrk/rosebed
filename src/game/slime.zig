@@ -73,13 +73,13 @@ pub fn tick(
     self: *Slime,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
     self.prev_squish = self.squish;
     const was_on_ground = self.animal.base.on_ground;
 
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 
     self.landed = self.animal.base.on_ground and !was_on_ground;
     if (self.landed) self.squish = landing_squish;
@@ -101,8 +101,8 @@ fn distanceSquaredTo(self: Slime, target: math.Vec3) f64 {
     return dx * dx + dy * dy + dz * dz;
 }
 
-fn closestPlayer(self: Slime, player: ?Animal.PlayerView, range: f64) ?Animal.PlayerView {
-    const view = player orelse return null;
+fn closestPlayer(self: Slime, players: Animal.Players, range: f64) ?Animal.PlayerView {
+    const view = players.closestTo(self.animal.base.position, -1.0) orelse return null;
     if (self.distanceSquaredTo(playerPosition(view)) >= range * range) return null;
     return view;
 }
@@ -111,14 +111,14 @@ fn updateActionState(
     animal: *Animal,
     _: std.mem.Allocator,
     _: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Slime = @fieldParentPtr("animal", animal);
 
-    animal.despawnCheck(player, rand);
+    animal.despawnCheck(players, rand);
 
-    const target = self.closestPlayer(player, sight_range);
+    const target = self.closestPlayer(players, sight_range);
     if (target) |view| animal.faceEntity(view.position, view.eye_height, 10.0, 20.0);
 
     var jumps = false;
@@ -384,7 +384,7 @@ test "a slime jumps on a countdown, and squashes when it lands" {
     var jumped = false;
     var squashed = false;
     for (0..200) |_| {
-        try slime.tick(gpa, &w, null, &rand);
+        try slime.tick(gpa, &w, .{}, &rand);
         if (slime.animal.base.motion.y > 0.0) jumped = true;
         if (slime.landed) squashed = true;
     }
@@ -418,8 +418,8 @@ test "a nearby player makes a slime jump sooner" {
     watched.animal.base.on_ground = true;
 
     for (0..60) |_| {
-        try alone.tick(gpa, &w, null, &alone_rand);
-        try watched.tick(gpa, &w, nearby, &watched_rand);
+        try alone.tick(gpa, &w, .{}, &alone_rand);
+        try watched.tick(gpa, &w, Animal.Players.one(&nearby), &watched_rand);
     }
 
     try std.testing.expect(watched.jump_delay <= alone.jump_delay);
@@ -441,7 +441,7 @@ test "a slime turns to face the player it can see" {
         .eye_height = 1.62,
         .alive = true,
     };
-    for (0..40) |_| try slime.tick(gpa, &w, nearby, &rand);
+    for (0..40) |_| try slime.tick(gpa, &w, Animal.Players.one(&nearby), &rand);
 
     try std.testing.expect(@abs(slime.animal.yaw + 90.0) < 15.0);
 }
@@ -581,11 +581,11 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Slime = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
@@ -619,13 +619,18 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
 
     if (self.landed) try entities.spawnSlimeLandingParticles(tick_context.gpa, self.*, tick_context.rand);
 
-    const player = tick_context.player;
-    if (player.health <= 0 or !self.animal.isAlive()) return;
+    if (!self.animal.isAlive()) return;
 
-    const reach = player.base.boundingBox().expand(collide_reach, 0, collide_reach);
-    if (!self.animal.base.boundingBox().intersects(reach)) return;
-    if (self.attackDamage(tick_context.world_map, tick_context.view)) |damage| {
-        player.hurtFrom(damage, self.animal.base.position);
+    for (tick_context.roster) |player| {
+        if (player.health <= 0) continue;
+
+        const reach = player.base.boundingBox().expand(collide_reach, 0, collide_reach);
+        if (!self.animal.base.boundingBox().intersects(reach)) continue;
+
+        const view = tick_context.players.byId(player.base.id) orelse continue;
+        if (self.attackDamage(tick_context.world_map, view)) |damage| {
+            player.hurtFrom(damage, self.animal.base.position);
+        }
     }
 }
 

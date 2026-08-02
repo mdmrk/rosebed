@@ -36,10 +36,10 @@ pub fn tick(
     self: *Cow,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 }
 
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
@@ -162,11 +162,11 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Cow = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(animal: *Animal) ?Mob.Drops {

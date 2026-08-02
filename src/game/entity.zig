@@ -7,6 +7,10 @@ const physics = @import("physics.zig");
 
 const Entity = @This();
 
+pub const Id = u32;
+pub const no_id: Id = 0;
+
+id: Id = no_id,
 position: math.Vec3,
 prev_position: math.Vec3,
 motion: math.Vec3 = math.Vec3.init(0, 0, 0),

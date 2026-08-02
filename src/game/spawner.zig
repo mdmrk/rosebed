@@ -87,9 +87,12 @@ fn pickCreature(list: []const Creature, rand: *world.JavaRandom) Creature {
     return list[0];
 }
 
-pub fn populationCap(category: Category) i32 {
-    const eligible_chunks = (eligible_radius * 2 + 1) * (eligible_radius * 2 + 1);
-    return @divTrunc(category.allowancePerChunk() * eligible_chunks, chunks_per_cap);
+pub fn populationCap(category: Category, eligible_chunks: usize) i32 {
+    return @divTrunc(category.allowancePerChunk() * @as(i32, @intCast(eligible_chunks)), chunks_per_cap);
+}
+
+pub fn chunksAroundOnePlayer() usize {
+    return (eligible_radius * 2 + 1) * (eligible_radius * 2 + 1);
 }
 
 fn liveCount(entities: *const Entities, category: Category) i32 {
@@ -106,46 +109,72 @@ fn canSpawnAtLocation(world_map: *const world.World, x: i32, y: i32, z: i32) boo
         !world_map.getBlock(x, y + 1, z).isOpaqueCube();
 }
 
-fn playerWithin(player_position: math.Vec3, x: f64, y: f64, z: f64, range: f64) bool {
-    const dx = player_position.x - x;
-    const dy = player_position.y - y;
-    const dz = player_position.z - z;
-    return dx * dx + dy * dy + dz * dz < range * range;
+fn anyPlayerWithin(players: []const Animal.PlayerView, x: f64, y: f64, z: f64, range: f64) bool {
+    for (players) |view| {
+        const dx = view.position.x - x;
+        const dy = view.position.y - y;
+        const dz = view.position.z - z;
+        if (dx * dx + dy * dy + dz * dz < range * range) return true;
+    }
+    return false;
+}
+
+fn collectEligibleChunks(
+    gpa: std.mem.Allocator,
+    players: []const Animal.PlayerView,
+    out: *std.ArrayList(world.World.ChunkCoord),
+) !void {
+    var seen: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{};
+    defer seen.deinit(gpa);
+
+    for (players) |view| {
+        const center_x = math.util.floorDouble(view.position.x / 16.0);
+        const center_z = math.util.floorDouble(view.position.z / 16.0);
+
+        var offset_x: i32 = -eligible_radius;
+        while (offset_x <= eligible_radius) : (offset_x += 1) {
+            var offset_z: i32 = -eligible_radius;
+            while (offset_z <= eligible_radius) : (offset_z += 1) {
+                const coord: world.World.ChunkCoord = .{ .x = center_x + offset_x, .z = center_z + offset_z };
+                if ((try seen.getOrPut(gpa, coord)).found_existing) continue;
+                try out.append(gpa, coord);
+            }
+        }
+    }
 }
 
 pub fn performSpawning(
     gpa: std.mem.Allocator,
     entities: *Entities,
     world_map: *const world.World,
-    player_position: math.Vec3,
+    players: []const Animal.PlayerView,
     spawn_point: [3]i32,
     world_seed: i64,
     rand: *world.JavaRandom,
 ) !u32 {
-    const center_x = math.util.floorDouble(player_position.x / 16.0);
-    const center_z = math.util.floorDouble(player_position.z / 16.0);
+    if (players.len == 0) return 0;
+
+    var eligible: std.ArrayList(world.World.ChunkCoord) = .empty;
+    defer eligible.deinit(gpa);
+    try collectEligibleChunks(gpa, players, &eligible);
 
     var spawned: u32 = 0;
     for (std.enums.values(Category)) |category| {
-        if (liveCount(entities, category) > populationCap(category)) continue;
+        if (liveCount(entities, category) > populationCap(category, eligible.items.len)) continue;
 
-        var offset_x: i32 = -eligible_radius;
-        while (offset_x <= eligible_radius) : (offset_x += 1) {
-            var offset_z: i32 = -eligible_radius;
-            while (offset_z <= eligible_radius) : (offset_z += 1) {
-                spawned += try spawnInChunk(
-                    gpa,
-                    entities,
-                    world_map,
-                    player_position,
-                    spawn_point,
-                    world_seed,
-                    rand,
-                    category,
-                    center_x + offset_x,
-                    center_z + offset_z,
-                );
-            }
+        for (eligible.items) |coord| {
+            spawned += try spawnInChunk(
+                gpa,
+                entities,
+                world_map,
+                players,
+                spawn_point,
+                world_seed,
+                rand,
+                category,
+                coord.x,
+                coord.z,
+            );
         }
     }
     return spawned;
@@ -155,7 +184,7 @@ fn spawnInChunk(
     gpa: std.mem.Allocator,
     entities: *Entities,
     world_map: *const world.World,
-    player_position: math.Vec3,
+    players: []const Animal.PlayerView,
     spawn_point: [3]i32,
     world_seed: i64,
     rand: *world.JavaRandom,
@@ -193,7 +222,7 @@ fn spawnInChunk(
             const at_x: f64 = @as(f64, @floatFromInt(x)) + 0.5;
             const at_y: f64 = @floatFromInt(y);
             const at_z: f64 = @as(f64, @floatFromInt(z)) + 0.5;
-            if (playerWithin(player_position, at_x, at_y, at_z, player_clearance)) continue;
+            if (anyPlayerWithin(players, at_x, at_y, at_z, player_clearance)) continue;
 
             const from_spawn_x: f32 = @floatCast(at_x - @as(f64, @floatFromInt(spawn_point[0])));
             const from_spawn_y: f32 = @floatCast(at_y - @as(f64, @floatFromInt(spawn_point[1])));
@@ -309,6 +338,10 @@ fn stampClimate(w: *world.World, from_chunk_x: i32, to_chunk_x: i32, temperature
     }
 }
 
+fn soloView(position: math.Vec3) [1]Animal.PlayerView {
+    return .{.{ .id = 1, .position = position, .eye_height = 1.62, .alive = true }};
+}
+
 const surface: u32 = 63;
 const cavern: u32 = 8;
 const test_seed: i64 = 9;
@@ -324,7 +357,7 @@ fn spawnUntilFirstAnimal(
 ) !u32 {
     var total: u32 = 0;
     for (0..rounds) |_| {
-        total += try performSpawning(gpa, entities, world_map, player_position, spawn_point, test_seed, rand);
+        total += try performSpawning(gpa, entities, world_map, &soloView(player_position), spawn_point, test_seed, rand);
         if (total > 0) break;
     }
     return total;
@@ -377,7 +410,7 @@ test "every kind we can make finds its way into a grassy world" {
     var seen = [_]bool{false} ** std.enums.values(Kind).len;
 
     for (0..4000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
 
         // Empty the fields between rounds, so the population cap never ends the run early.
         inline for (.{ mob.sheep, mob.pig, mob.chicken, mob.cow, mob.wolf }, 0..) |type_id, kind| {
@@ -493,7 +526,7 @@ test "spawning stops once the population cap is reached" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
-    for (0..@intCast(populationCap(.creature) + 1)) |_| {
+    for (0..@intCast(populationCap(.creature, chunksAroundOnePlayer()) + 1)) |_| {
         try entities.spawnPig(gpa, math.Vec3.init(64, surface + 1, 8));
     }
 
@@ -518,7 +551,7 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     const player = math.Vec3.init(0, cavern, 0);
 
     for (0..8000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
         if (entities.countOf(mob.slime) > 0) break;
     }
 
@@ -549,7 +582,7 @@ test "slimes never spawn in a cavern above the sixteenth layer" {
     const player = math.Vec3.init(0, 40, 0);
 
     for (0..8000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
     }
 
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.slime));
@@ -564,22 +597,22 @@ test "the monster cap is counted apart from the animals" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(9);
-    for (0..@intCast(populationCap(.monster) + 1)) |_| {
+    for (0..@intCast(populationCap(.monster, chunksAroundOnePlayer()) + 1)) |_| {
         try entities.spawnSlime(gpa, math.Vec3.init(64, cavern, 8), &rand);
     }
 
     const before = entities.countOf(mob.slime);
     const player = math.Vec3.init(0, cavern, 0);
     for (0..500) |_| {
-        _ = try performSpawning(gpa, &entities, &w, player, .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
     }
 
     try std.testing.expectEqual(before, entities.countOf(mob.slime));
 }
 
 test "the population cap follows the vanilla per-chunk allowance" {
-    try std.testing.expectEqual(@as(i32, 16), populationCap(.creature));
-    try std.testing.expectEqual(@as(i32, 79), populationCap(.monster));
+    try std.testing.expectEqual(@as(i32, 16), populationCap(.creature, chunksAroundOnePlayer()));
+    try std.testing.expectEqual(@as(i32, 79), populationCap(.monster, chunksAroundOnePlayer()));
 }
 
 test "the biome's creature list picks each kind by its own weight" {
@@ -629,4 +662,52 @@ test "a wolf pack fills a chunk twice as deep as the other animals" {
     for ([_]Kind{ .sheep, .pig, .chicken, .cow }) |kind| {
         try std.testing.expectEqual(max_per_chunk, kind.maxPerChunk());
     }
+}
+
+test "two distant players make more of the world eligible, and raise the cap with it" {
+    const gpa = std.testing.allocator;
+
+    const alone = [_]Animal.PlayerView{
+        .{ .id = 1, .position = math.Vec3.init(0, 64, 0), .eye_height = 1.62, .alive = true },
+    };
+    var solo: std.ArrayList(world.World.ChunkCoord) = .empty;
+    defer solo.deinit(gpa);
+    try collectEligibleChunks(gpa, &alone, &solo);
+    try std.testing.expectEqual(chunksAroundOnePlayer(), solo.items.len);
+
+    const apart = [_]Animal.PlayerView{
+        alone[0],
+        .{ .id = 2, .position = math.Vec3.init(4000, 64, 4000), .eye_height = 1.62, .alive = true },
+    };
+    var pair: std.ArrayList(world.World.ChunkCoord) = .empty;
+    defer pair.deinit(gpa);
+    try collectEligibleChunks(gpa, &apart, &pair);
+
+    try std.testing.expectEqual(chunksAroundOnePlayer() * 2, pair.items.len);
+    try std.testing.expect(populationCap(.creature, pair.items.len) > populationCap(.creature, solo.items.len));
+}
+
+test "players standing together do not count the same chunk twice" {
+    const gpa = std.testing.allocator;
+
+    const together = [_]Animal.PlayerView{
+        .{ .id = 1, .position = math.Vec3.init(0, 64, 0), .eye_height = 1.62, .alive = true },
+        .{ .id = 2, .position = math.Vec3.init(4, 64, 4), .eye_height = 1.62, .alive = true },
+    };
+    var eligible: std.ArrayList(world.World.ChunkCoord) = .empty;
+    defer eligible.deinit(gpa);
+    try collectEligibleChunks(gpa, &together, &eligible);
+
+    try std.testing.expectEqual(chunksAroundOnePlayer(), eligible.items.len);
+}
+
+test "nothing spawns near any player, not merely the first" {
+    const near_second = [_]Animal.PlayerView{
+        .{ .id = 1, .position = math.Vec3.init(0, 64, 0), .eye_height = 1.62, .alive = true },
+        .{ .id = 2, .position = math.Vec3.init(500, 64, 500), .eye_height = 1.62, .alive = true },
+    };
+
+    try std.testing.expect(anyPlayerWithin(&near_second, 505, 64, 500, player_clearance));
+    try std.testing.expect(anyPlayerWithin(&near_second, 5, 64, 0, player_clearance));
+    try std.testing.expect(!anyPlayerWithin(&near_second, 250, 64, 250, player_clearance));
 }

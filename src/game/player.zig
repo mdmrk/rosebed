@@ -391,7 +391,9 @@ pub fn isDead(self: Player) bool {
 }
 
 pub fn respawn(self: *Player, position: math.Vec3) void {
+    const id = self.base.id;
     self.base = Entity.init(position, width, height);
+    self.base.id = id;
     self.base.step_height = step_height;
     self.health = 20;
     self.prev_health = 20;
@@ -1374,4 +1376,16 @@ test "a dead player's camera keeps tilting toward forty degrees" {
 
     try std.testing.expect(early.m[1] > 0.0);
     try std.testing.expect(late.m[1] > early.m[1]);
+}
+
+test "a respawning player keeps the id the world knows it by" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.base.id = 12;
+
+    player.kill();
+    player.respawn(math.Vec3.init(8, 70, 8));
+
+    try std.testing.expectEqual(@as(u32, 12), player.base.id);
+    try std.testing.expectEqual(@as(i32, 20), player.health);
+    try std.testing.expectApproxEqAbs(@as(f64, 8), player.base.position.x, 1.0e-9);
 }

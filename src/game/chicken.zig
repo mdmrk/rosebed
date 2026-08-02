@@ -65,10 +65,10 @@ pub fn tick(
     self: *Chicken,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 
     const on_ground = self.animal.base.on_ground;
 
@@ -200,7 +200,7 @@ test "a chicken lays one egg when its clutch runs out, then begins another" {
     defer chicken.deinit(gpa);
     chicken.egg_timer = 1;
 
-    try chicken.tick(gpa, &w, null, &rand);
+    try chicken.tick(gpa, &w, .{}, &rand);
 
     const drops = chicken.takeDrops().?;
     try std.testing.expectEqual(world.Item.egg, drops.id);
@@ -211,7 +211,7 @@ test "a chicken lays one egg when its clutch runs out, then begins another" {
     try std.testing.expect(chicken.egg_timer.? >= egg_interval);
     try std.testing.expect(chicken.egg_timer.? <= egg_interval * 2);
 
-    try chicken.tick(gpa, &w, null, &rand);
+    try chicken.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(chicken.takeDrops() == null);
 }
 
@@ -235,7 +235,7 @@ test "a chicken has nothing to lay before its timer runs out" {
     defer chicken.deinit(gpa);
 
     for (0..egg_interval - 1) |_| {
-        try chicken.tick(gpa, &w, null, &rand);
+        try chicken.tick(gpa, &w, .{}, &rand);
         try std.testing.expect(chicken.animal.isAlive());
         try std.testing.expect(chicken.takeDrops() == null);
     }
@@ -252,7 +252,7 @@ test "a chicken flutters down instead of falling, and lands unhurt" {
 
     var fastest: f64 = 0;
     for (0..600) |_| {
-        try chicken.tick(gpa, &w, null, &rand);
+        try chicken.tick(gpa, &w, .{}, &rand);
         fastest = @min(fastest, chicken.animal.base.motion.y);
         if (chicken.animal.base.on_ground) break;
     }
@@ -273,12 +273,12 @@ test "the wings beat while the chicken is in the air and settle once it lands" {
     var chicken = Chicken.spawn(math.Vec3.init(8.5, 20, 8.5), &rand);
     defer chicken.deinit(gpa);
 
-    for (0..40) |_| try chicken.tick(gpa, &w, null, &rand);
+    for (0..40) |_| try chicken.tick(gpa, &w, .{}, &rand);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), chicken.wing_reach, 1.0e-6);
     try std.testing.expect(chicken.wingFlap(1.0) >= 0.0);
 
     for (0..600) |_| {
-        try chicken.tick(gpa, &w, null, &rand);
+        try chicken.tick(gpa, &w, .{}, &rand);
         if (chicken.animal.base.on_ground and chicken.wing_reach == 0.0) break;
     }
 
@@ -307,7 +307,7 @@ test "a chicken keeps its wounds across a record round trip and starts a fresh c
 
     // The clutch it was part way through is not in the save, so its first tick starts another.
     try std.testing.expect(restored.egg_timer == null);
-    try restored.tick(gpa, &w, null, &rand);
+    try restored.tick(gpa, &w, .{}, &rand);
     try std.testing.expect(restored.egg_timer.? >= egg_interval - 1);
     try std.testing.expect(restored.takeDrops() == null);
 }
@@ -332,11 +332,11 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Chicken = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(animal: *Animal) ?Mob.Drops {

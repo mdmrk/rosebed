@@ -33,10 +33,10 @@ pub fn tick(
     self: *Pig,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    player: ?Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) !void {
-    try self.animal.tick(gpa, world_map, player, rand);
+    try self.animal.tick(gpa, world_map, players, rand);
 }
 
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
@@ -126,7 +126,7 @@ test "a pig that died of something other than a hit still drops" {
     defer pig.deinit(gpa);
 
     for (0..200) |_| {
-        try pig.animal.tick(gpa, &w, null, &rand);
+        try pig.animal.tick(gpa, &w, .{}, &rand);
         if (!pig.animal.isAlive()) break;
     }
 
@@ -179,11 +179,11 @@ fn mobTick(
     animal: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    view: Animal.PlayerView,
+    players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
     const self: *Pig = @fieldParentPtr("animal", animal);
-    try self.tick(gpa, world_map, view, rand);
+    try self.tick(gpa, world_map, players, rand);
 }
 
 fn mobTakeDrops(animal: *Animal) ?Mob.Drops {

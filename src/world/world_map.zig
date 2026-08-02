@@ -49,6 +49,12 @@ pub const FallingBlock = struct { pos: BlockPos, id: Block };
 
 pub const TorchUpdate = struct { pos: BlockPos, time: i64 };
 
+pub const Access = struct {
+    context: *anyopaque,
+    markBlockNeedsUpdate: *const fn (context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void,
+    updateAllRenderers: *const fn (context: *anyopaque) std.mem.Allocator.Error!void,
+};
+
 pub const EntityProbe = struct {
     context: *anyopaque,
     anyInBox: *const fn (context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool,
@@ -87,6 +93,7 @@ scheduled_updates_are_immediate: bool = false,
 editing_blocks: bool = false,
 torch_updates: std.ArrayList(TorchUpdate) = .empty,
 entity_probe: ?EntityProbe = null,
+access: ?Access = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
@@ -398,6 +405,11 @@ pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x
 
 pub fn markChanged(self: *World, x: i32, y: i32, z: i32) !void {
     try self.changed.append(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (self.access) |access| try access.markBlockNeedsUpdate(access.context, x, y, z);
+}
+
+pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
+    if (self.access) |access| try access.updateAllRenderers(access.context);
 }
 
 pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
