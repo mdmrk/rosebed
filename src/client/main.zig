@@ -6,8 +6,11 @@ const font_png = assets.font.default_png;
 const core = @import("core");
 const Timer = core.Timer;
 const game = @import("game");
+const Link = @import("link.zig");
+const net = @import("net");
 const gl = @import("gl");
 const math = @import("math");
+const remote = @import("remote");
 const render = @import("render");
 const sdl3 = @import("sdl3");
 const world = @import("world");
@@ -146,6 +149,7 @@ const AppState = struct {
     pause_save_frames: u32 = 0,
     pause_ticks: u32 = 0,
     pause_saving: bool = false,
+    link: ?*Link = null,
     stats: game.stats.Stats = .{},
     stats_open: bool = false,
     stats_view: render.stats_screen.State = .{},
@@ -267,6 +271,7 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
                 }
                 continue;
             }
+            if (app_state.link != null) continue;
             const dx: i64 = cx - center.x;
             const dz: i64 = cz - center.z;
             try pending.append(app_state.frame, .{
@@ -604,7 +609,25 @@ fn wearHeldItem(app_state: *AppState) !void {
     }
 }
 
+fn faceIndex(face: world.block.Side) u8 {
+    return switch (face) {
+        .down => 0,
+        .up => 1,
+        .north => 2,
+        .south => 3,
+        .west => 4,
+        .east => 5,
+    };
+}
+
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
+    if (app_state.link) |link| {
+        try link.connection.reportDig(app_state.gpa, x, y, z, 1);
+        app_state.digging = null;
+        try wearHeldItem(app_state);
+        return;
+    }
+
     const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
     const harvested = block_id.harvestableWith(app_state.player.inventory.selectedStack());
     try app_state.level.entities.spawnBlockDestroyParticles(
@@ -1124,7 +1147,31 @@ fn connectToServer(app_state: *AppState) !void {
     const typed = app_state.multiplayer_state.address.text();
     app_state.settings.last_server.set(render.multiplayer_screen.storedName(typed, &stored));
 
-    _ = render.multiplayer_screen.parseAddress(typed);
+    const address = render.multiplayer_screen.parseAddress(typed);
+
+    closeWorld(app_state);
+    app_state.level.world_map.access = worldAccess(app_state);
+    app_state.player = playerAtSpawn();
+    try app_state.level.enter(app_state.gpa, &app_state.player);
+
+    app_state.link = Link.connect(
+        app_state.gpa,
+        app_state.io,
+        address.host,
+        address.port,
+        game.stats_file.default_username,
+    ) catch |err| {
+        reply(app_state, "Could not reach {s}: {s}", .{ typed, @errorName(err) });
+        closeWorld(app_state);
+        return;
+    };
+
+    app_state.dead = false;
+    app_state.needs_spawn = false;
+    app_state.ticks_since_save = 0;
+    try sdl3.keyboard.stopTextInput(app_state.window);
+    app_state.screen = .playing;
+    try updateMouseMode(app_state);
 }
 
 fn multiplayerClick(app_state: *AppState) !void {
@@ -1297,7 +1344,14 @@ fn saveLevel(app_state: *AppState) !void {
     try handle.writeLevel(app_state.gpa, app_state.io, info);
 }
 
+fn dropLink(app_state: *AppState) void {
+    const link = app_state.link orelse return;
+    app_state.link = null;
+    link.deinit();
+}
+
 fn closeWorld(app_state: *AppState) void {
+    dropLink(app_state);
     if (app_state.save_handle) |*handle| handle.close(app_state.gpa, app_state.io);
     app_state.save_handle = null;
     app_state.level.closeWorld(app_state.gpa);
@@ -1995,6 +2049,17 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         },
     };
     const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+
+    if (app_state.link) |link| {
+        try link.connection.reportPlace(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face), .{
+            .id = stack.id.numeric(),
+            .count = @intCast(stack.count),
+            .damage = @bitCast(@as(u16, stack.meta)),
+        });
+        consumeSelectedStack(app_state);
+        return true;
+    }
+
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     const px = target.x;
     const py = target.y;
@@ -2065,6 +2130,29 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     }
 }
 
+fn tickRemote(app_state: *AppState, link: *Link) !void {
+    try link.pump(&app_state.level);
+    app_state.level.tick_count += 1;
+
+    if (link.connection.placed) try link.connection.reportPosition(app_state.gpa, &app_state.player);
+    try link.flush();
+
+    if (!link.isOpen()) try leaveServer(app_state);
+}
+
+fn leaveServer(app_state: *AppState) !void {
+    const link = app_state.link orelse return;
+    const reason = link.disconnectReason();
+    if (reason) |text| app_state.chat.addMessage(app_state.font, text);
+
+    app_state.link = null;
+    link.deinit();
+
+    closeWorld(app_state);
+    app_state.screen = .title;
+    try updateMouseMode(app_state);
+}
+
 fn tick(app_state: *AppState) !void {
     stepFogBrightness(app_state);
     app_state.chat.tick();
@@ -2104,7 +2192,11 @@ fn tick(app_state: *AppState) !void {
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
 
-    try app_state.level.tick(app_state.gpa, app_state.frame);
+    if (app_state.link) |link| {
+        try tickRemote(app_state, link);
+    } else {
+        try app_state.level.tick(app_state.gpa, app_state.frame);
+    }
 
     app_state.cloud_offset += 1;
 
@@ -2112,6 +2204,8 @@ fn tick(app_state: *AppState) !void {
     app_state.level.entities.tickPickups();
     try spawnDisplayParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
+
+    if (app_state.link != null) return;
 
     app_state.ticks_since_save += 1;
     if (app_state.ticks_since_save >= autosave_interval_ticks) {
