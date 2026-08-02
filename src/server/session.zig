@@ -1,0 +1,772 @@
+const std = @import("std");
+
+const game = @import("game");
+const math = @import("math");
+const net = @import("net");
+const world = @import("world");
+
+const chunk_payload = @import("chunk_payload.zig");
+
+const Session = @This();
+
+pub const State = enum { greeting, awaiting_login, playing, closed };
+
+pub const view_radius: i32 = 8;
+pub const chunks_per_tick: usize = 8;
+pub const offline_server_id = "-";
+pub const dig_finished: u8 = 2;
+pub const reach_squared: f64 = 36.0;
+pub const join_colour = "\u{00a7}e";
+
+state: State = .greeting,
+name: NameBuffer = .{},
+player: ?*game.Player = null,
+outbox: std.ArrayList(u8) = .empty,
+sent_chunks: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{},
+kicked: bool = false,
+
+pub const NameBuffer = struct {
+    bytes: [net.packet.max_username]u8 = undefined,
+    len: usize = 0,
+
+    pub fn set(self: *NameBuffer, value: []const u8) void {
+        self.len = @min(value.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], value[0..self.len]);
+    }
+
+    pub fn text(self: *const NameBuffer) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+pub fn deinit(self: *Session, gpa: std.mem.Allocator) void {
+    self.outbox.deinit(gpa);
+    self.sent_chunks.deinit(gpa);
+}
+
+pub fn send(self: *Session, gpa: std.mem.Allocator, message: net.packet.Packet) !void {
+    var allocating: std.Io.Writer.Allocating = .fromArrayList(gpa, &self.outbox);
+    defer self.outbox = allocating.toArrayList();
+    try net.packet.write(&allocating.writer, message);
+}
+
+pub fn takeOutbox(self: *Session, gpa: std.mem.Allocator) ![]u8 {
+    const bytes = try self.outbox.toOwnedSlice(gpa);
+    return bytes;
+}
+
+pub fn kick(self: *Session, gpa: std.mem.Allocator, reason: []const u8) !void {
+    try self.send(gpa, .{ .kick_disconnect = .{ .reason = reason } });
+    self.state = .closed;
+    self.kicked = true;
+}
+
+pub fn handle(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    message: net.packet.Packet,
+) !void {
+    switch (self.state) {
+        .closed => {},
+        .greeting => switch (message) {
+            .handshake => {
+                self.state = .awaiting_login;
+                try self.send(gpa, .{ .handshake = .{ .username = offline_server_id } });
+            },
+            else => try self.kick(gpa, "Protocol error"),
+        },
+        .awaiting_login => switch (message) {
+            .login => |body| try self.acceptLogin(gpa, level, body.protocol_version, body.username),
+            else => try self.kick(gpa, "Protocol error"),
+        },
+        .playing => try self.handlePlaying(gpa, level, message),
+    }
+}
+
+fn acceptLogin(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    protocol: i32,
+    username: []const u8,
+) !void {
+    if (protocol != net.packet.protocol_version) {
+        return self.kick(gpa, if (protocol > net.packet.protocol_version) "Outdated server!" else "Outdated client!");
+    }
+
+    self.name.set(username);
+
+    const player = try gpa.create(game.Player);
+    errdefer gpa.destroy(player);
+    player.* = game.Player.spawn(spawnPlacement(level));
+    try level.enter(gpa, player);
+    self.player = player;
+    self.state = .playing;
+
+    try self.send(gpa, .{ .login = .{
+        .protocol_version = @intCast(player.base.id),
+        .username = "",
+        .map_seed = level.generator.world_seed,
+        .dimension = 0,
+    } });
+    try self.send(gpa, .{ .spawn_position = .{
+        .x = level.spawn[0],
+        .y = level.spawn[1],
+        .z = level.spawn[2],
+    } });
+    try self.sendPosition(gpa);
+    try self.send(gpa, .{ .update_time = .{ .time = level.world_map.time } });
+}
+
+fn spawnPlacement(level: *const game.Level) math.Vec3 {
+    return .{
+        .x = @as(f64, @floatFromInt(level.spawn[0])) + 0.5,
+        .y = @floatFromInt(level.spawn[1]),
+        .z = @as(f64, @floatFromInt(level.spawn[2])) + 0.5,
+    };
+}
+
+pub fn sendPosition(self: *Session, gpa: std.mem.Allocator) !void {
+    const player = self.player orelse return;
+    try self.send(gpa, .{ .player_look_move = .{
+        .x = player.base.position.x,
+        .y = player.base.position.y + game.Player.eye_height,
+        .stance = player.base.position.y,
+        .z = player.base.position.z,
+        .yaw = player.yaw,
+        .pitch = player.pitch,
+        .on_ground = false,
+    } });
+}
+
+fn handlePlaying(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    message: net.packet.Packet,
+) !void {
+    const player = self.player orelse return;
+    switch (message) {
+        .keep_alive => try self.send(gpa, .keep_alive),
+        .flying => |body| player.base.on_ground = body.on_ground,
+        .player_position => |body| {
+            moveTo(player, body.x, body.stance, body.z);
+            player.base.on_ground = body.on_ground;
+        },
+        .player_look => |body| {
+            player.yaw = body.yaw;
+            player.pitch = body.pitch;
+            player.base.on_ground = body.on_ground;
+        },
+        .player_look_move => |body| {
+            moveTo(player, body.x, body.stance, body.z);
+            player.yaw = body.yaw;
+            player.pitch = body.pitch;
+            player.base.on_ground = body.on_ground;
+        },
+        .block_item_switch => |body| {
+            if (body.slot >= 0 and body.slot < game.Inventory.hotbar_size) {
+                player.inventory.selected = @intCast(body.slot);
+            }
+        },
+        .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z),
+        .place => |body| try self.placeBlock(gpa, level, body.x, body.y, body.z, body.face, body.held),
+        .kick_disconnect => self.state = .closed,
+        else => {},
+    }
+}
+
+fn withinReach(player: *const game.Player, x: i32, y: i32, z: i32) bool {
+    const dx = player.base.position.x - (@as(f64, @floatFromInt(x)) + 0.5);
+    const dy = player.base.position.y - (@as(f64, @floatFromInt(y)) + 0.5);
+    const dz = player.base.position.z - (@as(f64, @floatFromInt(z)) + 0.5);
+    return dx * dx + dy * dy + dz * dz <= reach_squared;
+}
+
+fn digBlock(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    status: u8,
+    x: i32,
+    y: u8,
+    z: i32,
+) !void {
+    if (status != dig_finished) return;
+
+    const player = self.player orelse return;
+    const height: i32 = y;
+    if (!withinReach(player, x, height, z)) return;
+
+    const broken = level.world_map.getBlock(x, height, z);
+    if (broken == .air) return;
+
+    const meta = level.world_map.getBlockMetadata(x, height, z);
+    try level.world_map.setBlockWithNotify(x, height, z, .air);
+    _ = level.world_map.removeSign(x, height, z);
+
+    if (broken.drop(meta, &level.world_map.rand)) |dropped| {
+        try level.dropStackAt(gpa, x, height, z, .{
+            .id = dropped.id,
+            .count = dropped.count,
+            .meta = dropped.meta,
+        });
+    }
+}
+
+fn placeBlock(
+    self: *Session,
+    _: std.mem.Allocator,
+    level: *game.Level,
+    x: i32,
+    y: u8,
+    z: i32,
+    face: u8,
+    held: ?net.packet.Stack,
+) !void {
+    const player = self.player orelse return;
+    const stack = held orelse return;
+    if (face > 5) return;
+
+    const placed = switch (world.Id.fromNumeric(stack.id)) {
+        .block => |id| id,
+        .item => return,
+    };
+    if (placed == .air) return;
+
+    const target = world.block_update.placementTarget(
+        &level.world_map,
+        x,
+        @as(i32, y),
+        z,
+        @enumFromInt(face),
+    );
+    if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+    if (!withinReach(player, target.x, target.y, target.z)) return;
+    if (level.world_map.getBlock(target.x, target.y, target.z).isSolid()) return;
+    if (!world.block_update.canPlaceAt(&level.world_map, target.x, target.y, target.z, placed)) return;
+
+    try level.world_map.setBlockWithNotify(target.x, target.y, target.z, placed);
+}
+
+pub fn sendBlockChange(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    block: world.Block,
+    metadata: u4,
+) !void {
+    if (self.state != .playing) return;
+    if (y < 0 or y >= world.constants.chunk_height) return;
+
+    const width = world.constants.chunk_width;
+    const coord: world.World.ChunkCoord = .{ .x = @divFloor(x, width), .z = @divFloor(z, width) };
+    if (!self.sent_chunks.contains(coord)) return;
+
+    try self.send(gpa, .{ .block_change = .{
+        .x = x,
+        .y = @intCast(y),
+        .z = z,
+        .block = @intFromEnum(block),
+        .metadata = metadata,
+    } });
+}
+
+fn moveTo(player: *game.Player, x: f64, y: f64, z: f64) void {
+    player.base.position = .{ .x = x, .y = y, .z = z };
+    player.base.prev_position = player.base.position;
+}
+
+fn playerChunk(player: *const game.Player) world.World.ChunkCoord {
+    const width = world.constants.chunk_width;
+    return .{
+        .x = @divFloor(math.util.floorDouble(player.base.position.x), width),
+        .z = @divFloor(math.util.floorDouble(player.base.position.z), width),
+    };
+}
+
+pub fn streamChunks(self: *Session, gpa: std.mem.Allocator, level: *game.Level, budget: usize) !usize {
+    if (self.state != .playing) return 0;
+    const player = self.player orelse return 0;
+    const centre = playerChunk(player);
+
+    var sent: usize = 0;
+    var ring: i32 = 0;
+    while (ring <= view_radius) : (ring += 1) {
+        var offset_x: i32 = -ring;
+        while (offset_x <= ring) : (offset_x += 1) {
+            var offset_z: i32 = -ring;
+            while (offset_z <= ring) : (offset_z += 1) {
+                if (@max(@abs(offset_x), @abs(offset_z)) != ring) continue;
+
+                const coord: world.World.ChunkCoord = .{ .x = centre.x + offset_x, .z = centre.z + offset_z };
+                if (self.sent_chunks.contains(coord)) continue;
+
+                try self.sendChunk(gpa, level, coord);
+                try self.sent_chunks.put(gpa, coord, {});
+
+                sent += 1;
+                if (sent >= budget) return sent;
+            }
+        }
+    }
+    return sent;
+}
+
+fn sendChunk(self: *Session, gpa: std.mem.Allocator, level: *game.Level, coord: world.World.ChunkCoord) !void {
+    try level.world_map.ensureDecorated(level.generator, coord.x, coord.z);
+    const chunk = level.world_map.getChunk(coord.x, coord.z) orelse return;
+
+    try self.send(gpa, .{ .pre_chunk = .{ .x = coord.x, .z = coord.z, .load = true } });
+
+    const compressed = try chunk_payload.compressFull(gpa, chunk);
+    defer gpa.free(compressed);
+
+    try self.send(gpa, .{ .map_chunk = .{
+        .x = coord.x * world.constants.chunk_width,
+        .y = 0,
+        .z = coord.z * world.constants.chunk_width,
+        .size_x = chunk_payload.size_x,
+        .size_y = chunk_payload.size_y,
+        .size_z = chunk_payload.size_z,
+        .compressed = compressed,
+    } });
+}
+
+pub fn leave(self: *Session, gpa: std.mem.Allocator, level: *game.Level) void {
+    const player = self.player orelse return;
+    level.leave(player);
+    gpa.destroy(player);
+    self.player = null;
+    self.state = .closed;
+}
+
+fn testLevel(gpa: std.mem.Allocator) !game.Level {
+    var level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 99));
+    errdefer level.deinit(gpa);
+    level.spawn = .{ 8, 64, 8 };
+    return level;
+}
+
+fn drain(gpa: std.mem.Allocator, session: *Session, out: *std.ArrayList(net.packet.Packet)) !void {
+    const bytes = try session.takeOutbox(gpa);
+    defer gpa.free(bytes);
+
+    var reader = std.Io.Reader.fixed(bytes);
+    while (reader.bufferedLen() > 0) {
+        const id = try net.packet.readId(&reader);
+        try out.append(gpa, try net.packet.readBody(gpa, &reader, id));
+    }
+}
+
+fn freeAll(gpa: std.mem.Allocator, list: *std.ArrayList(net.packet.Packet)) void {
+    for (list.items) |message| message.deinit(gpa);
+    list.deinit(gpa);
+}
+
+test "a handshake is answered with the offline server id" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try std.testing.expectEqual(State.awaiting_login, session.state);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqualStrings(offline_server_id, replies.items[0].handshake.username);
+}
+
+test "a login on the right protocol is answered with the joining sequence" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, &level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+
+    try std.testing.expectEqual(State.playing, session.state);
+    try std.testing.expectEqualStrings("Steve", session.name.text());
+    try std.testing.expectEqual(@as(usize, 1), level.occupants.items.len);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    const expected = [_]net.packet.Id{ .handshake, .login, .spawn_position, .player_look_move, .update_time };
+    try std.testing.expectEqual(expected.len, replies.items.len);
+    for (expected, replies.items) |want, got| try std.testing.expectEqual(want, got.id());
+
+    try std.testing.expectEqual(level.generator.world_seed, replies.items[1].login.map_seed);
+    try std.testing.expectEqual(@as(i32, 8), replies.items[2].spawn_position.x);
+}
+
+test "a login carries the entity id the level handed the player" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, &level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    const announced: u32 = @intCast(replies.items[1].login.protocol_version);
+    try std.testing.expectEqual(session.player.?.base.id, announced);
+    try std.testing.expect(announced != game.Entity.no_id);
+}
+
+test "an outdated protocol is kicked with the message vanilla uses" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    for ([_]i32{ 13, 15 }) |protocol| {
+        var session: Session = .{};
+        defer session.deinit(gpa);
+
+        session.state = .awaiting_login;
+        try session.handle(gpa, &level, .{ .login = .{
+            .protocol_version = protocol,
+            .username = "Steve",
+            .map_seed = 0,
+            .dimension = 0,
+        } });
+
+        try std.testing.expectEqual(State.closed, session.state);
+        try std.testing.expectEqual(@as(usize, 0), level.occupants.items.len);
+
+        var replies: std.ArrayList(net.packet.Packet) = .empty;
+        defer freeAll(gpa, &replies);
+        try drain(gpa, &session, &replies);
+
+        const wanted = if (protocol < net.packet.protocol_version) "Outdated client!" else "Outdated server!";
+        try std.testing.expectEqualStrings(wanted, replies.items[0].kick_disconnect.reason);
+    }
+}
+
+test "a packet out of turn is a protocol error" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+
+    try session.handle(gpa, &level, .{ .chat = .{ .message = "hello" } });
+
+    try std.testing.expectEqual(State.closed, session.state);
+    try std.testing.expect(session.kicked);
+}
+
+test "the position the server sends puts the eye line in y and the feet in stance" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, &level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    const placed = replies.items[3].player_look_move;
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), placed.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 64.0), placed.stance, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 64.0 + game.Player.eye_height), placed.y, 1.0e-9);
+}
+
+test "a moving client drags its player along behind it" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, &level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+
+    try session.handle(gpa, &level, .{ .player_look_move = .{
+        .x = 40.25,
+        .y = 70.0 + game.Player.eye_height,
+        .stance = 70.0,
+        .z = -12.5,
+        .yaw = 90.0,
+        .pitch = -20.0,
+        .on_ground = true,
+    } });
+
+    const player = session.player.?;
+    try std.testing.expectApproxEqAbs(@as(f64, 40.25), player.base.position.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 70.0), player.base.position.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, -12.5), player.base.position.z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 90.0), player.yaw, 1.0e-6);
+    try std.testing.expect(player.base.on_ground);
+
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try level.tick(gpa, arena.allocator());
+    try std.testing.expectApproxEqAbs(@as(f64, 40.25), level.players().views[0].position.x, 1.0e-9);
+}
+
+test "a keep alive is answered so the client knows the server is still there" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, &level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+    const joining = try session.takeOutbox(gpa);
+    gpa.free(joining);
+
+    try session.handle(gpa, &level, .keep_alive);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqual(net.packet.Id.keep_alive, replies.items[0].id());
+}
+
+fn joinedSession(gpa: std.mem.Allocator, level: *game.Level, session: *Session) !void {
+    try session.handle(gpa, level, .{ .handshake = .{ .username = "Digger" } });
+    try session.handle(gpa, level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Digger",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
+    const joining = try session.takeOutbox(gpa);
+    gpa.free(joining);
+}
+
+fn stoneFloorLevel(gpa: std.mem.Allocator) !game.Level {
+    var level = try testLevel(gpa);
+    errdefer level.deinit(gpa);
+
+    var chunk_x: i32 = -1;
+    while (chunk_x <= 1) : (chunk_x += 1) {
+        var chunk_z: i32 = -1;
+        while (chunk_z <= 1) : (chunk_z += 1) {
+            const chunk = try level.world_map.createChunk(chunk_x, chunk_z);
+            for (0..world.constants.chunk_width) |x| {
+                for (0..world.constants.chunk_width) |z| {
+                    chunk.setBlock(@intCast(x), 63, @intCast(z), .stone);
+                }
+            }
+        }
+    }
+    return level;
+}
+
+test "a finished dig takes the block out of the world and leaves its drop" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .block_dig = .{
+        .status = dig_finished,
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+    } });
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 63, 8));
+    try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
+    try std.testing.expectEqual(world.Id{ .block = .cobblestone }, level.entities.items.items[0].stack.id);
+}
+
+test "a dig that has only started leaves the block alone" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = 0, .x = 8, .y = 63, .z = 8, .face = 1 } });
+
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 8));
+}
+
+test "a block out of arm's reach cannot be dug" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 28));
+
+    try session.handle(gpa, &level, .{ .block_dig = .{
+        .status = dig_finished,
+        .x = 8,
+        .y = 63,
+        .z = 28,
+        .face = 1,
+    } });
+
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 28));
+}
+
+test "a place puts the held block against the face the client clicked" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = @intFromEnum(world.Block.planks), .count = 1, .damage = 0 },
+    } });
+
+    try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(8, 64, 8));
+}
+
+test "an empty hand and an item that is not a block place nothing" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .place = .{ .x = 8, .y = 63, .z = 8, .face = 1, .held = null } });
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = 280, .count = 1, .damage = 0 },
+    } });
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+}
+
+test "a block change only reaches a player who has been sent that chunk" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    try session.sendBlockChange(gpa, 8, 63, 8, .stone, 0);
+    const unsent = try session.takeOutbox(gpa);
+    gpa.free(unsent);
+    try std.testing.expectEqual(@as(usize, 0), unsent.len);
+
+    try session.sent_chunks.put(gpa, .{ .x = 0, .z = 0 }, {});
+    try session.sendBlockChange(gpa, 8, 63, 8, .stone, 5);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    const change = replies.items[0].block_change;
+    try std.testing.expectEqual(@as(i32, 8), change.x);
+    try std.testing.expectEqual(@as(u8, 63), change.y);
+    try std.testing.expectEqual(@intFromEnum(world.Block.stone), change.block);
+    try std.testing.expectEqual(@as(u8, 5), change.metadata);
+}

@@ -9,6 +9,7 @@ const Modules = struct {
     math_mod: *std.Build.Module,
     core_mod: *std.Build.Module,
     net_mod: *std.Build.Module,
+    server_mod: *std.Build.Module,
     world_mod: *std.Build.Module,
     assets_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
@@ -110,6 +111,18 @@ pub fn setupModules(
         },
     });
 
+    const server_mod = b.createModule(.{
+        .root_source_file = b.path("src/server/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "math", .module = math_mod },
+            .{ .name = "world", .module = world_mod },
+            .{ .name = "game", .module = game_mod },
+            .{ .name = "net", .module = net_mod },
+        },
+    });
+
     return .{
         .gl_bindings = gl_bindings,
         .sdl3_dep = sdl3_dep,
@@ -117,6 +130,7 @@ pub fn setupModules(
         .math_mod = math_mod,
         .core_mod = core_mod,
         .net_mod = net_mod,
+        .server_mod = server_mod,
         .world_mod = world_mod,
         .assets_mod = assets_mod,
         .game_mod = game_mod,
@@ -172,6 +186,31 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    const server = b.addExecutable(.{
+        .name = "rosebed-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/server/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .strip = !debug,
+            .imports = &.{
+                .{ .name = "math", .module = modules.math_mod },
+                .{ .name = "core", .module = modules.core_mod },
+                .{ .name = "world", .module = modules.world_mod },
+                .{ .name = "game", .module = modules.game_mod },
+                .{ .name = "net", .module = modules.net_mod },
+            },
+        }),
+    });
+    server.lto = lto;
+    b.installArtifact(server);
+
+    const run_server_step = b.step("run-server", "Run the dedicated server");
+    const run_server_cmd = b.addRunArtifact(server);
+    run_server_step.dependOn(&run_server_cmd.step);
+    run_server_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_server_cmd.addArgs(args);
+
     const fetch_assets = b.addExecutable(.{
         .name = "fetch-assets",
         .root_module = b.createModule(.{
@@ -186,6 +225,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.core_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.net_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.server_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = server.root_module })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.game_mod })).step);
