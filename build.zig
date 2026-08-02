@@ -8,6 +8,7 @@ const Modules = struct {
     sdl3_mod: *std.Build.Module,
     math_mod: *std.Build.Module,
     core_mod: *std.Build.Module,
+    net_mod: *std.Build.Module,
     world_mod: *std.Build.Module,
     assets_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
@@ -72,6 +73,12 @@ pub fn setupModules(
         },
     });
 
+    const net_mod = b.createModule(.{
+        .root_source_file = b.path("src/net/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const assets_mod = b.createModule(.{
         .root_source_file = b.path("src/assets/root.zig"),
         .target = target,
@@ -109,6 +116,7 @@ pub fn setupModules(
         .sdl3_mod = sdl3_mod,
         .math_mod = math_mod,
         .core_mod = core_mod,
+        .net_mod = net_mod,
         .world_mod = world_mod,
         .assets_mod = assets_mod,
         .game_mod = game_mod,
@@ -177,6 +185,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.core_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.net_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.game_mod })).step);
