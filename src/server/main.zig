@@ -239,6 +239,18 @@ fn saveWorld(server: *Server, handle: *world.save.Save, name: []const u8) !void 
     while (try server.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0) {}
 }
 
+fn collectPeers(server: *Server, out: *std.ArrayList(Session.Peer)) !void {
+    for (server.connections.items) |connection| {
+        if (connection.session.state != .playing) continue;
+        const player = connection.session.player orelse continue;
+        try out.append(server.gpa, .{
+            .id = player.base.id,
+            .name = connection.session.name.text(),
+            .player = player,
+        });
+    }
+}
+
 fn tick(server: *Server) !void {
     server.lock();
     defer server.unlock();
@@ -253,9 +265,9 @@ fn tick(server: *Server) !void {
         if (connection.outgoing.items.len < outgoing_high_water) {
             _ = connection.session.streamChunks(server.gpa, &server.level, Session.chunks_per_tick) catch 0;
         }
-        queueOutbox(server, connection) catch {};
 
         if (!connection.open or connection.session.state == .closed) {
+            queueOutbox(server, connection) catch {};
             connection.open = false;
             connection.session.leave(server.gpa, &server.level);
             connection.stream.shutdown(server.io, .both) catch {};
@@ -269,6 +281,16 @@ fn tick(server: *Server) !void {
     var arena: std.heap.ArenaAllocator = .init(server.gpa);
     defer arena.deinit();
     try server.level.tick(server.gpa, arena.allocator());
+
+    var peers: std.ArrayList(Session.Peer) = .empty;
+    defer peers.deinit(server.gpa);
+    try collectPeers(server, &peers);
+
+    for (server.connections.items) |connection| {
+        connection.session.trackPeers(server.gpa, peers.items) catch {};
+        connection.session.reportHealth(server.gpa) catch {};
+        queueOutbox(server, connection) catch {};
+    }
 
     server.ticks_since_save += 1;
 }

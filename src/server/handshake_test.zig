@@ -227,3 +227,190 @@ test "where the client walks is where the server puts it" {
     try std.testing.expectApproxEqAbs(@as(f64, -13.5), on_server.base.position.z, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f32, 123.0), on_server.yaw, 1.0e-6);
 }
+
+const Trio = struct {
+    gpa: std.mem.Allocator,
+    level: game.Level,
+    a: Side,
+    b: Side,
+
+    const Side = struct {
+        name: []const u8,
+        session: Session = .{},
+        connection: remote.Connection = .{},
+        level: game.Level,
+        player: game.Player,
+    };
+
+    fn init(gpa: std.mem.Allocator) !Trio {
+        return .{
+            .gpa = gpa,
+            .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 77)),
+            .a = .{
+                .name = "Alice",
+                .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 0)),
+                .player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
+            },
+            .b = .{
+                .name = "Bob",
+                .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 0)),
+                .player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
+            },
+        };
+    }
+
+    fn deinit(self: *Trio) void {
+        for ([_]*Side{ &self.a, &self.b }) |side| {
+            side.session.leave(self.gpa, &self.level);
+            side.session.deinit(self.gpa);
+            side.connection.deinit(self.gpa);
+            side.level.deinit(self.gpa);
+        }
+        self.level.deinit(self.gpa);
+    }
+
+    fn start(self: *Trio) !void {
+        self.level.attach();
+        self.level.spawn = .{ 8, 70, 8 };
+        for ([_]*Side{ &self.a, &self.b }) |side| {
+            side.level.attach();
+            try side.level.enter(self.gpa, &side.player);
+            try side.connection.begin(self.gpa, side.name);
+        }
+    }
+
+    fn peers(self: *Trio, out: *std.ArrayList(Session.Peer)) !void {
+        out.clearRetainingCapacity();
+        for ([_]*Side{ &self.a, &self.b }) |side| {
+            if (side.session.state != .playing) continue;
+            const player = side.session.player orelse continue;
+            try out.append(self.gpa, .{
+                .id = player.base.id,
+                .name = side.session.name.text(),
+                .player = player,
+            });
+        }
+    }
+
+    fn pump(self: *Trio, side: *Side) !void {
+        const up = try side.connection.takeOutbox(self.gpa);
+        defer self.gpa.free(up);
+        var reader = std.Io.Reader.fixed(up);
+        while (reader.bufferedLen() > 0) {
+            const id = try net.packet.readId(&reader);
+            const message = try net.packet.readBody(self.gpa, &reader, id);
+            defer message.deinit(self.gpa);
+            try side.session.handle(self.gpa, &self.level, message);
+        }
+
+        const down = try side.session.takeOutbox(self.gpa);
+        defer self.gpa.free(down);
+        var back = std.Io.Reader.fixed(down);
+        while (back.bufferedLen() > 0) {
+            const id = try net.packet.readId(&back);
+            const message = try net.packet.readBody(self.gpa, &back, id);
+            defer message.deinit(self.gpa);
+            try side.connection.handle(self.gpa, &side.level, side.name, message);
+        }
+    }
+
+    fn settle(self: *Trio, rounds: usize) !void {
+        var list: std.ArrayList(Session.Peer) = .empty;
+        defer list.deinit(self.gpa);
+
+        for (0..rounds) |_| {
+            try self.pump(&self.a);
+            try self.pump(&self.b);
+
+            try self.peers(&list);
+            for ([_]*Side{ &self.a, &self.b }) |side| {
+                try side.session.trackPeers(self.gpa, list.items);
+                try side.session.reportHealth(self.gpa);
+            }
+
+            try self.pump(&self.a);
+            try self.pump(&self.b);
+        }
+    }
+};
+
+test "two players on one server are told about each other" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+
+    try trio.settle(4);
+
+    try std.testing.expectEqual(@as(usize, 1), trio.a.connection.peers.items.len);
+    try std.testing.expectEqual(@as(usize, 1), trio.b.connection.peers.items.len);
+
+    try std.testing.expectEqualStrings("Bob", trio.a.connection.peers.items[0].name.text());
+    try std.testing.expectEqualStrings("Alice", trio.b.connection.peers.items[0].name.text());
+
+    try std.testing.expectEqual(trio.b.session.player.?.base.id, trio.a.connection.peers.items[0].id);
+    try std.testing.expectEqual(trio.a.session.player.?.base.id, trio.b.connection.peers.items[0].id);
+}
+
+test "one player walking is seen moving by the other" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    const before = trio.a.connection.peers.items[0].player.base.position;
+
+    trio.b.player.base.position = .{ .x = before.x + 6.0, .y = before.y, .z = before.z - 3.0 };
+    trio.b.player.yaw = 90.0;
+    try trio.b.connection.reportPosition(gpa, &trio.b.player);
+    try trio.settle(2);
+
+    const after = trio.a.connection.peers.items[0].player.base.position;
+    try std.testing.expectApproxEqAbs(before.x + 6.0, after.x, 0.05);
+    try std.testing.expectApproxEqAbs(before.z - 3.0, after.z, 0.05);
+    try std.testing.expectApproxEqAbs(@as(f32, 90.0), trio.a.connection.peers.items[0].player.yaw, 2.0);
+}
+
+test "a player who leaves is taken off the other's screen" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try std.testing.expectEqual(@as(usize, 1), trio.a.connection.peers.items.len);
+
+    trio.b.session.leave(gpa, &trio.level);
+    try trio.settle(2);
+
+    try std.testing.expectEqual(@as(usize, 0), trio.a.connection.peers.items.len);
+}
+
+test "a player far away is not tracked at all" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    trio.b.session.player.?.base.position = .{ .x = 5000, .y = 70, .z = 5000 };
+    try trio.settle(2);
+
+    try std.testing.expectEqual(@as(usize, 0), trio.a.connection.peers.items.len);
+}
+
+test "the server tells the client what its health is" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try std.testing.expectEqual(@as(i32, 20), trio.a.connection.health);
+
+    trio.a.session.player.?.health = 6;
+    try trio.settle(2);
+
+    try std.testing.expectEqual(@as(i32, 6), trio.a.connection.health);
+}

@@ -23,7 +23,36 @@ name: NameBuffer = .{},
 player: ?*game.Player = null,
 outbox: std.ArrayList(u8) = .empty,
 sent_chunks: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{},
+tracked: std.AutoHashMapUnmanaged(game.Entity.Id, Tracked) = .{},
+sent_health: i16 = std.math.maxInt(i16),
 kicked: bool = false,
+
+pub const track_range: f64 = 160.0;
+pub const move_step_threshold: i32 = 8;
+pub const relative_move_limit: i32 = 128;
+
+pub const Peer = struct {
+    id: game.Entity.Id,
+    name: []const u8,
+    player: *const game.Player,
+};
+
+pub const Tracked = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+    yaw: i8,
+    pitch: i8,
+    seen: bool = true,
+};
+
+fn encodePosition(value: f64) i32 {
+    return math.util.floorDouble(value * 32.0);
+}
+
+fn encodeRotation(degrees: f32) i8 {
+    return @truncate(@as(i32, @intFromFloat(@floor(degrees * 256.0 / 360.0))));
+}
 
 pub const NameBuffer = struct {
     bytes: [net.packet.max_username]u8 = undefined,
@@ -42,6 +71,129 @@ pub const NameBuffer = struct {
 pub fn deinit(self: *Session, gpa: std.mem.Allocator) void {
     self.outbox.deinit(gpa);
     self.sent_chunks.deinit(gpa);
+    self.tracked.deinit(gpa);
+}
+
+pub fn trackPeers(self: *Session, gpa: std.mem.Allocator, peers: []const Peer) !void {
+    if (self.state != .playing) return;
+    const mine = self.player orelse return;
+
+    var entries = self.tracked.iterator();
+    while (entries.next()) |entry| entry.value_ptr.seen = false;
+
+    for (peers) |peer| {
+        if (peer.id == mine.base.id) continue;
+        if (mine.base.position.distanceTo(peer.player.base.position) > track_range) continue;
+        try self.trackOne(gpa, peer);
+    }
+
+    var stale: std.ArrayList(game.Entity.Id) = .empty;
+    defer stale.deinit(gpa);
+
+    var walk = self.tracked.iterator();
+    while (walk.next()) |entry| {
+        if (!entry.value_ptr.seen) try stale.append(gpa, entry.key_ptr.*);
+    }
+
+    for (stale.items) |id| {
+        _ = self.tracked.remove(id);
+        try self.send(gpa, .{ .destroy_entity = .{ .entity_id = @bitCast(id) } });
+    }
+}
+
+fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
+    const at = peer.player.base.position;
+    const now: Tracked = .{
+        .x = encodePosition(at.x),
+        .y = encodePosition(at.y),
+        .z = encodePosition(at.z),
+        .yaw = encodeRotation(peer.player.yaw),
+        .pitch = encodeRotation(peer.player.pitch),
+    };
+
+    const entry = try self.tracked.getOrPut(gpa, peer.id);
+    if (!entry.found_existing) {
+        entry.value_ptr.* = now;
+        try self.send(gpa, .{ .named_entity_spawn = .{
+            .entity_id = @bitCast(peer.id),
+            .name = peer.name,
+            .x = now.x,
+            .y = now.y,
+            .z = now.z,
+            .rotation = now.yaw,
+            .pitch = now.pitch,
+            .current_item = 0,
+        } });
+        return;
+    }
+
+    entry.value_ptr.seen = true;
+
+    const was = entry.value_ptr.*;
+    const dx = now.x - was.x;
+    const dy = now.y - was.y;
+    const dz = now.z - was.z;
+    const moved = @abs(dx) >= move_step_threshold or @abs(dy) >= move_step_threshold or @abs(dz) >= move_step_threshold;
+    const turned = @abs(@as(i32, now.yaw) - was.yaw) >= move_step_threshold or
+        @abs(@as(i32, now.pitch) - was.pitch) >= move_step_threshold;
+
+    const fits = @abs(dx) < relative_move_limit and @abs(dy) < relative_move_limit and @abs(dz) < relative_move_limit;
+    if (!fits) {
+        entry.value_ptr.* = now;
+        entry.value_ptr.seen = true;
+        return self.send(gpa, .{ .entity_teleport = .{
+            .entity_id = @bitCast(peer.id),
+            .x = now.x,
+            .y = now.y,
+            .z = now.z,
+            .yaw = now.yaw,
+            .pitch = now.pitch,
+        } });
+    }
+
+    if (moved and turned) {
+        entry.value_ptr.* = now;
+        entry.value_ptr.seen = true;
+        return self.send(gpa, .{ .rel_entity_move_look = .{
+            .entity_id = @bitCast(peer.id),
+            .dx = @truncate(dx),
+            .dy = @truncate(dy),
+            .dz = @truncate(dz),
+            .yaw = now.yaw,
+            .pitch = now.pitch,
+        } });
+    }
+    if (moved) {
+        entry.value_ptr.x = now.x;
+        entry.value_ptr.y = now.y;
+        entry.value_ptr.z = now.z;
+        return self.send(gpa, .{ .rel_entity_move = .{
+            .entity_id = @bitCast(peer.id),
+            .dx = @truncate(dx),
+            .dy = @truncate(dy),
+            .dz = @truncate(dz),
+        } });
+    }
+    if (turned) {
+        entry.value_ptr.yaw = now.yaw;
+        entry.value_ptr.pitch = now.pitch;
+        return self.send(gpa, .{ .entity_look = .{
+            .entity_id = @bitCast(peer.id),
+            .yaw = now.yaw,
+            .pitch = now.pitch,
+        } });
+    }
+}
+
+pub fn reportHealth(self: *Session, gpa: std.mem.Allocator) !void {
+    if (self.state != .playing) return;
+    const player = self.player orelse return;
+
+    const health: i16 = @intCast(std.math.clamp(player.health, 0, std.math.maxInt(i16)));
+    if (health == self.sent_health) return;
+
+    self.sent_health = health;
+    try self.send(gpa, .{ .update_health = .{ .health = health } });
 }
 
 pub fn send(self: *Session, gpa: std.mem.Allocator, message: net.packet.Packet) !void {

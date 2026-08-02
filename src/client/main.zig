@@ -2193,6 +2193,7 @@ fn tick(app_state: *AppState) !void {
     try digStep(app_state);
 
     if (app_state.link) |link| {
+        app_state.player.health = link.connection.health;
         try tickRemote(app_state, link);
     } else {
         try app_state.level.tick(app_state.gpa, app_state.frame);
@@ -2714,6 +2715,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    try drawPeers(app_state, partial);
     if (app_state.third_person) try drawPlayer(app_state, partial);
 
     try drawSelectionOutline(app_state);
@@ -2761,6 +2763,30 @@ fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
 
     app_state.shader.setInt("u_alpha_test", 1);
     gl.Disable(gl.BLEND);
+}
+
+fn drawPeers(app_state: *AppState, partial: f32) !void {
+    const link = app_state.link orelse return;
+    if (link.connection.peers.items.len == 0) return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+
+    for (link.connection.peers.items) |*peer| {
+        try render.entity_render.appendPlayer(
+            &mesh,
+            app_state.frame,
+            &app_state.level.world_map,
+            peer.player,
+            false,
+            partial,
+        );
+    }
+
+    if (mesh.vertices.items.len == 0) return;
+    app_state.textures.char.bind();
+    drawEntityMesh(&mesh);
+    app_state.textures.terrain.bind();
 }
 
 fn drawPlayer(app_state: *AppState, partial: f32) !void {

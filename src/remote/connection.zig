@@ -14,6 +14,34 @@ pub const Disconnect = struct {
     owned: bool,
 };
 
+pub const NameBuffer = struct {
+    bytes: [net.packet.max_username]u8 = undefined,
+    len: usize = 0,
+
+    pub fn set(self: *NameBuffer, value: []const u8) void {
+        self.len = @min(value.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], value[0..self.len]);
+    }
+
+    pub fn text(self: *const NameBuffer) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+pub const Peer = struct {
+    id: game.Entity.Id,
+    name: NameBuffer = .{},
+    player: game.Player,
+};
+
+fn decodePosition(value: i32) f64 {
+    return @as(f64, @floatFromInt(value)) / 32.0;
+}
+
+fn decodeRotation(value: i8) f32 {
+    return @as(f32, @floatFromInt(value)) * 360.0 / 256.0;
+}
+
 state: State = .greeting,
 entity_id: game.Entity.Id = game.Entity.no_id,
 map_seed: i64 = 0,
@@ -22,8 +50,11 @@ placed: bool = false,
 outbox: std.ArrayList(u8) = .empty,
 disconnect: ?Disconnect = null,
 loaded_chunks: usize = 0,
+health: i32 = 20,
+peers: std.ArrayList(Peer) = .empty,
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
+    self.peers.deinit(gpa);
     self.outbox.deinit(gpa);
     if (self.disconnect) |reason| {
         if (reason.owned) gpa.free(reason.reason);
@@ -105,7 +136,40 @@ fn handlePlaying(
         .spawn_position => |body| self.spawn = .{ body.x, body.y, body.z },
         .update_time => |body| level.world_map.time = body.time,
         .update_health => |body| {
+            self.health = body.health;
             if (level.occupants.items.len > 0) level.occupants.items[0].player.health = body.health;
+        },
+        .named_entity_spawn => |body| try self.spawnPeer(gpa, body),
+        .destroy_entity => |body| self.removePeer(@bitCast(body.entity_id)),
+        .entity_teleport => |body| {
+            if (self.peerById(@bitCast(body.entity_id))) |peer| {
+                beginMove(peer);
+                peer.player.base.position = .{
+                    .x = decodePosition(body.x),
+                    .y = decodePosition(body.y),
+                    .z = decodePosition(body.z),
+                };
+                turnPeer(peer, body.yaw, body.pitch);
+            }
+        },
+        .rel_entity_move => |body| {
+            if (self.peerById(@bitCast(body.entity_id))) |peer| {
+                beginMove(peer);
+                shiftPeer(peer, body.dx, body.dy, body.dz);
+            }
+        },
+        .entity_look => |body| {
+            if (self.peerById(@bitCast(body.entity_id))) |peer| {
+                beginMove(peer);
+                turnPeer(peer, body.yaw, body.pitch);
+            }
+        },
+        .rel_entity_move_look => |body| {
+            if (self.peerById(@bitCast(body.entity_id))) |peer| {
+                beginMove(peer);
+                shiftPeer(peer, body.dx, body.dy, body.dz);
+                turnPeer(peer, body.yaw, body.pitch);
+            }
         },
         .player_look_move => |body| try self.placePlayer(level, body.x, body.stance, body.z, body.yaw, body.pitch),
         .pre_chunk => |body| try self.preChunk(gpa, level, body.x, body.z, body.load),
@@ -113,6 +177,62 @@ fn handlePlaying(
         .block_change => |body| self.blockChange(level, body.x, body.y, body.z, body.block, body.metadata),
         .multi_block_change => |body| self.multiBlockChange(level, body),
         else => {},
+    }
+}
+
+pub fn peerById(self: *Connection, id: game.Entity.Id) ?*Peer {
+    for (self.peers.items) |*peer| {
+        if (peer.id == id) return peer;
+    }
+    return null;
+}
+
+fn beginMove(peer: *Peer) void {
+    peer.player.base.prev_position = peer.player.base.position;
+    peer.player.prev_yaw = peer.player.yaw;
+    peer.player.prev_pitch = peer.player.pitch;
+    peer.player.prev_render_yaw = peer.player.render_yaw;
+}
+
+fn shiftPeer(peer: *Peer, dx: i8, dy: i8, dz: i8) void {
+    peer.player.base.position.x += decodePosition(dx);
+    peer.player.base.position.y += decodePosition(dy);
+    peer.player.base.position.z += decodePosition(dz);
+}
+
+fn turnPeer(peer: *Peer, yaw: i8, pitch: i8) void {
+    peer.player.yaw = decodeRotation(yaw);
+    peer.player.pitch = decodeRotation(pitch);
+    peer.player.render_yaw = peer.player.yaw;
+}
+
+fn spawnPeer(self: *Connection, gpa: std.mem.Allocator, body: anytype) !void {
+    const id: game.Entity.Id = @bitCast(body.entity_id);
+    self.removePeer(id);
+
+    var peer: Peer = .{
+        .id = id,
+        .player = game.Player.spawn(.{
+            .x = decodePosition(body.x),
+            .y = decodePosition(body.y),
+            .z = decodePosition(body.z),
+        }),
+    };
+    peer.name.set(body.name);
+    peer.player.base.id = id;
+    peer.player.yaw = decodeRotation(body.rotation);
+    peer.player.pitch = decodeRotation(body.pitch);
+    peer.player.render_yaw = peer.player.yaw;
+    beginMove(&peer);
+
+    try self.peers.append(gpa, peer);
+}
+
+fn removePeer(self: *Connection, id: game.Entity.Id) void {
+    for (self.peers.items, 0..) |peer, index| {
+        if (peer.id != id) continue;
+        _ = self.peers.orderedRemove(index);
+        return;
     }
 }
 
