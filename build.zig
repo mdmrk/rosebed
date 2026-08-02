@@ -9,6 +9,7 @@ const Modules = struct {
     math_mod: *std.Build.Module,
     core_mod: *std.Build.Module,
     net_mod: *std.Build.Module,
+    remote_mod: *std.Build.Module,
     server_mod: *std.Build.Module,
     world_mod: *std.Build.Module,
     assets_mod: *std.Build.Module,
@@ -97,6 +98,18 @@ pub fn setupModules(
         },
     });
 
+    const remote_mod = b.createModule(.{
+        .root_source_file = b.path("src/remote/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "math", .module = math_mod },
+            .{ .name = "world", .module = world_mod },
+            .{ .name = "game", .module = game_mod },
+            .{ .name = "net", .module = net_mod },
+        },
+    });
+
     const render_mod = b.createModule(.{
         .root_source_file = b.path("src/render/root.zig"),
         .target = target,
@@ -120,6 +133,7 @@ pub fn setupModules(
             .{ .name = "world", .module = world_mod },
             .{ .name = "game", .module = game_mod },
             .{ .name = "net", .module = net_mod },
+            .{ .name = "remote", .module = remote_mod },
         },
     });
 
@@ -130,6 +144,7 @@ pub fn setupModules(
         .math_mod = math_mod,
         .core_mod = core_mod,
         .net_mod = net_mod,
+        .remote_mod = remote_mod,
         .server_mod = server_mod,
         .world_mod = world_mod,
         .assets_mod = assets_mod,
@@ -165,6 +180,8 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "render", .module = modules.render_mod },
                 .{ .name = "game", .module = modules.game_mod },
                 .{ .name = "assets", .module = modules.assets_mod },
+                .{ .name = "net", .module = modules.net_mod },
+                .{ .name = "remote", .module = modules.remote_mod },
             },
         }),
     });
@@ -226,6 +243,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.core_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.net_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.server_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.remote_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = server.root_module })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);

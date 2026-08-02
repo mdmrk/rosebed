@@ -5,7 +5,7 @@ const math = @import("math");
 const net = @import("net");
 const world = @import("world");
 
-const chunk_payload = @import("chunk_payload.zig");
+const chunk_payload = @import("world").chunk_payload;
 
 const Session = @This();
 
@@ -151,7 +151,7 @@ fn handlePlaying(
         .keep_alive => try self.send(gpa, .keep_alive),
         .flying => |body| player.base.on_ground = body.on_ground,
         .player_position => |body| {
-            moveTo(player, body.x, body.stance, body.z);
+            moveTo(player, body.x, body.y, body.z);
             player.base.on_ground = body.on_ground;
         },
         .player_look => |body| {
@@ -160,7 +160,7 @@ fn handlePlaying(
             player.base.on_ground = body.on_ground;
         },
         .player_look_move => |body| {
-            moveTo(player, body.x, body.stance, body.z);
+            moveTo(player, body.x, body.y, body.z);
             player.yaw = body.yaw;
             player.pitch = body.pitch;
             player.base.on_ground = body.on_ground;
@@ -317,7 +317,14 @@ pub fn streamChunks(self: *Session, gpa: std.mem.Allocator, level: *game.Level, 
 }
 
 fn sendChunk(self: *Session, gpa: std.mem.Allocator, level: *game.Level, coord: world.World.ChunkCoord) !void {
-    try level.world_map.ensureDecorated(level.generator, coord.x, coord.z);
+    var dx: i32 = -1;
+    while (dx <= 1) : (dx += 1) {
+        var dz: i32 = -1;
+        while (dz <= 1) : (dz += 1) {
+            try level.world_map.ensureDecorated(level.generator, coord.x + dx, coord.z + dz);
+        }
+    }
+
     const chunk = level.world_map.getChunk(coord.x, coord.z) orelse return;
 
     try self.send(gpa, .{ .pre_chunk = .{ .x = coord.x, .z = coord.z, .load = true } });
@@ -541,8 +548,8 @@ test "a moving client drags its player along behind it" {
 
     try session.handle(gpa, &level, .{ .player_look_move = .{
         .x = 40.25,
-        .y = 70.0 + game.Player.eye_height,
-        .stance = 70.0,
+        .y = 70.0,
+        .stance = 70.0 + game.Player.eye_height,
         .z = -12.5,
         .yaw = 90.0,
         .pitch = -20.0,

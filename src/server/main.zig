@@ -5,7 +5,7 @@ const game = @import("game");
 const net = @import("net");
 const world = @import("world");
 
-const chunk_payload = @import("chunk_payload.zig");
+const chunk_payload = world.chunk_payload;
 const Session = @import("session.zig");
 
 pub const default_port: u16 = 25565;

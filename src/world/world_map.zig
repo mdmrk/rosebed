@@ -300,6 +300,16 @@ pub fn saveQueuedChunks(self: *World, limit: usize) !usize {
     return self.save_queue.items.len;
 }
 
+pub fn markDecorated(self: *World, chunk_x: i32, chunk_z: i32) !void {
+    try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
+}
+
+pub fn forgetChunk(self: *World, chunk_x: i32, chunk_z: i32) void {
+    const coord: ChunkCoord = .{ .x = chunk_x, .z = chunk_z };
+    if (self.chunks.fetchRemove(coord)) |entry| self.allocator.destroy(entry.value);
+    _ = self.decorated.remove(coord);
+}
+
 pub fn isDecorated(self: *const World, chunk_x: i32, chunk_z: i32) bool {
     return self.decorated.contains(.{ .x = chunk_x, .z = chunk_z });
 }

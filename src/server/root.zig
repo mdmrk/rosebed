@@ -1,7 +1,8 @@
-pub const chunk_payload = @import("chunk_payload.zig");
 pub const Session = @import("session.zig");
 
+const handshake_test = @import("handshake_test.zig");
+
 test {
-    _ = chunk_payload;
+    _ = handshake_test;
     _ = Session;
 }
