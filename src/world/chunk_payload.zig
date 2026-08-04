@@ -3,15 +3,14 @@ const std = @import("std");
 const Block = @import("block.zig").Block;
 const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
-const deflate = @import("deflate.zig");
-
 pub const blocks_len = constants.chunk_volume;
-pub const nibbles_len = constants.chunk_volume / 2;
-pub const full_len = blocks_len + nibbles_len * 3;
-
 pub const size_x: u8 = constants.chunk_width;
 pub const size_y: u8 = constants.chunk_height;
 pub const size_z: u8 = constants.chunk_width;
+const deflate = @import("deflate.zig");
+
+pub const nibbles_len = constants.chunk_volume / 2;
+pub const full_len = blocks_len + nibbles_len * 3;
 
 pub fn writeFull(chunk: *const Chunk, out: *[full_len]u8) void {
     for (chunk.blocks, out[0..blocks_len]) |block, *byte| byte.* = @intFromEnum(block);

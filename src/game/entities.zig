@@ -11,6 +11,7 @@ const Entity = @import("entity.zig");
 const FallingBlock = @import("falling_block.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
+const mob = @import("mob.zig");
 const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
 const PickupFx = @import("pickup_fx.zig");
@@ -19,7 +20,6 @@ const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
-const mob = @import("mob.zig");
 
 const Entities = @This();
 

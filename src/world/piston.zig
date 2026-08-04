@@ -5,6 +5,7 @@ const Block = block.Block;
 const Side = block.Side;
 const nbt = @import("nbt.zig");
 const redstone = @import("redstone.zig");
+const testing_world = @import("testing.zig");
 const World = @import("world_map.zig");
 
 pub const id_key = "Piston";
@@ -433,8 +434,6 @@ pub fn onBlockPlaced(world_map: *World, x: i32, y: i32, z: i32, player: [3]f64, 
     try world_map.setBlockMetadataWithNotify(x, y, z, block.pistonFacingValue(facing));
     try updatePowerState(world_map, x, y, z);
 }
-
-const testing_world = @import("testing.zig");
 
 fn pistonWorld(gpa: std.mem.Allocator) !World {
     return testing_world.flatWorld(gpa, 1);

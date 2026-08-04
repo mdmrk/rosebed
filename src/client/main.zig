@@ -6,14 +6,15 @@ const font_png = assets.font.default_png;
 const core = @import("core");
 const Timer = core.Timer;
 const game = @import("game");
-const Link = @import("link.zig");
-const net = @import("net");
 const gl = @import("gl");
 const math = @import("math");
+const net = @import("net");
 const remote = @import("remote");
 const render = @import("render");
 const sdl3 = @import("sdl3");
 const world = @import("world");
+
+const Link = @import("link.zig");
 
 const ticks_per_second = 20.0;
 const screen_width = 854;

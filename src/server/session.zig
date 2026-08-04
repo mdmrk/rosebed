@@ -1,11 +1,10 @@
 const std = @import("std");
 
+const chunk_payload = @import("world").chunk_payload;
 const game = @import("game");
 const math = @import("math");
 const net = @import("net");
 const world = @import("world");
-
-const chunk_payload = @import("world").chunk_payload;
 
 const Session = @This();
 

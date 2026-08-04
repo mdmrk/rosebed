@@ -7,11 +7,11 @@ const Animal = @import("animal.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Entities = @import("entities.zig");
+const mob = @import("mob.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
-const mob = @import("mob.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;

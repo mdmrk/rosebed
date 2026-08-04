@@ -2,13 +2,12 @@ const std = @import("std");
 
 const math = @import("math");
 const net = @import("net");
+pub const Watched = net.packet.Watched;
+pub const Metadata = net.packet.Metadata;
 const world = @import("world");
 
 const Animal = @import("animal.zig");
 const Player = @import("player.zig");
-
-pub const Watched = net.packet.Watched;
-pub const Metadata = net.packet.Metadata;
 
 pub const Drops = struct {
     count: u8,

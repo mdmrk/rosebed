@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const testing_world = world.testing;
 
 const Animal = @import("animal.zig");
 const Entities = @import("entities.zig");
@@ -249,8 +250,6 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.entities.tickPaintings(gpa, &self.world_map, rand);
     try self.advanceTime();
 }
-
-const testing_world = world.testing;
 
 fn testLevel(gpa: std.mem.Allocator) !Level {
     var level = Level.init(gpa, try world.TerrainGenerator.init(gpa, 1));
