@@ -21,6 +21,7 @@ limb_swing: f32 = 0,
 limb_swing_amount: f32 = 0,
 prev_limb_swing_amount: f32 = 0,
 health: i32 = 20,
+name: Name = .{},
 prev_health: i32 = 20,
 spawn_point: ?[3]i32 = null,
 hurt_time: i32 = 0,
@@ -52,6 +53,26 @@ fall_distance: f32 = 0,
 distance_fallen: f32 = 0,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
+
+pub const max_name = 16;
+
+pub const Name = struct {
+    bytes: [max_name]u8 = undefined,
+    len: usize = 0,
+
+    pub fn set(self: *Name, value: []const u8) void {
+        self.len = @min(value.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], value[0..self.len]);
+    }
+
+    pub fn text(self: *const Name) []const u8 {
+        return self.bytes[0..self.len];
+    }
+
+    pub fn eql(self: *const Name, other: []const u8) bool {
+        return std.mem.eql(u8, self.text(), other);
+    }
+};
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -1388,4 +1409,29 @@ test "a respawning player keeps the id the world knows it by" {
     try std.testing.expectEqual(@as(u32, 12), player.base.id);
     try std.testing.expectEqual(@as(i32, 20), player.health);
     try std.testing.expectApproxEqAbs(@as(f64, 8), player.base.position.x, 1.0e-9);
+}
+
+test "a player's name is kept, clipped to what the protocol allows" {
+    var player = Player.spawn(math.Vec3.init(0, 0, 0));
+    try std.testing.expectEqualStrings("", player.name.text());
+
+    player.name.set("Notch");
+    try std.testing.expectEqualStrings("Notch", player.name.text());
+    try std.testing.expect(player.name.eql("Notch"));
+    try std.testing.expect(!player.name.eql("notch"));
+
+    player.name.set("a" ** (max_name + 4));
+    try std.testing.expectEqual(@as(usize, max_name), player.name.text().len);
+}
+
+test "a respawning player keeps its name along with its id" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.base.id = 3;
+    player.name.set("Steve");
+
+    player.kill();
+    player.respawn(math.Vec3.init(1, 2, 3));
+
+    try std.testing.expectEqualStrings("Steve", player.name.text());
+    try std.testing.expectEqual(@as(u32, 3), player.base.id);
 }

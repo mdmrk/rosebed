@@ -25,11 +25,26 @@ outbox: std.ArrayList(u8) = .empty,
 sent_chunks: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{},
 tracked: std.AutoHashMapUnmanaged(game.Entity.Id, Tracked) = .{},
 sent_health: i16 = std.math.maxInt(i16),
+pending_chat: ?ChatLine = null,
 kicked: bool = false,
 
+pub const max_chat_in: usize = 100;
 pub const track_range: f64 = 160.0;
 pub const move_step_threshold: i32 = 8;
 pub const relative_move_limit: i32 = 128;
+
+pub const ChatLine = struct {
+    bytes: [net.packet.max_chat]u8 = undefined,
+    len: usize = 0,
+
+    pub fn text(self: *const ChatLine) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+fn chatAllowed(c: u8) bool {
+    return c >= 32 and c < 127 and c != '`';
+}
 
 pub const Peer = struct {
     id: game.Entity.Id,
@@ -252,6 +267,7 @@ fn acceptLogin(
     const player = try gpa.create(game.Player);
     errdefer gpa.destroy(player);
     player.* = game.Player.spawn(spawnPlacement(level));
+    player.name.set(self.name.text());
     try level.enter(gpa, player);
     self.player = player;
     self.state = .playing;
@@ -324,9 +340,50 @@ fn handlePlaying(
         },
         .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z),
         .place => |body| try self.placeBlock(gpa, level, body.x, body.y, body.z, body.face, body.held),
+        .chat => |body| try self.handleChat(gpa, body.message),
         .kick_disconnect => self.state = .closed,
         else => {},
     }
+}
+
+fn handleChat(self: *Session, gpa: std.mem.Allocator, message: []const u8) !void {
+    if (message.len > max_chat_in) return self.kick(gpa, "Chat message too long");
+
+    const trimmed = std.mem.trim(u8, message, " ");
+    for (trimmed) |c| {
+        if (!chatAllowed(c)) return self.kick(gpa, "Illegal characters in chat");
+    }
+    if (trimmed.len == 0) return;
+    if (trimmed[0] == '/') return;
+
+    var line: ChatLine = .{};
+    const written = std.fmt.bufPrint(&line.bytes, "<{s}> {s}", .{ self.name.text(), trimmed }) catch return;
+    line.len = written.len;
+    self.pending_chat = line;
+}
+
+pub fn takeChat(self: *Session) ?ChatLine {
+    const line = self.pending_chat orelse return null;
+    self.pending_chat = null;
+    return line;
+}
+
+pub fn announce(self: *Session, gpa: std.mem.Allocator, who: []const u8, joined: bool) !void {
+    if (self.state != .playing) return;
+
+    var buffer: [net.packet.max_chat]u8 = undefined;
+    const line = std.fmt.bufPrint(&buffer, "{s}{s} {s} the game.", .{
+        join_colour,
+        who,
+        if (joined) "joined" else "left",
+    }) catch return;
+
+    try self.send(gpa, .{ .chat = .{ .message = line } });
+}
+
+pub fn sendChat(self: *Session, gpa: std.mem.Allocator, line: []const u8) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .chat = .{ .message = line } });
 }
 
 fn withinReach(player: *const game.Player, x: i32, y: i32, z: i32) bool {

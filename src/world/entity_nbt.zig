@@ -59,8 +59,26 @@ pub const Wolf = struct {
     living: Living,
     angry: bool = false,
     sitting: bool = false,
-    tamed: bool = false,
+    owner: Owner = .{},
 };
+
+pub const Owner = struct {
+    bytes: [max_owner]u8 = @splat(0),
+    len: u8 = 0,
+
+    pub fn text(self: *const Owner) []const u8 {
+        return self.bytes[0..self.len];
+    }
+
+    pub fn from(name: []const u8) Owner {
+        var owner: Owner = .{};
+        owner.len = @intCast(@min(name.len, max_owner));
+        @memcpy(owner.bytes[0..owner.len], name[0..owner.len]);
+        return owner;
+    }
+};
+
+pub const max_owner = 16;
 
 pub const Base = struct {
     position: [3]f64,
@@ -212,7 +230,7 @@ pub fn storeWolf(gpa: std.mem.Allocator, wolf: Wolf) !nbt.Tag {
     try storeLiving(gpa, &compound, wolf_id, wolf.living);
     try put(gpa, &compound, "Angry", .{ .byte = @intFromBool(wolf.angry) });
     try put(gpa, &compound, "Sitting", .{ .byte = @intFromBool(wolf.sitting) });
-    try put(gpa, &compound, "Owner", .{ .string = try gpa.dupe(u8, if (wolf.tamed) wolf_owner else "") });
+    try put(gpa, &compound, "Owner", .{ .string = try gpa.dupe(u8, wolf.owner.text()) });
 
     return .{ .compound = compound };
 }
@@ -562,7 +580,7 @@ pub fn loadWolf(compound: nbt.Compound) ?Wolf {
         .living = living,
         .angry = boolField(compound, "Angry"),
         .sitting = boolField(compound, "Sitting"),
-        .tamed = owner.len > 0,
+        .owner = Owner.from(owner),
     };
 }
 
@@ -741,13 +759,13 @@ test "each mob is read back only as its own kind" {
 
 test "a wolf survives a round trip through its NBT compound" {
     const gpa = std.testing.allocator;
-    const original = Wolf{ .living = sample_living, .angry = false, .sitting = true, .tamed = true };
+    const original = Wolf{ .living = sample_living, .angry = false, .sitting = true, .owner = .from("Notch") };
 
     var tag = try storeWolf(gpa, original);
     defer nbt.deinit(gpa, &tag);
 
     try std.testing.expectEqualStrings("Wolf", tag.compound.get("id").?.string);
-    try std.testing.expectEqualStrings(wolf_owner, tag.compound.get("Owner").?.string);
+    try std.testing.expectEqualStrings("Notch", tag.compound.get("Owner").?.string);
     try std.testing.expectEqual(original, loadWolf(tag.compound).?);
 }
 

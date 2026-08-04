@@ -111,6 +111,7 @@ pub const PlayerView = struct {
     alive: bool,
     height: f64 = 1.8,
     held: ?world.Item = null,
+    name: []const u8 = "",
 };
 
 pub const Attacker = struct {
@@ -150,6 +151,14 @@ pub const Players = struct {
     pub fn byId(self: Players, id: Entity.Id) ?PlayerView {
         for (self.views) |view| {
             if (view.id == id) return view;
+        }
+        return null;
+    }
+
+    pub fn byName(self: Players, name: []const u8) ?PlayerView {
+        if (name.len == 0) return null;
+        for (self.views) |view| {
+            if (std.mem.eql(u8, view.name, name)) return view;
         }
         return null;
     }

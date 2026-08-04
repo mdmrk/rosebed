@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Animal = @import("animal.zig");
 const Mob = @import("mob.zig");
+const Player = @import("player.zig");
 const raycast = @import("raycast.zig");
 
 const Wolf = @This();
@@ -20,6 +21,7 @@ hunting: bool = false,
 pending_bite: i32 = 0,
 alerts_pack: bool = false,
 owner_id: Animal.Entity.Id = Animal.Entity.no_id,
+owner: Player.Name = .{},
 interested: bool = false,
 interest: f32 = 0,
 prev_interest: f32 = 0,
@@ -160,9 +162,15 @@ fn findPlayerToAttack(self: Wolf, players: Animal.Players) ?Target {
     return .{ .player = view.id };
 }
 
-fn ownerView(self: Wolf, players: Animal.Players) ?Animal.PlayerView {
-    if (self.owner_id != Animal.Entity.no_id) return players.byId(self.owner_id);
-    return players.closestTo(self.animal.base.position, -1.0);
+fn ownerView(self: *Wolf, players: Animal.Players) ?Animal.PlayerView {
+    if (self.owner_id != Animal.Entity.no_id) {
+        if (players.byId(self.owner_id)) |view| return view;
+        self.owner_id = Animal.Entity.no_id;
+    }
+
+    const view = players.byName(self.owner.text()) orelse return null;
+    self.owner_id = view.id;
+    return view;
 }
 
 fn canSee(self: Wolf, world_map: *const world.World, view: Animal.PlayerView) bool {
@@ -354,13 +362,13 @@ pub fn hurt(self: *Wolf, amount: i32, source: ?Animal.Attacker, rand: *world.Jav
 pub const Use = enum { tamed, refused, fed, sat, stood };
 
 pub fn interact(self: *Wolf, gpa: std.mem.Allocator, held: ?world.Item, rand: *world.JavaRandom) ?Use {
-    return self.interactWith(gpa, Animal.Entity.no_id, held, rand);
+    return self.interactWith(gpa, .{ .position = self.animal.base.position, .eye_height = 0, .alive = true }, held, rand);
 }
 
 pub fn interactWith(
     self: *Wolf,
     gpa: std.mem.Allocator,
-    player: Animal.Entity.Id,
+    player: Animal.PlayerView,
     held: ?world.Item,
     rand: *world.JavaRandom,
 ) ?Use {
@@ -371,7 +379,8 @@ pub fn interactWith(
         if (rand.nextIntBound(tame_odds) != 0) return .refused;
 
         self.tamed = true;
-        self.owner_id = player;
+        self.owner_id = player.id;
+        self.owner.set(player.name);
         self.sitting = true;
         self.animal.max_health = tamed_health;
         self.animal.health = tamed_health;
@@ -424,7 +433,7 @@ pub fn toRecord(self: Wolf) world.entity_nbt.Wolf {
         .living = self.animal.toRecord(),
         .angry = self.angry,
         .sitting = self.sitting,
-        .tamed = self.tamed,
+        .owner = world.entity_nbt.Owner.from(self.owner.text()),
     };
 }
 
@@ -437,7 +446,8 @@ pub fn fromRecord(record: world.entity_nbt.Wolf) Wolf {
     wolf.animal.restore(record.living);
     wolf.angry = record.angry;
     wolf.sitting = record.sitting;
-    if (record.tamed) {
+    if (record.owner.len > 0) {
+        wolf.owner.set(record.owner.text());
         wolf.tamed = true;
         wolf.animal.max_health = tamed_health;
         wolf.animal.can_despawn = false;
@@ -847,12 +857,14 @@ test "a tamed wolf left standing walks back towards its owner" {
     var wolf = Wolf.spawn(math.Vec3.init(8.5, 1, 8.5));
     defer wolf.deinit(gpa);
     wolf.tamed = true;
+    wolf.owner.set("Steve");
     wolf.animal.base.on_ground = true;
 
     const owner = Animal.PlayerView{
         .position = math.Vec3.init(20.5, 1, 8.5),
         .eye_height = 1.62,
         .alive = true,
+        .name = "Steve",
     };
 
     const started = wolf.animal.distanceSquaredTo(owner.position);
@@ -943,6 +955,7 @@ test "a shaking wolf is drawn darker at rest and brighter mid-shake" {
 test "a wolf keeps its collar, its mood and its seat across a record round trip" {
     var wolf = Wolf.spawn(math.Vec3.init(12.5, 64.0, -3.25));
     wolf.tamed = true;
+    wolf.owner.set("Steve");
     wolf.sitting = true;
     wolf.animal.max_health = tamed_health;
     wolf.animal.health = 13;
@@ -951,6 +964,7 @@ test "a wolf keeps its collar, its mood and its seat across a record round trip"
     const restored = Wolf.fromRecord(wolf.toRecord());
 
     try std.testing.expect(restored.tamed);
+    try std.testing.expectEqualStrings("Steve", restored.owner.text());
     try std.testing.expect(restored.sitting);
     try std.testing.expect(!restored.angry);
     try std.testing.expect(!restored.animal.can_despawn);
@@ -1158,11 +1172,11 @@ test "a tamed wolf follows the owner that tamed it, not whoever is nearest" {
     var wolf = Wolf.spawn(math.Vec3.init(0, 1, 0));
     defer wolf.deinit(gpa);
     wolf.tamed = true;
-    wolf.owner_id = 7;
+    wolf.owner.set("Steve");
 
     const views = [_]Animal.PlayerView{
-        .{ .id = 3, .position = math.Vec3.init(2, 1, 0), .eye_height = 1.62, .alive = true },
-        .{ .id = 7, .position = math.Vec3.init(30, 1, 0), .eye_height = 1.62, .alive = true },
+        .{ .id = 3, .position = math.Vec3.init(2, 1, 0), .eye_height = 1.62, .alive = true, .name = "Alex" },
+        .{ .id = 7, .position = math.Vec3.init(30, 1, 0), .eye_height = 1.62, .alive = true, .name = "Steve" },
     };
 
     try std.testing.expectEqual(@as(f64, 30), wolf.ownerView(.of(&views)).?.position.x);
@@ -1180,10 +1194,42 @@ test "a wolf tamed at runtime remembers who tamed it" {
         var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
         defer wolf.deinit(gpa);
 
-        if (wolf.interactWith(gpa, 11, .bone, &rand) != .tamed) continue;
+        if (wolf.interactWith(gpa, .{ .id = 11, .position = math.Vec3.init(8, 1, 8), .eye_height = 1.62, .alive = true, .name = "Notch" }, .bone, &rand) != .tamed) continue;
 
         try std.testing.expectEqual(@as(Animal.Entity.Id, 11), wolf.owner_id);
+        try std.testing.expectEqualStrings("Notch", wolf.owner.text());
         return;
     }
     try std.testing.expect(false);
+}
+
+test "a tamed wolf reloaded from a save finds its owner by name, not by nearness" {
+    var wolf = Wolf.spawn(math.Vec3.init(0, 1, 0));
+    wolf.tamed = true;
+    wolf.owner.set("Steve");
+
+    const both = [_]Animal.PlayerView{
+        .{ .id = 3, .position = math.Vec3.init(1, 1, 0), .eye_height = 1.62, .alive = true, .name = "Alex" },
+        .{ .id = 7, .position = math.Vec3.init(40, 1, 0), .eye_height = 1.62, .alive = true, .name = "Steve" },
+    };
+
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 7), wolf.ownerView(.of(&both)).?.id);
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 7), wolf.owner_id);
+
+    const only_stranger = [_]Animal.PlayerView{both[0]};
+    try std.testing.expect(wolf.ownerView(.of(&only_stranger)) == null);
+}
+
+test "a wolf whose owner logs back in with a new id rebinds to them" {
+    var wolf = Wolf.spawn(math.Vec3.init(0, 1, 0));
+    wolf.tamed = true;
+    wolf.owner.set("Steve");
+    wolf.owner_id = 7;
+
+    const rejoined = [_]Animal.PlayerView{
+        .{ .id = 42, .position = math.Vec3.init(3, 1, 0), .eye_height = 1.62, .alive = true, .name = "Steve" },
+    };
+
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.ownerView(.of(&rejoined)).?.id);
+    try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.owner_id);
 }

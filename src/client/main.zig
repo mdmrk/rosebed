@@ -996,6 +996,8 @@ fn sendChat(app_state: *AppState) !void {
     if (trimmed.len > 0) {
         if (trimmed[0] == '/') {
             try runCommand(app_state, trimmed);
+        } else if (app_state.link) |link| {
+            try link.connection.say(app_state.gpa, trimmed);
         } else {
             var buf: [render.chat.max_message_length + 32]u8 = undefined;
             const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
@@ -1886,7 +1888,7 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
 
 fn interactWithWolf(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
     const wolf: *game.Wolf = @fieldParentPtr("animal", animal);
-    const used = wolf.interactWith(app_state.gpa, app_state.player.base.id, held, &app_state.level.world_map.rand) orelse return false;
+    const used = wolf.interactWith(app_state.gpa, game.Entities.viewOf(&app_state.player), held, &app_state.level.world_map.rand) orelse return false;
 
     switch (used) {
         .tamed, .refused => {
@@ -2132,6 +2134,11 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
 
 fn tickRemote(app_state: *AppState, link: *Link) !void {
     try link.pump(&app_state.level);
+
+    const lines = try link.connection.takeChat(app_state.gpa);
+    defer app_state.gpa.free(lines);
+    for (lines) |line| app_state.chat.addMessage(app_state.font, line.text());
+
     app_state.level.tick_count += 1;
 
     if (link.connection.placed) try link.connection.reportPosition(app_state.gpa, &app_state.player);

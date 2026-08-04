@@ -328,6 +328,13 @@ const Trio = struct {
                 try side.session.reportHealth(self.gpa);
             }
 
+            for ([_]*Side{ &self.a, &self.b }) |speaker| {
+                const line = speaker.session.takeChat() orelse continue;
+                for ([_]*Side{ &self.a, &self.b }) |listener| {
+                    try listener.session.sendChat(self.gpa, line.text());
+                }
+            }
+
             try self.pump(&self.a);
             try self.pump(&self.b);
         }
@@ -413,4 +420,92 @@ test "the server tells the client what its health is" {
     try trio.settle(2);
 
     try std.testing.expectEqual(@as(i32, 6), trio.a.connection.health);
+}
+
+test "a login carries the username through to the player on the server" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try std.testing.expectEqualStrings("Alice", trio.a.session.player.?.name.text());
+    try std.testing.expectEqualStrings("Bob", trio.b.session.player.?.name.text());
+}
+
+test "what one player says reaches everybody, named" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    for ([_]*Trio.Side{ &trio.a, &trio.b }) |side| {
+        const drained = try side.connection.takeChat(gpa);
+        gpa.free(drained);
+    }
+
+    try trio.a.connection.say(gpa, "hello world");
+    try trio.settle(2);
+
+    for ([_]*Trio.Side{ &trio.a, &trio.b }) |side| {
+        const heard = try side.connection.takeChat(gpa);
+        defer gpa.free(heard);
+        try std.testing.expectEqual(@as(usize, 1), heard.len);
+        try std.testing.expectEqualStrings("<Alice> hello world", heard[0].text());
+    }
+}
+
+test "a slash command is kept off the wire's broadcast" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    for ([_]*Trio.Side{ &trio.a, &trio.b }) |side| {
+        const drained = try side.connection.takeChat(gpa);
+        gpa.free(drained);
+    }
+
+    try trio.a.connection.say(gpa, "/time set 0");
+    try trio.settle(2);
+
+    const heard = try trio.b.connection.takeChat(gpa);
+    defer gpa.free(heard);
+    try std.testing.expectEqual(@as(usize, 0), heard.len);
+}
+
+test "chat that breaks the rules disconnects the talker" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try trio.a.connection.say(gpa, "bad\x07bell");
+    try trio.settle(2);
+
+    try std.testing.expectEqual(Session.State.closed, trio.a.session.state);
+    try std.testing.expect(trio.a.session.kicked);
+}
+
+test "joining is announced to whoever is already there" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try trio.b.session.announce(gpa, "Carol", true);
+    try trio.settle(1);
+
+    const heard = try trio.b.connection.takeChat(gpa);
+    defer gpa.free(heard);
+
+    var found = false;
+    for (heard) |line| {
+        if (std.mem.indexOf(u8, line.text(), "Carol joined the game.") != null) found = true;
+    }
+    try std.testing.expect(found);
 }

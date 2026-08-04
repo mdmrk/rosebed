@@ -235,6 +235,7 @@ pub fn viewOf(player: *const Player) Animal.PlayerView {
         .alive = player.health > 0,
         .height = Player.height,
         .held = held,
+        .name = player.name.text(),
     };
 }
 

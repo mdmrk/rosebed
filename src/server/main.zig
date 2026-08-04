@@ -239,13 +239,26 @@ fn saveWorld(server: *Server, handle: *world.save.Save, name: []const u8) !void 
     while (try server.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0) {}
 }
 
+fn broadcastChat(server: *Server, line: []const u8) void {
+    std.log.info("{s}", .{line});
+    for (server.connections.items) |connection| {
+        connection.session.sendChat(server.gpa, line) catch {};
+    }
+}
+
+fn announceAll(server: *Server, who: []const u8, joined: bool) void {
+    for (server.connections.items) |connection| {
+        connection.session.announce(server.gpa, who, joined) catch {};
+    }
+}
+
 fn collectPeers(server: *Server, out: *std.ArrayList(Session.Peer)) !void {
     for (server.connections.items) |connection| {
         if (connection.session.state != .playing) continue;
         const player = connection.session.player orelse continue;
         try out.append(server.gpa, .{
             .id = player.base.id,
-            .name = connection.session.name.text(),
+            .name = player.name.text(),
             .player = player,
         });
     }
@@ -261,12 +274,20 @@ fn tick(server: *Server) !void {
     while (index < server.connections.items.len) {
         const connection = server.connections.items[index];
 
+        const was_playing = connection.session.state == .playing;
         drainPending(server, connection) catch {};
+        if (!was_playing and connection.session.state == .playing) {
+            announceAll(server, connection.session.name.text(), true);
+        }
+        if (connection.session.takeChat()) |line| broadcastChat(server, line.text());
         if (connection.outgoing.items.len < outgoing_high_water) {
             _ = connection.session.streamChunks(server.gpa, &server.level, Session.chunks_per_tick) catch 0;
         }
 
         if (!connection.open or connection.session.state == .closed) {
+            if (connection.session.player != null) {
+                announceAll(server, connection.session.name.text(), false);
+            }
             queueOutbox(server, connection) catch {};
             connection.open = false;
             connection.session.leave(server.gpa, &server.level);

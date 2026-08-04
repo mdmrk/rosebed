@@ -28,6 +28,15 @@ pub const NameBuffer = struct {
     }
 };
 
+pub const ChatLine = struct {
+    bytes: [net.packet.max_chat]u8 = undefined,
+    len: usize = 0,
+
+    pub fn text(self: *const ChatLine) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
 pub const Peer = struct {
     id: game.Entity.Id,
     name: NameBuffer = .{},
@@ -52,9 +61,11 @@ disconnect: ?Disconnect = null,
 loaded_chunks: usize = 0,
 health: i32 = 20,
 peers: std.ArrayList(Peer) = .empty,
+chat: std.ArrayList(ChatLine) = .empty,
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
     self.peers.deinit(gpa);
+    self.chat.deinit(gpa);
     self.outbox.deinit(gpa);
     if (self.disconnect) |reason| {
         if (reason.owned) gpa.free(reason.reason);
@@ -138,6 +149,12 @@ fn handlePlaying(
         .update_health => |body| {
             self.health = body.health;
             if (level.occupants.items.len > 0) level.occupants.items[0].player.health = body.health;
+        },
+        .chat => |body| {
+            var line: ChatLine = .{};
+            line.len = @min(body.message.len, line.bytes.len);
+            @memcpy(line.bytes[0..line.len], body.message[0..line.len]);
+            try self.chat.append(gpa, line);
         },
         .named_entity_spawn => |body| try self.spawnPeer(gpa, body),
         .destroy_entity => |body| self.removePeer(@bitCast(body.entity_id)),
@@ -328,6 +345,15 @@ pub fn reportPosition(self: *Connection, gpa: std.mem.Allocator, player: *const 
         .pitch = player.pitch,
         .on_ground = player.base.on_ground,
     } });
+}
+
+pub fn takeChat(self: *Connection, gpa: std.mem.Allocator) ![]ChatLine {
+    return self.chat.toOwnedSlice(gpa);
+}
+
+pub fn say(self: *Connection, gpa: std.mem.Allocator, message: []const u8) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .chat = .{ .message = message } });
 }
 
 pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
