@@ -69,6 +69,25 @@ pub fn rotationZ(radians: f32) Mat4 {
     } };
 }
 
+pub fn rotationAxis(axis_x: f32, axis_y: f32, axis_z: f32, radians: f32) Mat4 {
+    const length = @sqrt(axis_x * axis_x + axis_y * axis_y + axis_z * axis_z);
+    if (length == 0.0) return identity;
+
+    const x = axis_x / length;
+    const y = axis_y / length;
+    const z = axis_z / length;
+    const c = @cos(radians);
+    const s = @sin(radians);
+    const t = 1.0 - c;
+
+    return .{ .m = .{
+        t * x * x + c,     t * x * y + s * z, t * x * z - s * y, 0,
+        t * x * y - s * z, t * y * y + c,     t * y * z + s * x, 0,
+        t * x * z + s * y, t * y * z - s * x, t * z * z + c,     0,
+        0,                 0,                 0,                 1,
+    } };
+}
+
 pub fn scale(x: f32, y: f32, z: f32) Mat4 {
     return .{ .m = .{
         x, 0, 0, 0,
@@ -134,4 +153,34 @@ test "perspective's diagonal terms match the standard formula" {
     try std.testing.expectApproxEqAbs(expected_f / 1.5, p.m[0], 1.0e-5);
     try std.testing.expectApproxEqAbs(expected_f, p.m[5], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), p.m[11], 1.0e-6);
+}
+
+test "an axis rotation matches the cardinal ones it generalises" {
+    const angle: f32 = 0.7;
+    const about_x = rotationAxis(1, 0, 0, angle);
+    const about_y = rotationAxis(0, 1, 0, angle);
+    const about_z = rotationAxis(0, 0, 1, angle);
+
+    inline for (0..16) |i| {
+        try std.testing.expectApproxEqAbs(rotationX(angle).m[i], about_x.m[i], 1.0e-6);
+        try std.testing.expectApproxEqAbs(rotationY(angle).m[i], about_y.m[i], 1.0e-6);
+        try std.testing.expectApproxEqAbs(rotationZ(angle).m[i], about_z.m[i], 1.0e-6);
+    }
+}
+
+test "an axis rotation normalises the axis it is handed, and ignores a zero one" {
+    const unit = rotationAxis(0, 1, 1, 0.5);
+    const scaled = rotationAxis(0, 4, 4, 0.5);
+    inline for (0..16) |i| try std.testing.expectApproxEqAbs(unit.m[i], scaled.m[i], 1.0e-6);
+
+    try std.testing.expectEqual(identity.m, rotationAxis(0, 0, 0, 0.5).m);
+}
+
+test "an axis rotation keeps the axis itself fixed" {
+    const spun = rotationAxis(0, 1, 1, 1.3);
+    const along = transform(spun, .{ 0, 1, 1, 0 });
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), along[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), along[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), along[2], 1.0e-6);
 }

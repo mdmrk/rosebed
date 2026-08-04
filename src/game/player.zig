@@ -648,6 +648,25 @@ pub fn hurtMatrix(self: Player, partial_ticks: f32) math.Mat4 {
         .mul(math.Mat4.rotationY(yaw * degrees));
 }
 
+const portal_spin_per_tick: f32 = 20.0;
+const portal_spin_period: u64 = 18;
+
+pub fn portalMatrix(self: Player, partial_ticks: f32, ticks: u64) math.Mat4 {
+    const overlay = self.portalOverlay(partial_ticks);
+    if (overlay <= 0.0) return math.Mat4.identity;
+
+    var squeeze = 5.0 / (overlay * overlay + 5.0) - overlay * 0.04;
+    squeeze *= squeeze;
+
+    const degrees = std.math.pi / 180.0;
+    const turned: f32 = @floatFromInt(ticks % portal_spin_period);
+    const spin = (turned + partial_ticks) * portal_spin_per_tick * degrees;
+
+    return math.Mat4.rotationAxis(0, 1, 1, spin)
+        .mul(math.Mat4.scale(1.0 / squeeze, 1.0, 1.0))
+        .mul(math.Mat4.rotationAxis(0, 1, 1, -spin));
+}
+
 pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
     const step = self.distance_walked - self.prev_distance_walked;
     const walk = -(self.distance_walked + step * partial_ticks);
@@ -1527,4 +1546,40 @@ test "the portal overlay is interpolated between ticks" {
 
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), player.portalOverlay(0.5), 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), player.portalOverlay(0.0), 1.0e-6);
+}
+
+test "a player outside a portal has no warp on the camera at all" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    try std.testing.expectEqual(math.Mat4.identity.m, player.portalMatrix(0.5, 7).m);
+}
+
+test "the portal warp stretches the view sideways as the trip fills up" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+
+    player.prev_time_in_portal = 0.5;
+    player.time_in_portal = 0.5;
+    const halfway = player.portalMatrix(0.0, 0);
+
+    player.prev_time_in_portal = 1.0;
+    player.time_in_portal = 1.0;
+    const full = player.portalMatrix(0.0, 0);
+
+    try std.testing.expect(halfway.m[0] > 1.0);
+    try std.testing.expect(full.m[0] > halfway.m[0]);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), full.m[5], 1.0e-6);
+}
+
+test "the warp spins with the clock and repeats every eighteen ticks" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.prev_time_in_portal = 1.0;
+    player.time_in_portal = 1.0;
+
+    const first = player.portalMatrix(0.0, 3);
+    const wrapped = player.portalMatrix(0.0, 3 + portal_spin_period);
+    const turned = player.portalMatrix(0.0, 4);
+
+    inline for (0..16) |i| {
+        try std.testing.expectApproxEqAbs(first.m[i], wrapped.m[i], 1.0e-5);
+    }
+    try std.testing.expect(@abs(first.m[1] - turned.m[1]) > 1.0e-4);
 }

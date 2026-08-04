@@ -2397,6 +2397,14 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 );
                 try app_state.level.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
             },
+            .portal => try app_state.level.entities.spawnPortalParticles(
+                app_state.gpa,
+                x,
+                y,
+                z,
+                world.portal.spansX(&app_state.level.world_map, x, y, z),
+                rand,
+            ),
             .torch => try app_state.level.entities.spawnTorchParticles(
                 app_state.gpa,
                 x,
@@ -2601,10 +2609,11 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
     } else eye_view;
     const hurt = app_state.player.hurtMatrix(partial);
+    const warp = portalWarp(app_state, partial);
     const view = if (app_state.settings.view_bobbing)
-        hurt.mul(app_state.player.bobMatrix(partial)).mul(camera)
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(camera)
     else
-        hurt.mul(camera);
+        hurt.mul(warp).mul(camera);
     const view_proj = proj.mul(view);
     const eye = app_state.player.base.renderPosition(partial);
 
@@ -3041,10 +3050,11 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const angle = app_state.level.world_map.celestialAngle(partial);
     const eye = app_state.player.base.renderPosition(partial);
     const hurt = app_state.player.hurtMatrix(partial);
+    const warp = portalWarp(app_state, partial);
     const rotation = if (app_state.settings.view_bobbing)
-        hurt.mul(app_state.player.bobMatrix(partial)).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.viewRotation())
     else
-        hurt.mul(app_state.player.viewRotation());
+        hurt.mul(warp).mul(app_state.player.viewRotation());
 
     const ticks: f64 = @floatFromInt(app_state.cloud_offset);
     try render.SkyRenderer.drawClouds(.{
@@ -3056,6 +3066,10 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
         .color = render.sky.cloudColor(angle),
     }, app_state.settings.fancy_graphics);
+}
+
+fn portalWarp(app_state: *const AppState, partial: f32) math.Mat4 {
+    return app_state.player.portalMatrix(partial, app_state.level.tick_count);
 }
 
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.sky.Color) !void {
@@ -3070,10 +3084,11 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
         math.util.floorDouble(app_state.player.base.position.z),
     ));
     const hurt = app_state.player.hurtMatrix(partial);
+    const warp = portalWarp(app_state, partial);
     const rotation = if (app_state.settings.view_bobbing)
-        hurt.mul(app_state.player.bobMatrix(partial)).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.viewRotation())
     else
-        hurt.mul(app_state.player.viewRotation());
+        hurt.mul(warp).mul(app_state.player.viewRotation());
 
     try app_state.sky.draw(.{
         .shader = app_state.shader,

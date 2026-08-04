@@ -5,8 +5,8 @@ const Block = block.Block;
 const constants = @import("constants.zig");
 const item = @import("item.zig");
 const light = @import("light.zig");
-const testing_world = @import("testing.zig");
 const portal = @import("portal.zig");
+const testing_world = @import("testing.zig");
 const World = @import("world_map.zig");
 
 const fall_check_radius: i32 = 32;

@@ -17,8 +17,9 @@ jitter_v: f32,
 tile: u8,
 color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
+origin: math.Vec3 = .{ .x = 0, .y = 0, .z = 0 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -46,6 +47,9 @@ pub const heart_drag: f64 = 0.86;
 pub const heart_scale: f32 = 2.0;
 pub const heart_lift: f64 = 0.1;
 pub const heart_age: i32 = 16;
+pub const portal_min_age: i32 = 40;
+pub const portal_age_spread: i32 = 10;
+pub const portal_tiles: i32 = 8;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
@@ -224,6 +228,20 @@ pub fn scaledBy(self: Particle, factor: f32) Particle {
     return smaller;
 }
 
+pub fn spawnPortal(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, drift, rand);
+    particle.kind = .portal;
+    particle.base.motion = drift;
+    particle.origin = position;
+
+    const shade = rand.nextFloat() * 0.6 + 0.4;
+    particle.scale = rand.nextFloat() * 0.2 + 0.5;
+    particle.color = .{ shade * 0.9, shade * 0.3, shade };
+    particle.max_age = rand.nextIntBound(portal_age_spread) + portal_min_age;
+    particle.tile = @intCast(rand.nextIntBound(portal_tiles));
+    return particle;
+}
+
 pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRandom) void {
     self.base.beginTick();
     self.age += 1;
@@ -297,6 +315,17 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.applyDrag(heart_drag);
             self.applyGroundFriction();
         },
+        .portal => {
+            const lifetime: f32 = @floatFromInt(self.max_age);
+            const elapsed: f32 = @floatFromInt(self.age - 1);
+            const progress = elapsed / lifetime;
+            const eased = 1.0 - (-progress + progress * progress * 2.0);
+            self.base.position = math.Vec3.init(
+                self.origin.x + self.base.motion.x * eased,
+                self.origin.y + self.base.motion.y * eased + (1.0 - progress),
+                self.origin.z + self.base.motion.z * eased,
+            );
+        },
         .bubble => {
             self.base.motion.y += bubble_lift;
             _ = self.base.move(world_map);
@@ -348,6 +377,10 @@ pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
             const progress = self.lifeProgress(partial_ticks);
             break :blk 1.0 - progress * progress * 0.5;
         },
+        .portal => blk: {
+            const remaining = 1.0 - self.lifeProgress(partial_ticks);
+            break :blk 1.0 - remaining * remaining;
+        },
     };
     return 0.1 * self.scale * factor;
 }
@@ -358,6 +391,12 @@ pub fn brightness(self: Particle, ambient: f32, partial_ticks: f32) f32 {
         .flame => blk: {
             const progress = std.math.clamp(self.lifeProgress(partial_ticks), 0.0, 1.0);
             break :blk ambient * progress + (1.0 - progress);
+        },
+        .portal => blk: {
+            var faded = @as(f32, @floatFromInt(self.age)) / @as(f32, @floatFromInt(self.max_age));
+            faded *= faded;
+            faded *= faded;
+            break :blk ambient * (1.0 - faded) + faded;
         },
         else => ambient,
     };
@@ -613,4 +652,67 @@ test "reddust steps down its tile strip and shrinks away like smoke" {
         last_tile = particle.tile;
     }
     try std.testing.expectEqual(@as(u8, 0), last_tile);
+}
+
+test "a portal particle drifts exactly where it was aimed, and outlives the others" {
+    var rand = world.JavaRandom.init(4);
+    const drift = math.Vec3.init(0.25, -0.1, 1.5);
+    const particle = spawnPortal(math.Vec3.init(8.5, 64.0, 8.5), drift, &rand);
+
+    try std.testing.expectEqual(Kind.portal, particle.kind);
+    try std.testing.expectApproxEqAbs(drift.x, particle.base.motion.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(drift.y, particle.base.motion.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(drift.z, particle.base.motion.z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), particle.origin.x, 1.0e-9);
+
+    try std.testing.expect(particle.max_age >= portal_min_age);
+    try std.testing.expect(particle.max_age < portal_min_age + portal_age_spread);
+    try std.testing.expect(particle.tile < portal_tiles);
+    try std.testing.expect(particle.scale >= 0.5 and particle.scale <= 0.7);
+}
+
+test "a portal particle is the purple EntityPortalFX mixes, blue over red over green" {
+    var rand = world.JavaRandom.init(9);
+    const particle = spawnPortal(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &rand);
+
+    try std.testing.expect(particle.color[2] > particle.color[0]);
+    try std.testing.expect(particle.color[0] > particle.color[1]);
+    try std.testing.expectApproxEqAbs(particle.color[2] * 0.9, particle.color[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(particle.color[2] * 0.3, particle.color[1], 1.0e-6);
+}
+
+test "a portal particle rides its own curve home instead of falling" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(4);
+    var particle = spawnPortal(math.Vec3.init(8.5, 64.0, 8.5), math.Vec3.init(0, 0, 2.0), &rand);
+
+    particle.tick(&w, &rand);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.5), particle.base.position.z, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 65.0), particle.base.position.y, 1.0e-6);
+
+    var peak = particle.base.position.z;
+    while (!particle.isExpired()) {
+        particle.tick(&w, &rand);
+        peak = @max(peak, particle.base.position.z);
+    }
+
+    try std.testing.expect(peak > 10.5);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), particle.base.position.x, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), particle.base.position.z, 0.25);
+    try std.testing.expectApproxEqAbs(@as(f64, 64.0), particle.base.position.y, 0.25);
+}
+
+test "a portal particle swells from nothing and burns to full brightness" {
+    var rand = world.JavaRandom.init(4);
+    var particle = spawnPortal(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &rand);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), particle.halfSize(0.0), 1.0e-6);
+    try std.testing.expect(particle.halfSize(0.0) < particle.halfSize(1.0));
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), particle.brightness(0.1, 0.0), 1.0e-6);
+    particle.age = particle.max_age;
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), particle.brightness(0.1, 0.0), 1.0e-6);
 }

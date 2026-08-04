@@ -533,6 +533,46 @@ pub fn spawnTorchParticles(
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
 }
 
+pub const portal_particles_per_tick = 4;
+const portal_drift_spread: f64 = 0.5;
+const portal_mouth_inset: f64 = 0.25;
+const portal_ejection_speed: f64 = 2.0;
+
+pub fn spawnPortalParticles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    spans_x: bool,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..portal_particles_per_tick) |_| {
+        var px = @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat());
+        const py = @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat());
+        var pz = @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat());
+
+        const side: f64 = @floatFromInt(rand.nextIntBound(2) * 2 - 1);
+        var dx = (@as(f64, rand.nextFloat()) - 0.5) * portal_drift_spread;
+        const dy = (@as(f64, rand.nextFloat()) - 0.5) * portal_drift_spread;
+        var dz = (@as(f64, rand.nextFloat()) - 0.5) * portal_drift_spread;
+
+        if (spans_x) {
+            pz = @as(f64, @floatFromInt(z)) + 0.5 + portal_mouth_inset * side;
+            dz = @as(f64, rand.nextFloat()) * portal_ejection_speed * side;
+        } else {
+            px = @as(f64, @floatFromInt(x)) + 0.5 + portal_mouth_inset * side;
+            dx = @as(f64, rand.nextFloat()) * portal_ejection_speed * side;
+        }
+
+        try self.particles.append(gpa, Particle.spawnPortal(
+            math.Vec3.init(px, py, pz),
+            math.Vec3.init(dx, dy, dz),
+            rand,
+        ));
+    }
+}
+
 pub const reddust_jitter: f64 = 0.2;
 pub const redstone_torch_height: f64 = 0.7;
 pub const repeater_dust_height: f64 = 0.4;
@@ -2886,5 +2926,39 @@ test "a wolf roused by one player's blow leaves the other player alone" {
     while (pack.next()) |wolf| {
         try std.testing.expect(wolf.angry);
         try std.testing.expectEqual(attacker.base.id, wolf.target.?.player);
+    }
+}
+
+test "a portal breathes four particles a tick out of the face it presents" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(5);
+    try entities.spawnPortalParticles(gpa, 8, 64, 8, false, &rand);
+
+    try std.testing.expectEqual(@as(usize, portal_particles_per_tick), entities.particles.items.len);
+    for (entities.particles.items) |particle| {
+        try std.testing.expectEqual(Particle.Kind.portal, particle.kind);
+        const from_middle = @abs(particle.origin.x - 8.5);
+        try std.testing.expectApproxEqAbs(portal_mouth_inset, from_middle, 1.0e-9);
+        try std.testing.expect(particle.origin.y >= 64.0 and particle.origin.y < 65.0);
+        try std.testing.expect(particle.origin.z >= 8.0 and particle.origin.z < 9.0);
+        try std.testing.expect(@abs(particle.base.motion.x) > @abs(particle.base.motion.y));
+    }
+}
+
+test "a portal that runs along x throws its particles across z instead" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(5);
+    try entities.spawnPortalParticles(gpa, 8, 64, 8, true, &rand);
+
+    for (entities.particles.items) |particle| {
+        try std.testing.expectApproxEqAbs(portal_mouth_inset, @abs(particle.origin.z - 8.5), 1.0e-9);
+        try std.testing.expect(particle.origin.x >= 8.0 and particle.origin.x < 9.0);
+        try std.testing.expect(@abs(particle.base.motion.z) > @abs(particle.base.motion.y));
     }
 }
