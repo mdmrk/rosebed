@@ -559,8 +559,12 @@ test "a slime keeps its size across a record round trip, and comes back healed" 
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.animal.base.position.x, 1.0e-9);
 }
 
+pub const wire_id: u8 = 55;
+pub const watched_size: u5 = 16;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.slime_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,
@@ -569,7 +573,21 @@ pub const mob_type: Mob.Type = .{
     .destroy = mobDestroy,
     .afterTick = mobAfterTick,
     .onDeath = mobOnDeath,
+    .watch = mobWatch,
+    .adopt = mobAdopt,
 };
+
+fn mobWatch(animal: *const Animal, out: *Mob.Watched) void {
+    const self: *const Slime = @fieldParentPtr("animal", animal);
+    out.add(watched_size, .{ .byte = @intCast(self.size) });
+}
+
+fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
+    const self: *Slime = @fieldParentPtr("animal", animal);
+    const size = metadata.byteAt(watched_size) orelse return;
+    if (size <= 0) return;
+    self.setSize(@intCast(size));
+}
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
     const self = try gpa.create(Slime);
@@ -649,3 +667,19 @@ fn mobOnDeath(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
 }
 
 pub const collide_reach: f64 = 1.0;
+
+test "adopting a watched size resizes the slime, not just its label" {
+    var rand: world.JavaRandom = .init(5);
+    var big = spawn(math.Vec3.init(0, 0, 0), &rand);
+    big.setSize(4);
+
+    var watched: Mob.Watched = .{};
+    Mob.watch(Mob.slime, &big.animal, &watched);
+
+    var small = spawn(math.Vec3.init(0, 0, 0), &rand);
+    small.setSize(1);
+    Mob.adopt(Mob.slime, &small.animal, watched.view());
+
+    try std.testing.expectEqual(@as(u8, 4), small.size);
+    try std.testing.expectEqual(big.animal.base.width, small.animal.base.width);
+}

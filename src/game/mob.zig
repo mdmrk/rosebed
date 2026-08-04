@@ -1,10 +1,14 @@
 const std = @import("std");
 
 const math = @import("math");
+const net = @import("net");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
 const Player = @import("player.zig");
+
+pub const Watched = net.packet.Watched;
+pub const Metadata = net.packet.Metadata;
 
 pub const Drops = struct {
     count: u8,
@@ -29,6 +33,7 @@ pub const Tick = struct {
 
 pub const Type = struct {
     name: []const u8,
+    wire_id: ?u8 = null,
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
     tick: *const fn (*Animal, std.mem.Allocator, *const world.World, Animal.Players, *world.JavaRandom) anyerror!void,
     takeDrops: *const fn (*Animal) ?Drops,
@@ -38,9 +43,40 @@ pub const Type = struct {
     hurt: *const fn (*Animal, i32, ?Animal.Attacker, *world.JavaRandom) bool = hurtBase,
     afterTick: *const fn (*Animal, Tick) anyerror!void = ignore,
     onDeath: *const fn (*Animal, Tick) anyerror!void = ignore,
+    watch: *const fn (*const Animal, *Watched) void = watchNothing,
+    adopt: *const fn (*Animal, Metadata) void = adoptNothing,
 };
 
 fn ignore(_: *Animal, _: Tick) anyerror!void {}
+
+fn watchNothing(_: *const Animal, _: *Watched) void {}
+
+fn adoptNothing(_: *Animal, _: Metadata) void {}
+
+pub const flags_key: u5 = 0;
+pub const burning_flag: u3 = 0;
+
+pub fn watch(type_id: Id, animal: *const Animal, out: *Watched) void {
+    var flags: i8 = 0;
+    if (animal.fire > 0) flags |= 1 << burning_flag;
+    out.add(flags_key, .{ .byte = flags });
+    get(type_id).watch(animal, out);
+}
+
+pub fn adopt(type_id: Id, animal: *Animal, metadata: Metadata) void {
+    if (metadata.byteAt(flags_key)) |flags| {
+        animal.fire = if (flags & (1 << burning_flag) != 0) 1 else 0;
+    }
+    get(type_id).adopt(animal, metadata);
+}
+
+pub fn byWireId(id: u8) ?Id {
+    for (types[0..count], 0..) |entry, type_id| {
+        const wire = entry.wire_id orelse continue;
+        if (wire == id) return @intCast(type_id);
+    }
+    return null;
+}
 
 fn hurtBase(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     return animal.hurt(amount, source, rand);
@@ -110,6 +146,53 @@ test "the vanilla mob types keep the ids the save format is written against" {
     try std.testing.expectEqual(slime, find("Slime").?);
     try std.testing.expectEqual(wolf, find("Wolf").?);
     try std.testing.expectEqual(@as(Id, 6), registered());
+}
+
+test "the vanilla mob types carry the entity ids the wire spawns them by" {
+    try std.testing.expectEqual(pig, byWireId(90).?);
+    try std.testing.expectEqual(sheep, byWireId(91).?);
+    try std.testing.expectEqual(cow, byWireId(92).?);
+    try std.testing.expectEqual(chicken, byWireId(93).?);
+    try std.testing.expectEqual(slime, byWireId(55).?);
+    try std.testing.expectEqual(wolf, byWireId(95).?);
+    try std.testing.expectEqual(@as(?Id, null), byWireId(50));
+}
+
+test "a type with no entity id of its own is never spawned over the wire" {
+    defer reset();
+
+    const custom = register(.{
+        .name = "Rosebug",
+        .spawn = get(pig).spawn,
+        .tick = get(pig).tick,
+        .takeDrops = get(pig).takeDrops,
+        .store = get(pig).store,
+        .load = get(pig).load,
+        .destroy = get(pig).destroy,
+    });
+
+    try std.testing.expectEqual(@as(?u8, null), get(custom).wire_id);
+}
+
+test "every mob watches the burning flag vanilla puts in slot zero" {
+    const gpa = std.testing.allocator;
+    var rand: world.JavaRandom = .init(7);
+
+    const animal = try get(cow).spawn(gpa, math.Vec3.init(0, 0, 0), &rand);
+    defer get(cow).destroy(animal, gpa);
+
+    var watched: Watched = .{};
+    watch(cow, animal, &watched);
+    try std.testing.expectEqual(@as(i8, 0), watched.view().byteAt(flags_key).?);
+
+    animal.fire = 12;
+    watched = .{};
+    watch(cow, animal, &watched);
+    try std.testing.expectEqual(@as(i8, 1), watched.view().byteAt(flags_key).?);
+
+    animal.fire = 0;
+    adopt(cow, animal, watched.view());
+    try std.testing.expect(animal.fire > 0);
 }
 
 test "a registered type lands after the vanilla ones and answers to its name" {

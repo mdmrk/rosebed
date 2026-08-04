@@ -212,8 +212,13 @@ test "a sheep keeps its colour and its shearing across a record round trip" {
     try std.testing.expectApproxEqAbs(@as(f64, -3.25), restored.animal.base.position.z, 1.0e-9);
 }
 
+pub const wire_id: u8 = 91;
+pub const watched_fleece: u5 = 16;
+const sheared_bit: i8 = 16;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.sheep_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,
@@ -221,7 +226,22 @@ pub const mob_type: Mob.Type = .{
     .load = mobLoad,
     .destroy = mobDestroy,
     .hurt = mobHurt,
+    .watch = mobWatch,
+    .adopt = mobAdopt,
 };
+
+fn mobWatch(animal: *const Animal, out: *Mob.Watched) void {
+    const self: *const Sheep = @fieldParentPtr("animal", animal);
+    const fleece: i8 = @intCast(self.fleece_color);
+    out.add(watched_fleece, .{ .byte = if (self.sheared) fleece | sheared_bit else fleece });
+}
+
+fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    const fleece = metadata.byteAt(watched_fleece) orelse return;
+    self.fleece_color = @intCast(fleece & 15);
+    self.sheared = fleece & sheared_bit != 0;
+}
 
 fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Sheep = @fieldParentPtr("animal", animal);
@@ -267,4 +287,21 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
     const self: *Sheep = @fieldParentPtr("animal", animal);
     self.deinit(gpa);
     gpa.destroy(self);
+}
+
+test "a sheep's fleece colour and shearing share one watched byte" {
+    var rand: world.JavaRandom = .init(3);
+    var shorn = spawn(math.Vec3.init(0, 0, 0), &rand);
+    shorn.fleece_color = brown;
+    shorn.sheared = true;
+
+    var watched: Mob.Watched = .{};
+    Mob.watch(Mob.sheep, &shorn.animal, &watched);
+    try std.testing.expectEqual(@as(i8, brown) | sheared_bit, watched.view().byteAt(watched_fleece).?);
+
+    var woolly = spawn(math.Vec3.init(0, 0, 0), &rand);
+    Mob.adopt(Mob.sheep, &woolly.animal, watched.view());
+
+    try std.testing.expectEqual(brown, woolly.fleece_color);
+    try std.testing.expect(woolly.sheared);
 }

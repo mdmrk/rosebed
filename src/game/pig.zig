@@ -159,15 +159,32 @@ test "a pig is the size EntityPig sets itself to" {
     try std.testing.expectEqual(max_health, pig.animal.health);
 }
 
+pub const wire_id: u8 = 90;
+pub const watched_saddle: u5 = 16;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.pig_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,
     .store = mobStore,
     .load = mobLoad,
     .destroy = mobDestroy,
+    .watch = mobWatch,
+    .adopt = mobAdopt,
 };
+
+fn mobWatch(animal: *const Animal, out: *Mob.Watched) void {
+    const self: *const Pig = @fieldParentPtr("animal", animal);
+    out.add(watched_saddle, .{ .byte = if (self.saddled) 1 else 0 });
+}
+
+fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
+    const self: *Pig = @fieldParentPtr("animal", animal);
+    const flags = metadata.byteAt(watched_saddle) orelse return;
+    self.saddled = flags & 1 != 0;
+}
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, _: *world.JavaRandom) anyerror!*Animal {
     const self = try gpa.create(Pig);
@@ -208,4 +225,17 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
     const self: *Pig = @fieldParentPtr("animal", animal);
     self.deinit(gpa);
     gpa.destroy(self);
+}
+
+test "a pig's saddle survives being watched and adopted back" {
+    var saddled = spawn(math.Vec3.init(0, 0, 0));
+    saddled.saddled = true;
+
+    var watched: Mob.Watched = .{};
+    Mob.watch(Mob.pig, &saddled.animal, &watched);
+
+    var bare = spawn(math.Vec3.init(0, 0, 0));
+    Mob.adopt(Mob.pig, &bare.animal, watched.view());
+
+    try std.testing.expect(bare.saddled);
 }

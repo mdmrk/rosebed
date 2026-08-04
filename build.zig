@@ -95,6 +95,7 @@ pub fn setupModules(
             .{ .name = "math", .module = math_mod },
             .{ .name = "world", .module = world_mod },
             .{ .name = "assets", .module = assets_mod },
+            .{ .name = "net", .module = net_mod },
         },
     });
 

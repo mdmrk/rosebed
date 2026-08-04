@@ -142,8 +142,11 @@ test "a cow fills an empty bucket with milk, and ignores anything else" {
     try std.testing.expect(Cow.interact(null) == null);
 }
 
+pub const wire_id: u8 = 92;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.cow_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

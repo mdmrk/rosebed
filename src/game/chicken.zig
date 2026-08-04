@@ -312,8 +312,11 @@ test "a chicken keeps its wounds across a record round trip and starts a fresh c
     try std.testing.expect(restored.takeDrops() == null);
 }
 
+pub const wire_id: u8 = 93;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.chicken_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

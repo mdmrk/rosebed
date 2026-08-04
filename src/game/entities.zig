@@ -119,8 +119,28 @@ pub fn spawnMob(
 }
 
 pub fn adoptMob(self: *Entities, gpa: std.mem.Allocator, type_id: mob.Id, animal: *Animal) !void {
-    animal.base.id = self.takeId();
+    return self.adoptMobAs(gpa, type_id, animal, self.takeId());
+}
+
+pub fn adoptMobAs(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    type_id: mob.Id,
+    animal: *Animal,
+    id: Entity.Id,
+) !void {
+    animal.base.id = id;
     try self.mobs.append(gpa, .{ .type_id = type_id, .animal = animal });
+}
+
+pub fn removeMob(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
+    for (self.mobs.items, 0..) |entry, index| {
+        if (entry.animal.base.id != id) continue;
+        _ = self.mobs.orderedRemove(index);
+        mob.get(entry.type_id).destroy(entry.animal, gpa);
+        return true;
+    }
+    return false;
 }
 
 pub fn adopt(self: *Entities, gpa: std.mem.Allocator, type_id: mob.Id, value: anytype) !void {

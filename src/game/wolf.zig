@@ -461,8 +461,18 @@ fn packBox(self: Wolf) math.AABB {
         .expand(pack_reach, pack_lift, pack_reach);
 }
 
+pub const wire_id: u8 = 95;
+pub const watched_flags: u5 = 16;
+pub const watched_owner: u5 = 17;
+pub const watched_health: u5 = 18;
+
+const sitting_bit: i8 = 1;
+const angry_bit: i8 = 2;
+const tamed_bit: i8 = 4;
+
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.wolf_id,
+    .wire_id = wire_id,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,
@@ -471,7 +481,34 @@ pub const mob_type: Mob.Type = .{
     .destroy = mobDestroy,
     .hurt = mobHurt,
     .afterTick = mobAfterTick,
+    .watch = mobWatch,
+    .adopt = mobAdopt,
 };
+
+fn mobWatch(animal: *const Animal, out: *Mob.Watched) void {
+    const self: *const Wolf = @fieldParentPtr("animal", animal);
+
+    var flags: i8 = 0;
+    if (self.sitting) flags |= sitting_bit;
+    if (self.angry) flags |= angry_bit;
+    if (self.tamed) flags |= tamed_bit;
+
+    out.add(watched_flags, .{ .byte = flags });
+    out.add(watched_owner, .{ .text = self.owner.text() });
+    out.add(watched_health, .{ .int = animal.health });
+}
+
+fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
+    const self: *Wolf = @fieldParentPtr("animal", animal);
+
+    if (metadata.byteAt(watched_flags)) |flags| {
+        self.sitting = flags & sitting_bit != 0;
+        self.angry = flags & angry_bit != 0;
+        self.tamed = flags & tamed_bit != 0;
+    }
+    if (metadata.textAt(watched_owner)) |owner| self.owner.set(owner);
+    if (metadata.intAt(watched_health)) |health| animal.health = health;
+}
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, _: *world.JavaRandom) anyerror!*Animal {
     const self = try gpa.create(Wolf);
@@ -1232,4 +1269,24 @@ test "a wolf whose owner logs back in with a new id rebinds to them" {
 
     try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.ownerView(.of(&rejoined)).?.id);
     try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.owner_id);
+}
+
+test "a wolf's flags, owner and health ride along as three watched values" {
+    var tame = spawn(math.Vec3.init(0, 0, 0));
+    tame.tamed = true;
+    tame.sitting = true;
+    tame.owner.set("Steve");
+    tame.animal.health = 14;
+
+    var watched: Mob.Watched = .{};
+    Mob.watch(Mob.wolf, &tame.animal, &watched);
+
+    var stray = spawn(math.Vec3.init(0, 0, 0));
+    Mob.adopt(Mob.wolf, &stray.animal, watched.view());
+
+    try std.testing.expect(stray.tamed);
+    try std.testing.expect(stray.sitting);
+    try std.testing.expect(!stray.angry);
+    try std.testing.expectEqualStrings("Steve", stray.owner.text());
+    try std.testing.expectEqual(@as(i32, 14), stray.animal.health);
 }
