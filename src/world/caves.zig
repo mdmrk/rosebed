@@ -9,7 +9,10 @@ const JavaRandom = @import("java_random.zig");
 
 const chunk_radius: i32 = 8;
 
+pub const Variant = enum { overworld, nether };
+
 fn carveTunnel(
+    variant: Variant,
     target_chunk_x: i32,
     target_chunk_z: i32,
     chunk: *Chunk,
@@ -74,8 +77,8 @@ fn carveTunnel(
         yaw_velocity += (branch_rand.nextFloat() - branch_rand.nextFloat()) * branch_rand.nextFloat() * 4.0;
 
         if (!is_room and step == branch_step and radius > 1.0) {
-            carveTunnel(target_chunk_x, target_chunk_z, chunk, rand, x, y, z, branch_rand.nextFloat() * 0.5 + 0.5, yaw - std.math.pi * 0.5, pitch / 3.0, step, total_steps, 1.0);
-            carveTunnel(target_chunk_x, target_chunk_z, chunk, rand, x, y, z, branch_rand.nextFloat() * 0.5 + 0.5, yaw + std.math.pi * 0.5, pitch / 3.0, step, total_steps, 1.0);
+            carveTunnel(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z, branch_rand.nextFloat() * 0.5 + 0.5, yaw - std.math.pi * 0.5, pitch / 3.0, step, total_steps, 1.0);
+            carveTunnel(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z, branch_rand.nextFloat() * 0.5 + 0.5, yaw + std.math.pi * 0.5, pitch / 3.0, step, total_steps, 1.0);
             return;
         }
 
@@ -106,23 +109,23 @@ fn carveTunnel(
         if (z0 < 0) z0 = 0;
         if (z1 > 16) z1 = 16;
 
-        var found_water = false;
+        var found_fluid = false;
         var bx = x0;
-        water_scan: while (bx < x1) : (bx += 1) {
+        fluid_scan: while (bx < x1) : (bx += 1) {
             var bz = z0;
             while (bz < z1) : (bz += 1) {
                 const on_shell = bx == x0 or bx == x1 - 1 or bz == z0 or bz == z1 - 1;
                 var by = y1 + 1;
                 while (by >= y0 - 1) : (by -= 1) {
-                    if (chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == .stationary_water) {
-                        found_water = true;
-                        break :water_scan;
+                    if (blocksTunnel(variant, chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)))) {
+                        found_fluid = true;
+                        break :fluid_scan;
                     }
                     if (by != y0 - 1 and !on_shell) by = y0;
                 }
             }
         }
-        if (found_water) continue;
+        if (found_fluid) continue;
 
         bx = x0;
         while (bx < x1) : (bx += 1) {
@@ -140,15 +143,18 @@ fn carveTunnel(
 
                     const id = chunk.getBlock(@intCast(bx), @intCast(by + 1), @intCast(bz));
                     if (id == .grass) was_grass = true;
-                    if (id == .stone or id == .dirt or id == .grass) {
-                        if (by < 10) {
+                    if (!isCarvable(variant, id)) continue;
+
+                    switch (variant) {
+                        .overworld => if (by < 10) {
                             chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), .flowing_lava);
                         } else {
                             chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), .air);
                             if (was_grass and chunk.getBlock(@intCast(bx), @intCast(by), @intCast(bz)) == .dirt) {
                                 chunk.setBlock(@intCast(bx), @intCast(by), @intCast(bz), .grass);
                             }
-                        }
+                        },
+                        .nether => chunk.setBlock(@intCast(bx), @intCast(by + 1), @intCast(bz), .air),
                     }
                 }
             }
@@ -158,22 +164,49 @@ fn carveTunnel(
     }
 }
 
-fn carveRoom(target_chunk_x: i32, target_chunk_z: i32, chunk: *Chunk, rand: *JavaRandom, x: f64, y: f64, z: f64) void {
-    carveTunnel(target_chunk_x, target_chunk_z, chunk, rand, x, y, z, 1.0 + rand.nextFloat() * 6.0, 0.0, 0.0, -1, -1, 0.5);
+fn blocksTunnel(variant: Variant, id: Block) bool {
+    return switch (variant) {
+        .overworld => id == .stationary_water,
+        .nether => id == .flowing_lava or id == .stationary_lava,
+    };
 }
 
-fn carveFromChunk(target_chunk_x: i32, target_chunk_z: i32, chunk: *Chunk, rand: *JavaRandom, source_chunk_x: i32, source_chunk_z: i32) void {
-    var tunnel_count = rand.nextIntBound(rand.nextIntBound(rand.nextIntBound(40) + 1) + 1);
-    if (rand.nextIntBound(15) != 0) tunnel_count = 0;
+fn isCarvable(variant: Variant, id: Block) bool {
+    const native: Block = switch (variant) {
+        .overworld => .stone,
+        .nether => .netherrack,
+    };
+    return id == native or id == .dirt or id == .grass;
+}
+
+fn carveRoom(variant: Variant, target_chunk_x: i32, target_chunk_z: i32, chunk: *Chunk, rand: *JavaRandom, x: f64, y: f64, z: f64) void {
+    carveTunnel(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z, 1.0 + rand.nextFloat() * 6.0, 0.0, 0.0, -1, -1, 0.5);
+}
+
+fn carveFromChunk(variant: Variant, target_chunk_x: i32, target_chunk_z: i32, chunk: *Chunk, rand: *JavaRandom, source_chunk_x: i32, source_chunk_z: i32) void {
+    const attempt_bound: i32 = switch (variant) {
+        .overworld => 40,
+        .nether => 10,
+    };
+    const rarity: i32 = switch (variant) {
+        .overworld => 15,
+        .nether => 5,
+    };
+
+    var tunnel_count = rand.nextIntBound(rand.nextIntBound(rand.nextIntBound(attempt_bound) + 1) + 1);
+    if (rand.nextIntBound(rarity) != 0) tunnel_count = 0;
 
     for (0..@intCast(tunnel_count)) |_| {
         const x: f64 = @floatFromInt(source_chunk_x * 16 + rand.nextIntBound(16));
-        const y: f64 = @floatFromInt(rand.nextIntBound(rand.nextIntBound(120) + 8));
+        const y: f64 = @floatFromInt(switch (variant) {
+            .overworld => rand.nextIntBound(rand.nextIntBound(120) + 8),
+            .nether => rand.nextIntBound(128),
+        });
         const z: f64 = @floatFromInt(source_chunk_z * 16 + rand.nextIntBound(16));
 
         var systems: i32 = 1;
         if (rand.nextIntBound(4) == 0) {
-            carveRoom(target_chunk_x, target_chunk_z, chunk, rand, x, y, z);
+            carveRoom(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z);
             systems += rand.nextIntBound(4);
         }
 
@@ -181,12 +214,15 @@ fn carveFromChunk(target_chunk_x: i32, target_chunk_z: i32, chunk: *Chunk, rand:
             const yaw = rand.nextFloat() * std.math.pi * 2.0;
             const pitch = (rand.nextFloat() - 0.5) * 2.0 / 8.0;
             const radius = rand.nextFloat() * 2.0 + rand.nextFloat();
-            carveTunnel(target_chunk_x, target_chunk_z, chunk, rand, x, y, z, radius, yaw, pitch, 0, 0, 1.0);
+            switch (variant) {
+                .overworld => carveTunnel(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z, radius, yaw, pitch, 0, 0, 1.0),
+                .nether => carveTunnel(variant, target_chunk_x, target_chunk_z, chunk, rand, x, y, z, radius * 2.0, yaw, pitch, 0, 0, 0.5),
+            }
         }
     }
 }
 
-pub fn carve(chunk: *Chunk, chunk_x: i32, chunk_z: i32, world_seed: i64) void {
+pub fn carve(variant: Variant, chunk: *Chunk, chunk_x: i32, chunk_z: i32, world_seed: i64) void {
     var rand = JavaRandom.init(world_seed);
     const mult_x = @divTrunc(rand.nextLong(), 2) *% 2 +% 1;
     const mult_z = @divTrunc(rand.nextLong(), 2) *% 2 +% 1;
@@ -197,7 +233,7 @@ pub fn carve(chunk: *Chunk, chunk_x: i32, chunk_z: i32, world_seed: i64) void {
         while (source_z <= chunk_z + chunk_radius) : (source_z += 1) {
             const seed = (@as(i64, source_x) *% mult_x +% @as(i64, source_z) *% mult_z) ^ world_seed;
             rand.setSeed(seed);
-            carveFromChunk(chunk_x, chunk_z, chunk, &rand, source_x, source_z);
+            carveFromChunk(variant, chunk_x, chunk_z, chunk, &rand, source_x, source_z);
         }
     }
 }
@@ -221,7 +257,7 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
         }
     }
 
-    carve(&chunk, 0, 0, 12345);
+    carve(.overworld, &chunk, 0, 0, 12345);
 
     var solid_after: usize = 0;
     for (0..16) |x| {
@@ -233,6 +269,56 @@ test "carving a chunk doesn't crash and can remove some solid blocks" {
     }
 
     try std.testing.expect(solid_after <= solid_before);
+}
+
+test "hell caves eat netherrack and never leave a lava floor behind" {
+    var chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (1..120) |y| {
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .netherrack);
+            }
+        }
+    }
+
+    carve(.nether, &chunk, 0, 0, 12345);
+
+    var carved: usize = 0;
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (1..120) |y| {
+                const id = chunk.getBlock(@intCast(x), @intCast(y), @intCast(z));
+                try std.testing.expect(id == .netherrack or id == .air);
+                if (id == .air) carved += 1;
+            }
+        }
+    }
+    try std.testing.expect(carved > 0);
+}
+
+test "the overworld carver leaves netherrack alone, and the hell carver leaves stone alone" {
+    var netherrack_chunk = Chunk.init(0, 0);
+    var stone_chunk = Chunk.init(0, 0);
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (1..120) |y| {
+                netherrack_chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .netherrack);
+                stone_chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
+            }
+        }
+    }
+
+    carve(.overworld, &netherrack_chunk, 0, 0, 12345);
+    carve(.nether, &stone_chunk, 0, 0, 12345);
+
+    for (0..16) |x| {
+        for (0..16) |z| {
+            for (1..120) |y| {
+                try std.testing.expectEqual(.netherrack, netherrack_chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+                try std.testing.expectEqual(.stone, stone_chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+            }
+        }
+    }
 }
 
 test "the same seed and chunk position carve identical caves" {
@@ -247,8 +333,8 @@ test "the same seed and chunk position carve identical caves" {
         }
     }
 
-    carve(&chunk_a, 2, -1, 777);
-    carve(&chunk_b, 2, -1, 777);
+    carve(.overworld, &chunk_a, 2, -1, 777);
+    carve(.overworld, &chunk_b, 2, -1, 777);
 
     for (0..16) |x| {
         for (0..16) |z| {

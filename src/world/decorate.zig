@@ -575,7 +575,7 @@ fn deadBushCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
     return world_map.getBlock(x, y - 1, z) == .sand;
 }
 
-fn mushroomCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
+pub fn mushroomCanStayAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
     if (light.columnSkyLight(world_map, x, y, z) >= 13) return false;
     return world_map.getBlock(x, y - 1, z).isOpaque();
 }

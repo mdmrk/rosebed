@@ -16,6 +16,7 @@ pub const Side = enum(u3) {
 
 pub const Material = enum {
     air,
+    fire,
     rock,
     iron,
     ground,
@@ -41,7 +42,7 @@ pub const Material = enum {
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
-            .air, .plants, .snow, .circuits => false,
+            .air, .fire, .plants, .snow, .circuits => false,
             else => true,
         };
     }
@@ -59,7 +60,7 @@ pub const Material = enum {
 
     pub fn buildsNormalCube(self: Material) bool {
         return switch (self) {
-            .air, .plants, .circuits, .snow, .water, .lava => false,
+            .air, .fire, .plants, .circuits, .snow, .water, .lava => false,
             .leaves, .glass, .tnt, .ice, .cactus => false,
             else => true,
         };
@@ -427,6 +428,7 @@ pub const Block = enum(u8) {
     cobblestone_mossy = 48,
     obsidian = 49,
     torch = 50,
+    fire = 51,
     mob_spawner = 52,
     stairs_wood = 53,
     chest = 54,
@@ -527,6 +529,7 @@ pub const Block = enum(u8) {
             .cake => .cake,
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
+            .fire => .fire,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
             else => .rock,
         };
@@ -539,6 +542,7 @@ pub const Block = enum(u8) {
     fn vanillaShape(self: Block) Shape {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
+            .fire => .cross,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
             .redstone_wire => .wire,
             .lever => .lever,
@@ -661,7 +665,7 @@ pub const Block = enum(u8) {
     pub fn mobility(self: Block) Mobility {
         return switch (self.material()) {
             .water, .lava, .leaves, .plants, .circuits => .fragile,
-            .snow, .cactus, .pumpkin, .cake => .fragile,
+            .snow, .cactus, .pumpkin, .cake, .fire => .fragile,
             .piston => .immovable,
             else => .movable,
         };
@@ -889,6 +893,7 @@ pub const Block = enum(u8) {
             .mushroom_brown => 29,
             .mushroom_red => 28,
             .reed => 73,
+            .fire => 31,
             else => 0,
         };
     }
@@ -1069,6 +1074,7 @@ pub const Block = enum(u8) {
             .ice => "Ice",
             .snow_block => "Snow",
             .jukebox => "Jukebox",
+            .fire => "Fire",
             .netherrack => "Netherrack",
             .soul_sand => "Soul Sand",
             .glowstone => "Glowstone",
@@ -1131,6 +1137,7 @@ pub const Block = enum(u8) {
             .door_wood => if (meta & door_top_bit != 0) null else .{ .id = .{ .item = .door_wood }, .count = 1 },
             .door_iron => if (meta & door_top_bit != 0) null else .{ .id = .{ .item = .door_iron }, .count = 1 },
             .glass, .bookshelf, .ice => null,
+            .fire => null,
             .mob_spawner => null,
             .cake => null,
             .bed => if (bedIsPillow(meta)) null else .{ .id = .{ .item = .bed }, .count = 1 },
@@ -2375,6 +2382,26 @@ test "a torch leaves the world as a flat sprite, like a plant does" {
     try std.testing.expectEqual(@as(?u8, Block.rose.crossTile(0)), Block.rose.flatItemTile(0));
     try std.testing.expectEqual(@as(?u8, null), Block.stone.flatItemTile(0));
     try std.testing.expectEqual(@as(?u8, null), Block.snow_layer.flatItemTile(0));
+}
+
+test "fire stands in the world without filling it, and leaves nothing behind" {
+    var rand = JavaRandom.init(0);
+
+    try std.testing.expectEqual(Material.fire, Block.fire.material());
+    try std.testing.expect(!Block.fire.isOpaque());
+    try std.testing.expect(!Block.fire.isOpaqueCube());
+    try std.testing.expect(!Block.fire.isNormalCube());
+    try std.testing.expect(!Block.fire.material().isSolid());
+    try std.testing.expectEqual(@as(f32, 0.0), Block.fire.hardness());
+    try std.testing.expectEqual(Mobility.fragile, Block.fire.mobility());
+    try std.testing.expect(Block.fire.drop(0, &rand) == null);
+    try std.testing.expectEqual(@as(u8, 31), Block.fire.crossTile(0));
+    try std.testing.expectEqualStrings("Fire", Block.fire.displayName(0));
+}
+
+test "fire does not stop grass growing under it, the way a solid block would" {
+    try std.testing.expect(!Block.fire.material().blocksGrass());
+    try std.testing.expect(Block.netherrack.material().blocksGrass());
 }
 
 test "only air, liquids and snow give way to a block placed on top of them" {

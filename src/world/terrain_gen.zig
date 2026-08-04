@@ -71,6 +71,10 @@ pub fn deinit(self: TerrainGenerator, gpa: std.mem.Allocator) void {
     self.climate.deinit(gpa);
 }
 
+pub fn sampleClimate(self: TerrainGenerator, x: i32, z: i32) Climate.Sample {
+    return self.climate.sample(x, z);
+}
+
 fn densityIndex(ix: usize, iz: usize, iy: usize) usize {
     return (ix * density_z + iz) * density_y + iy;
 }
@@ -231,7 +235,7 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
     }
 
     self.dressSurface(chunk, &climate_sample);
-    caves.carve(chunk, chunk_x, chunk_z, self.world_seed);
+    caves.carve(.overworld, chunk, chunk_x, chunk_z, self.world_seed);
 }
 
 pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) !void {

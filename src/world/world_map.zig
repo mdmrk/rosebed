@@ -185,7 +185,7 @@ pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
     return chunk;
 }
 
-pub fn getOrGenerateChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !*Chunk {
+pub fn getOrGenerateChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !*Chunk {
     if (self.getChunk(chunk_x, chunk_z)) |existing| return existing;
 
     if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| return loaded;
@@ -206,7 +206,7 @@ fn entityVisitor(self: *World) ?save.Save.EntityVisitor {
     return .{ .context = self, .visit = restoreEntity };
 }
 
-fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !?*Chunk {
+fn loadChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !?*Chunk {
     const persistence = self.persistence orelse return null;
     const found = persistence.handle.readChunk(
         self.allocator,
@@ -219,7 +219,7 @@ fn loadChunk(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i
     const stored = found orelse return null;
 
     const chunk = try self.createChunk(chunk_x, chunk_z);
-    const climate = generator.climate.sample(chunk_x * Chunk.width, chunk_z * Chunk.width);
+    const climate = generator.sampleClimate(chunk_x * Chunk.width, chunk_z * Chunk.width);
     chunk.* = stored.chunk;
     chunk.stored_entities = stored.entities.len > 0 or stored.tile_entities.len > 0;
     for (0..Chunk.width) |x| {
@@ -314,7 +314,7 @@ pub fn isDecorated(self: *const World, chunk_x: i32, chunk_z: i32) bool {
     return self.decorated.contains(.{ .x = chunk_x, .z = chunk_z });
 }
 
-pub fn ensureDecorated(self: *World, generator: TerrainGenerator, chunk_x: i32, chunk_z: i32) !void {
+pub fn ensureDecorated(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !void {
     if (self.isDecorated(chunk_x, chunk_z)) return;
 
     var dx: i32 = -1;

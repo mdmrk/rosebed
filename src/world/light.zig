@@ -33,7 +33,7 @@ pub fn columnSkyLight(world_map: *const World, x: i32, y: i32, z: i32) i32 {
 
 pub fn emission(id: Block) u4 {
     return switch (id) {
-        .flowing_lava, .stationary_lava => 15,
+        .flowing_lava, .stationary_lava, .glowstone, .fire => 15,
         .torch => 14,
         .burning_furnace => 13,
         .ore_redstone_glowing, .repeater_on => 9,
@@ -325,6 +325,29 @@ test "lava lights a sealed cave and nothing lights an empty one" {
     try std.testing.expectEqual(@as(u4, 15), world_map.getBlockLight(4, 4, 4));
     try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(5, 4, 4));
     try std.testing.expectEqual(@as(u4, 13), world_map.getBlockLight(6, 4, 4));
+}
+
+test "glowstone and fire light the nether the way lava does" {
+    const gpa = std.testing.allocator;
+    var world_map = World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            for (0..8) |y| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .netherrack);
+        }
+    }
+    chunk.setBlock(4, 4, 4, .glowstone);
+    chunk.setBlock(5, 4, 4, .air);
+    chunk.setBlock(6, 4, 4, .air);
+    chunk.setBlock(7, 4, 4, .fire);
+
+    try relightChunk(gpa, &world_map, 0, 0);
+
+    try std.testing.expectEqual(@as(u4, 15), world_map.getBlockLight(4, 4, 4));
+    try std.testing.expectEqual(@as(u4, 15), world_map.getBlockLight(7, 4, 4));
+    try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(5, 4, 4));
+    try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(6, 4, 4));
 }
 
 test "light crosses a chunk seam from an already lit neighbor" {

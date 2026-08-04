@@ -1425,6 +1425,28 @@ test "a snow layer renders as a thin partial-height cube" {
     try std.testing.expectApproxEqAbs(@as(f32, 2.125), max_y, 1.0e-5);
 }
 
+test "a nether chunk meshes into lit geometry rather than a black wall" {
+    const gpa = std.testing.allocator;
+    var generator = try world.NetherGenerator.init(gpa, 12345);
+    defer generator.deinit(gpa);
+
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.getOrGenerateChunk(&generator, 0, 0);
+    chunk.setBlock(8, 40, 8, .air);
+    chunk.setBlock(8, 41, 8, .glowstone);
+
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, chunk, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expect(mesh.solid.vertices.items.len > 0);
+
+    var brightest: u8 = 0;
+    for (mesh.solid.vertices.items) |v| brightest = @max(brightest, v.color[0]);
+    try std.testing.expect(brightest > 200);
+}
+
 test "a cactus pulls its four sides in by a sixteenth and keeps its top and bottom full" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);

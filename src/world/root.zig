@@ -26,6 +26,7 @@ pub const lakes = @import("lakes.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const light = @import("light.zig");
 pub const nbt = @import("nbt.zig");
+pub const NetherGenerator = @import("nether_gen.zig");
 pub const NibbleArray = @import("nibble_array.zig");
 pub const NoiseGenerator2 = @import("noise_simplex.zig");
 pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
@@ -51,6 +52,7 @@ test {
     _ = NoiseGeneratorPerlin;
     _ = NoiseGeneratorOctaves;
     _ = TerrainGenerator;
+    _ = NetherGenerator;
     _ = NoiseGenerator2;
     _ = NoiseGeneratorOctaves2;
     _ = biome;
