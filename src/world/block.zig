@@ -1085,6 +1085,18 @@ pub const Block = enum(u8) {
         return self.vanillaDrop(meta, rand);
     }
 
+    pub fn shearedDrop(self: Block, meta: u4, held: ?Stack) ?Stack {
+        const stack = held orelse return null;
+        switch (stack.id) {
+            .block => return null,
+            .item => |id| if (id != .shears) return null,
+        }
+        return switch (self) {
+            .leaves => .{ .id = .{ .block = .leaves }, .count = 1, .meta = meta & 3 },
+            else => null,
+        };
+    }
+
     fn vanillaDrop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
         return switch (self) {
             .stone => .{ .id = .{ .block = .cobblestone }, .count = 1 },
@@ -1973,6 +1985,22 @@ test "leaves rarely drop a sapling, preserving wood type in its metadata" {
     }
     try std.testing.expect(saw_sapling);
     try std.testing.expect(saw_nothing);
+}
+
+test "leaves cut with shears come back whole, keeping their wood type" {
+    const shears: Stack = .{ .id = .{ .item = .shears }, .count = 1 };
+
+    const cut = Block.leaves.shearedDrop(0b1101, shears).?;
+    try std.testing.expectEqual(Id{ .block = .leaves }, cut.id);
+    try std.testing.expectEqual(@as(u16, 1), cut.meta);
+    try std.testing.expectEqual(@as(u8, 1), cut.count);
+    try std.testing.expectEqual(@as(u16, 2), Block.leaves.shearedDrop(2, shears).?.meta);
+
+    try std.testing.expect(Block.leaves.shearedDrop(0, null) == null);
+    try std.testing.expect(Block.leaves.shearedDrop(0, .{ .id = .{ .item = .axe_iron }, .count = 1 }) == null);
+    try std.testing.expect(Block.leaves.shearedDrop(0, .{ .id = .{ .block = .wool }, .count = 1 }) == null);
+    try std.testing.expect(Block.tall_grass.shearedDrop(0, shears) == null);
+    try std.testing.expect(Block.stone.shearedDrop(0, shears) == null);
 }
 
 test "tall grass rarely drops seeds, otherwise nothing" {

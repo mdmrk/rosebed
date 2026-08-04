@@ -290,6 +290,25 @@ pub fn dropStackAt(
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
 
+const shear_drop_lift: f64 = 1.0;
+
+pub fn dropShearedWool(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    sheep: *const Sheep,
+    drops: Sheep.Drops,
+    rand: *world.JavaRandom,
+) !void {
+    const position = sheep.animal.base.position.add(math.Vec3.init(0, shear_drop_lift, 0));
+    for (0..drops.count) |_| {
+        var wool = ItemEntity.spawn(position, drops.stack(), rand);
+        wool.base.motion.y += @as(f32, rand.nextFloat() * 0.05);
+        wool.base.motion.x += @as(f32, (rand.nextFloat() - rand.nextFloat()) * 0.1);
+        wool.base.motion.z += @as(f32, (rand.nextFloat() - rand.nextFloat()) * 0.1);
+        try self.items.append(gpa, wool);
+    }
+}
+
 pub fn tickPaintings(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1813,6 +1832,30 @@ test "the wool a punched sheep loses is left on the ground in its own colour" {
         try std.testing.expectEqual(world.Id{ .block = .wool }, item.stack.id);
         try std.testing.expectEqual(@as(u16, 12), item.stack.meta);
         try std.testing.expectEqual(@as(u8, 1), item.stack.count);
+    }
+}
+
+test "sheared wool falls from over the sheep's back, one stack at a time" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(2);
+    try entities.spawnSheep(gpa, math.Vec3.init(8.5, 64.0, 8.5), &rand);
+    const sheep = entities.first(Sheep, mob.sheep).?;
+    sheep.fleece_color = 12;
+
+    const drops = sheep.shear(&rand).?;
+    try entities.dropShearedWool(gpa, sheep, drops, &rand);
+
+    try std.testing.expectEqual(@as(usize, drops.count), entities.items.items.len);
+    for (entities.items.items) |wool| {
+        try std.testing.expectEqual(world.Id{ .block = .wool }, wool.stack.id);
+        try std.testing.expectEqual(@as(u16, 12), wool.stack.meta);
+        try std.testing.expectEqual(@as(u8, 1), wool.stack.count);
+        try std.testing.expectApproxEqAbs(@as(f64, 65.0), wool.base.position.y, 1.0e-9);
+        try std.testing.expect(wool.base.motion.y > 0.2);
     }
 }
 

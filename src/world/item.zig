@@ -4,6 +4,8 @@ const Block = @import("block.zig").Block;
 const Side = @import("block.zig").Side;
 const World = @import("world_map.zig");
 
+const shears_max_damage: u16 = 238;
+
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
 pub const coal_meta_charcoal: u16 = 1;
@@ -203,6 +205,7 @@ pub const Def = struct {
     placed_block: ?Block = null,
     bucket_fill: ?Fill = null,
     heal_amount: ?u8 = null,
+    max_damage: ?u16 = null,
     max_stack_size: u8 = 64,
     icon_tile: ?*const fn (Item, u16) ?u8 = null,
     display_name: ?*const fn (Item, u16) []const u8 = null,
@@ -240,6 +243,7 @@ fn vanillaDefs() [def_capacity]Def {
             .placed_block = self.vanillaPlacedBlock(),
             .bucket_fill = self.vanillaBucketFill(),
             .heal_amount = self.vanillaHealAmount(),
+            .max_damage = self.vanillaMaxDamage(),
             .max_stack_size = self.vanillaMaxStackSize(),
         };
     }
@@ -338,6 +342,7 @@ pub const Item = enum(u16) {
     cake = 354,
     bed = 355,
     repeater = 356,
+    shears = 359,
     _,
 
     pub fn def(self: Item) *const Def {
@@ -436,6 +441,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn maxDamage(self: Item) u16 {
+        if (self.def().max_damage) |uses| return uses;
         if (self.tool()) |t| return t.material.maxUses();
         if (self.armor()) |a| return a.maxDamage();
         return 0;
@@ -449,17 +455,18 @@ pub const Item = enum(u16) {
         return self.def().max_stack_size;
     }
 
-    fn vanillaMaxDamage(self: Item) u16 {
+    fn vanillaMaxDamage(self: Item) ?u16 {
+        if (self == .shears) return shears_max_damage;
         if (self.vanillaTool()) |t| return t.material.maxUses();
         if (self.vanillaArmor()) |a| return a.maxDamage();
-        return 0;
+        return null;
     }
 
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self.vanillaBucketFill() != null) return 1;
         if (self.vanillaHealAmount() != null) return 1;
-        return if (self.vanillaMaxDamage() > 0) 1 else 64;
+        return if (self.vanillaMaxDamage() != null) 1 else 64;
     }
 
     pub fn placedBlock(self: Item) ?Block {
@@ -516,6 +523,11 @@ pub const Item = enum(u16) {
     }
 
     pub fn strVsBlock(self: Item, target: Block) f32 {
+        if (self == .shears) return switch (target) {
+            .leaves => 15.0,
+            .wool => 5.0,
+            else => 1.0,
+        };
         const t = self.tool() orelse return 1.0;
         return t.strVsBlock(target);
     }
@@ -523,6 +535,12 @@ pub const Item = enum(u16) {
     pub fn canHarvestBlock(self: Item, target: Block) bool {
         const t = self.tool() orelse return false;
         return t.canHarvestBlock(target);
+    }
+
+    pub fn blockDestroyedCost(self: Item, target: Block) u16 {
+        if (self == .shears) return if (target == .leaves) 1 else 0;
+        const t = self.tool() orelse return 0;
+        return t.blockDestroyedCost();
     }
 
     pub fn iconTile(self: Item, damage: u16) ?u8 {
@@ -626,6 +644,7 @@ pub const Item = enum(u16) {
             .sugar => 13,
             .cake => 1 * 16 + 13,
             .bed => 2 * 16 + 13,
+            .shears => 5 * 16 + 13,
             else => null,
         };
     }
@@ -730,6 +749,7 @@ pub const Item = enum(u16) {
             .sugar => "Sugar",
             .cake => "Cake",
             .bed => "Bed",
+            .shears => "Shears",
             else => "",
         };
     }
@@ -926,6 +946,34 @@ test "every constant item fact reaches its caller through the registry table" {
     try std.testing.expectEqual(@as(u8, 64), Item.stick.maxStackSize());
     try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
     try std.testing.expectEqualStrings("Gold Ingot", Item.ingot_gold.displayName(0));
+}
+
+test "shears carry ItemShears' own durability, icon and name, without being a tool" {
+    try std.testing.expectEqual(@as(u16, 238), Item.shears.maxDamage());
+    try std.testing.expectEqual(@as(u8, 1), Item.shears.maxStackSize());
+    try std.testing.expect(Item.shears.isDamageable());
+    try std.testing.expectEqual(@as(?u8, 93), Item.shears.iconTile(0));
+    try std.testing.expectEqualStrings("Shears", Item.shears.displayName(0));
+    try std.testing.expect(Item.shears.tool() == null);
+    try std.testing.expectEqual(@as(i32, 1), Item.shears.damageVsEntity());
+}
+
+test "shears cut leaves fastest and wool next, and swing at everything else bare-handed" {
+    try std.testing.expectEqual(@as(f32, 15.0), Item.shears.strVsBlock(.leaves));
+    try std.testing.expectEqual(@as(f32, 5.0), Item.shears.strVsBlock(.wool));
+    try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.stone));
+    try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.tall_grass));
+}
+
+test "only leaves wear shears down, where a tool wears on anything it breaks" {
+    try std.testing.expectEqual(@as(u16, 1), Item.shears.blockDestroyedCost(.leaves));
+    try std.testing.expectEqual(@as(u16, 0), Item.shears.blockDestroyedCost(.wool));
+    try std.testing.expectEqual(@as(u16, 0), Item.shears.blockDestroyedCost(.stone));
+
+    try std.testing.expectEqual(@as(u16, 1), Item.pickaxe_iron.blockDestroyedCost(.stone));
+    try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
+    try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
+    try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
 }
 
 test "an id no vanilla item claims falls back to the empty definition" {

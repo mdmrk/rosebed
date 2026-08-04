@@ -27,6 +27,7 @@ const brown: u4 = 12;
 const black: u4 = 15;
 
 const min_wool: u8 = 1;
+const sheared_min_wool: u8 = 2;
 const wool_spread: i32 = 3;
 
 fn init(position: math.Vec3) Sheep {
@@ -79,6 +80,15 @@ pub const Drops = struct {
     }
 };
 
+pub fn shear(self: *Sheep, rand: *world.JavaRandom) ?Drops {
+    if (self.sheared) return null;
+    self.sheared = true;
+    return .{
+        .count = sheared_min_wool + @as(u8, @intCast(rand.nextIntBound(wool_spread))),
+        .color = self.fleece_color,
+    };
+}
+
 pub fn takeDrops(self: *Sheep) ?Drops {
     if (self.pending_wool == 0) return null;
     const drops: Drops = .{ .count = self.pending_wool, .color = self.fleece_color };
@@ -122,6 +132,32 @@ test "a hit from an attacker shears the sheep and drops one to three wool of its
     const drops = sheep.takeDrops().?;
     try std.testing.expect(drops.count >= 1 and drops.count <= 3);
     try std.testing.expectEqual(brown, drops.color);
+    try std.testing.expect(sheep.takeDrops() == null);
+}
+
+test "shearing a sheep yields two to four wool of its colour, and only once" {
+    var rand = world.JavaRandom.init(7);
+    var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
+    sheep.fleece_color = pink;
+
+    const drops = sheep.shear(&rand).?;
+    try std.testing.expect(drops.count >= 2 and drops.count <= 4);
+    try std.testing.expectEqual(pink, drops.color);
+    try std.testing.expectEqual(world.Id{ .block = .wool }, drops.stack().id);
+    try std.testing.expectEqual(@as(u16, pink), drops.stack().meta);
+    try std.testing.expect(sheep.sheared);
+
+    try std.testing.expect(sheep.shear(&rand) == null);
+}
+
+test "shearing does not queue the wool a killing blow would drop" {
+    var rand = world.JavaRandom.init(7);
+    var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
+
+    _ = sheep.shear(&rand).?;
+    try std.testing.expect(sheep.takeDrops() == null);
+
+    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
     try std.testing.expect(sheep.takeDrops() == null);
 }
 

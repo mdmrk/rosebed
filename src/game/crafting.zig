@@ -166,6 +166,10 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         i(.ingot_iron), null,           i(.ingot_iron),
         null,           i(.ingot_iron), null,
     }, .{ .item = .bucket }, 1),
+    shaped(2, 2, &.{
+        null,           i(.ingot_iron),
+        i(.ingot_iron), null,
+    }, .{ .item = .shears }, 1),
     shapedMeta(3, 1, &.{ b(.cobblestone), b(.cobblestone), b(.cobblestone) }, .{ .block = .slab }, 3, world.block.slab_cobblestone),
     shapedMeta(3, 1, &.{ b(.stone), b(.stone), b(.stone) }, .{ .block = .slab }, 3, world.block.slab_stone),
     shapedMeta(3, 1, &.{ b(.sandstone), b(.sandstone), b(.sandstone) }, .{ .block = .slab }, 3, world.block.slab_sandstone),
@@ -920,6 +924,27 @@ test "three iron ingots in a v craft a bucket" {
     const result = findMatch(&grid, workbench_grid_size).?;
     try std.testing.expectEqual(world.Id{ .item = .bucket }, result.id);
     try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "two iron on a diagonal craft shears, either way round" {
+    const iron: Inventory.ItemStack = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[1] = iron;
+    grid[3] = iron;
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .shears }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+
+    var mirrored: [9]?Inventory.ItemStack = @splat(null);
+    mirrored[0] = iron;
+    mirrored[4] = iron;
+    try std.testing.expectEqual(world.Id{ .item = .shears }, findMatch(&mirrored, workbench_grid_size).?.id);
+
+    var stacked: [9]?Inventory.ItemStack = @splat(null);
+    stacked[0] = iron;
+    stacked[3] = iron;
+    try std.testing.expect(findMatch(&stacked, workbench_grid_size) == null);
 }
 
 test "the bucket's iron must be in a v, not a row or a full square" {

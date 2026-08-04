@@ -591,15 +591,11 @@ fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.In
     try app_state.level.dropStackAt(app_state.gpa, x, y, z, stack);
 }
 
-fn wearHeldItem(app_state: *AppState) !void {
+fn damageHeldItem(app_state: *AppState, cost: u16) !void {
+    if (cost == 0) return;
+
     const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
     if (slot.*) |*stack| {
-        const cost = switch (stack.id) {
-            .block => return,
-            .item => |id| if (id.tool()) |t| t.blockDestroyedCost() else 0,
-        };
-        if (cost == 0) return;
-
         try app_state.stats.use(app_state.gpa, stack.id);
         stack.damage(cost);
         if (stack.count == 0) {
@@ -607,6 +603,15 @@ fn wearHeldItem(app_state: *AppState) !void {
             slot.* = null;
         }
     }
+}
+
+fn wearHeldItem(app_state: *AppState, destroyed: world.Block) !void {
+    const stack = app_state.player.inventory.selectedStack() orelse return;
+    const cost = switch (stack.id) {
+        .block => return,
+        .item => |id| id.blockDestroyedCost(destroyed),
+    };
+    try damageHeldItem(app_state, cost);
 }
 
 fn faceIndex(face: world.block.Side) u8 {
@@ -624,12 +629,13 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     if (app_state.link) |link| {
         try link.connection.reportDig(app_state.gpa, x, y, z, 1);
         app_state.digging = null;
-        try wearHeldItem(app_state);
+        try wearHeldItem(app_state, block_id);
         return;
     }
 
     const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
-    const harvested = block_id.harvestableWith(app_state.player.inventory.selectedStack());
+    const held = app_state.player.inventory.selectedStack();
+    const harvested = block_id.harvestableWith(held);
     try app_state.level.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
@@ -643,11 +649,13 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     try spillFurnace(app_state, x, y, z);
     _ = app_state.level.world_map.removeSign(x, y, z);
     app_state.digging = null;
-    try wearHeldItem(app_state);
+    try wearHeldItem(app_state, block_id);
 
     if (harvested) {
         try app_state.stats.mine(app_state.gpa, block_id);
-        if (block_id.drop(meta, &app_state.level.world_map.rand)) |d| {
+        const dropped = block_id.shearedDrop(meta, held) orelse
+            block_id.drop(meta, &app_state.level.world_map.rand);
+        if (dropped) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
     }
@@ -1889,11 +1897,27 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
     } else null;
 
     if (entry.type_id == game.mob.wolf) return interactWithWolf(app_state, entry.animal, held);
+    if (entry.type_id == game.mob.sheep) return interactWithSheep(app_state, entry.animal, held);
     if (entry.type_id != game.mob.cow) return false;
 
     const milked = game.Cow.interact(held orelse return false) orelse return false;
     holdStack(app_state, milked);
     try app_state.stats.use(app_state.gpa, .{ .item = held.? });
+    return true;
+}
+
+fn interactWithSheep(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
+    if ((held orelse return false) != .shears) return false;
+
+    const sheep: *game.Sheep = @fieldParentPtr("animal", animal);
+    const drops = sheep.shear(&app_state.level.world_map.rand) orelse return false;
+    try app_state.level.entities.dropShearedWool(
+        app_state.gpa,
+        sheep,
+        drops,
+        &app_state.level.world_map.rand,
+    );
+    try damageHeldItem(app_state, 1);
     return true;
 }
 
