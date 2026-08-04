@@ -202,6 +202,7 @@ pub const Def = struct {
     armor: ?Armor = null,
     placed_block: ?Block = null,
     bucket_fill: ?Fill = null,
+    heal_amount: ?u8 = null,
     max_stack_size: u8 = 64,
     icon_tile: ?*const fn (Item, u16) ?u8 = null,
     display_name: ?*const fn (Item, u16) []const u8 = null,
@@ -238,6 +239,7 @@ fn vanillaDefs() [def_capacity]Def {
             .armor = self.vanillaArmor(),
             .placed_block = self.vanillaPlacedBlock(),
             .bucket_fill = self.vanillaBucketFill(),
+            .heal_amount = self.vanillaHealAmount(),
             .max_stack_size = self.vanillaMaxStackSize(),
         };
     }
@@ -456,6 +458,7 @@ pub const Item = enum(u16) {
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self.vanillaBucketFill() != null) return 1;
+        if (self.vanillaHealAmount() != null) return 1;
         return if (self.vanillaMaxDamage() > 0) 1 else 64;
     }
 
@@ -482,6 +485,21 @@ pub const Item = enum(u16) {
             .bucket_water => .water,
             .bucket_lava => .lava,
             .bucket_milk => .milk,
+            else => null,
+        };
+    }
+
+    pub fn healAmount(self: Item) ?u8 {
+        return self.def().heal_amount;
+    }
+
+    fn vanillaHealAmount(self: Item) ?u8 {
+        return switch (self) {
+            .apple => 4,
+            .mushroom_stew => 10,
+            .bread => 5,
+            .pork_raw => 3,
+            .pork_cooked => 8,
             else => null,
         };
     }
@@ -854,6 +872,22 @@ test "only a filled bucket pours, and milk pours nothing" {
     try std.testing.expectEqual(.flowing_lava, Fill.lava.poured().?);
     try std.testing.expect(Fill.empty.poured() == null);
     try std.testing.expect(Fill.milk.poured() == null);
+}
+
+test "food heals the amount ItemFood was built with, and never stacks" {
+    try std.testing.expectEqual(@as(?u8, 4), Item.apple.healAmount());
+    try std.testing.expectEqual(@as(?u8, 10), Item.mushroom_stew.healAmount());
+    try std.testing.expectEqual(@as(?u8, 5), Item.bread.healAmount());
+    try std.testing.expectEqual(@as(?u8, 3), Item.pork_raw.healAmount());
+    try std.testing.expectEqual(@as(?u8, 8), Item.pork_cooked.healAmount());
+
+    for ([_]Item{ .apple, .mushroom_stew, .bread, .pork_raw, .pork_cooked }) |id| {
+        try std.testing.expectEqual(@as(u8, 1), id.maxStackSize());
+    }
+
+    try std.testing.expect(Item.bowl.healAmount() == null);
+    try std.testing.expect(Item.wheat.healAmount() == null);
+    try std.testing.expect(Item.bone.healAmount() == null);
 }
 
 test "weapon damage follows ItemSword and ItemTool over the material bonus" {

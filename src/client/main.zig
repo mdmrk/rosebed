@@ -1863,11 +1863,22 @@ fn useHeldItem(app_state: *AppState) !void {
         .item => |id| id,
         .block => null,
     };
-    if (held != .bow) return;
+    const item = held orelse return;
+    if (item.healAmount()) |amount| {
+        eatHeldFood(app_state, item, amount);
+        return;
+    }
+    if (item != .bow) return;
     if (!app_state.player.inventory.consumeItem(.{ .item = .arrow })) return;
 
     try app_state.level.entities.shootArrow(app_state.gpa, &app_state.player, &app_state.level.world_map.rand);
     try app_state.stats.use(app_state.gpa, .{ .item = .bow });
+}
+
+fn eatHeldFood(app_state: *AppState, held: world.Item, heal_amount: u8) void {
+    app_state.player.heal(heal_amount);
+    consumeSelectedStack(app_state);
+    if (held == .mushroom_stew) holdStack(app_state, .bowl);
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
