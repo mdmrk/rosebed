@@ -16,6 +16,21 @@ pub fn bounds(world_map: *const World, x: i32, y: i32, z: i32) block.Bounds {
     return block.portalBounds(spansX(world_map, x, y, z));
 }
 
+pub fn facesNeighbour(world_map: *const World, x: i32, y: i32, z: i32, side: block.Side) bool {
+    if (world_map.getBlock(x, y, z) == .portal) return false;
+
+    const along_x = (world_map.getBlock(x - 1, y, z) == .portal and world_map.getBlock(x - 2, y, z) != .portal) or
+        (world_map.getBlock(x + 1, y, z) == .portal and world_map.getBlock(x + 2, y, z) != .portal);
+    const along_z = (world_map.getBlock(x, y, z - 1) == .portal and world_map.getBlock(x, y, z - 2) != .portal) or
+        (world_map.getBlock(x, y, z + 1) == .portal and world_map.getBlock(x, y, z + 2) != .portal);
+
+    return switch (side) {
+        .west, .east => along_x,
+        .north, .south => along_z,
+        .down, .up => false,
+    };
+}
+
 pub fn tryCreate(world_map: *World, x_in: i32, y: i32, z_in: i32) !bool {
     var x = x_in;
     var z = z_in;
@@ -578,4 +593,45 @@ test "arriving in the nether carves a portal into real nether terrain" {
     const found_again = findExisting(&w, from_x, 70.0, from_z).?;
     try std.testing.expectApproxEqAbs(landed.x, found_again.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(landed.z, found_again.z, 1.0e-9);
+}
+
+test "a portal shows no face towards another portal block" {
+    const gpa = std.testing.allocator;
+    var w = try litPortalWorld(gpa);
+    defer w.deinit();
+
+    try std.testing.expect(!facesNeighbour(&w, 9, 64, 8, .east));
+    try std.testing.expect(!facesNeighbour(&w, 8, 65, 8, .up));
+}
+
+test "a portal never caps itself top or bottom" {
+    const gpa = std.testing.allocator;
+    var w = try litPortalWorld(gpa);
+    defer w.deinit();
+
+    try std.testing.expect(!facesNeighbour(&w, 8, 63, 8, .down));
+    try std.testing.expect(!facesNeighbour(&w, 8, 67, 8, .up));
+}
+
+test "a portal shows only the two broad faces it presents" {
+    const gpa = std.testing.allocator;
+    var w = try litPortalWorld(gpa);
+    defer w.deinit();
+
+    try std.testing.expect(facesNeighbour(&w, 8, 64, 7, .north));
+    try std.testing.expect(facesNeighbour(&w, 8, 64, 9, .south));
+
+    try std.testing.expect(!facesNeighbour(&w, 7, 64, 8, .west));
+    try std.testing.expect(!facesNeighbour(&w, 10, 64, 8, .east));
+}
+
+test "the sheet a portal presents turns with the frame it was lit in" {
+    const gpa = std.testing.allocator;
+    var w = try obsidianFrameWorld(gpa, false);
+    defer w.deinit();
+    _ = try tryCreate(&w, 8, 64, 8);
+
+    try std.testing.expect(facesNeighbour(&w, 7, 64, 8, .west));
+    try std.testing.expect(facesNeighbour(&w, 9, 64, 8, .east));
+    try std.testing.expect(!facesNeighbour(&w, 8, 64, 7, .north));
 }

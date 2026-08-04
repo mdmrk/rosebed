@@ -144,9 +144,10 @@ fn texturesFor(options: Options, textures: world.block.FaceTextures) world.block
     return world.block.FaceTextures.initFill(tile);
 }
 
-fn showsFace(options: Options, id: world.Block, neighbor: world.Block, side: world.Side) bool {
+fn showsFace(options: Options, world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, side: world.Side) bool {
     if (options.all_faces) return true;
-    return id.shouldRenderFace(neighbor, side, options.fancy);
+    if (id == .portal) return world.portal.facesNeighbour(world_map, x, y, z, side);
+    return id.shouldRenderFace(world_map.getBlock(x, y, z), side, options.fancy);
 }
 
 pub const Climate = struct {
@@ -944,7 +945,7 @@ fn buildBoundedBoxTurned(
         const ny = y + face.normal[1];
         const nz = z + face.normal[2];
         const reaches = reachesFace(bounds, face.side);
-        if (reaches and !showsFace(options, id, world_map.getBlock(nx, ny, nz), face.side)) continue;
+        if (reaches and !showsFace(options, world_map, id, nx, ny, nz, face.side)) continue;
 
         const turn = if (facing) |along| world.block.pistonSideTurn(along, face.side) else world.block.TileTurn{};
         const quad = boxFaceQuad(bounds, origin, face, texturesFor(options, textures).get(face.side), turn);
@@ -1288,7 +1289,7 @@ pub fn buildBlockAt(
         const nx = x + face.normal[0];
         const ny = y + face.normal[1];
         const nz = z + face.normal[2];
-        if (!showsFace(options, id, world_map.getBlock(nx, ny, nz), face.side)) continue;
+        if (!showsFace(options, world_map, id, nx, ny, nz, face.side)) continue;
 
         const tile = textures.get(face.side);
         var positions: [4][3]f32 = undefined;
@@ -3093,4 +3094,37 @@ test "a lever handle stands where RenderBlocks swings it, per wall and floor fac
     try expectExtents(4, .{ 0.438, 0.500, 0.396 }, .{ 0.562, 0.997, 0.955 });
     try expectExtents(5, .{ 0.438, 0.045, 0.500 }, .{ 0.562, 0.604, 0.997 });
     try expectExtents(6, .{ 0.500, 0.045, 0.438 }, .{ 0.997, 0.604, 0.562 });
+}
+
+test "a lit portal meshes as one seamless sheet, not a stack of boxes" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    _ = chunk;
+
+    var across: i32 = -1;
+    while (across <= 2) : (across += 1) {
+        var up: i32 = -1;
+        while (up <= 3) : (up += 1) {
+            const on_frame = across == -1 or across == 2 or up == -1 or up == 3;
+            const corner = (across == -1 or across == 2) and (up == -1 or up == 3);
+            if (!on_frame or corner) continue;
+            world_map.setBlock(8 + across, 64 + up, 8, .obsidian);
+        }
+    }
+    try std.testing.expect(try world.portal.tryCreate(&world_map, 8, 64, 8));
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    var portal_quads: usize = 0;
+    for (mesh.translucent.vertices.items) |vertex| {
+        if (vertex.z > 8.0 and vertex.z < 9.0) portal_quads += 1;
+    }
+
+    const portal_blocks = 6;
+    const faces_per_block = 2;
+    try std.testing.expectEqual(@as(usize, portal_blocks * faces_per_block * 4), portal_quads);
 }
