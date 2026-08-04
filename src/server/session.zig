@@ -48,8 +48,33 @@ fn chatAllowed(c: u8) bool {
 
 pub const Peer = struct {
     id: game.Entity.Id,
-    name: []const u8,
-    player: *const game.Player,
+    body: Body,
+
+    pub const Body = union(enum) {
+        player: struct { name: []const u8, player: *const game.Player },
+        mob: game.Entities.Mob,
+    };
+
+    pub fn position(self: Peer) math.Vec3 {
+        return switch (self.body) {
+            .player => |who| who.player.base.position,
+            .mob => |entry| entry.animal.base.position,
+        };
+    }
+
+    pub fn yaw(self: Peer) f32 {
+        return switch (self.body) {
+            .player => |who| who.player.yaw,
+            .mob => |entry| entry.animal.yaw,
+        };
+    }
+
+    pub fn pitch(self: Peer) f32 {
+        return switch (self.body) {
+            .player => |who| who.player.pitch,
+            .mob => |entry| entry.animal.pitch,
+        };
+    }
 };
 
 pub const Tracked = struct {
@@ -58,8 +83,43 @@ pub const Tracked = struct {
     z: i32,
     yaw: i8,
     pitch: i8,
+    watched: Snapshot = .{},
     seen: bool = true,
+
+    pub fn place(self: *Tracked, now: Tracked) void {
+        self.x = now.x;
+        self.y = now.y;
+        self.z = now.z;
+        self.yaw = now.yaw;
+        self.pitch = now.pitch;
+        self.seen = true;
+    }
 };
+
+pub const Snapshot = struct {
+    bytes: [max_watched_bytes]u8 = undefined,
+    len: usize = 0,
+
+    pub fn text(self: *const Snapshot) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+pub const max_watched_bytes: usize = 256;
+
+fn watchedBytes(id: game.Entity.Id, entry: game.Entities.Mob, out: *Snapshot) ?[]const u8 {
+    var watched: net.packet.Watched = .{};
+    game.mob.watch(entry.type_id, entry.animal, &watched);
+
+    var writer = std.Io.Writer.fixed(&out.bytes);
+    net.packet.write(&writer, .{ .entity_metadata = .{
+        .entity_id = @bitCast(id),
+        .metadata = watched.view(),
+    } }) catch return null;
+
+    out.len = writer.buffered().len;
+    return out.text();
+}
 
 fn encodePosition(value: f64) i32 {
     return math.util.floorDouble(value * 32.0);
@@ -98,7 +158,8 @@ pub fn trackPeers(self: *Session, gpa: std.mem.Allocator, peers: []const Peer) !
 
     for (peers) |peer| {
         if (peer.id == mine.base.id) continue;
-        if (mine.base.position.distanceTo(peer.player.base.position) > track_range) continue;
+        if (peer.body == .mob and game.mob.get(peer.body.mob.type_id).wire_id == null) continue;
+        if (mine.base.position.distanceTo(peer.position()) > track_range) continue;
         try self.trackOne(gpa, peer);
     }
 
@@ -117,32 +178,23 @@ pub fn trackPeers(self: *Session, gpa: std.mem.Allocator, peers: []const Peer) !
 }
 
 fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
-    const at = peer.player.base.position;
+    const at = peer.position();
     const now: Tracked = .{
         .x = encodePosition(at.x),
         .y = encodePosition(at.y),
         .z = encodePosition(at.z),
-        .yaw = encodeRotation(peer.player.yaw),
-        .pitch = encodeRotation(peer.player.pitch),
+        .yaw = encodeRotation(peer.yaw()),
+        .pitch = encodeRotation(peer.pitch()),
     };
 
     const entry = try self.tracked.getOrPut(gpa, peer.id);
     if (!entry.found_existing) {
         entry.value_ptr.* = now;
-        try self.send(gpa, .{ .named_entity_spawn = .{
-            .entity_id = @bitCast(peer.id),
-            .name = peer.name,
-            .x = now.x,
-            .y = now.y,
-            .z = now.z,
-            .rotation = now.yaw,
-            .pitch = now.pitch,
-            .current_item = 0,
-        } });
-        return;
+        return self.spawnPeer(gpa, peer, now, entry.value_ptr);
     }
 
     entry.value_ptr.seen = true;
+    if (peer.body == .mob) try self.reportWatched(gpa, peer, entry.value_ptr);
 
     const was = entry.value_ptr.*;
     const dx = now.x - was.x;
@@ -154,8 +206,7 @@ fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
 
     const fits = @abs(dx) < relative_move_limit and @abs(dy) < relative_move_limit and @abs(dz) < relative_move_limit;
     if (!fits) {
-        entry.value_ptr.* = now;
-        entry.value_ptr.seen = true;
+        entry.value_ptr.place(now);
         return self.send(gpa, .{ .entity_teleport = .{
             .entity_id = @bitCast(peer.id),
             .x = now.x,
@@ -167,8 +218,7 @@ fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
     }
 
     if (moved and turned) {
-        entry.value_ptr.* = now;
-        entry.value_ptr.seen = true;
+        entry.value_ptr.place(now);
         return self.send(gpa, .{ .rel_entity_move_look = .{
             .entity_id = @bitCast(peer.id),
             .dx = @truncate(dx),
@@ -198,6 +248,47 @@ fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
             .pitch = now.pitch,
         } });
     }
+}
+
+fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, entry: *Tracked) !void {
+    switch (peer.body) {
+        .player => |who| try self.send(gpa, .{ .named_entity_spawn = .{
+            .entity_id = @bitCast(peer.id),
+            .name = who.name,
+            .x = now.x,
+            .y = now.y,
+            .z = now.z,
+            .rotation = now.yaw,
+            .pitch = now.pitch,
+            .current_item = 0,
+        } }),
+        .mob => |body| {
+            var watched: net.packet.Watched = .{};
+            game.mob.watch(body.type_id, body.animal, &watched);
+
+            try self.send(gpa, .{ .mob_spawn = .{
+                .entity_id = @bitCast(peer.id),
+                .kind = game.mob.get(body.type_id).wire_id.?,
+                .x = now.x,
+                .y = now.y,
+                .z = now.z,
+                .yaw = now.yaw,
+                .pitch = now.pitch,
+                .metadata = watched.view(),
+            } });
+
+            _ = watchedBytes(peer.id, body, &entry.watched);
+        },
+    }
+}
+
+fn reportWatched(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Tracked) !void {
+    var fresh: Snapshot = .{};
+    const encoded = watchedBytes(peer.id, peer.body.mob, &fresh) orelse return;
+    if (std.mem.eql(u8, entry.watched.text(), encoded)) return;
+
+    entry.watched = fresh;
+    try self.outbox.appendSlice(gpa, encoded);
 }
 
 pub fn reportHealth(self: *Session, gpa: std.mem.Allocator) !void {
@@ -954,6 +1045,62 @@ test "an empty hand and an item that is not a block place nothing" {
         .held = .{ .id = 280, .count = 1, .damage = 0 },
     } });
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+}
+
+fn mobPeers(gpa: std.mem.Allocator, level: *game.Level, out: *std.ArrayList(Peer)) !void {
+    out.clearRetainingCapacity();
+    for (level.entities.mobs.items) |entry| {
+        try out.append(gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
+    }
+}
+
+test "a mob is spawned once, then only its changes are sent after that" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    const animal = try level.entities.spawnMob(gpa, game.mob.sheep, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+    const sheep: *game.Sheep = @fieldParentPtr("animal", animal);
+    sheep.fleece_color = 12;
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+
+    try session.trackPeers(gpa, peers.items);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    const spawned = replies.items[0].mob_spawn;
+    try std.testing.expectEqual(game.Sheep.wire_id, spawned.kind);
+    try std.testing.expectEqual(@as(i8, 12), spawned.metadata.byteAt(game.Sheep.watched_fleece).?);
+
+    try session.trackPeers(gpa, peers.items);
+    const quiet = try session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
+
+    sheep.sheared = true;
+    try session.trackPeers(gpa, peers.items);
+
+    var updates: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &updates);
+    try drain(gpa, &session, &updates);
+
+    try std.testing.expectEqual(@as(usize, 1), updates.items.len);
+    const changed = updates.items[0].entity_metadata;
+    try std.testing.expectEqual(@as(u32, @bitCast(changed.entity_id)), animal.base.id);
+    try std.testing.expectEqual(@as(i8, 12 | 16), changed.metadata.byteAt(game.Sheep.watched_fleece).?);
 }
 
 test "a block change only reaches a player who has been sent that chunk" {

@@ -97,6 +97,18 @@ const Pair = struct {
         }
     }
 
+    fn trackMobs(self: *Pair) !void {
+        var peers: std.ArrayList(Session.Peer) = .empty;
+        defer peers.deinit(self.gpa);
+
+        for (self.server_level.entities.mobs.items) |entry| {
+            try peers.append(self.gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
+        }
+
+        try self.session.trackPeers(self.gpa, peers.items);
+        _ = try self.pumpToClient();
+    }
+
     fn standOnGround(self: *Pair) [3]i32 {
         const feet = self.client_player.base.position;
         const x: i32 = @intFromFloat(@floor(feet.x));
@@ -228,6 +240,98 @@ test "where the client walks is where the server puts it" {
     try std.testing.expectApproxEqAbs(@as(f32, 123.0), on_server.yaw, 1.0e-6);
 }
 
+fn spawnServerMob(pair: *Pair, comptime T: type, type_id: game.mob.Id) !*T {
+    const at = pair.session.player.?.base.position;
+    const animal = try pair.server_level.entities.spawnMob(
+        pair.gpa,
+        type_id,
+        .{ .x = at.x + 2.0, .y = at.y, .z = at.z - 1.0 },
+        &pair.server_level.world_map.rand,
+    );
+    return @fieldParentPtr("animal", animal);
+}
+
+test "a mob on the server turns into a real mob on the client" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(3);
+
+    const pig = try spawnServerMob(&pair, game.Pig, game.mob.pig);
+    pig.saddled = true;
+    try pair.trackMobs();
+
+    const seen = pair.client_level.entities.first(game.Pig, game.mob.pig).?;
+    try std.testing.expectEqual(pig.animal.base.id, seen.animal.base.id);
+    try std.testing.expect(seen.saddled);
+    try std.testing.expectApproxEqAbs(
+        pig.animal.base.position.x,
+        seen.animal.base.position.x,
+        1.0 / 32.0,
+    );
+    try std.testing.expectApproxEqAbs(
+        pig.animal.base.position.z,
+        seen.animal.base.position.z,
+        1.0 / 32.0,
+    );
+}
+
+test "a slime arrives at the size the server rolled for it, not a default one" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(3);
+
+    const slime = try spawnServerMob(&pair, game.Slime, game.mob.slime);
+    slime.setSize(4);
+    try pair.trackMobs();
+
+    const seen = pair.client_level.entities.first(game.Slime, game.mob.slime).?;
+    try std.testing.expectEqual(@as(u8, 4), seen.size);
+    try std.testing.expectEqual(slime.animal.base.width, seen.animal.base.width);
+}
+
+test "shearing a sheep the client can already see reaches it as a metadata update" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(3);
+
+    const sheep = try spawnServerMob(&pair, game.Sheep, game.mob.sheep);
+    sheep.fleece_color = 12;
+    try pair.trackMobs();
+
+    const woolly = pair.client_level.entities.first(game.Sheep, game.mob.sheep).?;
+    try std.testing.expectEqual(@as(u4, 12), woolly.fleece_color);
+    try std.testing.expect(!woolly.sheared);
+
+    sheep.sheared = true;
+    try pair.trackMobs();
+
+    try std.testing.expectEqual(@as(usize, 1), pair.client_level.entities.mobs.items.len);
+    try std.testing.expect(pair.client_level.entities.first(game.Sheep, game.mob.sheep).?.sheared);
+}
+
+test "a mob the server stops sending is taken off the client" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(3);
+
+    const cow = try spawnServerMob(&pair, game.Cow, game.mob.cow);
+    try pair.trackMobs();
+    try std.testing.expectEqual(@as(usize, 1), pair.client_level.entities.mobs.items.len);
+
+    try std.testing.expect(pair.server_level.entities.removeMob(gpa, cow.animal.base.id));
+    try pair.trackMobs();
+
+    try std.testing.expectEqual(@as(usize, 0), pair.client_level.entities.mobs.items.len);
+}
+
 const Trio = struct {
     gpa: std.mem.Allocator,
     level: game.Level,
@@ -286,9 +390,12 @@ const Trio = struct {
             const player = side.session.player orelse continue;
             try out.append(self.gpa, .{
                 .id = player.base.id,
-                .name = side.session.name.text(),
-                .player = player,
+                .body = .{ .player = .{ .name = side.session.name.text(), .player = player } },
             });
+        }
+
+        for (self.level.entities.mobs.items) |entry| {
+            try out.append(self.gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
         }
     }
 

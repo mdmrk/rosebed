@@ -258,9 +258,12 @@ fn collectPeers(server: *Server, out: *std.ArrayList(Session.Peer)) !void {
         const player = connection.session.player orelse continue;
         try out.append(server.gpa, .{
             .id = player.base.id,
-            .name = player.name.text(),
-            .player = player,
+            .body = .{ .player = .{ .name = player.name.text(), .player = player } },
         });
+    }
+
+    for (server.level.entities.mobs.items) |entry| {
+        try out.append(server.gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
     }
 }
 

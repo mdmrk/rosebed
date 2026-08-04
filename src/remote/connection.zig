@@ -157,35 +157,41 @@ fn handlePlaying(
             try self.chat.append(gpa, line);
         },
         .named_entity_spawn => |body| try self.spawnPeer(gpa, body),
-        .destroy_entity => |body| self.removePeer(@bitCast(body.entity_id)),
+        .mob_spawn => |body| try spawnMob(gpa, level, body),
+        .entity_metadata => |body| adoptWatched(level, @bitCast(body.entity_id), body.metadata),
+        .destroy_entity => |body| {
+            const id: game.Entity.Id = @bitCast(body.entity_id);
+            self.removePeer(id);
+            _ = level.entities.removeMob(gpa, id);
+        },
         .entity_teleport => |body| {
-            if (self.peerById(@bitCast(body.entity_id))) |peer| {
-                beginMove(peer);
-                peer.player.base.position = .{
-                    .x = decodePosition(body.x),
-                    .y = decodePosition(body.y),
-                    .z = decodePosition(body.z),
-                };
-                turnPeer(peer, body.yaw, body.pitch);
+            if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
+                moved.begin();
+                moved.placeAt(
+                    decodePosition(body.x),
+                    decodePosition(body.y),
+                    decodePosition(body.z),
+                );
+                moved.turn(body.yaw, body.pitch);
             }
         },
         .rel_entity_move => |body| {
-            if (self.peerById(@bitCast(body.entity_id))) |peer| {
-                beginMove(peer);
-                shiftPeer(peer, body.dx, body.dy, body.dz);
+            if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
+                moved.begin();
+                moved.shift(body.dx, body.dy, body.dz);
             }
         },
         .entity_look => |body| {
-            if (self.peerById(@bitCast(body.entity_id))) |peer| {
-                beginMove(peer);
-                turnPeer(peer, body.yaw, body.pitch);
+            if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
+                moved.begin();
+                moved.turn(body.yaw, body.pitch);
             }
         },
         .rel_entity_move_look => |body| {
-            if (self.peerById(@bitCast(body.entity_id))) |peer| {
-                beginMove(peer);
-                shiftPeer(peer, body.dx, body.dy, body.dz);
-                turnPeer(peer, body.yaw, body.pitch);
+            if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
+                moved.begin();
+                moved.shift(body.dx, body.dy, body.dz);
+                moved.turn(body.yaw, body.pitch);
             }
         },
         .player_look_move => |body| try self.placePlayer(level, body.x, body.stance, body.z, body.yaw, body.pitch),
@@ -204,23 +210,57 @@ pub fn peerById(self: *Connection, id: game.Entity.Id) ?*Peer {
     return null;
 }
 
-fn beginMove(peer: *Peer) void {
-    peer.player.base.prev_position = peer.player.base.position;
-    peer.player.prev_yaw = peer.player.yaw;
-    peer.player.prev_pitch = peer.player.pitch;
-    peer.player.prev_render_yaw = peer.player.render_yaw;
+const Body = union(enum) {
+    player: *game.Player,
+    animal: *game.Animal,
+
+    fn begin(self: Body) void {
+        switch (self) {
+            inline else => |it| {
+                it.base.prev_position = it.base.position;
+                it.prev_yaw = it.yaw;
+                it.prev_pitch = it.pitch;
+                it.prev_render_yaw = it.render_yaw;
+            },
+        }
+    }
+
+    fn placeAt(self: Body, x: f64, y: f64, z: f64) void {
+        switch (self) {
+            inline else => |it| it.base.position = .{ .x = x, .y = y, .z = z },
+        }
+    }
+
+    fn shift(self: Body, dx: i8, dy: i8, dz: i8) void {
+        switch (self) {
+            inline else => |it| {
+                it.base.position.x += decodePosition(dx);
+                it.base.position.y += decodePosition(dy);
+                it.base.position.z += decodePosition(dz);
+            },
+        }
+    }
+
+    fn turn(self: Body, yaw: i8, pitch: i8) void {
+        switch (self) {
+            inline else => |it| {
+                it.yaw = decodeRotation(yaw);
+                it.pitch = decodeRotation(pitch);
+                it.render_yaw = it.yaw;
+            },
+        }
+    }
+};
+
+fn bodyById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?Body {
+    if (self.peerById(id)) |peer| return .{ .player = &peer.player };
+    const entry = level.entities.mobById(id) orelse return null;
+    return .{ .animal = entry.animal };
 }
 
-fn shiftPeer(peer: *Peer, dx: i8, dy: i8, dz: i8) void {
-    peer.player.base.position.x += decodePosition(dx);
-    peer.player.base.position.y += decodePosition(dy);
-    peer.player.base.position.z += decodePosition(dz);
-}
-
-fn turnPeer(peer: *Peer, yaw: i8, pitch: i8) void {
-    peer.player.yaw = decodeRotation(yaw);
-    peer.player.pitch = decodeRotation(pitch);
-    peer.player.render_yaw = peer.player.yaw;
+fn adoptWatched(level: *game.Level, id: game.Entity.Id, metadata: net.packet.Metadata) void {
+    const entry = level.entities.mobById(id) orelse return;
+    game.mob.adopt(entry.type_id, entry.animal, metadata);
 }
 
 fn spawnPeer(self: *Connection, gpa: std.mem.Allocator, body: anytype) !void {
@@ -237,12 +277,34 @@ fn spawnPeer(self: *Connection, gpa: std.mem.Allocator, body: anytype) !void {
     };
     peer.name.set(body.name);
     peer.player.base.id = id;
-    peer.player.yaw = decodeRotation(body.rotation);
-    peer.player.pitch = decodeRotation(body.pitch);
-    peer.player.render_yaw = peer.player.yaw;
-    beginMove(&peer);
+
+    const placed: Body = .{ .player = &peer.player };
+    placed.turn(body.rotation, body.pitch);
+    placed.begin();
 
     try self.peers.append(gpa, peer);
+}
+
+fn spawnMob(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
+    const type_id = game.mob.byWireId(body.kind) orelse return;
+    const id: game.Entity.Id = @bitCast(body.entity_id);
+    _ = level.entities.removeMob(gpa, id);
+
+    const kind = game.mob.get(type_id);
+    const animal = try kind.spawn(gpa, .{
+        .x = decodePosition(body.x),
+        .y = decodePosition(body.y),
+        .z = decodePosition(body.z),
+    }, &level.world_map.rand);
+    errdefer kind.destroy(animal, gpa);
+
+    game.mob.adopt(type_id, animal, body.metadata);
+
+    const placed: Body = .{ .animal = animal };
+    placed.turn(body.yaw, body.pitch);
+    placed.begin();
+
+    try level.entities.adoptMobAs(gpa, type_id, animal, id);
 }
 
 fn removePeer(self: *Connection, id: game.Entity.Id) void {
