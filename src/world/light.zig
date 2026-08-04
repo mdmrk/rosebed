@@ -35,6 +35,7 @@ pub fn emission(id: Block) u4 {
     return switch (id) {
         .flowing_lava, .stationary_lava, .glowstone, .fire => 15,
         .torch => 14,
+        .portal => 11,
         .burning_furnace => 13,
         .ore_redstone_glowing, .repeater_on => 9,
         .torch_redstone_on => 7,
@@ -42,15 +43,16 @@ pub fn emission(id: Block) u4 {
     };
 }
 
-pub const brightness_table: [16]f32 = blk: {
-    const ambient: f32 = 0.05;
+pub fn brightnessTable(ambient: f32) [16]f32 {
     var table: [16]f32 = undefined;
     for (&table, 0..) |*entry, level| {
-        const darkness = 1.0 - @as(f32, level) / 15.0;
+        const darkness = 1.0 - @as(f32, @floatFromInt(level)) / 15.0;
         entry.* = (1.0 - darkness) / (darkness * 3.0 + 1.0) * (1.0 - ambient) + ambient;
     }
-    break :blk table;
-};
+    return table;
+}
+
+pub const brightness_table: [16]f32 = brightnessTable(0.05);
 
 fn storedLevelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
     const sky = world_map.getSkyLight(x, y, z) -| world_map.skylight_subtracted;
@@ -77,7 +79,7 @@ pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
 }
 
 pub fn brightnessAt(world_map: *const World, x: i32, y: i32, z: i32, minimum: u4) f32 {
-    return brightness_table[@max(levelAt(world_map, x, y, z), minimum)];
+    return world_map.brightness[@max(levelAt(world_map, x, y, z), minimum)];
 }
 
 fn spreadCost(id: Block) u8 {

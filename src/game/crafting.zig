@@ -170,6 +170,10 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         null,           i(.ingot_iron),
         i(.ingot_iron), null,
     }, .{ .item = .shears }, 1),
+    shaped(2, 2, &.{
+        i(.ingot_iron), null,
+        null,           i(.flint),
+    }, .{ .item = .flint_and_steel }, 1),
     shapedMeta(3, 1, &.{ b(.cobblestone), b(.cobblestone), b(.cobblestone) }, .{ .block = .slab }, 3, world.block.slab_cobblestone),
     shapedMeta(3, 1, &.{ b(.stone), b(.stone), b(.stone) }, .{ .block = .slab }, 3, world.block.slab_stone),
     shapedMeta(3, 1, &.{ b(.sandstone), b(.sandstone), b(.sandstone) }, .{ .block = .slab }, 3, world.block.slab_sandstone),
@@ -1017,4 +1021,19 @@ test "the cake's sugar and egg cannot swap places" {
     for (6..9) |cell| grid[cell] = .{ .id = .{ .item = .wheat }, .count = 1 };
 
     try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+}
+
+test "an ingot over flint strikes flint and steel" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+    grid[4] = .{ .id = .{ .item = .flint }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .flint_and_steel }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+
+    var swapped: [9]?Inventory.ItemStack = @splat(null);
+    swapped[0] = .{ .id = .{ .item = .flint }, .count = 1 };
+    swapped[4] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
+    try std.testing.expect(findMatch(&swapped, workbench_grid_size) == null);
 }

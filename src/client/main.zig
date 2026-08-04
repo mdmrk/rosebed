@@ -145,7 +145,9 @@ const AppState = struct {
     create_state: render.create_world_screen.State = undefined,
     multiplayer_state: render.multiplayer_screen.State = undefined,
     loading: Loading = .{},
+    dimension: world.Dimension = .overworld,
     needs_spawn: bool = false,
+    pending_portal: bool = false,
     ticks_since_save: u32 = 0,
     pause_save_frames: u32 = 0,
     pause_ticks: u32 = 0,
@@ -177,6 +179,7 @@ const Loading = struct {
     done: usize = 0,
     total: usize = 0,
     next: i32 = 0,
+    center: [2]i32 = .{ 0, 0 },
     title: []const u8 = "Loading level",
 };
 
@@ -286,7 +289,7 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
 
     const started = sdl3.timer.getNanosecondsSinceInit();
     for (pending.items) |entry| {
-        try app_state.level.world_map.ensureDecorated(app_state.level.generator, entry.coord.x, entry.coord.z);
+        try app_state.level.world_map.ensureDecorated(&app_state.level.generator, entry.coord.x, entry.coord.z);
         try markMeshableAround(app_state, entry.coord);
         if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) break;
     }
@@ -436,7 +439,7 @@ pub fn init(
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
 
-    app_state.level.generator = try world.TerrainGenerator.init(gpa, 0);
+    app_state.level.generator = try world.Generator.init(gpa, .overworld, 0);
     errdefer app_state.level.deinit(gpa);
 
     return .{ app_state, .run };
@@ -1049,7 +1052,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .seed => |seed| {
             var buffer: [64]u8 = undefined;
-            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.level.generator.world_seed}, 0);
+            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.level.generator.worldSeed()}, 0);
             const copy_msg = if (seed.copy)
                 " (Copied to clipboard)"
             else
@@ -1286,6 +1289,7 @@ fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.Inventor
         .motion = .{ app_state.player.base.motion.x, app_state.player.base.motion.y, app_state.player.base.motion.z },
         .yaw = app_state.player.yaw,
         .pitch = app_state.player.pitch,
+        .dimension = app_state.dimension,
         .fall_distance = app_state.player.fall_distance,
         .fire = @intCast(app_state.player.fire),
         .air = @intCast(app_state.player.air),
@@ -1344,7 +1348,7 @@ fn saveLevel(app_state: *AppState) !void {
     const player = try playerState(app_state, &entries);
 
     const info: world.save.LevelInfo = .{
-        .seed = app_state.level.generator.world_seed,
+        .seed = app_state.level.generator.worldSeed(),
         .spawn = app_state.level.spawn,
         .time = app_state.level.world_map.time,
         .last_played = world.RegionFile.unixMilliseconds(app_state.io),
@@ -1363,6 +1367,8 @@ fn dropLink(app_state: *AppState) void {
 
 fn closeWorld(app_state: *AppState) void {
     dropLink(app_state);
+    app_state.dimension = .overworld;
+    app_state.pending_portal = false;
     if (app_state.save_handle) |*handle| handle.close(app_state.gpa, app_state.io);
     app_state.save_handle = null;
     app_state.level.closeWorld(app_state.gpa);
@@ -1384,7 +1390,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
 
     const level_seed = if (stored) |info| info.seed else seed orelse app_state.level.world_map.rand.nextLong();
 
-    try app_state.level.reseed(app_state.gpa, level_seed);
+    try app_state.level.reseed(app_state.gpa, .overworld, level_seed);
 
     app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     app_state.level.world_map.access = worldAccess(app_state);
@@ -1402,14 +1408,21 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
         if (info.player) |player| {
             applyPlayerState(app_state, player);
             app_state.needs_spawn = false;
+            if (player.dimension != .overworld) try enterSavedDimension(app_state, player.dimension);
         }
     } else {
         app_state.level.world_map.time = 0;
         app_state.level.spawn = try findInitialSpawn(app_state);
     }
 
+    const load_center: [2]i32 = if (app_state.needs_spawn)
+        .{ app_state.level.spawn[0], app_state.level.spawn[2] }
+    else
+        .{ @intFromFloat(@floor(app_state.player.base.position.x)), @intFromFloat(@floor(app_state.player.base.position.z)) };
+
     app_state.loading = .{
         .total = @intCast((spawn_load_radius * 2 + 1) * (spawn_load_radius * 2 + 1)),
+        .center = load_center,
         .title = if (stored == null) "Generating level" else "Loading level",
     };
     app_state.screen = .loading;
@@ -1417,10 +1430,23 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     try updateMouseMode(app_state);
 }
 
+fn enterSavedDimension(app_state: *AppState, target: world.Dimension) !void {
+    app_state.level.leave(&app_state.player);
+    try app_state.level.reseed(app_state.gpa, target, app_state.level.generator.worldSeed());
+    app_state.dimension = target;
+
+    if (app_state.save_handle) |*handle| {
+        try handle.useDimension(app_state.gpa, app_state.io, target);
+        app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
+    }
+    app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+    try app_state.level.enter(app_state.gpa, &app_state.player);
+}
+
 fn loadingChunkCoord(app_state: *const AppState, index: i32) world.World.ChunkCoord {
     const side = spawn_load_radius * 2 + 1;
-    const center_x = @divFloor(app_state.level.spawn[0], world.constants.chunk_width);
-    const center_z = @divFloor(app_state.level.spawn[2], world.constants.chunk_width);
+    const center_x = @divFloor(app_state.loading.center[0], world.constants.chunk_width);
+    const center_z = @divFloor(app_state.loading.center[1], world.constants.chunk_width);
     return .{
         .x = center_x + @mod(index, side) - spawn_load_radius,
         .z = center_z + @divFloor(index, side) - spawn_load_radius,
@@ -1432,7 +1458,7 @@ fn stepLoading(app_state: *AppState) !void {
 
     while (app_state.loading.done < app_state.loading.total) {
         const coord = loadingChunkCoord(app_state, app_state.loading.next);
-        try app_state.level.world_map.ensureDecorated(app_state.level.generator, coord.x, coord.z);
+        try app_state.level.world_map.ensureDecorated(&app_state.level.generator, coord.x, coord.z);
         app_state.loading.next += 1;
         app_state.loading.done += 1;
         if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) return;
@@ -1443,7 +1469,7 @@ fn stepLoading(app_state: *AppState) !void {
 
 fn firstUncoveredBlock(app_state: *AppState, x: i32, z: i32) !world.Block {
     const width = world.constants.chunk_width;
-    try app_state.level.world_map.ensureDecorated(app_state.level.generator, @divFloor(x, width), @divFloor(z, width));
+    try app_state.level.world_map.ensureDecorated(&app_state.level.generator, @divFloor(x, width), @divFloor(z, width));
 
     var y: i32 = 63;
     while (app_state.level.world_map.getBlock(x, y + 1, z) != .air) : (y += 1) {}
@@ -1481,7 +1507,70 @@ fn spawnPlacement(world_map: *const world.World, spawn: [3]i32) math.Vec3 {
     return position;
 }
 
+fn placePlayerAt(app_state: *AppState, x: f64, y: f64, z: f64) void {
+    const player = &app_state.player;
+    player.base.position = math.Vec3.init(x, y, z);
+    player.base.prev_position = player.base.position;
+    player.base.motion = math.Vec3.init(0, 0, 0);
+    player.base.on_ground = false;
+}
+
+fn usePortal(app_state: *AppState) !void {
+    const target = app_state.dimension.other();
+    const scale = world.Dimension.nether.coordinateScale();
+
+    const from = app_state.player.base.position;
+    const x = if (target == .nether) from.x / scale else from.x * scale;
+    const z = if (target == .nether) from.z / scale else from.z * scale;
+
+    try switchDimension(app_state, target, x, from.y, z);
+}
+
+fn switchDimension(app_state: *AppState, target: world.Dimension, x: f64, y: f64, z: f64) !void {
+    try saveWorld(app_state);
+
+    app_state.level.closeWorld(app_state.gpa);
+    app_state.chunks.deinit(app_state.gpa);
+    app_state.chunks = .{};
+
+    try app_state.level.reseed(app_state.gpa, target, app_state.level.generator.worldSeed());
+    app_state.dimension = target;
+
+    if (app_state.save_handle) |*handle| {
+        try handle.useDimension(app_state.gpa, app_state.io, target);
+        app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
+    }
+    app_state.level.world_map.access = worldAccess(app_state);
+    app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+
+    placePlayerAt(app_state, x, y, z);
+    try app_state.level.enter(app_state.gpa, &app_state.player);
+
+    app_state.pending_portal = true;
+    app_state.needs_spawn = false;
+    app_state.loading = .{
+        .total = @intCast((spawn_load_radius * 2 + 1) * (spawn_load_radius * 2 + 1)),
+        .center = .{ @intFromFloat(@floor(x)), @intFromFloat(@floor(z)) },
+        .title = if (target == .nether) "Entering the Nether" else "Leaving the Nether",
+    };
+    app_state.screen = .loading;
+    try updateMouseMode(app_state);
+}
+
 fn finishLoading(app_state: *AppState) !void {
+    if (app_state.pending_portal) {
+        app_state.pending_portal = false;
+        const landed = try world.portal.placeInto(
+            &app_state.level.world_map,
+            &app_state.level.world_map.rand,
+            app_state.player.base.position.x,
+            app_state.player.base.position.y,
+            app_state.player.base.position.z,
+        );
+        placePlayerAt(app_state, landed.x, landed.y, landed.z);
+        try applyBlockChanges(app_state);
+    }
+
     if (app_state.needs_spawn) {
         app_state.player.base.position = spawnPlacement(&app_state.level.world_map, app_state.level.spawn);
         app_state.player.base.prev_position = app_state.player.base.position;
@@ -1951,6 +2040,26 @@ fn holdStack(app_state: *AppState, held: world.Item) void {
         .{ .id = .{ .item = held }, .count = 1 };
 }
 
+fn strikeFlintAtTarget(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
+    if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
+
+    if (app_state.level.world_map.getBlock(target.x, target.y, target.z) == .air) {
+        try app_state.level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
+        try applyBlockChanges(app_state);
+    }
+
+    try damageHeldItem(app_state, 1);
+    return true;
+}
+
 fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !bool {
     const hit = game.raycast.castWith(
         &app_state.level.world_map,
@@ -2065,6 +2174,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         .block => |b| b,
         .item => |held| blk: {
             if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
+            if (held == .flint_and_steel) return strikeFlintAtTarget(app_state);
             if (held == .painting) return hangPaintingAtTarget(app_state);
             if (held == .bed) return placeBedAtTarget(app_state);
             if (held == .sign) return placeSignAtTarget(app_state);
@@ -2240,6 +2350,10 @@ fn tick(app_state: *AppState) !void {
         try tickRemote(app_state, link);
     } else {
         try app_state.level.tick(app_state.gpa, app_state.frame);
+        if (app_state.player.tickPortal() == .travel) {
+            try usePortal(app_state);
+            return;
+        }
     }
 
     app_state.cloud_offset += 1;
@@ -2432,8 +2546,10 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
         underwater_fog_color
     else if (cameraInLava(app_state))
         lava_fog_color
+    else if (!app_state.dimension.hasSky())
+        app_state.dimension.fogColor()
     else blended: {
-        const temperature: f32 = @floatCast(app_state.level.generator.climate.temperatureAt(
+        const temperature: f32 = @floatCast(app_state.level.generator.temperatureAt(
             math.util.floorDouble(app_state.player.base.position.x),
             math.util.floorDouble(app_state.player.base.position.z),
         ));
@@ -2920,6 +3036,8 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 }
 
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
+    if (!app_state.dimension.hasSky()) return;
+
     const angle = app_state.level.world_map.celestialAngle(partial);
     const eye = app_state.player.base.renderPosition(partial);
     const hurt = app_state.player.hurtMatrix(partial);
@@ -2941,11 +3059,13 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 }
 
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.sky.Color) !void {
+    if (!app_state.dimension.hasSky()) return;
+
     const render_distance = @intFromEnum(app_state.settings.render_distance);
     if (!render.SkyRenderer.visibleAt(render_distance)) return;
 
     const angle = app_state.level.world_map.celestialAngle(partial);
-    const temperature: f32 = @floatCast(app_state.level.generator.climate.temperatureAt(
+    const temperature: f32 = @floatCast(app_state.level.generator.temperatureAt(
         math.util.floorDouble(app_state.player.base.position.x),
         math.util.floorDouble(app_state.player.base.position.z),
     ));

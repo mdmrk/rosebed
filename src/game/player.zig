@@ -30,6 +30,10 @@ attacked_at_yaw: f32 = 0,
 death_time: i32 = 0,
 hurt_rand: world.JavaRandom = .init(0),
 air: i32 = max_air,
+in_portal: bool = false,
+time_in_portal: f32 = 0,
+prev_time_in_portal: f32 = 0,
+time_until_portal: i32 = portal_cooldown,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
@@ -96,6 +100,10 @@ const liquid_jump: f64 = 0.04;
 const liquid_climb_out: f64 = 0.3;
 
 pub const max_air: i32 = 300;
+pub const portal_cooldown: i32 = 20;
+pub const portal_reentry_cooldown: i32 = 10;
+const portal_fade_in: f32 = 0.0125;
+const portal_fade_out: f32 = 0.05;
 const drown_damage: i32 = 2;
 const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
@@ -399,6 +407,41 @@ fn applyDamage(self: *Player, amount: i32) void {
 pub fn kill(self: *Player) void {
     self.damage_taken += self.health;
     self.health = 0;
+}
+
+pub fn setInPortal(self: *Player) void {
+    if (self.time_until_portal > 0) {
+        self.time_until_portal = portal_reentry_cooldown;
+    } else {
+        self.in_portal = true;
+    }
+}
+
+pub const PortalStep = enum { none, travel };
+
+pub fn tickPortal(self: *Player) PortalStep {
+    self.prev_time_in_portal = self.time_in_portal;
+
+    var step: PortalStep = .none;
+    if (self.in_portal) {
+        self.time_in_portal += portal_fade_in;
+        if (self.time_in_portal >= 1.0) {
+            self.time_in_portal = 1.0;
+            self.time_until_portal = portal_reentry_cooldown;
+            step = .travel;
+        }
+        self.in_portal = false;
+    } else {
+        if (self.time_in_portal > 0.0) self.time_in_portal -= portal_fade_out;
+        if (self.time_in_portal < 0.0) self.time_in_portal = 0.0;
+    }
+
+    if (self.time_until_portal > 0) self.time_until_portal -= 1;
+    return step;
+}
+
+pub fn portalOverlay(self: Player, partial: f32) f32 {
+    return self.prev_time_in_portal + (self.time_in_portal - self.prev_time_in_portal) * partial;
 }
 
 pub fn heal(self: *Player, amount: i32) void {
@@ -1434,4 +1477,54 @@ test "a respawning player keeps its name along with its id" {
 
     try std.testing.expectEqualStrings("Steve", player.name.text());
     try std.testing.expectEqual(@as(u32, 3), player.base.id);
+}
+
+test "a portal fades in over eighty ticks, then sends the player through" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.time_until_portal = 0;
+
+    var ticks: u32 = 0;
+    while (ticks < 200) : (ticks += 1) {
+        player.setInPortal();
+        if (player.tickPortal() == .travel) break;
+    }
+
+    try std.testing.expectEqual(@as(u32, 80), ticks);
+    try std.testing.expectEqual(@as(f32, 1.0), player.time_in_portal);
+    try std.testing.expectEqual(portal_reentry_cooldown - 1, player.time_until_portal);
+}
+
+test "stepping out of a portal fades the overlay back out, four times as fast" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.time_in_portal = 1.0;
+    player.time_until_portal = 0;
+
+    _ = player.tickPortal();
+    try std.testing.expectApproxEqAbs(@as(f32, 0.95), player.time_in_portal, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), player.prev_time_in_portal, 1.0e-6);
+
+    for (0..40) |_| _ = player.tickPortal();
+    try std.testing.expectEqual(@as(f32, 0.0), player.time_in_portal);
+}
+
+test "the cooldown after a trip stops the player bouncing straight back" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+
+    try std.testing.expectEqual(portal_cooldown, player.time_until_portal);
+    player.setInPortal();
+    try std.testing.expect(!player.in_portal);
+    try std.testing.expectEqual(portal_reentry_cooldown, player.time_until_portal);
+
+    for (0..portal_reentry_cooldown) |_| _ = player.tickPortal();
+    player.setInPortal();
+    try std.testing.expect(player.in_portal);
+}
+
+test "the portal overlay is interpolated between ticks" {
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.prev_time_in_portal = 0.2;
+    player.time_in_portal = 0.4;
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), player.portalOverlay(0.5), 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), player.portalOverlay(0.0), 1.0e-6);
 }

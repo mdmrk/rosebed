@@ -196,6 +196,67 @@ pub const Flames = struct {
     }
 };
 
+pub const portal_tile: u8 = 14;
+
+const portal_frames = 32;
+
+fn wrapByte(value: f32) u8 {
+    return @truncate(@as(u32, @bitCast(@as(i32, @intFromFloat(value)))));
+}
+
+pub const Portal = struct {
+    frames: [portal_frames][cells * 4]u8 = @splat(@splat(0)),
+    image: [cells * 4]u8 = @splat(0),
+    counter: u32 = 0,
+
+    pub fn init() Portal {
+        var self: Portal = .{};
+        var rand: world.JavaRandom = .init(100);
+
+        for (0..portal_frames) |frame| {
+            for (0..tile) |x| {
+                for (0..tile) |y| {
+                    var level: f32 = 0.0;
+
+                    for (0..2) |lobe| {
+                        const offset: f32 = @floatFromInt(lobe * 8);
+                        var dx = (@as(f32, @floatFromInt(x)) - offset) / 16.0 * 2.0;
+                        var dy = (@as(f32, @floatFromInt(y)) - offset) / 16.0 * 2.0;
+                        if (dx < -1.0) dx += 2.0;
+                        if (dx >= 1.0) dx -= 2.0;
+                        if (dy < -1.0) dy += 2.0;
+                        if (dy >= 1.0) dy -= 2.0;
+
+                        const radius = dx * dx + dy * dy;
+                        const bearing: f32 = @floatCast(std.math.atan2(@as(f64, dy), @as(f64, dx)));
+                        const spin = (@as(f32, @floatFromInt(frame)) / 32.0 * std.math.pi * 2.0 -
+                            radius * 10.0 + @as(f32, @floatFromInt(lobe * 2))) *
+                            @as(f32, @floatFromInt(@as(i32, @intCast(lobe)) * 2 - 1));
+
+                        var wave = (math.util.sin(bearing + spin) + 1.0) / 2.0;
+                        wave /= radius + 1.0;
+                        level += wave * 0.5;
+                    }
+
+                    level += rand.nextFloat() * 0.1;
+
+                    const at = (y * tile + x) * 4;
+                    self.frames[frame][at + 0] = wrapByte(level * level * 200.0 + 55.0);
+                    self.frames[frame][at + 1] = wrapByte(level * level * level * level * 255.0);
+                    self.frames[frame][at + 2] = wrapByte(level * 100.0 + 155.0);
+                    self.frames[frame][at + 3] = wrapByte(level * 100.0 + 155.0);
+                }
+            }
+        }
+        return self;
+    }
+
+    pub fn tick(self: *Portal) void {
+        self.counter +%= 1;
+        self.image = self.frames[self.counter & (portal_frames - 1)];
+    }
+};
+
 pub const compass_tile: u8 = 54;
 
 const compass_needle_grey: [4]u8 = .{ 100, 100, 100, 255 };
@@ -301,12 +362,13 @@ lava: Lava = .{ .flowing = false },
 lava_flow: Lava = .{ .flowing = true },
 flames: Flames = .{},
 flames_back: Flames = .{},
+portal: Portal = .{},
 compass: Compass = .{},
 clock: Clock = .{},
 rand: world.JavaRandom,
 
 pub fn init(seed: i64) TextureFx {
-    return .{ .rand = .init(seed) };
+    return .{ .rand = .init(seed), .portal = Portal.init() };
 }
 
 fn readTile(png: []const u8, index: u8, out: *[cells * 4]u8) !void {
@@ -341,6 +403,7 @@ pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64) void {
     self.lava_flow.tick(&self.rand);
     self.flames.tick(&self.rand);
     self.flames_back.tick(&self.rand);
+    self.portal.tick();
 }
 
 fn uploadTile(image: []const u8, index: u8, span: gl.int) void {
@@ -363,6 +426,7 @@ pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
     uploadTile(&self.lava_flow.image, lavaFlowTile(), 2);
     uploadTile(&self.flames.image, fire_tile, 1);
     uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1);
+    uploadTile(&self.portal.image, portal_tile, 1);
 
     items.bind();
     uploadTile(&self.compass.image, compass_tile, 1);
@@ -553,4 +617,27 @@ test "flames burn opaque orange at the base and fade to nothing at the top" {
     try std.testing.expect(lit > tile / 2);
 
     for (0..tile) |x| try std.testing.expectEqual(@as(u8, 0), fx.image[x * 4 + 3]);
+}
+
+test "the portal builds its thirty-two frames up front and cycles them" {
+    var fx: Portal = Portal.init();
+
+    const first = fx.frames[1];
+    fx.tick();
+    try std.testing.expectEqual(first, fx.image);
+
+    for (0..32) |_| fx.tick();
+    try std.testing.expectEqual(first, fx.image);
+}
+
+test "a portal frame is the purple TexturePortalFX draws, never fully transparent" {
+    const fx: Portal = Portal.init();
+
+    var any_lit = false;
+    for (0..cells) |i| {
+        const red = fx.frames[0][i * 4 + 0];
+        const blue = fx.frames[0][i * 4 + 2];
+        if (blue > red) any_lit = true;
+    }
+    try std.testing.expect(any_lit);
 }

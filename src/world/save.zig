@@ -6,6 +6,7 @@ const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
 const furnace = @import("furnace.zig");
 const nbt = @import("nbt.zig");
+const generator = @import("generator.zig");
 const RegionFile = @import("region.zig");
 
 pub const saves_dir_name = "saves";
@@ -42,6 +43,7 @@ pub const PlayerState = struct {
     death_time: i16 = 0,
     attack_time: i16 = 0,
     spawn: ?[3]i32 = null,
+    dimension: generator.Dimension = .overworld,
     inventory: []InventoryEntry = &.{},
 
     pub fn deinit(self: *PlayerState, gpa: std.mem.Allocator) void {
@@ -248,6 +250,19 @@ pub const Save = struct {
     lock_stamp: i64,
     regions: std.AutoHashMapUnmanaged(RegionKey, *RegionFile) = .{},
 
+    pub fn useDimension(self: *Save, gpa: std.mem.Allocator, io: std.Io, which: generator.Dimension) !void {
+        var it = self.regions.valueIterator();
+        while (it.next()) |open_region| {
+            open_region.*.close(gpa, io);
+            gpa.destroy(open_region.*);
+        }
+        self.regions.clearRetainingCapacity();
+
+        const opened = try self.dir.createDirPathOpen(io, which.regionPath(), .{ .open_options = .{ .iterate = true } });
+        self.region_dir.close(io);
+        self.region_dir = opened;
+    }
+
     pub fn checkLock(self: *const Save, io: std.Io) !void {
         const stamp = readLock(io, self.dir) catch return LockError.SaveInUse;
         if (stamp != self.lock_stamp) return LockError.SaveInUse;
@@ -438,7 +453,7 @@ fn playerToTag(gpa: std.mem.Allocator, player: PlayerState) !nbt.Tag {
     try put(gpa, &compound, "HurtTime", .{ .short = player.hurt_time });
     try put(gpa, &compound, "DeathTime", .{ .short = player.death_time });
     try put(gpa, &compound, "AttackTime", .{ .short = player.attack_time });
-    try put(gpa, &compound, "Dimension", .{ .int = 0 });
+    try put(gpa, &compound, "Dimension", .{ .int = @intFromEnum(player.dimension) });
     try put(gpa, &compound, "Sleeping", .{ .byte = 0 });
     try put(gpa, &compound, "SleepTimer", .{ .short = 0 });
     if (player.spawn) |spawn| {
@@ -582,6 +597,7 @@ fn playerFromTag(gpa: std.mem.Allocator, compound: nbt.Compound) !PlayerState {
     player.fall_distance = floatField(compound, "FallDistance", 0);
     player.fire = shortField(compound, "Fire", 0);
     player.air = shortField(compound, "Air", 300);
+    player.dimension = if (intField(compound, "Dimension", 0) == -1) .nether else .overworld;
     player.health = shortField(compound, "Health", default_health);
     player.hurt_time = shortField(compound, "HurtTime", 0);
     player.death_time = shortField(compound, "DeathTime", 0);
@@ -956,4 +972,80 @@ test "deleting a world removes it and refuses to escape the saves directory" {
     const summaries = try list(gpa, io, tmp.dir);
     defer freeList(gpa, summaries);
     try std.testing.expectEqual(@as(usize, 0), summaries.len);
+}
+
+test "each dimension keeps its chunks in its own region folder" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try open(io, tmp.dir, "Dimensions");
+    defer handle.close(gpa, io);
+
+    var overworld = Chunk.init(0, 0);
+    overworld.setBlock(0, 64, 0, .stone);
+    try handle.writeChunk(gpa, io, &overworld, 0, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+
+    try handle.useDimension(gpa, io, .nether);
+
+    var nether = Chunk.init(0, 0);
+    nether.setBlock(0, 64, 0, .netherrack);
+    try handle.writeChunk(gpa, io, &nether, 0, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
+
+    const from_nether = (try handle.readChunk(gpa, io, 0, 0, null, null)).?;
+    try std.testing.expectEqual(.netherrack, from_nether.chunk.getBlock(0, 64, 0));
+
+    try handle.useDimension(gpa, io, .overworld);
+    const from_overworld = (try handle.readChunk(gpa, io, 0, 0, null, null)).?;
+    try std.testing.expectEqual(.stone, from_overworld.chunk.getBlock(0, 64, 0));
+
+    var dim_dir = try tmp.dir.openDir(io, "Dimensions/DIM-1/region", .{ .iterate = true });
+    defer dim_dir.close(io);
+}
+
+test "the dimension a player logged out in comes back with them" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try open(io, tmp.dir, "Travelled");
+    defer handle.close(gpa, io);
+
+    var info: LevelInfo = .{
+        .seed = 5,
+        .name = try gpa.dupe(u8, "Travelled"),
+        .player = .{ .pos = .{ 1.5, 70.0, 2.5 }, .dimension = .nether },
+    };
+    defer info.deinit(gpa);
+    try handle.writeLevel(gpa, io, info);
+
+    var restored = try handle.readLevel(gpa, io);
+    defer restored.deinit(gpa);
+
+    try std.testing.expectEqual(generator.Dimension.nether, restored.player.?.dimension);
+}
+
+test "a world saved before dimensions existed loads as the overworld" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try open(io, tmp.dir, "Legacy");
+    defer handle.close(gpa, io);
+
+    var info: LevelInfo = .{
+        .seed = 5,
+        .name = try gpa.dupe(u8, "Legacy"),
+        .player = .{ .pos = .{ 0, 64, 0 } },
+    };
+    defer info.deinit(gpa);
+    try handle.writeLevel(gpa, io, info);
+
+    var restored = try handle.readLevel(gpa, io);
+    defer restored.deinit(gpa);
+
+    try std.testing.expectEqual(generator.Dimension.overworld, restored.player.?.dimension);
 }

@@ -1158,6 +1158,12 @@ pub fn buildBlockAt(
         return;
     }
 
+    if (id.shape() == .portal) {
+        const bounds = world.portal.bounds(world_map, x, y, z);
+        try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), x, y, z, origin, options);
+        return;
+    }
+
     if (id.shape() == .wire) {
         try buildWire(target, gpa, world_map, metadata, x, y, z, origin, options);
         return;

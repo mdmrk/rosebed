@@ -365,7 +365,7 @@ fn acceptLogin(
     try self.send(gpa, .{ .login = .{
         .protocol_version = @intCast(player.base.id),
         .username = "",
-        .map_seed = level.generator.world_seed,
+        .map_seed = level.generator.worldSeed(),
         .dimension = 0,
     } });
     try self.send(gpa, .{ .spawn_position = .{
@@ -620,7 +620,7 @@ fn sendChunk(self: *Session, gpa: std.mem.Allocator, level: *game.Level, coord: 
     while (dx <= 1) : (dx += 1) {
         var dz: i32 = -1;
         while (dz <= 1) : (dz += 1) {
-            try level.world_map.ensureDecorated(level.generator, coord.x + dx, coord.z + dz);
+            try level.world_map.ensureDecorated(&level.generator, coord.x + dx, coord.z + dz);
         }
     }
 
@@ -651,7 +651,7 @@ pub fn leave(self: *Session, gpa: std.mem.Allocator, level: *game.Level) void {
 }
 
 fn testLevel(gpa: std.mem.Allocator) !game.Level {
-    var level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 99));
+    var level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 99));
     errdefer level.deinit(gpa);
     level.spawn = .{ 8, 64, 8 };
     return level;
@@ -723,7 +723,7 @@ test "a login on the right protocol is answered with the joining sequence" {
     try std.testing.expectEqual(expected.len, replies.items.len);
     for (expected, replies.items) |want, got| try std.testing.expectEqual(want, got.id());
 
-    try std.testing.expectEqual(level.generator.world_seed, replies.items[1].login.map_seed);
+    try std.testing.expectEqual(level.generator.worldSeed(), replies.items[1].login.map_seed);
     try std.testing.expectEqual(@as(i32, 8), replies.items[2].spawn_position.x);
 }
 

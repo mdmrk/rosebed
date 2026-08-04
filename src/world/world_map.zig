@@ -15,6 +15,7 @@ const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
 const nbt = @import("nbt.zig");
 const piston = @import("piston.zig");
+const portal = @import("portal.zig");
 const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
@@ -91,6 +92,7 @@ time: i64 = 0,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
 editing_blocks: bool = false,
+brightness: [16]f32 = light.brightness_table,
 torch_updates: std.ArrayList(TorchUpdate) = .empty,
 entity_probe: ?EntityProbe = null,
 access: ?Access = null,
@@ -631,6 +633,7 @@ pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32, source
 }
 
 fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
+    if (id == .fire and self.getBlock(x, y - 1, z) == .obsidian) _ = try portal.tryCreate(self, x, y, z);
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
     try redstone.onBlockAdded(self, x, y, z, id);

@@ -214,7 +214,7 @@ fn queueOutbox(server: *Server, connection: *Connection) !void {
 }
 
 fn findSpawn(level: *game.Level) ![3]i32 {
-    try level.world_map.ensureDecorated(level.generator, 0, 0);
+    try level.world_map.ensureDecorated(&level.generator, 0, 0);
 
     var y: i32 = world.constants.chunk_height - 2;
     while (y > 0) : (y -= 1) {
@@ -226,7 +226,7 @@ fn findSpawn(level: *game.Level) ![3]i32 {
 
 fn saveWorld(server: *Server, handle: *world.save.Save, name: []const u8) !void {
     const info: world.save.LevelInfo = .{
-        .seed = server.level.generator.world_seed,
+        .seed = server.level.generator.worldSeed(),
         .spawn = server.level.spawn,
         .time = server.level.world_map.time,
         .last_played = world.RegionFile.unixMilliseconds(server.io),
@@ -341,7 +341,7 @@ pub fn main(init: std.process.Init) !void {
     var server: Server = .{
         .gpa = gpa,
         .io = io,
-        .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, seed)),
+        .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, seed)),
     };
     defer server.level.deinit(gpa);
     server.level.attach();

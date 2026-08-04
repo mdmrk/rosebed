@@ -5,6 +5,7 @@ const Side = @import("block.zig").Side;
 const World = @import("world_map.zig");
 
 const shears_max_damage: u16 = 238;
+const flint_and_steel_max_damage: u16 = 64;
 
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
@@ -254,6 +255,7 @@ pub const Item = enum(u16) {
     shovel_iron = 256,
     pickaxe_iron = 257,
     axe_iron = 258,
+    flint_and_steel = 259,
     apple = 260,
     bow = 261,
     arrow = 262,
@@ -457,6 +459,7 @@ pub const Item = enum(u16) {
 
     fn vanillaMaxDamage(self: Item) ?u16 {
         if (self == .shears) return shears_max_damage;
+        if (self == .flint_and_steel) return flint_and_steel_max_damage;
         if (self.vanillaTool()) |t| return t.material.maxUses();
         if (self.vanillaArmor()) |a| return a.maxDamage();
         return null;
@@ -645,6 +648,7 @@ pub const Item = enum(u16) {
             .cake => 1 * 16 + 13,
             .bed => 2 * 16 + 13,
             .shears => 5 * 16 + 13,
+            .flint_and_steel => 5,
             else => null,
         };
     }
@@ -750,6 +754,7 @@ pub const Item = enum(u16) {
             .cake => "Cake",
             .bed => "Bed",
             .shears => "Shears",
+            .flint_and_steel => "Flint and Steel",
             else => "",
         };
     }

@@ -451,7 +451,7 @@ pub fn reportPlace(
 const testing_username = "Tester";
 
 fn testLevel(gpa: std.mem.Allocator) !game.Level {
-    return game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 1));
+    return game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 1));
 }
 
 fn drain(gpa: std.mem.Allocator, connection: *Connection, out: *std.ArrayList(net.packet.Packet)) !void {

@@ -6,6 +6,7 @@ const constants = @import("constants.zig");
 const item = @import("item.zig");
 const light = @import("light.zig");
 const testing_world = @import("testing.zig");
+const portal = @import("portal.zig");
 const World = @import("world_map.zig");
 
 const fall_check_radius: i32 = 32;
@@ -407,6 +408,7 @@ pub fn canPlaceOnSide(world_map: *const World, x: i32, y: i32, z: i32, id: Block
 
 pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
     const id = world_map.getBlock(x, y, z);
+    if (id == .portal) return portal.onNeighborChange(world_map, x, y, z);
     if (id.def().on_neighbor_change) |hook| {
         try hook(world_map, x, y, z, id);
         if (world_map.getBlock(x, y, z) != id) return;

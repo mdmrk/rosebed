@@ -17,6 +17,7 @@ pub const Side = enum(u3) {
 pub const Material = enum {
     air,
     fire,
+    portal,
     rock,
     iron,
     ground,
@@ -42,7 +43,7 @@ pub const Material = enum {
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
-            .air, .fire, .plants, .snow, .circuits => false,
+            .air, .fire, .portal, .plants, .snow, .circuits => false,
             else => true,
         };
     }
@@ -60,7 +61,7 @@ pub const Material = enum {
 
     pub fn buildsNormalCube(self: Material) bool {
         return switch (self) {
-            .air, .fire, .plants, .circuits, .snow, .water, .lava => false,
+            .air, .fire, .portal, .plants, .circuits, .snow, .water, .lava => false,
             .leaves, .glass, .tnt, .ice, .cactus => false,
             else => true,
         };
@@ -77,6 +78,7 @@ pub const Material = enum {
 pub const Shape = union(enum) {
     cube,
     cross,
+    portal,
     torch,
     door,
     trapdoor,
@@ -280,6 +282,15 @@ fn plantBounds(half_width: f32, height: f32) Bounds {
     };
 }
 
+pub const portal_thickness: f32 = 2.0 / 16.0;
+
+pub fn portalBounds(spans_x: bool) Bounds {
+    return if (spans_x)
+        .{ .min = .{ 0.0, 0.0, 0.5 - portal_thickness }, .max = .{ 1.0, 1.0, 0.5 + portal_thickness } }
+    else
+        .{ .min = .{ 0.5 - portal_thickness, 0.0, 0.0 }, .max = .{ 0.5 + portal_thickness, 1.0, 1.0 } };
+}
+
 fn torchBounds(metadata: u4) Bounds {
     const wall: f32 = 0.15;
     return switch (metadata & 7) {
@@ -462,6 +473,7 @@ pub const Block = enum(u8) {
     netherrack = 87,
     soul_sand = 88,
     glowstone = 89,
+    portal = 90,
     jack_o_lantern = 91,
     cake = 92,
     repeater_off = 93,
@@ -530,6 +542,7 @@ pub const Block = enum(u8) {
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
             .fire => .fire,
+            .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
             else => .rock,
         };
@@ -543,6 +556,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
             .fire => .cross,
+            .portal => .portal,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
             .redstone_wire => .wire,
             .lever => .lever,
@@ -697,7 +711,7 @@ pub const Block = enum(u8) {
     }
 
     fn vanillaTranslucent(self: Block) bool {
-        return self.vanillaMaterial() == .water or self == .ice;
+        return self.vanillaMaterial() == .water or self == .ice or self == .portal;
     }
 
     pub fn isFalling(self: Block) bool {
@@ -733,6 +747,7 @@ pub const Block = enum(u8) {
             .reed => plantBounds(6.0 / 16.0, 1.0),
             .cactus => plantBounds(7.0 / 16.0, 1.0),
             .torch, .torch_redstone_off, .torch_redstone_on => torchBounds(metadata),
+            .portal => portalBounds(false),
             .redstone_wire => wire_bounds,
             .lever => leverBounds(metadata),
             .button => buttonBounds(metadata),
@@ -855,6 +870,7 @@ pub const Block = enum(u8) {
             .netherrack => uniform(103),
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
+            .portal => uniform(14),
             .cake => cakeTextures(0),
             .bed => bedTextures(0),
             .sign_post, .wall_sign => uniform(sign_particle_tile),
@@ -972,7 +988,7 @@ pub const Block = enum(u8) {
             .bed => 0.2,
             .sign_post, .wall_sign => 1.0,
             .piston, .piston_sticky, .piston_head => 0.5,
-            .piston_moving => -1.0,
+            .piston_moving, .portal => -1.0,
             else => 0.0,
         };
     }
@@ -1075,6 +1091,7 @@ pub const Block = enum(u8) {
             .snow_block => "Snow",
             .jukebox => "Jukebox",
             .fire => "Fire",
+            .portal => "Portal",
             .netherrack => "Netherrack",
             .soul_sand => "Soul Sand",
             .glowstone => "Glowstone",
@@ -1137,7 +1154,7 @@ pub const Block = enum(u8) {
             .door_wood => if (meta & door_top_bit != 0) null else .{ .id = .{ .item = .door_wood }, .count = 1 },
             .door_iron => if (meta & door_top_bit != 0) null else .{ .id = .{ .item = .door_iron }, .count = 1 },
             .glass, .bookshelf, .ice => null,
-            .fire => null,
+            .fire, .portal => null,
             .mob_spawner => null,
             .cake => null,
             .bed => if (bedIsPillow(meta)) null else .{ .id = .{ .item = .bed }, .count = 1 },
@@ -3120,4 +3137,36 @@ test "a registered block with no drop hook drops itself, as the vanilla fallthro
     custom.register(.{ .key = "rosebed:marble" });
 
     try std.testing.expectEqual(Id{ .block = custom }, custom.drop(0, &rand).?.id);
+}
+
+test "a portal cannot be broken, dropped, walked into or seen through as a solid" {
+    var rand = JavaRandom.init(0);
+
+    try std.testing.expectEqual(Material.portal, Block.portal.material());
+    try std.testing.expect(Block.portal.isUnbreakable());
+    try std.testing.expect(!Block.portal.hasCollision());
+    try std.testing.expect(!Block.portal.isOpaque());
+    try std.testing.expect(!Block.portal.isOpaqueCube());
+    try std.testing.expect(Block.portal.isTranslucent());
+    try std.testing.expect(Block.portal.drop(0, &rand) == null);
+    try std.testing.expectEqualStrings("Portal", Block.portal.displayName(0));
+}
+
+test "a portal is a thin sheet across whichever axis its neighbours run along" {
+    const across_z = portalBounds(false);
+    try std.testing.expectEqual(@as(f32, 0.5 - portal_thickness), across_z.min[0]);
+    try std.testing.expectEqual(@as(f32, 0.5 + portal_thickness), across_z.max[0]);
+    try std.testing.expectEqual(@as(f32, 0.0), across_z.min[2]);
+    try std.testing.expectEqual(@as(f32, 1.0), across_z.max[2]);
+
+    const across_x = portalBounds(true);
+    try std.testing.expectEqual(@as(f32, 0.0), across_x.min[0]);
+    try std.testing.expectEqual(@as(f32, 1.0), across_x.max[0]);
+    try std.testing.expectEqual(@as(f32, 0.5 - portal_thickness), across_x.min[2]);
+    try std.testing.expectEqual(@as(f32, 0.5 + portal_thickness), across_x.max[2]);
+
+    for ([_]Bounds{ across_x, across_z }) |shape| {
+        try std.testing.expectEqual(@as(f32, 0.0), shape.min[1]);
+        try std.testing.expectEqual(@as(f32, 1.0), shape.max[1]);
+    }
 }

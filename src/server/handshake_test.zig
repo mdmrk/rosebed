@@ -21,8 +21,8 @@ const Pair = struct {
     fn init(gpa: std.mem.Allocator) !Pair {
         return .{
             .gpa = gpa,
-            .server_level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 4242)),
-            .client_level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 0)),
+            .server_level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 4242)),
+            .client_level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 0)),
             .client_player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
         };
     }
@@ -140,7 +140,7 @@ test "a rosebed client and a rosebed server complete the join handshake" {
     try std.testing.expectEqual(remote.Connection.State.playing, pair.connection.state);
     try std.testing.expectEqualStrings("Tester", pair.session.name.text());
     try std.testing.expectEqual(pair.session.player.?.base.id, pair.connection.entity_id);
-    try std.testing.expectEqual(pair.server_level.generator.world_seed, pair.connection.map_seed);
+    try std.testing.expectEqual(pair.server_level.generator.worldSeed(), pair.connection.map_seed);
     try std.testing.expectEqual([3]i32{ 8, 70, 8 }, pair.connection.spawn);
 }
 
@@ -349,15 +349,15 @@ const Trio = struct {
     fn init(gpa: std.mem.Allocator) !Trio {
         return .{
             .gpa = gpa,
-            .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 77)),
+            .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 77)),
             .a = .{
                 .name = "Alice",
-                .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 0)),
+                .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 0)),
                 .player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
             },
             .b = .{
                 .name = "Bob",
-                .level = game.Level.init(gpa, try world.TerrainGenerator.init(gpa, 0)),
+                .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, 0)),
                 .player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
             },
         };

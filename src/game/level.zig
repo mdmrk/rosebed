@@ -12,8 +12,10 @@ const spawner = @import("spawner.zig");
 
 const Level = @This();
 
+const block_touch_inset: f64 = 0.001;
+
 world_map: world.World,
-generator: world.TerrainGenerator,
+generator: world.Generator,
 entities: Entities = .{},
 spawn: [3]i32 = .{ 0, 64, 0 },
 tick_count: u64 = 0,
@@ -30,7 +32,7 @@ pub fn players(self: *const Level) Animal.Players {
     return .of(self.views.items);
 }
 
-pub fn init(gpa: std.mem.Allocator, generator: world.TerrainGenerator) Level {
+pub fn init(gpa: std.mem.Allocator, generator: world.Generator) Level {
     return .{ .world_map = world.World.init(gpa), .generator = generator };
 }
 
@@ -98,9 +100,9 @@ pub fn closeWorld(self: *Level, gpa: std.mem.Allocator) void {
     self.attach();
 }
 
-pub fn reseed(self: *Level, gpa: std.mem.Allocator, seed: i64) !void {
+pub fn reseed(self: *Level, gpa: std.mem.Allocator, dimension: world.Dimension, seed: i64) !void {
     self.generator.deinit(gpa);
-    self.generator = try world.TerrainGenerator.init(gpa, seed);
+    self.generator = try world.Generator.init(gpa, dimension, seed);
 }
 
 pub fn dropStackAt(self: *Level, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, stack: Inventory.ItemStack) !void {
@@ -187,6 +189,34 @@ fn collideWithBlocks(self: *Level, box: math.AABB) !void {
     }
 }
 
+fn touchesPortal(world_map: *const world.World, box: math.AABB) bool {
+    const min_x = math.util.floorDouble(box.min_x + block_touch_inset);
+    const min_y = math.util.floorDouble(box.min_y + block_touch_inset);
+    const min_z = math.util.floorDouble(box.min_z + block_touch_inset);
+    const max_x = math.util.floorDouble(box.max_x - block_touch_inset);
+    const max_y = math.util.floorDouble(box.max_y - block_touch_inset);
+    const max_z = math.util.floorDouble(box.max_z - block_touch_inset);
+
+    var x = min_x;
+    while (x <= max_x) : (x += 1) {
+        var y = min_y;
+        while (y <= max_y) : (y += 1) {
+            var z = min_z;
+            while (z <= max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z) == .portal) return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn standInPortals(self: *Level) void {
+    for (self.occupants.items) |occupant| {
+        if (!occupant.active) continue;
+        if (touchesPortal(&self.world_map, occupant.player.base.boundingBox())) occupant.player.setInPortal();
+    }
+}
+
 fn pressPressurePlates(self: *Level) !void {
     for (self.occupants.items) |occupant| {
         if (occupant.active) try self.collideWithBlocks(occupant.player.base.boundingBox());
@@ -229,6 +259,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
         try self.world_map.tickRandomBlocks(center.x, center.z);
     }
     try self.pressPressurePlates();
+    self.standInPortals();
     try self.world_map.tickUpdates();
     try self.world_map.tickFurnaces();
     try self.world_map.tickPistons();
@@ -237,13 +268,13 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.refreshViews();
     try self.entities.tickMobs(gpa, &self.world_map, self.roster.items, self.players(), rand);
 
-    _ = try spawner.performSpawning(
+    if (self.generator.dimension() == .overworld) _ = try spawner.performSpawning(
         gpa,
         &self.entities,
         &self.world_map,
         self.views.items,
         self.spawn,
-        self.generator.world_seed,
+        self.generator.worldSeed(),
         rand,
     );
 
@@ -252,7 +283,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
 }
 
 fn testLevel(gpa: std.mem.Allocator) !Level {
-    var level = Level.init(gpa, try world.TerrainGenerator.init(gpa, 1));
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 1));
     errdefer level.deinit(gpa);
 
     var chunk_x: i32 = -1;
@@ -566,4 +597,87 @@ test "a level with nobody in it does not tick" {
 
     try level.tick(gpa, arena.allocator());
     try std.testing.expectEqual(@as(u64, 0), level.tick_count);
+}
+
+fn lightPortalAt(level: *Level, x: i32, y: i32, z: i32) !void {
+    var across: i32 = -1;
+    while (across <= 2) : (across += 1) {
+        var up: i32 = -1;
+        while (up <= 3) : (up += 1) {
+            const on_frame = across == -1 or across == 2 or up == -1 or up == 3;
+            const corner = (across == -1 or across == 2) and (up == -1 or up == 3);
+            if (!on_frame or corner) continue;
+            level.world_map.setBlock(x + across, y + up, z, .obsidian);
+        }
+    }
+    try std.testing.expect(try world.portal.tryCreate(&level.world_map, x, y, z));
+}
+
+test "a player standing in a portal is marked for travel, and one beside it is not" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    try lightPortalAt(&level, 8, 1, 8);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.time_until_portal = 0;
+    try enterLevel(gpa, &level, &player);
+
+    try level.tick(gpa, arena.allocator());
+    try std.testing.expect(player.in_portal);
+
+    player.in_portal = false;
+    player.base.position = math.Vec3.init(12.5, 1, 12.5);
+    try level.tick(gpa, arena.allocator());
+    try std.testing.expect(!player.in_portal);
+}
+
+test "an inactive occupant does not walk into portals either" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    try lightPortalAt(&level, 8, 1, 8);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.time_until_portal = 0;
+    try enterLevel(gpa, &level, &player);
+    level.setOccupantActive(false);
+
+    try level.tick(gpa, arena.allocator());
+    try std.testing.expect(!player.in_portal);
+}
+
+test "the nether spawns none of the overworld's animals" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .nether, 1));
+    defer level.deinit(gpa);
+
+    var chunk_x: i32 = -1;
+    while (chunk_x <= 1) : (chunk_x += 1) {
+        var chunk_z: i32 = -1;
+        while (chunk_z <= 1) : (chunk_z += 1) {
+            const chunk = try level.world_map.createChunk(chunk_x, chunk_z);
+            for (0..world.constants.chunk_width) |x| {
+                for (0..world.constants.chunk_width) |z| {
+                    chunk.setBlock(@intCast(x), 0, @intCast(z), .netherrack);
+                }
+            }
+        }
+    }
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+
+    for (0..200) |_| try level.tick(gpa, arena.allocator());
+
+    try std.testing.expectEqual(@as(usize, 0), level.entities.mobs.items.len);
 }
