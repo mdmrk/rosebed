@@ -20,12 +20,14 @@ pub const Id = enum(u8) {
     block_item_switch = 16,
     animation = 18,
     named_entity_spawn = 20,
+    mob_spawn = 24,
     destroy_entity = 29,
     entity = 30,
     rel_entity_move = 31,
     entity_look = 32,
     rel_entity_move_look = 33,
     entity_teleport = 34,
+    entity_metadata = 40,
     pre_chunk = 50,
     map_chunk = 51,
     multi_block_change = 52,
@@ -57,12 +59,14 @@ pub fn direction(id: Id) Direction {
         .block_item_switch => .{ .to_client = false, .to_server = true },
         .animation => .{ .to_client = true, .to_server = true },
         .named_entity_spawn => .{ .to_client = true, .to_server = false },
+        .mob_spawn => .{ .to_client = true, .to_server = false },
         .destroy_entity => .{ .to_client = true, .to_server = false },
         .entity => .{ .to_client = true, .to_server = false },
         .rel_entity_move => .{ .to_client = true, .to_server = false },
         .entity_look => .{ .to_client = true, .to_server = false },
         .rel_entity_move_look => .{ .to_client = true, .to_server = false },
         .entity_teleport => .{ .to_client = true, .to_server = false },
+        .entity_metadata => .{ .to_client = true, .to_server = false },
         .pre_chunk => .{ .to_client = true, .to_server = false },
         .map_chunk => .{ .to_client = true, .to_server = false },
         .multi_block_change => .{ .to_client = true, .to_server = false },
@@ -80,6 +84,75 @@ pub const Stack = struct {
     id: i16,
     count: i8,
     damage: i16,
+};
+
+pub const max_metadata_text = 64;
+pub const metadata_end: u8 = 127;
+
+pub const Metadata = struct {
+    entries: []const Entry = &.{},
+
+    pub const Kind = enum(u3) { byte, short, int, float, text, stack, coords };
+
+    pub const Value = union(Kind) {
+        byte: i8,
+        short: i16,
+        int: i32,
+        float: f32,
+        text: []const u8,
+        stack: Stack,
+        coords: [3]i32,
+    };
+
+    pub const Entry = struct { key: u5, value: Value };
+
+    pub fn find(self: Metadata, key: u5) ?Value {
+        for (self.entries) |entry| {
+            if (entry.key == key) return entry.value;
+        }
+        return null;
+    }
+
+    pub fn byteAt(self: Metadata, key: u5) ?i8 {
+        const value = self.find(key) orelse return null;
+        return switch (value) {
+            .byte => |raw| raw,
+            else => null,
+        };
+    }
+
+    pub fn intAt(self: Metadata, key: u5) ?i32 {
+        const value = self.find(key) orelse return null;
+        return switch (value) {
+            .int => |raw| raw,
+            else => null,
+        };
+    }
+
+    pub fn textAt(self: Metadata, key: u5) ?[]const u8 {
+        const value = self.find(key) orelse return null;
+        return switch (value) {
+            .text => |raw| raw,
+            else => null,
+        };
+    }
+};
+
+pub const Watched = struct {
+    entries: [max_watched]Metadata.Entry = undefined,
+    len: usize = 0,
+
+    pub const max_watched = 32;
+
+    pub fn add(self: *Watched, key: u5, value: Metadata.Value) void {
+        std.debug.assert(self.len < max_watched);
+        self.entries[self.len] = .{ .key = key, .value = value };
+        self.len += 1;
+    }
+
+    pub fn view(self: *const Watched) Metadata {
+        return .{ .entries = self.entries[0..self.len] };
+    }
 };
 
 pub const Packet = union(Id) {
@@ -128,6 +201,16 @@ pub const Packet = union(Id) {
         pitch: i8,
         current_item: i16,
     },
+    mob_spawn: struct {
+        entity_id: i32,
+        kind: u8,
+        x: i32,
+        y: i32,
+        z: i32,
+        yaw: i8,
+        pitch: i8,
+        metadata: Metadata,
+    },
     destroy_entity: struct { entity_id: i32 },
     entity: struct { entity_id: i32 },
     rel_entity_move: struct { entity_id: i32, dx: i8, dy: i8, dz: i8 },
@@ -148,6 +231,7 @@ pub const Packet = union(Id) {
         yaw: i8,
         pitch: i8,
     },
+    entity_metadata: struct { entity_id: i32, metadata: Metadata },
     pre_chunk: struct { x: i32, z: i32, load: bool },
     map_chunk: struct {
         x: i32,
@@ -178,6 +262,8 @@ pub const Packet = union(Id) {
             .handshake => |body| gpa.free(body.username),
             .chat => |body| gpa.free(body.message),
             .named_entity_spawn => |body| gpa.free(body.name),
+            .mob_spawn => |body| freeMetadata(gpa, body.metadata),
+            .entity_metadata => |body| freeMetadata(gpa, body.metadata),
             .kick_disconnect => |body| gpa.free(body.reason),
             .map_chunk => |body| gpa.free(body.compressed),
             .multi_block_change => |body| {
@@ -196,6 +282,7 @@ pub const ReadError = error{
     StringTooLong,
     NegativeLength,
     InvalidUtf16,
+    UnknownMetadataType,
 } || std.mem.Allocator.Error || std.Io.Reader.Error || error{EndOfStream};
 
 pub const WriteError = error{ StringTooLong, InvalidUtf8 } ||
@@ -216,7 +303,10 @@ fn readString(gpa: std.mem.Allocator, r: *std.Io.Reader, limit: u16) ![]u8 {
     };
 }
 
-const longest_string = @max(@max(max_username, max_handshake_name), @max(max_chat, max_kick_reason));
+const longest_string = @max(
+    @max(max_username, max_handshake_name),
+    @max(@max(max_chat, max_kick_reason), max_metadata_text),
+);
 
 fn writeString(w: *std.Io.Writer, text: []const u8, limit: u16) !void {
     const length = std.unicode.calcUtf16LeLen(text) catch return error.InvalidUtf8;
@@ -244,6 +334,85 @@ fn writeStack(w: *std.Io.Writer, held: ?Stack) !void {
     try w.writeInt(i16, stack.id, .big);
     try w.writeInt(i8, stack.count, .big);
     try w.writeInt(i16, stack.damage, .big);
+}
+
+fn freeMetadata(gpa: std.mem.Allocator, metadata: Metadata) void {
+    for (metadata.entries) |entry| {
+        switch (entry.value) {
+            .text => |raw| gpa.free(raw),
+            else => {},
+        }
+    }
+    gpa.free(metadata.entries);
+}
+
+fn readMetadata(gpa: std.mem.Allocator, r: *std.Io.Reader) !Metadata {
+    var entries: std.ArrayList(Metadata.Entry) = .empty;
+    errdefer {
+        for (entries.items) |entry| {
+            switch (entry.value) {
+                .text => |raw| gpa.free(raw),
+                else => {},
+            }
+        }
+        entries.deinit(gpa);
+    }
+
+    while (true) {
+        const header = try r.takeInt(u8, .big);
+        if (header == metadata_end) break;
+
+        const kind = std.enums.fromInt(Metadata.Kind, @as(u3, @truncate(header >> 5))) orelse
+            return error.UnknownMetadataType;
+        const key: u5 = @truncate(header);
+
+        const value: Metadata.Value = switch (kind) {
+            .byte => .{ .byte = try r.takeInt(i8, .big) },
+            .short => .{ .short = try r.takeInt(i16, .big) },
+            .int => .{ .int = try r.takeInt(i32, .big) },
+            .float => .{ .float = @bitCast(try r.takeInt(u32, .big)) },
+            .text => .{ .text = try readString(gpa, r, max_metadata_text) },
+            .stack => .{ .stack = .{
+                .id = try r.takeInt(i16, .big),
+                .count = try r.takeInt(i8, .big),
+                .damage = try r.takeInt(i16, .big),
+            } },
+            .coords => .{ .coords = .{
+                try r.takeInt(i32, .big),
+                try r.takeInt(i32, .big),
+                try r.takeInt(i32, .big),
+            } },
+        };
+        errdefer switch (value) {
+            .text => |raw| gpa.free(raw),
+            else => {},
+        };
+
+        try entries.append(gpa, .{ .key = key, .value = value });
+    }
+
+    return .{ .entries = try entries.toOwnedSlice(gpa) };
+}
+
+fn writeMetadata(w: *std.Io.Writer, metadata: Metadata) !void {
+    for (metadata.entries) |entry| {
+        const kind: u8 = @intFromEnum(std.meta.activeTag(entry.value));
+        try w.writeInt(u8, (kind << 5) | entry.key, .big);
+        switch (entry.value) {
+            .byte => |raw| try w.writeInt(i8, raw, .big),
+            .short => |raw| try w.writeInt(i16, raw, .big),
+            .int => |raw| try w.writeInt(i32, raw, .big),
+            .float => |raw| try w.writeInt(u32, @bitCast(raw), .big),
+            .text => |raw| try writeString(w, raw, max_metadata_text),
+            .stack => |raw| {
+                try w.writeInt(i16, raw.id, .big);
+                try w.writeInt(i8, raw.count, .big);
+                try w.writeInt(i16, raw.damage, .big);
+            },
+            .coords => |raw| for (raw) |axis| try w.writeInt(i32, axis, .big),
+        }
+    }
+    try w.writeInt(u8, metadata_end, .big);
 }
 
 fn takeBytes(gpa: std.mem.Allocator, r: *std.Io.Reader, length: usize) ![]u8 {
@@ -349,6 +518,25 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
                 .current_item = try r.takeInt(i16, .big),
             } };
         },
+        .mob_spawn => {
+            const entity_id = try r.takeInt(i32, .big);
+            const kind = try r.takeInt(u8, .big);
+            const x = try r.takeInt(i32, .big);
+            const y = try r.takeInt(i32, .big);
+            const z = try r.takeInt(i32, .big);
+            const yaw = try r.takeInt(i8, .big);
+            const pitch = try r.takeInt(i8, .big);
+            return .{ .mob_spawn = .{
+                .entity_id = entity_id,
+                .kind = kind,
+                .x = x,
+                .y = y,
+                .z = z,
+                .yaw = yaw,
+                .pitch = pitch,
+                .metadata = try readMetadata(gpa, r),
+            } };
+        },
         .destroy_entity => return .{ .destroy_entity = .{ .entity_id = try r.takeInt(i32, .big) } },
         .entity => return .{ .entity = .{ .entity_id = try r.takeInt(i32, .big) } },
         .rel_entity_move => return .{ .rel_entity_move = .{
@@ -378,6 +566,13 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .yaw = try r.takeInt(i8, .big),
             .pitch = try r.takeInt(i8, .big),
         } },
+        .entity_metadata => {
+            const entity_id = try r.takeInt(i32, .big);
+            return .{ .entity_metadata = .{
+                .entity_id = entity_id,
+                .metadata = try readMetadata(gpa, r),
+            } };
+        },
         .pre_chunk => return .{ .pre_chunk = .{
             .x = try r.takeInt(i32, .big),
             .z = try r.takeInt(i32, .big),
@@ -505,6 +700,16 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i8, body.pitch, .big);
             try w.writeInt(i16, body.current_item, .big);
         },
+        .mob_spawn => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(u8, body.kind, .big);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(i8, body.yaw, .big);
+            try w.writeInt(i8, body.pitch, .big);
+            try writeMetadata(w, body.metadata);
+        },
         .destroy_entity => |body| try w.writeInt(i32, body.entity_id, .big),
         .entity => |body| try w.writeInt(i32, body.entity_id, .big),
         .rel_entity_move => |body| {
@@ -533,6 +738,10 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i32, body.z, .big);
             try w.writeInt(i8, body.yaw, .big);
             try w.writeInt(i8, body.pitch, .big);
+        },
+        .entity_metadata => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try writeMetadata(w, body.metadata);
         },
         .pre_chunk => |body| {
             try w.writeInt(i32, body.x, .big);
@@ -666,6 +875,40 @@ const golden = [_]Golden{
             .current_item = 278,
         } },
     },
+    .{
+        .hex = "18000010925a000003e800000800fffffeb340f0000010017f",
+        .packet = .{ .mob_spawn = .{
+            .entity_id = 4242,
+            .kind = 90,
+            .x = 1000,
+            .y = 2048,
+            .z = -333,
+            .yaw = 64,
+            .pitch = -16,
+            .metadata = .{ .entries = &.{
+                .{ .key = 0, .value = .{ .byte = 0 } },
+                .{ .key = 16, .value = .{ .byte = 1 } },
+            } },
+        } },
+    },
+    .{
+        .hex = "18000000075fffffffff0000000000000020000000011003910005004e006f00740063006852000000147f",
+        .packet = .{ .mob_spawn = .{
+            .entity_id = 7,
+            .kind = 95,
+            .x = -1,
+            .y = 0,
+            .z = 32,
+            .yaw = 0,
+            .pitch = 0,
+            .metadata = .{ .entries = &.{
+                .{ .key = 0, .value = .{ .byte = 1 } },
+                .{ .key = 16, .value = .{ .byte = 3 } },
+                .{ .key = 17, .value = .{ .text = "Notch" } },
+                .{ .key = 18, .value = .{ .int = 20 } },
+            } },
+        } },
+    },
     .{ .hex = "1d00000037", .packet = .{ .destroy_entity = .{ .entity_id = 55 } } },
     .{ .hex = "1e00000038", .packet = .{ .entity = .{ .entity_id = 56 } } },
     .{ .hex = "1f00000039fd0480", .packet = .{ .rel_entity_move = .{
@@ -695,6 +938,31 @@ const golden = [_]Golden{
         .yaw = -90,
         .pitch = 12,
     } } },
+    .{
+        .hex = "280000006300fe21012c42fffeee90633f00000084000200680069c600000001fffffffe000000037f",
+        .packet = .{ .entity_metadata = .{
+            .entity_id = 99,
+            .metadata = .{ .entries = &.{
+                .{ .key = 0, .value = .{ .byte = -2 } },
+                .{ .key = 1, .value = .{ .short = 300 } },
+                .{ .key = 2, .value = .{ .int = -70000 } },
+                .{ .key = 3, .value = .{ .float = 0.5 } },
+                .{ .key = 4, .value = .{ .text = "hi" } },
+                .{ .key = 6, .value = .{ .coords = .{ 1, -2, 3 } } },
+            } },
+        } },
+    },
+    .{ .hex = "28000000057f", .packet = .{ .entity_metadata = .{ .entity_id = 5, .metadata = .{} } } },
+    .{
+        .hex = "2800000007100452000000087f",
+        .packet = .{ .entity_metadata = .{
+            .entity_id = 7,
+            .metadata = .{ .entries = &.{
+                .{ .key = 16, .value = .{ .byte = 4 } },
+                .{ .key = 18, .value = .{ .int = 8 } },
+            } },
+        } },
+    },
     .{ .hex = "32fffffffc0000000901", .packet = .{ .pre_chunk = .{ .x = -4, .z = 9, .load = true } } },
     .{ .hex = "33ffffffe00000000000300f7f0f000000050102030405", .packet = .{ .map_chunk = .{
         .x = -32,
@@ -792,12 +1060,14 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .block_item_switch, .to_client = false, .to_server = true },
         .{ .id = .animation, .to_client = true, .to_server = true },
         .{ .id = .named_entity_spawn, .to_client = true, .to_server = false },
+        .{ .id = .mob_spawn, .to_client = true, .to_server = false },
         .{ .id = .destroy_entity, .to_client = true, .to_server = false },
         .{ .id = .entity, .to_client = true, .to_server = false },
         .{ .id = .rel_entity_move, .to_client = true, .to_server = false },
         .{ .id = .entity_look, .to_client = true, .to_server = false },
         .{ .id = .rel_entity_move_look, .to_client = true, .to_server = false },
         .{ .id = .entity_teleport, .to_client = true, .to_server = false },
+        .{ .id = .entity_metadata, .to_client = true, .to_server = false },
         .{ .id = .pre_chunk, .to_client = true, .to_server = false },
         .{ .id = .map_chunk, .to_client = true, .to_server = false },
         .{ .id = .multi_block_change, .to_client = true, .to_server = false },
@@ -872,6 +1142,58 @@ test "a string that fills its whole allowance still fits" {
     const decoded = try decode(gpa, encoded, true);
     defer decoded.deinit(gpa);
     try std.testing.expectEqualStrings(full, decoded.chat.message);
+}
+
+test "a watched stack survives the trip the golden set cannot reach" {
+    const gpa = std.testing.allocator;
+
+    const encoded = try encodeAlloc(gpa, .{ .entity_metadata = .{
+        .entity_id = 3,
+        .metadata = .{ .entries = &.{
+            .{ .key = 10, .value = .{ .stack = .{ .id = 280, .count = 3, .damage = 7 } } },
+        } },
+    } });
+    defer gpa.free(encoded);
+
+    try std.testing.expectEqualSlices(u8, &.{ 0x28, 0, 0, 0, 3, 0xaa, 1, 24, 3, 0, 7, metadata_end }, encoded);
+
+    const decoded = try decode(gpa, encoded, false);
+    defer decoded.deinit(gpa);
+
+    const value = decoded.entity_metadata.metadata.find(10).?;
+    try std.testing.expectEqual(@as(i16, 280), value.stack.id);
+    try std.testing.expectEqual(@as(i8, 3), value.stack.count);
+    try std.testing.expectEqual(@as(i16, 7), value.stack.damage);
+}
+
+test "a watched value of a type the protocol does not define is refused" {
+    const gpa = std.testing.allocator;
+    try std.testing.expectError(
+        error.UnknownMetadataType,
+        decode(gpa, &.{ 0x28, 0, 0, 0, 1, 0xe0, 0 }, false),
+    );
+}
+
+test "a mob spawn with nothing watched still carries the terminator" {
+    const gpa = std.testing.allocator;
+
+    const encoded = try encodeAlloc(gpa, .{ .mob_spawn = .{
+        .entity_id = 1,
+        .kind = 91,
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .yaw = 0,
+        .pitch = 0,
+        .metadata = .{},
+    } });
+    defer gpa.free(encoded);
+
+    try std.testing.expectEqual(metadata_end, encoded[encoded.len - 1]);
+
+    const decoded = try decode(gpa, encoded, false);
+    defer decoded.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 0), decoded.mob_spawn.metadata.entries.len);
 }
 
 test "a packet body reads exactly as many bytes as vanilla wrote" {
