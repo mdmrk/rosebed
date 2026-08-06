@@ -348,6 +348,10 @@ pub fn hurt(self: *Player, amount: i32) void {
     self.damageFrom(amount, null);
 }
 
+pub fn tp(self: *Player, pos: math.Vec3) void {
+    self.base.position = pos;
+}
+
 pub fn hurtFrom(self: *Player, amount: i32, source: math.Vec3) void {
     self.damageFrom(amount, source);
 }

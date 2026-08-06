@@ -11,6 +11,7 @@ pub const Verb = enum {
     spawn,
     seed,
     time,
+    tp,
 
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
@@ -20,6 +21,7 @@ pub const Verb = enum {
             .spawn => "<mob> [num]",
             .seed => "<|copy>",
             .time => "<add|set> <amount>",
+            .tp => "<player> <x> <y> <z>",
         };
     }
 
@@ -31,6 +33,7 @@ pub const Verb = enum {
             .spawn => "spawns a mob where you look",
             .seed => "shows world seed",
             .time => "adds to or sets the world time (0-24000)",
+            .tp => "teleports player to position in world",
         };
     }
 };
@@ -60,6 +63,13 @@ pub const Time = struct {
     pub const Method = enum { add, set };
 };
 
+pub const Tp = struct {
+    user: []const u8,
+    x: f64,
+    y: f64,
+    z: f64,
+};
+
 pub const Result = union(enum) {
     nothing,
     help,
@@ -68,11 +78,12 @@ pub const Result = union(enum) {
     give: Give,
     spawn: Spawn,
     time: Time,
-    unparsed_item: []const u8,
+    tp: Tp,
     missing_item: u32,
     missing_user: []const u8,
     missing_mob: []const u8,
-    unparsed_time: []const u8,
+    unparsed: []const u8,
+    unparsed_item: []const u8,
     unknown_method: []const u8,
     unknown: []const u8,
 };
@@ -104,8 +115,6 @@ pub const help_lines: []const []const u8 = blk: {
 pub const unknown_command_line = "Unknown command. Type /help for a list.";
 
 pub const kill_line = "Ouch. That look like it hurt.";
-
-pub const unknown_method_line = "Unknown method, use ";
 
 fn tryParse(text: ?[]const u8, fallback: u8) u8 {
     const raw = std.fmt.parseInt(u32, text orelse return fallback, 10) catch return fallback;
@@ -154,6 +163,7 @@ pub fn parse(line: []const u8, username: []const u8) Result {
         .spawn => parseSpawn(&words),
         .seed => parseSeed(&words),
         .time => parseTime(&words),
+        .tp => parseTp(&words),
     };
 }
 
@@ -201,9 +211,22 @@ fn parseTime(words: *Words) Result {
     const amount_text = words.next() orelse return .nothing;
     if (words.next() != null) return .nothing;
 
-    const amount = std.fmt.parseInt(i32, amount_text, 10) catch return .{ .unparsed_time = amount_text };
+    const amount = std.fmt.parseInt(i32, amount_text, 10) catch return .{ .unparsed = amount_text };
     const method = std.meta.stringToEnum(Time.Method, method_text) orelse return .{ .unknown_method = "either \"add\" or \"set\"" };
     return .{ .time = .{ .method = method, .amount = amount } };
+}
+
+fn parseTp(words: *Words) Result {
+    const user = words.next() orelse return .nothing;
+    const x_text = words.next() orelse return .nothing;
+    const y_text = words.next() orelse return .nothing;
+    const z_text = words.next() orelse return .nothing;
+    if (words.next() != null) return .nothing;
+
+    const x = std.fmt.parseFloat(f64, x_text) catch return .{ .unparsed = x_text };
+    const y = std.fmt.parseFloat(f64, y_text) catch return .{ .unparsed = y_text };
+    const z = std.fmt.parseFloat(f64, z_text) catch return .{ .unparsed = z_text };
+    return .{ .tp = .{ .user = user, .x = x, .y = y, .z = z } };
 }
 
 const local_user = "Player";
@@ -286,9 +309,9 @@ test "time adds to or sets the clock" {
 }
 
 test "time reads its amount before it judges the method" {
-    try std.testing.expectEqualStrings("noon", parse("/time set noon", local_user).unparsed_time);
-    try std.testing.expectEqualStrings("noon", parse("/time skip noon", local_user).unparsed_time);
-    try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999", local_user).unparsed_time);
+    try std.testing.expectEqualStrings("noon", parse("/time set noon", local_user).unparsed);
+    try std.testing.expectEqualStrings("noon", parse("/time skip noon", local_user).unparsed);
+    try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999", local_user).unparsed);
     try std.testing.expect(parse("/time skip 1000", local_user) == .unknown_method);
     try std.testing.expect(parse("/time Set 1000", local_user) == .unknown_method);
 }

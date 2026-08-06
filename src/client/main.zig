@@ -1084,24 +1084,28 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
-        .time => |command| {
-            switch (command.method) {
+        .time => |time| {
+            switch (time.method) {
                 .add => {
-                    app_state.level.world_map.setTime(app_state.level.world_map.time + command.amount);
-                    reply(app_state, "Added {d} to time", .{command.amount});
+                    app_state.level.world_map.setTime(app_state.level.world_map.time + time.amount);
+                    reply(app_state, "Added {d} to time", .{time.amount});
                 },
                 .set => {
-                    app_state.level.world_map.setTime(command.amount);
-                    reply(app_state, "Set time to {d}", .{command.amount});
+                    app_state.level.world_map.setTime(time.amount);
+                    reply(app_state, "Set time to {d}", .{time.amount});
                 },
             }
+        },
+        .tp => |tp| {
+            var player = &app_state.player;
+            player.tp(.{ .x = tp.x, .y = tp.y, .z = tp.z });
         },
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
         .missing_user => |name| reply(app_state, "Can't find user {s}", .{name}),
         .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
-        .unparsed_time => |text| reply(app_state, "Unable to convert time value, {s}", .{text}),
-        .unknown_method => |text| reply(app_state, "{s}{s}", .{ game.commands.unknown_method_line, text }),
+        .unparsed => |text| reply(app_state, "Unable to parse value, {s}", .{text}),
+        .unknown_method => |text| reply(app_state, "Unknown method, use {s}", .{text}),
         .unknown => app_state.chat.addMessage(app_state.font, game.commands.unknown_command_line),
     }
 }
