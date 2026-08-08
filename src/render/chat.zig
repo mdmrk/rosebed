@@ -46,9 +46,15 @@ pub const State = struct {
     lines: [max_lines]Line = @splat(.{}),
     line_count: usize = 0,
     open: bool = false,
+
     message_bytes: [max_message_length]u8 = undefined,
     message_len: usize = 0,
     blink: u32 = 0,
+
+    history: [max_lines][max_message_length]u8 = undefined,
+    history_lengths: [max_lines]usize = [_]usize{0} ** max_lines,
+    history_line_count: usize = 0,
+    history_pointer: usize = 0,
 
     pub fn message(self: *const State) []const u8 {
         return self.message_bytes[0..self.message_len];
@@ -58,24 +64,56 @@ pub const State = struct {
         self.open = true;
         self.message_len = 0;
         self.blink = 0;
+        self.history_pointer = self.history_line_count;
     }
 
     pub fn closeInput(self: *State) void {
         self.open = false;
         self.message_len = 0;
+        self.history_pointer = self.history_line_count;
     }
 
     pub fn typeText(self: *State, value: []const u8) void {
         for (value) |c| {
             if (self.message_len == max_message_length) return;
             if (!isAllowed(c)) continue;
+
             self.message_bytes[self.message_len] = c;
             self.message_len += 1;
         }
     }
 
+    pub fn setText(self: *State, text: []const u8) void {
+        const len = @min(text.len, max_message_length);
+        @memcpy(self.message_bytes[0..len], text[0..len]);
+        self.message_len = len;
+    }
+
     pub fn backspace(self: *State) void {
         if (self.message_len > 0) self.message_len -= 1;
+    }
+
+    pub fn setTextFromHistory(self: *State, offset: i32) void {
+        if (self.history_line_count == 0) return;
+
+        const current: i32 = @intCast(self.history_pointer);
+        const max_pointer: i32 = @intCast(self.history_line_count);
+
+        const next: usize = @intCast(std.math.clamp(
+            current + offset,
+            0,
+            max_pointer,
+        ));
+
+        self.history_pointer = next;
+
+        if (next == self.history_line_count) {
+            self.setText("");
+            return;
+        }
+
+        const len = self.history_lengths[next];
+        self.setText(self.history[next][0..len]);
     }
 
     pub fn tick(self: *State) void {
@@ -89,17 +127,23 @@ pub const State = struct {
 
     pub fn addMessage(self: *State, font: Font, text: []const u8) void {
         var rest = text;
+
         while (font.stringWidth(rest) > wrap_width) {
             var split: usize = 1;
-            while (split < rest.len and font.stringWidth(rest[0 .. split + 1]) <= wrap_width) : (split += 1) {}
+            while (split < rest.len and
+                font.stringWidth(rest[0 .. split + 1]) <= wrap_width) : (split += 1)
+            {}
+
             self.pushLine(rest[0..split]);
             rest = rest[split..];
         }
+
         self.pushLine(rest);
     }
 
     fn pushLine(self: *State, text: []const u8) void {
         if (self.line_count < max_lines) self.line_count += 1;
+
         var i = self.line_count - 1;
         while (i > 0) : (i -= 1) self.lines[i] = self.lines[i - 1];
 
@@ -107,6 +151,34 @@ pub const State = struct {
         @memcpy(self.lines[0].bytes[0..len], text[0..len]);
         self.lines[0].len = len;
         self.lines[0].age = 0;
+    }
+
+    pub fn pushHistory(self: *State, text: []const u8) void {
+        const len = @min(text.len, max_message_length);
+
+        if (self.history_line_count < max_lines) {
+            self.history_line_count += 1;
+        }
+
+        var i = self.history_line_count - 1;
+        while (i > 0) : (i -= 1) {
+            const old_len = self.history_lengths[i - 1];
+
+            self.history_lengths[i] = old_len;
+
+            if (old_len > 0) {
+                @memcpy(
+                    self.history[i][0..old_len],
+                    self.history[i - 1][0..old_len],
+                );
+            }
+        }
+
+        if (len > 0) {
+            @memcpy(self.history[0][0..len], text[0..len]);
+        }
+        self.history_lengths[0] = len;
+        self.history_pointer = self.history_line_count;
     }
 
     fn cursorVisible(self: *const State) bool {
@@ -175,6 +247,47 @@ test "a line fades out over two hundred ticks the way the overlay squares it" {
 test "an open chat holds every line at full opacity" {
     try std.testing.expectEqual(@as(u8, 255), lineAlpha(0, true));
     try std.testing.expectEqual(@as(u8, 255), lineAlpha(5000, true));
+}
+
+test "history owns copied message data" {
+    var state: State = .{};
+
+    var input: [max_message_length]u8 = undefined;
+    @memcpy(input[0..5], "first");
+    state.pushHistory(input[0..5]);
+
+    @memcpy(input[0..6], "second");
+    state.pushHistory(input[0..6]);
+
+    try std.testing.expectEqual(@as(usize, 2), state.history_line_count);
+    try std.testing.expectEqualStrings("second", state.history[0][0..state.history_lengths[0]]);
+    try std.testing.expectEqualStrings("first", state.history[1][0..state.history_lengths[1]]);
+}
+
+test "history navigation handles empty history" {
+    var state: State = .{};
+    state.setTextFromHistory(-1);
+    try std.testing.expectEqual(@as(usize, 0), state.message().len);
+}
+
+test "history navigation goes newest to oldest and back to empty" {
+    var state: State = .{};
+    state.pushHistory("first");
+    state.pushHistory("second");
+
+    state.openInput();
+
+    state.setTextFromHistory(-1);
+    try std.testing.expectEqualStrings("second", state.message());
+
+    state.setTextFromHistory(-1);
+    try std.testing.expectEqualStrings("first", state.message());
+
+    state.setTextFromHistory(1);
+    try std.testing.expectEqualStrings("second", state.message());
+
+    state.setTextFromHistory(1);
+    try std.testing.expectEqualStrings("", state.message());
 }
 
 test "the newest message sits at index zero" {

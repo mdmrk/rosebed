@@ -1015,6 +1015,7 @@ fn sendChat(app_state: *AppState) !void {
             const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
             app_state.chat.addMessage(app_state.font, line);
         }
+        app_state.chat.pushHistory(trimmed);
     }
     try closeChat(app_state);
 }
@@ -3445,6 +3446,10 @@ pub fn event(
                     try sendChat(app_state);
                 } else if (k.key == .backspace) {
                     app_state.chat.backspace();
+                } else if (k.key == .up) {
+                    app_state.chat.setTextFromHistory(-1);
+                } else if (k.key == .down) {
+                    app_state.chat.setTextFromHistory(1);
                 }
             } else if (k.key == .escape) {
                 if (containerOpen(app_state)) {
