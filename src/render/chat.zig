@@ -89,8 +89,19 @@ pub const State = struct {
         self.message_len = len;
     }
 
-    pub fn backspace(self: *State) void {
-        if (self.message_len > 0) self.message_len -= 1;
+    pub fn backspace(self: *State, word_delete: bool) void {
+        if (self.message_len > 0) {
+            if (word_delete) {
+                while (self.message_len > 0 and std.ascii.isWhitespace(self.message_bytes[self.message_len - 1])) {
+                    self.message_len -= 1;
+                }
+                while (self.message_len > 0 and !std.ascii.isWhitespace(self.message_bytes[self.message_len - 1])) {
+                    self.message_len -= 1;
+                }
+            } else {
+                self.message_len -= 1;
+            }
+        }
     }
 
     pub fn setTextFromHistory(self: *State, offset: i32) void {

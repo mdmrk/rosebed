@@ -3445,7 +3445,7 @@ pub fn event(
                 } else if (k.key == .return_key or k.key == .kp_enter) {
                     try sendChat(app_state);
                 } else if (k.key == .backspace) {
-                    app_state.chat.backspace();
+                    app_state.chat.backspace(k.mod.left_control);
                 } else if (k.key == .up) {
                     app_state.chat.setTextFromHistory(-1);
                 } else if (k.key == .down) {
