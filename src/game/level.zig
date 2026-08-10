@@ -251,6 +251,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.refreshViews();
 
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
+    try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items);
     try self.tickFallingBlocks(gpa);
 
@@ -268,12 +269,13 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.refreshViews();
     try self.entities.tickMobs(gpa, &self.world_map, self.roster.items, self.players(), rand);
 
-    if (self.generator.dimension() == .overworld) _ = try spawner.performSpawning(
+    _ = try spawner.performSpawning(
         gpa,
         &self.entities,
         &self.world_map,
         self.views.items,
         self.spawn,
+        self.generator.dimension(),
         self.generator.worldSeed(),
         rand,
     );

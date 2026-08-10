@@ -106,6 +106,15 @@ pub fn castCollision(
     return castStopping(world_map, origin, direction, max_distance, .collision);
 }
 
+pub fn castBlocks(
+    world_map: *const world.World,
+    origin: math.Vec3,
+    direction: [3]f64,
+    max_distance: f64,
+) ?Hit {
+    return castStopping(world_map, origin, direction, max_distance, .{ .targeting = false });
+}
+
 fn castStopping(
     world_map: *const world.World,
     origin: math.Vec3,

@@ -8,7 +8,10 @@ const Arrow = @import("arrow.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Entity = @import("entity.zig");
+const explosion = @import("explosion.zig");
 const FallingBlock = @import("falling_block.zig");
+const Fireball = @import("fireball.zig");
+const Ghast = @import("ghast.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
 const mob = @import("mob.zig");
@@ -25,6 +28,7 @@ const Entities = @This();
 
 items: std.ArrayList(ItemEntity) = .empty,
 arrows: std.ArrayList(Arrow) = .empty,
+fireballs: std.ArrayList(Fireball) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
 mobs: std.ArrayList(Mob) = .empty,
 particles: std.ArrayList(Particle) = .empty,
@@ -262,6 +266,7 @@ pub fn viewOf(player: *const Player) Animal.PlayerView {
 pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.arrows.deinit(gpa);
+    self.fireballs.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.particles.deinit(gpa);
     self.pickups.deinit(gpa);
@@ -276,8 +281,8 @@ pub fn animalCount(self: *const Entities) usize {
 }
 
 pub fn count(self: *const Entities) usize {
-    return self.items.items.len + self.arrows.items.len + self.falling_blocks.items.len +
-        self.paintings.items.len + self.mobs.items.len;
+    return self.items.items.len + self.arrows.items.len + self.fireballs.items.len +
+        self.falling_blocks.items.len + self.paintings.items.len + self.mobs.items.len;
 }
 
 pub fn dropStackAt(
@@ -954,6 +959,113 @@ pub fn tickArrows(
     }
 }
 
+pub fn shootFireball(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    shooter: Entity.Id,
+    shot: Ghast.Shot,
+    rand: *world.JavaRandom,
+) !void {
+    try self.fireballs.append(gpa, Fireball.shotBy(shot.from, shooter, shot.toward, rand));
+}
+
+fn fireballStrike(self: *Entities, ball: Fireball, roster: []const *Player, limit: f64) ?ArrowStrike {
+    const start = [3]f64{ ball.base.position.x, ball.base.position.y, ball.base.position.z };
+    const along = [3]f64{ ball.base.motion.x, ball.base.motion.y, ball.base.motion.z };
+    const swept = ball.base.boundingBox()
+        .addCoord(along[0], along[1], along[2])
+        .expand(1.0, 1.0, 1.0);
+
+    var found: ?ArrowStrike = null;
+    var nearest: f64 = 0;
+    const spent = ball.ticks_in_air >= Fireball.owner_grace_ticks;
+
+    for (self.mobs.items) |entry| {
+        if (entry.animal.base.id == ball.shooter and !spent) continue;
+        const box = entry.animal.base.boundingBox();
+        if (!box.intersects(swept)) continue;
+
+        const grown = box.expand(Fireball.hit_border, Fireball.hit_border, Fireball.hit_border);
+        const distance = boxRayDistance(grown, start, along, limit) orelse continue;
+        if (found == null or distance < nearest) {
+            found = .{ .mob = .{ .mob = entry.animal.base.id } };
+            nearest = distance;
+        }
+    }
+
+    for (roster) |player| {
+        if (player.base.id == ball.shooter and !spent) continue;
+        const box = player.base.boundingBox();
+        if (!box.intersects(swept)) continue;
+
+        const grown = box.expand(Fireball.hit_border, Fireball.hit_border, Fireball.hit_border);
+        const distance = boxRayDistance(grown, start, along, limit) orelse continue;
+        if (found == null or distance < nearest) {
+            found = .{ .player = player.base.id };
+            nearest = distance;
+        }
+    }
+
+    return found;
+}
+
+pub fn tickFireballs(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    roster: []const *Player,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.fireballs.items.len) {
+        var ball = self.fireballs.items[index];
+        ball.settle(world_map);
+
+        const block_hit = ball.blockImpact(world_map);
+        const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
+        const strike = self.fireballStrike(ball, roster, limit);
+
+        if (strike != null or block_hit != null) {
+            // The direct hit lands for nothing; every point of damage comes from the blast.
+            if (strike) |target| {
+                if (target == .mob) {
+                    _ = self.hurtTarget(target.mob, 0, .{ .position = ball.base.position }, rand);
+                }
+            }
+            try explosion.detonate(
+                gpa,
+                self,
+                world_map,
+                roster,
+                ball.base.position,
+                Fireball.explosion_size,
+                Fireball.explosion_is_flaming,
+                rand,
+            );
+            ball.dead = true;
+        }
+
+        if (ball.fly()) |trail| {
+            for (0..Fireball.bubbles_per_trail) |_| {
+                try self.particles.append(gpa, Particle.spawnBubble(trail.position, trail.drift, rand));
+            }
+        }
+        try self.particles.append(gpa, Particle.spawnSmoke(
+            ball.smokeTrailPosition(),
+            math.Vec3.init(0, 0, 0),
+            rand,
+        ));
+
+        self.fireballs.items[index] = ball;
+
+        if (ball.dead) {
+            _ = self.fireballs.swapRemove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
 pub fn spawnPig(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.pig, position, &unused);
@@ -974,6 +1086,11 @@ pub fn spawnChicken(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3
 
 pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
     _ = try self.spawnMob(gpa, mob.slime, position, rand);
+}
+
+pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
 }
 
 pub fn spawnWolf(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
@@ -1130,6 +1247,9 @@ pub fn anyInBox(self: *Entities, box: math.AABB, living_only: bool) bool {
     }
     for (self.arrows.items) |*arrow| {
         if (arrow.base.boundingBox().intersects(box)) return true;
+    }
+    for (self.fireballs.items) |*ball| {
+        if (ball.base.boundingBox().intersects(box)) return true;
     }
     return false;
 }

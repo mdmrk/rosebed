@@ -38,7 +38,7 @@ pub const Verb = enum {
     }
 };
 
-pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf };
+pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast };
 
 pub const Give = struct {
     user: []const u8,

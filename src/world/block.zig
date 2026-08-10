@@ -116,6 +116,7 @@ pub const Def = struct {
     face_textures: FaceTextures = FaceTextures.initFill(0),
     item_render_boxes: []const Bounds = &full_cube_box,
     hardness: f32 = 0.0,
+    explosion_resistance: f32 = 0.0,
     side_inset: f32 = 0.0,
     tick_rate: u32 = 0,
     opaque_cube: bool = true,
@@ -157,6 +158,7 @@ fn vanillaDefs() [256]Def {
             .face_textures = self.vanillaFaceTextures(),
             .item_render_boxes = self.vanillaItemRenderBoxes(),
             .hardness = self.vanillaHardness(),
+            .explosion_resistance = self.vanillaExplosionResistance(),
             .side_inset = self.vanillaSideInset(),
             .tick_rate = self.vanillaTickRate(),
             .opaque_cube = self.vanillaOpaqueCube(),
@@ -990,6 +992,41 @@ pub const Block = enum(u8) {
             .piston, .piston_sticky, .piston_head => 0.5,
             .piston_moving, .portal => -1.0,
             else => 0.0,
+        };
+    }
+
+    pub fn explosionResistance(self: Block) f32 {
+        return self.def().explosion_resistance;
+    }
+
+    fn vanillaExplosionResistance(self: Block) f32 {
+        return switch (self) {
+            .bedrock => 3600000.0,
+            .obsidian => 1200.0,
+            .stone,
+            .cobblestone,
+            .cobblestone_mossy,
+            .brick,
+            .slab,
+            .slab_double,
+            .stairs_cobblestone,
+            .block_gold,
+            .block_iron,
+            .block_diamond,
+            .jukebox,
+            => 6.0,
+            .planks,
+            .stairs_wood,
+            .block_lapis,
+            .ore_gold,
+            .ore_iron,
+            .ore_coal,
+            .ore_lapis,
+            .ore_diamond,
+            .ore_redstone,
+            .ore_redstone_glowing,
+            => 3.0,
+            else => @max(self.vanillaHardness(), 0.0),
         };
     }
 
@@ -2984,6 +3021,24 @@ test "every constant block fact reaches its caller through the registry table" {
     try std.testing.expect(Block.snow_layer.isReplaceable());
     try std.testing.expectEqualStrings("Obsidian", Block.obsidian.displayName(0));
     try std.testing.expectEqual(@as(usize, 2), Block.stairs_wood.itemRenderBoxes().len);
+}
+
+test "explosion resistance follows the hardness unless the block set one of its own" {
+    try std.testing.expectEqual(@as(f32, 0.5), Block.dirt.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 2.0), Block.log.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 6.0), Block.stone.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 6.0), Block.cobblestone.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 3.0), Block.planks.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 1200.0), Block.obsidian.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 3600000.0), Block.bedrock.explosionResistance());
+
+    try std.testing.expectEqual(@as(f32, 0.0), Block.portal.explosionResistance());
+    try std.testing.expectEqual(@as(f32, 0.0), Block.piston_moving.explosionResistance());
+}
+
+test "a stair block resists like the block it is cut from" {
+    try std.testing.expectEqual(Block.cobblestone.explosionResistance(), Block.stairs_cobblestone.explosionResistance());
+    try std.testing.expectEqual(Block.planks.explosionResistance(), Block.stairs_wood.explosionResistance());
 }
 
 test "an id no vanilla block claims falls back to the empty definition" {

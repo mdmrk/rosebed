@@ -11,6 +11,8 @@ const Animal = @This();
 
 base: Entity,
 max_health: i32,
+movement: Movement = .walking,
+immune_to_fire: bool = false,
 takes_fall_damage: bool = true,
 move_speed: f32 = default_move_speed,
 eye_fraction: f64 = eye_height_fraction,
@@ -54,11 +56,15 @@ action_state: *const fn (
     *world.JavaRandom,
 ) anyerror!void = updateActionState,
 
+pub const Movement = enum { walking, flying };
+
 pub const Spec = struct {
     width: f64,
     height: f64,
     max_health: i32 = default_max_health,
     step_height: f64 = default_step_height,
+    movement: Movement = .walking,
+    immune_to_fire: bool = false,
     takes_fall_damage: bool = true,
     move_speed: f32 = default_move_speed,
     eye_fraction: f64 = eye_height_fraction,
@@ -100,6 +106,7 @@ const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
 const void_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
+const fireproof_cooling: i32 = 4;
 const void_floor: f64 = -64.0;
 const safe_fall_distance: f32 = 3.0;
 const knockback_strength: f64 = 0.4;
@@ -173,6 +180,8 @@ pub fn spawn(position: math.Vec3, spec: Spec) Animal {
         .base = base,
         .max_health = spec.max_health,
         .health = spec.max_health,
+        .movement = spec.movement,
+        .immune_to_fire = spec.immune_to_fire,
         .takes_fall_damage = spec.takes_fall_damage,
         .move_speed = spec.move_speed,
         .eye_fraction = spec.eye_fraction,
@@ -366,11 +375,35 @@ fn moveFlying(self: *Animal, strafe: f32, forward: f32, acceleration: f32) void 
     self.base.motion.z += @as(f64, ahead * cos + sideways * sin);
 }
 
+fn flyWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, forward: f32, rand: *world.JavaRandom) void {
+    const drag: f64 = if (self.base.in_water)
+        water_drag
+    else if (self.in_lava)
+        lava_drag
+    else if (self.base.on_ground)
+        ground_friction
+    else
+        air_friction;
+
+    const swimming = self.base.in_water or self.in_lava;
+    const acceleration: f32 = if (!swimming and self.base.on_ground) ground_acceleration else air_acceleration;
+
+    self.moveFlying(strafe, forward, acceleration);
+    const moved = self.base.move(world_map);
+    self.updateFallState(moved.dy, rand);
+
+    self.base.motion.x *= drag;
+    self.base.motion.y *= drag;
+    self.base.motion.z *= drag;
+}
+
 fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, forward: f32, rand: *world.JavaRandom) void {
     const was_on_ground = self.base.on_ground;
     const before_y = self.base.position.y;
 
-    if (self.base.in_water or self.in_lava) {
+    if (self.movement == .flying) {
+        self.flyWithHeading(world_map, strafe, forward, rand);
+    } else if (self.base.in_water or self.in_lava) {
         const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
         self.moveFlying(strafe, forward, liquid_acceleration);
         const moved = self.base.move(world_map);
@@ -583,12 +616,16 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
     }
 
     if (self.fire > 0) {
-        if (@rem(self.fire, 20) == 0) _ = self.hurt(burn_damage, null, rand);
-        self.fire -= 1;
+        if (self.immune_to_fire) {
+            self.fire = @max(self.fire - fireproof_cooling, 0);
+        } else {
+            if (@rem(self.fire, 20) == 0) _ = self.hurt(burn_damage, null, rand);
+            self.fire -= 1;
+        }
     }
 
     self.in_lava = physics.isInLava(world_map, self.base.boundingBox());
-    if (self.in_lava) {
+    if (self.in_lava and !self.immune_to_fire) {
         _ = self.hurt(lava_damage, null, rand);
         self.fire = lava_fire_ticks;
     }
@@ -920,6 +957,47 @@ test "a long fall hurts by the distance beyond three blocks" {
     try std.testing.expect(animal.base.on_ground);
     try std.testing.expect(animal.health < animal.max_health);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), animal.fall_distance, 1.0e-6);
+}
+
+test "a flying animal hangs in the air instead of falling out of it" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var flier = Animal.spawn(math.Vec3.init(8.5, 60, 8.5), .{
+        .width = 4.0,
+        .height = 4.0,
+        .movement = .flying,
+        .takes_fall_damage = false,
+    });
+    defer flier.deinit(gpa);
+
+    for (0..200) |_| try flier.tick(gpa, &w, .{}, &rand);
+
+    try std.testing.expect(!flier.base.on_ground);
+    try std.testing.expectApproxEqAbs(@as(f64, 60.0), flier.base.position.y, 1.0e-9);
+    try std.testing.expectEqual(flier.max_health, flier.health);
+}
+
+test "a flying animal keeps the push it was given, bleeding it off at the air friction" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var flier = Animal.spawn(math.Vec3.init(8.5, 60, 8.5), .{
+        .width = 0.5,
+        .height = 0.5,
+        .movement = .flying,
+        .takes_fall_damage = false,
+    });
+    defer flier.deinit(gpa);
+    flier.base.motion.y = 1.0;
+
+    try flier.tick(gpa, &w, .{}, &rand);
+    try std.testing.expectApproxEqAbs(@as(f64, 61.0), flier.base.position.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(air_friction, flier.base.motion.y, 1.0e-9);
 }
 
 test "an animal that takes no fall damage lands from any height unhurt" {

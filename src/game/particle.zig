@@ -19,7 +19,7 @@ color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 origin: math.Vec3 = .{ .x = 0, .y = 0, .z = 0 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal, explode };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -47,6 +47,9 @@ pub const heart_drag: f64 = 0.86;
 pub const heart_scale: f32 = 2.0;
 pub const heart_lift: f64 = 0.1;
 pub const heart_age: i32 = 16;
+pub const explode_jitter: f64 = 0.05;
+pub const explode_lift: f64 = 0.004;
+pub const explode_drag: f64 = 0.9;
 pub const portal_min_age: i32 = 40;
 pub const portal_age_spread: i32 = 10;
 pub const portal_tiles: i32 = 8;
@@ -212,6 +215,25 @@ pub fn spawnSlime(position: math.Vec3, rand: *world.JavaRandom) Particle {
     return particle;
 }
 
+// EntityExplodeFX jitters its drift with Math.random(), which is outside any seeded stream;
+// this port has only the world random, so the shape matches and the exact numbers cannot.
+pub fn spawnExplode(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .explode;
+    particle.base.motion = math.Vec3.init(
+        drift.x + (rand.nextDouble() * 2.0 - 1.0) * explode_jitter,
+        drift.y + (rand.nextDouble() * 2.0 - 1.0) * explode_jitter,
+        drift.z + (rand.nextDouble() * 2.0 - 1.0) * explode_jitter,
+    );
+
+    const shade = rand.nextFloat() * 0.3 + 0.7;
+    particle.color = .{ shade, shade, shade };
+    particle.scale = rand.nextFloat() * rand.nextFloat() * 6.0 + 1.0;
+    particle.max_age = @as(i32, @intFromFloat(16.0 / (@as(f64, rand.nextFloat()) * 0.8 + 0.2))) + 2;
+    particle.tile = 7;
+    return particle;
+}
+
 pub fn slowedBy(self: Particle, factor: f32) Particle {
     var slowed = self;
     slowed.base.motion.x *= factor;
@@ -326,6 +348,15 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
                 self.origin.z + self.base.motion.z * eased,
             );
         },
+        .explode => {
+            if (self.age < self.max_age) {
+                self.tile = @intCast(7 - @divTrunc(self.age * 8, self.max_age));
+            }
+            self.base.motion.y += explode_lift;
+            _ = self.base.move(world_map);
+            self.applyDrag(explode_drag);
+            self.applyGroundFriction();
+        },
         .bubble => {
             self.base.motion.y += bubble_lift;
             _ = self.base.move(world_map);
@@ -367,7 +398,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
-        .digging, .splash, .bubble, .slime => 1.0,
+        .digging, .splash, .bubble, .slime, .explode => 1.0,
         .smoke, .reddust, .heart => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);
@@ -458,6 +489,45 @@ test "smoke drifts upward, darkens and steps through its tile strip" {
     }
     try std.testing.expectEqual(@as(u8, 0), last_tile);
     try std.testing.expect(particle.base.position.y > started);
+}
+
+test "an explosion puff is pale, outlives smoke and steps through the same tile strip" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(9);
+    var particle = spawnExplode(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
+
+    try std.testing.expectEqual(Kind.explode, particle.kind);
+    try std.testing.expect(particle.color[0] >= 0.7 and particle.color[0] <= 1.0);
+    try std.testing.expect(particle.scale >= 1.0 and particle.scale <= 7.0);
+    try std.testing.expect(particle.max_age >= 18 and particle.max_age <= 82);
+    try std.testing.expectEqual(@as(u8, 7), particle.tile);
+
+    var last_tile: u8 = 7;
+    while (!particle.isExpired()) {
+        particle.tick(&world_map, &rand);
+        try std.testing.expect(particle.tile <= last_tile);
+        last_tile = particle.tile;
+    }
+    try std.testing.expectEqual(@as(u8, 0), last_tile);
+}
+
+test "an explosion puff drifts the way the blast threw it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var rand = world.JavaRandom.init(3);
+    var particle = spawnExplode(math.Vec3.init(8, 40, 8), math.Vec3.init(0.5, 0, 0), &rand);
+
+    try std.testing.expect(particle.base.motion.x > 0.5 - explode_jitter);
+    try std.testing.expect(particle.base.motion.x < 0.5 + explode_jitter);
+
+    const started = particle.base.position.x;
+    for (0..5) |_| particle.tick(&world_map, &rand);
+    try std.testing.expect(particle.base.position.x > started);
 }
 
 test "a splash droplet picks a rain tile and dies when it lands in water" {

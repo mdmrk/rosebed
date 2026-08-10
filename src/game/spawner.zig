@@ -7,6 +7,7 @@ const Animal = @import("animal.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Entities = @import("entities.zig");
+const Ghast = @import("ghast.zig");
 const mob = @import("mob.zig");
 const Pig = @import("pig.zig");
 const Sheep = @import("sheep.zig");
@@ -51,6 +52,25 @@ pub const Kind = enum {
         };
     }
 };
+
+pub const Monster = enum {
+    slime,
+    ghast,
+
+    pub fn maxPerChunk(self: Monster) u32 {
+        return switch (self) {
+            .ghast => Ghast.max_spawned_in_chunk,
+            .slime => max_per_chunk,
+        };
+    }
+};
+
+pub fn monsterFor(dimension: world.Dimension) Monster {
+    return switch (dimension) {
+        .overworld => .slime,
+        .nether => .ghast,
+    };
+}
 
 const Creature = struct { weight: i32, kind: Kind };
 
@@ -97,7 +117,7 @@ pub fn chunksAroundOnePlayer() usize {
 
 fn liveCount(entities: *const Entities, category: Category) i32 {
     return switch (category) {
-        .monster => @intCast(entities.countOf(mob.slime)),
+        .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast)),
         .creature => @intCast(entities.animalCount()),
     };
 }
@@ -149,6 +169,7 @@ pub fn performSpawning(
     world_map: *const world.World,
     players: []const Animal.PlayerView,
     spawn_point: [3]i32,
+    dimension: world.Dimension,
     world_seed: i64,
     rand: *world.JavaRandom,
 ) !u32 {
@@ -169,6 +190,7 @@ pub fn performSpawning(
                 world_map,
                 players,
                 spawn_point,
+                dimension,
                 world_seed,
                 rand,
                 category,
@@ -186,6 +208,7 @@ fn spawnInChunk(
     world_map: *const world.World,
     players: []const Animal.PlayerView,
     spawn_point: [3]i32,
+    dimension: world.Dimension,
     world_seed: i64,
     rand: *world.JavaRandom,
     category: Category,
@@ -234,13 +257,24 @@ fn spawnInChunk(
             // then turned, then asked whether it can stand where it was put.
             const position = math.Vec3.init(at_x, at_y, at_z);
             const kind = (creature orelse {
-                var slime = Slime.spawn(position, rand);
-                slime.animal.faceYaw(rand.nextFloat() * 360.0);
-                if (!slime.canSpawnHere(world_seed, rand)) continue;
-                try entities.adopt(gpa, mob.slime, slime);
+                const monster = monsterFor(dimension);
+                switch (monster) {
+                    .slime => {
+                        var slime = Slime.spawn(position, rand);
+                        slime.animal.faceYaw(rand.nextFloat() * 360.0);
+                        if (!slime.canSpawnHere(world_seed, rand)) continue;
+                        try entities.adopt(gpa, mob.slime, slime);
+                    },
+                    .ghast => {
+                        var ghast = Ghast.spawn(position);
+                        ghast.animal.faceYaw(rand.nextFloat() * 360.0);
+                        if (!ghast.canSpawnHere(world_map, rand)) continue;
+                        try entities.adopt(gpa, mob.ghast, ghast);
+                    },
+                }
 
                 spawned += 1;
-                if (spawned >= max_per_chunk) return spawned;
+                if (spawned >= monster.maxPerChunk()) return spawned;
                 continue;
             }).kind;
 

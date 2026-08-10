@@ -1082,6 +1082,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .chicken => try app_state.level.entities.spawnChicken(app_state.gpa, position, &app_state.level.world_map.rand),
                 .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
                 .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
+                .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
