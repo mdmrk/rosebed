@@ -91,7 +91,7 @@ pub fn draw(
 
     var overlay: MeshBuilder = .{};
     defer overlay.deinit(ui.gpa);
-    try appendProgress(&overlay, ui.gpa, ui.res, container.origin(ui.res), state);
+    try appendProgress(&overlay, ui.gpa, ui.res, container.origin(ui.res, container.height), state);
     try gui.drawTexturedMesh(&overlay, ui.shader, ui.textures.furnace);
 
     const layout = slots();
@@ -102,14 +102,14 @@ pub fn draw(
             .furnace_input => state.input,
             .furnace_fuel => state.fuel,
             .furnace_output => state.output,
-            .craft_input, .craft_result, .armor => unreachable,
+            .craft_input, .craft_result, .armor, .chest => unreachable,
         };
     }
 
     try container.drawContents(ui, &layout, &stacks, &.{
         .{ .text = "Furnace", .x = furnace_label_x, .y = furnace_label_y },
         .{ .text = "Inventory", .x = inventory_label_x, .y = inventory_label_y },
-    }, held);
+    }, held, container.height);
     container.end();
 }
 
@@ -135,10 +135,10 @@ test "the player's own slots follow the furnace's three" {
 
 test "clicking the middle of a furnace slot finds it" {
     const res = gui.scaledResolution(640, 480, 1000);
-    const org = container.origin(res);
+    const org = container.origin(res, container.height);
     const layout = slots();
 
     const fuel_click_x = (org[0] + fuel_x + 8) * res.factor;
     const fuel_click_y = (org[1] + fuel_y + 8) * res.factor;
-    try std.testing.expectEqual(@as(?usize, 1), container.slotAt(&layout, fuel_click_x, fuel_click_y, res));
+    try std.testing.expectEqual(@as(?usize, 1), container.slotAt(&layout, fuel_click_x, fuel_click_y, res, container.height));
 }

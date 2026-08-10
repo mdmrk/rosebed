@@ -109,7 +109,7 @@ pub const Tool = struct {
                 else => false,
             },
             .axe => switch (target) {
-                .planks, .bookshelf, .log => true,
+                .planks, .bookshelf, .log, .chest => true,
                 else => false,
             },
             .shovel => switch (target) {

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const block = @import("block.zig");
+const chest = @import("chest.zig");
 const Chunk = @import("chunk.zig");
 const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
@@ -861,6 +862,43 @@ test "a furnace written with its chunk comes back mid-smelt" {
     const found = sink.found.?;
     try std.testing.expectEqual(@as(i32, 33), found.x);
     try std.testing.expectEqual(@as(i32, 64), found.y);
+    try std.testing.expectEqual(@as(i32, -71), found.z);
+    try std.testing.expectEqual(state, found.state);
+}
+
+const ChestSink = struct {
+    found: ?chest.Placed = null,
+
+    fn visit(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
+        _ = gpa;
+        const self: *ChestSink = @ptrCast(@alignCast(context));
+        self.found = chest.load(compound);
+    }
+};
+
+test "a chest written with its chunk comes back with its contents" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var world = try open(io, tmp.dir, "Hoard");
+    defer world.close(gpa, io);
+
+    const chunk = Chunk.init(2, -5);
+    var state: chest.Chest = .{};
+    state.slot(0).* = .{ .id = .{ .item = .diamond }, .count = 7 };
+    state.slot(26).* = .{ .id = .{ .block = .wool }, .count = 12, .meta = 14 };
+
+    const tile_entities = try gpa.alloc(nbt.Tag, 1);
+    tile_entities[0] = try chest.store(gpa, 33, 64, -71, state);
+    try world.writeChunk(gpa, io, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), tile_entities);
+
+    var sink: ChestSink = .{};
+    _ = (try world.readChunk(gpa, io, 2, -5, null, .{ .context = &sink, .visit = ChestSink.visit })).?;
+
+    const found = sink.found.?;
+    try std.testing.expectEqual(@as(i32, 33), found.x);
     try std.testing.expectEqual(@as(i32, -71), found.z);
     try std.testing.expectEqual(state, found.state);
 }

@@ -1,6 +1,7 @@
 pub const Atlas = @import("atlas.zig");
 pub const button = @import("button.zig");
 pub const chat = @import("chat.zig");
+pub const chest_screen = @import("chest_screen.zig");
 pub const chunk_mesher = @import("chunk_mesher.zig");
 pub const ChunkRenderer = @import("chunk_renderer.zig");
 pub const Colorizer = @import("colorizer.zig");
@@ -70,6 +71,7 @@ test {
     _ = container_screen;
     _ = inventory_screen;
     _ = crafting_screen;
+    _ = chest_screen;
     _ = furnace_screen;
     _ = button;
     _ = menu;

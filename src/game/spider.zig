@@ -6,6 +6,7 @@ const world = @import("world");
 const Animal = @import("animal.zig");
 const Mob = @import("mob.zig");
 const Monster = @import("monster.zig");
+pub const max_health: i32 = Monster.max_health;
 
 const Spider = @This();
 
@@ -15,7 +16,6 @@ pending_drops: u8 = 0,
 
 pub const width: f64 = 1.4;
 pub const height: f64 = 0.9;
-pub const max_health: i32 = Monster.max_health;
 pub const move_speed: f32 = 0.8;
 pub const death_max_rotation: f32 = 180.0;
 pub const calm_odds: i32 = 100;

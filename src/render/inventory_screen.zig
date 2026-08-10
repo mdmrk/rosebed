@@ -105,7 +105,7 @@ fn wornArmor(stack: ?game.Inventory.ItemStack) ?world.item.Armor {
 }
 
 fn drawPreview(ui: gui.Ui, player_model: MobModel.Model, inventory: game.Inventory) !void {
-    const org = container.origin(ui.res);
+    const org = container.origin(ui.res, container.height);
 
     const anchor = .{ org[0] + preview_anchor_x, org[1] + preview_anchor_y };
     const dx = anchor[0] - ui.mouse_x / ui.res.factor;
@@ -153,13 +153,13 @@ pub fn draw(
             .craft_input => crafting_grid[slot.index],
             .craft_result => craft_result,
             .armor => inventory.armor[slot.index],
-            .furnace_input, .furnace_fuel, .furnace_output => unreachable,
+            .furnace_input, .furnace_fuel, .furnace_output, .chest => unreachable,
         };
     }
 
     try container.drawContents(ui, &layout, &stacks, &.{
         .{ .text = "Crafting", .x = label_x, .y = label_y },
-    }, held);
+    }, held, container.height);
     container.end();
 }
 

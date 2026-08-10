@@ -21,7 +21,7 @@ const tooltip_offset_y: f32 = -12;
 const tooltip_padding: f32 = 3;
 const tooltip_line_height: f32 = 8;
 
-pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output };
+pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output, chest };
 pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 pub const Label = struct { text: []const u8, x: f32, y: f32 };
 
@@ -49,12 +49,12 @@ pub fn appendPlayerSlots(out: []Slot) void {
     }
 }
 
-pub fn origin(res: gui.Scaled) [2]f32 {
-    return .{ @floor((res.width - width) / 2.0), @floor((res.height - height) / 2.0) };
+pub fn origin(res: gui.Scaled, box_height: f32) [2]f32 {
+    return .{ @floor((res.width - width) / 2.0), @floor((res.height - box_height) / 2.0) };
 }
 
-pub fn slotAt(slots: []const Slot, mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?usize {
-    const org = origin(res);
+pub fn slotAt(slots: []const Slot, mouse_x: f32, mouse_y: f32, res: gui.Scaled, box_height: f32) ?usize {
+    const org = origin(res, box_height);
     const gx = mouse_x / res.factor - org[0];
     const gy = mouse_y / res.factor - org[1];
     for (slots, 0..) |slot, index| {
@@ -67,11 +67,11 @@ pub fn slotAt(slots: []const Slot, mouse_x: f32, mouse_y: f32, res: gui.Scaled) 
     return null;
 }
 
-pub fn isOutside(mouse_x: f32, mouse_y: f32, res: gui.Scaled) bool {
-    const org = origin(res);
+pub fn isOutside(mouse_x: f32, mouse_y: f32, res: gui.Scaled, box_height: f32) bool {
+    const org = origin(res, box_height);
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
-    return gx < org[0] or gy < org[1] or gx >= org[0] + width or gy >= org[1] + height;
+    return gx < org[0] or gy < org[1] or gx >= org[0] + width or gy >= org[1] + box_height;
 }
 
 pub fn begin() void {
@@ -85,13 +85,17 @@ pub fn end() void {
     gl.Enable(gl.DEPTH_TEST);
 }
 
-pub fn drawBackdrop(ui: gui.Ui, texture: Atlas) !void {
-    const org = origin(ui.res);
-
+pub fn drawVeil(ui: gui.Ui) !void {
     var veil: MeshBuilder = .{};
     defer veil.deinit(ui.gpa);
     try gui.appendVeil(&veil, ui.gpa, ui.res);
     try gui.drawTexturedMesh(&veil, ui.shader, ui.textures.gui);
+}
+
+pub fn drawBackdrop(ui: gui.Ui, texture: Atlas) !void {
+    const org = origin(ui.res, height);
+
+    try drawVeil(ui);
 
     var background: MeshBuilder = .{};
     defer background.deinit(ui.gpa);
@@ -105,8 +109,9 @@ pub fn drawContents(
     stacks: []const ?game.Inventory.ItemStack,
     labels: []const Label,
     held: ?game.Inventory.ItemStack,
+    box_height: f32,
 ) !void {
-    const org = origin(ui.res);
+    const org = origin(ui.res, box_height);
 
     var block_icons: MeshBuilder = .{};
     defer block_icons.deinit(ui.gpa);
@@ -127,7 +132,7 @@ pub fn drawContents(
     try gui.drawColorMesh(&bars, ui.shader);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    const hovered = slotAt(slots, ui.mouse_x, ui.mouse_y, ui.res);
+    const hovered = slotAt(slots, ui.mouse_x, ui.mouse_y, ui.res, box_height);
 
     var highlight: MeshBuilder = .{};
     defer highlight.deinit(ui.gpa);
@@ -195,35 +200,35 @@ fn drawTooltip(ui: gui.Ui, name: []const u8) !void {
 
 test "a slot's hover box extends one pixel past the icon on every side" {
     const res = gui.scaledResolution(640, 480, 1000);
-    const org = origin(res);
+    const org = origin(res, height);
     var slots: [player_slot_count]Slot = undefined;
     appendPlayerSlots(&slots);
     const slot = slots[slots.len - 9];
     const left = (org[0] + slot.x - 1) * res.factor;
     const top = (org[1] + slot.y - 1) * res.factor;
 
-    try std.testing.expectEqual(@as(?usize, slot.index), slots[slotAt(&slots, left, top, res) orelse return error.NoSlot].index);
-    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, left - res.factor, top, res));
-    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, left, top - res.factor, res));
+    try std.testing.expectEqual(@as(?usize, slot.index), slots[slotAt(&slots, left, top, res, height) orelse return error.NoSlot].index);
+    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, left - res.factor, top, res, height));
+    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, left, top - res.factor, res, height));
 }
 
 test "isOutside reports the region beyond the background rect" {
     const res = gui.scaledResolution(640, 480, 1000);
-    const org = origin(res);
+    const org = origin(res, height);
 
-    try std.testing.expect(isOutside((org[0] - 1) * res.factor, org[1] * res.factor, res));
-    try std.testing.expect(isOutside(org[0] * res.factor, (org[1] + height) * res.factor, res));
-    try std.testing.expect(!isOutside(org[0] * res.factor, org[1] * res.factor, res));
+    try std.testing.expect(isOutside((org[0] - 1) * res.factor, org[1] * res.factor, res, height));
+    try std.testing.expect(isOutside(org[0] * res.factor, (org[1] + height) * res.factor, res, height));
+    try std.testing.expect(!isOutside(org[0] * res.factor, org[1] * res.factor, res, height));
 }
 
 test "clicking the background between slots hits no slot but is not outside" {
     const res = gui.scaledResolution(640, 480, 1000);
-    const org = origin(res);
+    const org = origin(res, height);
     var slots: [player_slot_count]Slot = undefined;
     appendPlayerSlots(&slots);
     const x = (org[0] + 4) * res.factor;
     const y = (org[1] + 4) * res.factor;
 
-    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, x, y, res));
-    try std.testing.expect(!isOutside(x, y, res));
+    try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, x, y, res, height));
+    try std.testing.expect(!isOutside(x, y, res, height));
 }

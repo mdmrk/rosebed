@@ -106,6 +106,7 @@ const AppState = struct {
     sign_edit: ?render.edit_sign_screen.State = null,
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
+    chest_open: ?world.World.BlockPos = null,
     paused: bool = false,
     dead: bool = false,
     options_open: bool = false,
@@ -651,6 +652,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     );
     try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
+    try closeBrokenChest(app_state, x, y, z);
     _ = app_state.level.world_map.removeSign(x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
@@ -676,6 +678,14 @@ fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
         const stack = removed.slot(index).* orelse continue;
         try spawnDroppedItem(app_state, x, y, z, stack);
     }
+}
+
+fn closeBrokenChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    const open = app_state.chest_open orelse return;
+    if (y != open.y) return;
+    const reach = @abs(x - open.x) + @abs(z - open.z);
+    if (reach > 1) return;
+    try closeContainer(app_state);
 }
 
 fn dropSelectedItem(app_state: *AppState) !void {
@@ -772,10 +782,11 @@ fn containerClickAt(
     grid: []?game.Inventory.ItemStack,
     size: u8,
     click_type: ClickType,
+    box_height: f32,
 ) !void {
     const gui = guiSize(app_state);
-    const index = render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui) orelse {
-        if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui)) {
+    const index = render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height) orelse {
+        if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
             try dropHeldStack(app_state, click_type);
         }
         return;
@@ -796,6 +807,10 @@ fn containerClickAt(
             slotClick(app_state, furnace.slot(slot.index), click_type, .{});
         },
         .furnace_output => try furnaceOutputClick(app_state, click_type),
+        .chest => {
+            const slot_ptr = openedChestSlot(app_state, slot.index) orelse return;
+            slotClick(app_state, slot_ptr, click_type, .{});
+        },
     }
 }
 
@@ -820,13 +835,18 @@ fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
 fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
     if (app_state.furnace_open != null) {
         const layout = render.furnace_screen.slots();
-        try containerClickAt(app_state, &layout, &.{}, 0, click_type);
+        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height);
+    } else if (openedChest(app_state)) |open| {
+        const rows = open.rows();
+        var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
+        const layout = render.chest_screen.slots(rows, &buffer);
+        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows));
     } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type);
+        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height);
     } else {
         const layout = render.inventory_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type);
+        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height);
     }
 }
 
@@ -847,7 +867,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 
 fn containerOpen(app_state: *const AppState) bool {
     return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
-        app_state.sign_edit != null;
+        app_state.chest_open != null or app_state.sign_edit != null;
 }
 
 fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
@@ -879,6 +899,7 @@ fn closeContainer(app_state: *AppState) !void {
     app_state.inventory_open = false;
     app_state.workbench_open = false;
     app_state.furnace_open = null;
+    app_state.chest_open = null;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
     try dropGrid(app_state, &app_state.crafting_grid);
@@ -899,6 +920,44 @@ fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
 fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
     const pos = app_state.furnace_open orelse return null;
     return app_state.level.world_map.furnaceAt(pos.x, pos.y, pos.z);
+}
+
+fn openChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    if (app_state.level.world_map.chestIsBlocked(x, y, z)) return;
+
+    const pair = app_state.level.world_map.chestPairAt(x, y, z);
+    _ = try app_state.level.world_map.addChest(pair.upper.x, pair.upper.y, pair.upper.z);
+    if (pair.lower) |lower| _ = try app_state.level.world_map.addChest(lower.x, lower.y, lower.z);
+
+    app_state.chest_open = .{ .x = x, .y = y, .z = z };
+    try updateMouseMode(app_state);
+}
+
+const OpenChest = struct {
+    upper: *world.chest.Chest,
+    lower: ?*world.chest.Chest,
+
+    fn rows(self: OpenChest) u8 {
+        return if (self.lower == null) world.chest.rows else world.chest.rows * 2;
+    }
+};
+
+fn openedChest(app_state: *AppState) ?OpenChest {
+    const pos = app_state.chest_open orelse return null;
+    const world_map = &app_state.level.world_map;
+    if (world_map.getBlock(pos.x, pos.y, pos.z) != .chest) return null;
+
+    const pair = world_map.chestPairAt(pos.x, pos.y, pos.z);
+    const upper = world_map.chestAt(pair.upper.x, pair.upper.y, pair.upper.z) orelse return null;
+    const half = pair.lower orelse return .{ .upper = upper, .lower = null };
+    const lower = world_map.chestAt(half.x, half.y, half.z) orelse return null;
+    return .{ .upper = upper, .lower = lower };
+}
+
+fn openedChestSlot(app_state: *AppState, index: usize) ?*?game.Inventory.ItemStack {
+    const open = openedChest(app_state) orelse return null;
+    const half = if (index < world.chest.slot_count) open.upper else open.lower orelse return null;
+    return half.slot(index % world.chest.slot_count);
 }
 
 fn toggleInventory(app_state: *AppState) !void {
@@ -1846,6 +1905,10 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try openFurnace(app_state, hit.x, hit.y, hit.z);
                 return true;
             },
+            .chest => {
+                try openChest(app_state, hit.x, hit.y, hit.z);
+                return true;
+            },
             .door_wood => {
                 try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
                 try applyBlockChanges(app_state);
@@ -2226,6 +2289,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     if (py < 0 or py >= world.constants.chunk_height) return false;
     if (!app_state.level.world_map.getBlock(px, py, pz).isReplaceable()) return false;
     if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, px, py, pz, placed, target.face)) return false;
+    if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(px, py, pz)) return false;
     const meta = world.block_update.placementMetadata(&app_state.level.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.level.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
     if (placed == .furnace) {
@@ -2233,6 +2297,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
         _ = try app_state.level.world_map.addFurnace(px, py, pz);
     }
+    if (placed == .chest) _ = try app_state.level.world_map.addChest(px, py, pz);
     if (placed.isStairs()) {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
@@ -3389,6 +3454,8 @@ pub fn iterate(
             furnace.*,
             app_state.held_stack,
         );
+    } else if (openedChest(app_state)) |open| {
+        try render.chest_screen.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
     } else if (app_state.workbench_open) {
         try render.crafting_screen.draw(
             ui,

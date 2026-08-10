@@ -53,13 +53,13 @@ pub fn draw(
             .inventory => inventory.slots[slot.index],
             .craft_input => grid[slot.index],
             .craft_result => craft_result,
-            .armor, .furnace_input, .furnace_fuel, .furnace_output => unreachable,
+            .armor, .furnace_input, .furnace_fuel, .furnace_output, .chest => unreachable,
         };
     }
 
     try container.drawContents(ui, &layout, &stacks, &.{
         .{ .text = "Crafting", .x = crafting_label_x, .y = crafting_label_y },
         .{ .text = "Inventory", .x = inventory_label_x, .y = inventory_label_y },
-    }, held);
+    }, held, container.height);
     container.end();
 }

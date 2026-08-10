@@ -7,6 +7,7 @@ const Animal = @import("animal.zig");
 const explosion = @import("explosion.zig");
 const Mob = @import("mob.zig");
 const Monster = @import("monster.zig");
+pub const max_health: i32 = Monster.max_health;
 
 const Creeper = @This();
 
@@ -21,7 +22,6 @@ pending_drops: u8 = 0,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
-pub const max_health: i32 = Monster.max_health;
 pub const idle_state: i8 = -1;
 pub const lit_state: i8 = 1;
 pub const fuse_ticks: i32 = 30;

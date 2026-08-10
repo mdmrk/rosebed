@@ -150,6 +150,19 @@ fn showsFace(options: Options, world_map: *const world.World, id: world.Block, x
     return id.shouldRenderFace(world_map.getBlock(x, y, z), side, options.fancy);
 }
 
+fn chestRing(world_map: *const world.World, x: i32, y: i32, z: i32) world.block.ChestRing {
+    return .{
+        .north = world_map.getBlock(x, y, z - 1),
+        .south = world_map.getBlock(x, y, z + 1),
+        .west = world_map.getBlock(x - 1, y, z),
+        .east = world_map.getBlock(x + 1, y, z),
+        .north_west = world_map.getBlock(x - 1, y, z - 1),
+        .north_east = world_map.getBlock(x + 1, y, z - 1),
+        .south_west = world_map.getBlock(x - 1, y, z + 1),
+        .south_east = world_map.getBlock(x + 1, y, z + 1),
+    };
+}
+
 pub const Climate = struct {
     temperature: f64 = 0.5,
     humidity: f64 = 0.5,
@@ -1272,6 +1285,8 @@ pub fn buildBlockAt(
         textures = world.block.slabTextures(metadata);
     } else if (id == .furnace or id == .burning_furnace) {
         textures = world.block.furnaceTextures(id, metadata);
+    } else if (id == .chest) {
+        textures = world.block.chestTextures(chestRing(world_map, x, y, z));
     } else if (id == .grass) {
         const above = world_map.getBlock(x, y + 1, z);
         const side_tile = world.block.grassSideTile(above);

@@ -6,6 +6,7 @@ const biome = @import("biome.zig");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
+const chest = @import("chest.zig");
 const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
 const fluid = @import("fluid.zig");
@@ -100,9 +101,11 @@ persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
 save_queue: std.ArrayList(ChunkCoord) = .empty,
 furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
+chests: std.AutoHashMapUnmanaged(BlockPos, chest.Chest) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
+chest_updates: std.ArrayList(BlockPos) = .empty,
 piston_updates: std.ArrayList(BlockPos) = .empty,
 piston_shoves: std.ArrayList(PistonShove) = .empty,
 
@@ -161,11 +164,13 @@ pub fn deinit(self: *World) void {
     self.falling.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
+    self.chests.deinit(self.allocator);
     self.signs.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
+    self.chest_updates.deinit(self.allocator);
     self.torch_updates.deinit(self.allocator);
 }
 
@@ -465,6 +470,54 @@ pub fn removeFurnace(self: *World, x: i32, y: i32, z: i32) ?furnace.Furnace {
     return removed.value;
 }
 
+pub fn chestAt(self: *World, x: i32, y: i32, z: i32) ?*chest.Chest {
+    return self.chests.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addChest(self: *World, x: i32, y: i32, z: i32) !*chest.Chest {
+    const entry = try self.chests.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub const ChestPair = struct { upper: BlockPos, lower: ?BlockPos = null };
+
+pub fn chestPairAt(self: *World, x: i32, y: i32, z: i32) ChestPair {
+    const here: BlockPos = .{ .x = x, .y = y, .z = z };
+    if (self.getBlock(x - 1, y, z) == .chest) return .{ .upper = .{ .x = x - 1, .y = y, .z = z }, .lower = here };
+    if (self.getBlock(x + 1, y, z) == .chest) return .{ .upper = here, .lower = .{ .x = x + 1, .y = y, .z = z } };
+    if (self.getBlock(x, y, z - 1) == .chest) return .{ .upper = .{ .x = x, .y = y, .z = z - 1 }, .lower = here };
+    if (self.getBlock(x, y, z + 1) == .chest) return .{ .upper = here, .lower = .{ .x = x, .y = y, .z = z + 1 } };
+    return .{ .upper = here };
+}
+
+fn hasNeighborChest(self: *World, x: i32, y: i32, z: i32) bool {
+    if (self.getBlock(x, y, z) != .chest) return false;
+    return self.getBlock(x - 1, y, z) == .chest or self.getBlock(x + 1, y, z) == .chest or
+        self.getBlock(x, y, z - 1) == .chest or self.getBlock(x, y, z + 1) == .chest;
+}
+
+pub fn canPlaceChestAt(self: *World, x: i32, y: i32, z: i32) bool {
+    var adjacent: u8 = 0;
+    if (self.getBlock(x - 1, y, z) == .chest) adjacent += 1;
+    if (self.getBlock(x + 1, y, z) == .chest) adjacent += 1;
+    if (self.getBlock(x, y, z - 1) == .chest) adjacent += 1;
+    if (self.getBlock(x, y, z + 1) == .chest) adjacent += 1;
+    if (adjacent > 1) return false;
+
+    return !self.hasNeighborChest(x - 1, y, z) and !self.hasNeighborChest(x + 1, y, z) and
+        !self.hasNeighborChest(x, y, z - 1) and !self.hasNeighborChest(x, y, z + 1);
+}
+
+pub fn chestIsBlocked(self: *World, x: i32, y: i32, z: i32) bool {
+    if (self.getBlock(x, y + 1, z).isNormalCube()) return true;
+    if (self.getBlock(x - 1, y, z) == .chest and self.getBlock(x - 1, y + 1, z).isNormalCube()) return true;
+    if (self.getBlock(x + 1, y, z) == .chest and self.getBlock(x + 1, y + 1, z).isNormalCube()) return true;
+    if (self.getBlock(x, y, z - 1) == .chest and self.getBlock(x, y + 1, z - 1).isNormalCube()) return true;
+    if (self.getBlock(x, y, z + 1) == .chest and self.getBlock(x, y + 1, z + 1).isNormalCube()) return true;
+    return false;
+}
+
 pub fn signAt(self: *World, x: i32, y: i32, z: i32) ?*sign.Sign {
     return self.signs.getPtr(.{ .x = x, .y = y, .z = z });
 }
@@ -579,12 +632,38 @@ pub fn tickFurnaces(self: *World) !void {
     }
 }
 
+pub fn spillOrphanChests(self: *World) !void {
+    self.chest_updates.clearRetainingCapacity();
+
+    var it = self.chests.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
+        if (self.getBlock(pos.x, pos.y, pos.z) == .chest) continue;
+
+        for (entry.value_ptr.items) |maybe_stack| {
+            const stack = maybe_stack orelse continue;
+            try self.dropped.append(self.allocator, .{ .pos = pos, .stack = stack });
+        }
+        try self.chest_updates.append(self.allocator, pos);
+    }
+
+    for (self.chest_updates.items) |pos| _ = self.chests.remove(pos);
+}
+
 fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.Tag)) !void {
     var it = self.furnaces.iterator();
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try furnace.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
+
+    var chests_it = self.chests.iterator();
+    while (chests_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try chest.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
 
     var signs_it = self.signs.iterator();
@@ -611,6 +690,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     }
     if (piston.load(compound)) |placed| {
         try self.addMovingPiston(placed.x, placed.y, placed.z, placed.state);
+        return;
+    }
+    if (chest.load(compound)) |placed| {
+        (try self.addChest(placed.x, placed.y, placed.z)).* = placed.state;
         return;
     }
     const placed = furnace.load(compound) orelse return;
@@ -790,6 +873,92 @@ test "breaking a furnace hands back what it held" {
     try std.testing.expectEqual(@as(u8, 3), removed.output.?.count);
     try std.testing.expect(w.furnaceAt(2, 6, 2) == null);
     try std.testing.expectEqual(@as(?furnace.Furnace, null), w.removeFurnace(2, 6, 2));
+}
+
+test "a chest whose block is gone spills what it held and is forgotten" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    try w.setBlockWithNotify(4, 7, 5, .chest);
+    const state = try w.addChest(4, 7, 5);
+    state.slot(2).* = .{ .id = .{ .item = .diamond }, .count = 3 };
+    state.slot(9).* = .{ .id = .{ .block = .planks }, .count = 64 };
+
+    try w.spillOrphanChests();
+    try std.testing.expect(w.chestAt(4, 7, 5) != null);
+    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
+
+    w.setBlock(4, 7, 5, .air);
+    try w.spillOrphanChests();
+    try std.testing.expect(w.chestAt(4, 7, 5) == null);
+    try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
+    try std.testing.expectEqual(Block.planks, w.dropped.items[1].stack.id.block);
+}
+
+test "a chest in an unloaded chunk keeps its contents" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+
+    const state = try w.addChest(100, 40, 100);
+    state.slot(0).* = .{ .id = .{ .item = .diamond }, .count = 1 };
+
+    try w.spillOrphanChests();
+    try std.testing.expect(w.chestAt(100, 40, 100) != null);
+    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
+}
+
+test "chests pair with the lower coordinate first, the way InventoryLargeChest stacks them" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    try w.setBlockWithNotify(4, 7, 5, .chest);
+    const lone = w.chestPairAt(4, 7, 5);
+    try std.testing.expectEqual(@as(?BlockPos, null), lone.lower);
+    try std.testing.expectEqual(@as(i32, 4), lone.upper.x);
+
+    try w.setBlockWithNotify(5, 7, 5, .chest);
+    const west = w.chestPairAt(4, 7, 5);
+    try std.testing.expectEqual(@as(i32, 4), west.upper.x);
+    try std.testing.expectEqual(@as(i32, 5), west.lower.?.x);
+
+    const east = w.chestPairAt(5, 7, 5);
+    try std.testing.expectEqual(@as(i32, 4), east.upper.x);
+    try std.testing.expectEqual(@as(i32, 5), east.lower.?.x);
+}
+
+test "a third chest cannot join a pair, and none may make a neighbour a triple" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    try std.testing.expect(w.canPlaceChestAt(4, 7, 5));
+    try w.setBlockWithNotify(4, 7, 5, .chest);
+    try std.testing.expect(w.canPlaceChestAt(5, 7, 5));
+    try w.setBlockWithNotify(5, 7, 5, .chest);
+
+    try std.testing.expect(!w.canPlaceChestAt(6, 7, 5));
+    try std.testing.expect(!w.canPlaceChestAt(4, 7, 6));
+    try std.testing.expect(!w.canPlaceChestAt(5, 7, 4));
+    try std.testing.expect(w.canPlaceChestAt(4, 7, 8));
+}
+
+test "a solid block over either half seals the chest shut" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    _ = try w.createChunk(0, 0);
+
+    try w.setBlockWithNotify(4, 7, 5, .chest);
+    try w.setBlockWithNotify(5, 7, 5, .chest);
+    try std.testing.expect(!w.chestIsBlocked(4, 7, 5));
+
+    try w.setBlockWithNotify(5, 8, 5, .stone);
+    try std.testing.expect(w.chestIsBlocked(4, 7, 5));
+    try std.testing.expect(w.chestIsBlocked(5, 7, 5));
+
+    try w.setBlockWithNotify(5, 8, 5, .glass);
+    try std.testing.expect(!w.chestIsBlocked(4, 7, 5));
 }
 
 test "reading an unloaded chunk returns air" {

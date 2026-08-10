@@ -263,6 +263,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.standInPortals();
     try self.world_map.tickUpdates();
     try self.world_map.tickFurnaces();
+    try self.world_map.spillOrphanChests();
     try self.world_map.tickPistons();
     try self.entities.applyPistonShoves(&self.world_map, self.roster.items);
     try self.applyBlockChanges(gpa, scratch);

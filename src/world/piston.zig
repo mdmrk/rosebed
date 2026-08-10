@@ -154,6 +154,7 @@ fn step(x: i32, y: i32, z: i32, facing: Side, times: i32) [3]i32 {
 }
 
 pub fn hasTileEntity(world_map: *World, x: i32, y: i32, z: i32) bool {
+    if (world_map.getBlock(x, y, z) == .chest) return true;
     if (world_map.furnaces.contains(.{ .x = x, .y = y, .z = z })) return true;
     if (world_map.signs.contains(.{ .x = x, .y = y, .z = z })) return true;
     return world_map.pistons.contains(.{ .x = x, .y = y, .z = z });

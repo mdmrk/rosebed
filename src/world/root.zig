@@ -8,6 +8,7 @@ pub const Stack = block.Stack;
 pub const Id = block.Id;
 pub const block_update = @import("block_update.zig");
 pub const caves = @import("caves.zig");
+pub const chest = @import("chest.zig");
 pub const Chunk = @import("chunk.zig");
 pub const chunk_nbt = @import("chunk_nbt.zig");
 pub const chunk_payload = @import("chunk_payload.zig");
@@ -68,6 +69,7 @@ test {
     _ = chunk_payload;
     _ = entity_nbt;
     _ = furnace;
+    _ = chest;
     _ = piston;
     _ = sign;
     _ = caves;

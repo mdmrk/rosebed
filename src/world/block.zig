@@ -860,6 +860,7 @@ pub const Block = enum(u8) {
                 .east = 59,
             }),
             .furnace, .burning_furnace => furnaceTextures(self, furnace_default_facing),
+            .chest => chestItemTextures(),
             .door_wood => uniform(door_bottom_tile),
             .door_iron => uniform(door_bottom_tile + 1),
             .trapdoor => uniform(trapdoor_tile),
@@ -976,6 +977,7 @@ pub const Block = enum(u8) {
             .torch => 0.0,
             .block_diamond => 5.0,
             .workbench => 2.5,
+            .chest => 2.5,
             .furnace, .burning_furnace => 3.5,
             .door_wood, .trapdoor => 3.0,
             .door_iron => 5.0,
@@ -1127,6 +1129,7 @@ pub const Block = enum(u8) {
             .ice => "Ice",
             .snow_block => "Snow",
             .jukebox => "Jukebox",
+            .chest => "Chest",
             .fire => "Fire",
             .portal => "Portal",
             .netherrack => "Netherrack",
@@ -1652,6 +1655,94 @@ pub fn furnaceTextures(id: Block, metadata: u4) FaceTextures {
     return textures;
 }
 
+const chest_top_tile: u8 = 25;
+const chest_side_tile: u8 = 26;
+const chest_front_tile: u8 = 27;
+const chest_large_front_tile: u8 = 42;
+const chest_large_back_tile: u8 = 58;
+
+pub const ChestRing = struct {
+    north: Block = .air,
+    south: Block = .air,
+    west: Block = .air,
+    east: Block = .air,
+    north_west: Block = .air,
+    north_east: Block = .air,
+    south_west: Block = .air,
+    south_east: Block = .air,
+};
+
+fn chestItemTextures() FaceTextures {
+    var textures = FaceTextures.initFill(chest_side_tile);
+    textures.set(.down, chest_top_tile);
+    textures.set(.up, chest_top_tile);
+    textures.set(.south, chest_front_tile);
+    return textures;
+}
+
+fn chestTile(ring: ChestRing, side: Side) u8 {
+    if (side == .up or side == .down) return chest_top_tile;
+
+    const paired_north = ring.north == .chest;
+    const paired_south = ring.south == .chest;
+    const paired_west = ring.west == .chest;
+    const paired_east = ring.east == .chest;
+
+    if (!paired_north and !paired_south) {
+        if (!paired_west and !paired_east) {
+            var front: Side = .south;
+            if (ring.north.isOpaqueCube() and !ring.south.isOpaqueCube()) front = .south;
+            if (ring.south.isOpaqueCube() and !ring.north.isOpaqueCube()) front = .north;
+            if (ring.west.isOpaqueCube() and !ring.east.isOpaqueCube()) front = .east;
+            if (ring.east.isOpaqueCube() and !ring.west.isOpaqueCube()) front = .west;
+            return if (side == front) chest_front_tile else chest_side_tile;
+        }
+
+        if (side != .west and side != .east) {
+            const behind_north = if (paired_west) ring.north_west else ring.north_east;
+            const behind_south = if (paired_west) ring.south_west else ring.south_east;
+            var half: u8 = if (paired_west) 1 else 0;
+            if (side == .south) half = 1 - half;
+
+            var front: Side = .south;
+            if ((ring.north.isOpaqueCube() or behind_north.isOpaqueCube()) and
+                !ring.south.isOpaqueCube() and !behind_south.isOpaqueCube()) front = .south;
+            if ((ring.south.isOpaqueCube() or behind_south.isOpaqueCube()) and
+                !ring.north.isOpaqueCube() and !behind_north.isOpaqueCube()) front = .north;
+
+            const base = if (side == front) chest_large_front_tile else chest_large_back_tile;
+            return base - half;
+        }
+
+        return chest_side_tile;
+    }
+
+    if (side != .north and side != .south) {
+        const behind_west = if (paired_north) ring.north_west else ring.south_west;
+        const behind_east = if (paired_north) ring.north_east else ring.south_east;
+        var half: u8 = if (paired_north) 1 else 0;
+        if (side == .west) half = 1 - half;
+
+        var front: Side = .east;
+        if ((ring.west.isOpaqueCube() or behind_west.isOpaqueCube()) and
+            !ring.east.isOpaqueCube() and !behind_east.isOpaqueCube()) front = .east;
+        if ((ring.east.isOpaqueCube() or behind_east.isOpaqueCube()) and
+            !ring.west.isOpaqueCube() and !behind_west.isOpaqueCube()) front = .west;
+
+        const base = if (side == front) chest_large_front_tile else chest_large_back_tile;
+        return base - half;
+    }
+
+    return chest_side_tile;
+}
+
+pub fn chestTextures(ring: ChestRing) FaceTextures {
+    var textures = FaceTextures.initFill(chest_side_tile);
+    var it = textures.iterator();
+    while (it.next()) |entry| entry.value.* = chestTile(ring, entry.key);
+    return textures;
+}
+
 pub const wire_particle_tint: [3]u8 = .{ 128, 0, 0 };
 pub const wire_cross_tile: u8 = 164;
 pub const wire_line_tile: u8 = 165;
@@ -1770,6 +1861,73 @@ test "the furnace turns its face towards the side its metadata names" {
     const lit = furnaceTextures(.burning_furnace, @intFromEnum(Side.north));
     try std.testing.expectEqual(@as(u8, 61), lit.get(.north));
     try std.testing.expectEqual(@as(u8, 45), lit.get(.east));
+}
+
+test "a lone chest keeps its latch on the south face until a wall turns it" {
+    const open = chestTextures(.{});
+    try std.testing.expectEqual(@as(u8, 25), open.get(.up));
+    try std.testing.expectEqual(@as(u8, 25), open.get(.down));
+    try std.testing.expectEqual(@as(u8, 27), open.get(.south));
+    try std.testing.expectEqual(@as(u8, 26), open.get(.north));
+    try std.testing.expectEqual(@as(u8, 26), open.get(.west));
+    try std.testing.expectEqual(@as(u8, 26), open.get(.east));
+
+    const walled_north = chestTextures(.{ .north = .stone });
+    try std.testing.expectEqual(@as(u8, 27), walled_north.get(.south));
+
+    const walled_south = chestTextures(.{ .south = .stone });
+    try std.testing.expectEqual(@as(u8, 27), walled_south.get(.north));
+    try std.testing.expectEqual(@as(u8, 26), walled_south.get(.south));
+
+    const walled_east = chestTextures(.{ .east = .stone });
+    try std.testing.expectEqual(@as(u8, 27), walled_east.get(.west));
+
+    const boxed_in = chestTextures(.{ .north = .stone, .south = .stone });
+    try std.testing.expectEqual(@as(u8, 27), boxed_in.get(.south));
+}
+
+test "a double chest splits its latch across the pair" {
+    const west_half = chestTextures(.{ .east = .chest });
+    const east_half = chestTextures(.{ .west = .chest });
+
+    try std.testing.expectEqual(@as(u8, 41), west_half.get(.south));
+    try std.testing.expectEqual(@as(u8, 42), east_half.get(.south));
+    try std.testing.expectEqual(@as(u8, 58), west_half.get(.north));
+    try std.testing.expectEqual(@as(u8, 57), east_half.get(.north));
+    try std.testing.expectEqual(@as(u8, 26), west_half.get(.west));
+    try std.testing.expectEqual(@as(u8, 26), east_half.get(.east));
+    try std.testing.expectEqual(@as(u8, 25), west_half.get(.up));
+
+    const north_half = chestTextures(.{ .south = .chest });
+    const south_half = chestTextures(.{ .north = .chest });
+    try std.testing.expectEqual(@as(u8, 42), north_half.get(.east));
+    try std.testing.expectEqual(@as(u8, 41), south_half.get(.east));
+    try std.testing.expectEqual(@as(u8, 57), north_half.get(.west));
+    try std.testing.expectEqual(@as(u8, 58), south_half.get(.west));
+    try std.testing.expectEqual(@as(u8, 26), north_half.get(.north));
+}
+
+test "a wall behind a double chest turns the pair around together" {
+    const west_half = chestTextures(.{ .east = .chest, .north = .stone, .north_east = .stone });
+    const east_half = chestTextures(.{ .west = .chest, .north = .stone, .north_west = .stone });
+    try std.testing.expectEqual(@as(u8, 41), west_half.get(.south));
+    try std.testing.expectEqual(@as(u8, 42), east_half.get(.south));
+
+    const flipped_west = chestTextures(.{ .east = .chest, .south = .stone, .south_east = .stone });
+    const flipped_east = chestTextures(.{ .west = .chest, .south = .stone, .south_west = .stone });
+    try std.testing.expectEqual(@as(u8, 42), flipped_west.get(.north));
+    try std.testing.expectEqual(@as(u8, 41), flipped_east.get(.north));
+    try std.testing.expectEqual(@as(u8, 57), flipped_west.get(.south));
+}
+
+test "the chest item icon is the plain south-facing chest" {
+    const textures = Block.chest.faceTextures();
+    try std.testing.expectEqual(@as(u8, 25), textures.get(.up));
+    try std.testing.expectEqual(@as(u8, 25), textures.get(.down));
+    try std.testing.expectEqual(@as(u8, 27), textures.get(.south));
+    try std.testing.expectEqual(@as(u8, 26), textures.get(.north));
+    try std.testing.expectEqual(@as(f32, 2.5), Block.chest.hardness());
+    try std.testing.expectEqualStrings("Chest", Block.chest.displayName(0));
 }
 
 test "a furnace faces the player who placed it, whichever way they were turned" {
