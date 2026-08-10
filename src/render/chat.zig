@@ -64,13 +64,13 @@ pub const State = struct {
         self.open = true;
         self.message_len = 0;
         self.blink = 0;
-        self.history_pointer = self.history_line_count;
+        self.history_pointer = 0;
     }
 
     pub fn closeInput(self: *State) void {
         self.open = false;
         self.message_len = 0;
-        self.history_pointer = self.history_line_count;
+        self.history_pointer = 0;
     }
 
     pub fn typeText(self: *State, value: []const u8) void {
@@ -104,27 +104,25 @@ pub const State = struct {
         }
     }
 
+    // history_pointer is a depth, not an index: 0 is the empty line the player is typing on,
+    // and depth d recalls history[d - 1]. History is newest-first, so walking back (offset -1)
+    // walks the depth forward.
     pub fn setTextFromHistory(self: *State, offset: i32) void {
         if (self.history_line_count == 0) return;
 
         const current: i32 = @intCast(self.history_pointer);
-        const max_pointer: i32 = @intCast(self.history_line_count);
+        const oldest: i32 = @intCast(self.history_line_count);
 
-        const next: usize = @intCast(std.math.clamp(
-            current + offset,
-            0,
-            max_pointer,
-        ));
-
+        const next: usize = @intCast(std.math.clamp(current - offset, 0, oldest));
         self.history_pointer = next;
 
-        if (next == self.history_line_count) {
+        if (next == 0) {
             self.setText("");
             return;
         }
 
-        const len = self.history_lengths[next];
-        self.setText(self.history[next][0..len]);
+        const index = next - 1;
+        self.setText(self.history[index][0..self.history_lengths[index]]);
     }
 
     pub fn tick(self: *State) void {
@@ -189,7 +187,7 @@ pub const State = struct {
             @memcpy(self.history[0][0..len], text[0..len]);
         }
         self.history_lengths[0] = len;
-        self.history_pointer = self.history_line_count;
+        self.history_pointer = 0;
     }
 
     fn cursorVisible(self: *const State) bool {
@@ -299,6 +297,34 @@ test "history navigation goes newest to oldest and back to empty" {
 
     state.setTextFromHistory(1);
     try std.testing.expectEqualStrings("", state.message());
+}
+
+test "history navigation stops at both ends rather than wrapping" {
+    var state: State = .{};
+    state.pushHistory("first");
+    state.pushHistory("second");
+    state.openInput();
+
+    for (0..5) |_| state.setTextFromHistory(-1);
+    try std.testing.expectEqualStrings("first", state.message());
+
+    for (0..5) |_| state.setTextFromHistory(1);
+    try std.testing.expectEqualStrings("", state.message());
+}
+
+test "sending a line puts history back at the empty end" {
+    var state: State = .{};
+    state.pushHistory("first");
+    state.openInput();
+
+    state.setTextFromHistory(-1);
+    try std.testing.expectEqualStrings("first", state.message());
+
+    state.pushHistory("second");
+    try std.testing.expectEqual(@as(usize, 0), state.history_pointer);
+
+    state.setTextFromHistory(-1);
+    try std.testing.expectEqualStrings("second", state.message());
 }
 
 test "the newest message sits at index zero" {
