@@ -14,6 +14,7 @@ pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
 pub const Level = @import("level.zig");
 pub const mob = @import("mob.zig");
+pub const Monster = @import("monster.zig");
 pub const Painting = @import("painting.zig");
 pub const Particle = @import("particle.zig");
 pub const physics = @import("physics.zig");
@@ -29,6 +30,7 @@ pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
 pub const Wolf = @import("wolf.zig");
+pub const Zombie = @import("zombie.zig");
 
 test {
     _ = Entity;
@@ -52,6 +54,8 @@ test {
     _ = Sheep;
     _ = Slime;
     _ = Wolf;
+    _ = Zombie;
+    _ = Monster;
     _ = explosion;
     _ = Fireball;
     _ = Ghast;

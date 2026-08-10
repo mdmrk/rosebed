@@ -439,6 +439,36 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+fn appendZombieShaped(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    animal: game.Animal,
+    age: f32,
+    partial_ticks: f32,
+) !void {
+    const parts = mob_model.zombiePosed(.{
+        .limb_swing = animal.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = animal.limbSwingAmount(partial_ticks),
+        .head_yaw = animal.headYaw(partial_ticks),
+        .head_pitch = animal.headPitch(partial_ticks),
+    }, age);
+
+    return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, mob_model.biped, .{
+        .posed = &parts,
+    });
+}
+
+pub fn appendZombie(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    zombie: game.Zombie,
+    partial_ticks: f32,
+) !void {
+    return appendZombieShaped(mesh, gpa, world_map, zombie.animal, zombie.renderAge(partial_ticks), partial_ticks);
+}
+
 pub fn appendPigZombie(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -446,16 +476,7 @@ pub fn appendPigZombie(
     pig_zombie: game.PigZombie,
     partial_ticks: f32,
 ) !void {
-    const parts = mob_model.zombiePosed(.{
-        .limb_swing = pig_zombie.animal.limbSwingPhase(partial_ticks),
-        .limb_swing_amount = pig_zombie.animal.limbSwingAmount(partial_ticks),
-        .head_yaw = pig_zombie.animal.headYaw(partial_ticks),
-        .head_pitch = pig_zombie.animal.headPitch(partial_ticks),
-    }, pig_zombie.renderAge(partial_ticks));
-
-    return appendAnimal(mesh, gpa, world_map, pig_zombie.animal, partial_ticks, mob_model.biped, .{
-        .posed = &parts,
-    });
+    return appendZombieShaped(mesh, gpa, world_map, pig_zombie.animal, pig_zombie.renderAge(partial_ticks), partial_ticks);
 }
 
 pub fn appendWolf(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, wolf: game.Wolf, partial_ticks: f32) !void {
@@ -2010,6 +2031,27 @@ test "a pig zombie renders a whole biped standing on the ground it was placed on
     const bounds = meshBounds(mesh);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0), bounds[1][1], 1.0e-5);
+}
+
+test "a zombie is drawn the same shambling shape as a pig zombie" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var zombie: MeshBuilder = .{};
+    defer zombie.deinit(gpa);
+    try appendZombie(&zombie, gpa, &world_map, game.Zombie.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    var pig_zombie: MeshBuilder = .{};
+    defer pig_zombie.deinit(gpa);
+    try appendPigZombie(&pig_zombie, gpa, &world_map, game.PigZombie.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 6 * 4), zombie.vertices.items.len);
+    for (zombie.vertices.items, pig_zombie.vertices.items) |shambler, hog| {
+        try std.testing.expectApproxEqAbs(shambler.x, hog.x, 1.0e-6);
+        try std.testing.expectApproxEqAbs(shambler.y, hog.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(shambler.z, hog.z, 1.0e-6);
+    }
 }
 
 test "a pig zombie holds both arms out ahead of its body" {

@@ -14,6 +14,7 @@ const PigZombie = @import("pig_zombie.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
+const Zombie = @import("zombie.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;
@@ -56,13 +57,14 @@ pub const Kind = enum {
 
 pub const Monster = enum {
     slime,
+    zombie,
     ghast,
     pig_zombie,
 
     pub fn maxPerChunk(self: Monster) u32 {
         return switch (self) {
             .ghast => Ghast.max_spawned_in_chunk,
-            .slime, .pig_zombie => max_per_chunk,
+            .slime, .zombie, .pig_zombie => max_per_chunk,
         };
     }
 };
@@ -83,6 +85,7 @@ const wooded_creatures = base_creatures ++ [_]Creature{
 };
 
 const overworld_monsters = [_]Horror{
+    .{ .weight = 10, .monster = .zombie },
     .{ .weight = 10, .monster = .slime },
 };
 
@@ -128,7 +131,7 @@ pub fn chunksAroundOnePlayer() usize {
 fn liveCount(entities: *const Entities, category: Category) i32 {
     return switch (category) {
         .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast) +
-            entities.countOf(mob.pig_zombie)),
+            entities.countOf(mob.zombie) + entities.countOf(mob.pig_zombie)),
         .creature => @intCast(entities.animalCount()),
     };
 }
@@ -276,6 +279,12 @@ fn spawnInChunk(
                             slime.animal.faceYaw(rand.nextFloat() * 360.0);
                             if (!slime.canSpawnHere(world_seed, rand)) continue;
                             try entities.adopt(gpa, mob.slime, slime);
+                        },
+                        .zombie => {
+                            var zombie = Zombie.spawn(position);
+                            zombie.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!zombie.canSpawnHere(world_map, rand)) continue;
+                            try entities.adopt(gpa, mob.zombie, zombie);
                         },
                         .ghast => {
                             var ghast = Ghast.spawn(position);
@@ -521,9 +530,10 @@ test "nothing spawns in the dark" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    const total = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
+    _ = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
-    try std.testing.expectEqual(@as(u32, 0), total);
+    // The dark is the monsters' to have; it is the animals that need the light.
+    try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
 }
 
 test "nothing spawns within twenty-four blocks of the player" {
@@ -623,6 +633,56 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
 }
 
+test "zombies spawn in the overworld's dark caverns, and never in the daylight" {
+    const gpa = std.testing.allocator;
+    var w = try stoneCavern(gpa, 2, 5, cavern);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, cavern, 0);
+
+    for (0..8000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+        if (entities.countOf(mob.zombie) > 0) break;
+    }
+
+    try std.testing.expect(entities.countOf(mob.zombie) > 0);
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.pig_zombie));
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.ghast));
+    try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
+
+    var shamblers = entities.of(Zombie, mob.zombie);
+    while (shamblers.next()) |zombie| {
+        const at = zombie.animal.base.position;
+        try std.testing.expectEqual(.stone, w.getBlock(
+            math.util.floorDouble(at.x),
+            math.util.floorDouble(at.y) - 1,
+            math.util.floorDouble(at.z),
+        ));
+    }
+}
+
+test "a lit overworld surface keeps the zombies out" {
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+
+    for (0..4000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.zombie));
+}
+
 test "the nether fills its caverns with pig zombies as well as ghasts" {
     const gpa = std.testing.allocator;
     var w = try stoneCavern(gpa, 2, 5, cavern);
@@ -659,7 +719,10 @@ test "the nether fills its caverns with pig zombies as well as ghasts" {
 test "the overworld's monster list never rolls a nether horror" {
     var rand = world.JavaRandom.init(4);
     for (0..2000) |_| {
-        try std.testing.expectEqual(Monster.slime, pickWeighted(Horror, monsterList(.overworld), &rand).monster);
+        switch (pickWeighted(Horror, monsterList(.overworld), &rand).monster) {
+            .slime, .zombie => {},
+            .ghast, .pig_zombie => return error.TestUnexpectedResult,
+        }
     }
 
     var ghasts: u32 = 0;
@@ -669,7 +732,7 @@ test "the overworld's monster list never rolls a nether horror" {
         switch (pickWeighted(Horror, monsterList(.nether), &rand).monster) {
             .ghast => ghasts += 1,
             .pig_zombie => pig_zombies += 1,
-            .slime => unreachable,
+            .slime, .zombie => unreachable,
         }
     }
 

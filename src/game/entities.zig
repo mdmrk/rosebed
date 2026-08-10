@@ -24,6 +24,7 @@ const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
+const Zombie = @import("zombie.zig");
 
 const Entities = @This();
 
@@ -1092,6 +1093,11 @@ pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
 pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
+}
+
+pub fn spawnZombie(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.zombie, position, &unused);
 }
 
 pub fn spawnPigZombie(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
@@ -3118,7 +3124,7 @@ test "hitting one pig zombie turns the whole horde within thirty-two blocks on t
     var roused: usize = 0;
     while (horde.next()) |pig_zombie| {
         if (pig_zombie.anger_level == 0) continue;
-        try std.testing.expectEqual(player.base.id, pig_zombie.target.?);
+        try std.testing.expectEqual(player.base.id, pig_zombie.monster.target.?);
         roused += 1;
     }
 
@@ -3194,4 +3200,70 @@ test "an angry pig zombie comes back angry from its chunk" {
     const pig_zombie = restored.first(PigZombie, mob.pig_zombie).?;
     try std.testing.expectEqual(@as(i32, 617), pig_zombie.anger_level);
     try std.testing.expectEqual(@as(i32, 14), pig_zombie.animal.health);
+}
+
+test "a zombie in reach takes five hearts off the player without being provoked" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnZombie(gpa, math.Vec3.init(8.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(9.0, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    const full = player.health;
+    for (0..40) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (player.health < full) break;
+    }
+
+    try std.testing.expectEqual(full - Zombie.attack_strength, player.health);
+    try std.testing.expectEqual(player.base.id, entities.first(Zombie, mob.zombie).?.monster.target.?);
+}
+
+test "a zombie comes back from its chunk with its wounds" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Shamble");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        try entities.spawnZombie(gpa, math.Vec3.init(8.5, 1, 8.5));
+        entities.first(Zombie, mob.zombie).?.animal.health = 12;
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.countOf(mob.zombie));
+    try std.testing.expectEqual(@as(usize, 0), restored.countOf(mob.pig_zombie));
+    try std.testing.expectEqual(@as(i32, 12), restored.first(Zombie, mob.zombie).?.animal.health);
 }
