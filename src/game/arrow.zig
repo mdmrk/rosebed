@@ -78,6 +78,12 @@ pub fn shotBy(player: Player, rand: *world.JavaRandom) Arrow {
     return arrow;
 }
 
+pub fn loosedBy(from: math.Vec3, toward: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) Arrow {
+    var arrow: Arrow = .{ .base = Entity.init(from, size, size) };
+    arrow.setHeading(toward, speed, spread, rand);
+    return arrow;
+}
+
 fn setHeading(self: *Arrow, direction: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) void {
     const length: f64 = math.util.sqrtF(
         direction.x * direction.x + direction.y * direction.y + direction.z * direction.z,

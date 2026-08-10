@@ -470,19 +470,38 @@ fn appendZombieShaped(
     gpa: std.mem.Allocator,
     world_map: *const world.World,
     animal: game.Animal,
+    model: mob_model.Model,
     age: f32,
     partial_ticks: f32,
 ) !void {
-    const parts = mob_model.zombiePosed(.{
+    const parts = mob_model.zombiePosed(model, .{
         .limb_swing = animal.limbSwingPhase(partial_ticks),
         .limb_swing_amount = animal.limbSwingAmount(partial_ticks),
         .head_yaw = animal.headYaw(partial_ticks),
         .head_pitch = animal.headPitch(partial_ticks),
     }, age);
 
-    return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, mob_model.biped, .{
+    return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, model, .{
         .posed = &parts,
     });
+}
+
+pub fn appendSkeleton(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    skeleton: game.Skeleton,
+    partial_ticks: f32,
+) !void {
+    return appendZombieShaped(
+        mesh,
+        gpa,
+        world_map,
+        skeleton.animal,
+        mob_model.skeleton,
+        skeleton.renderAge(partial_ticks),
+        partial_ticks,
+    );
 }
 
 pub fn appendZombie(
@@ -492,7 +511,7 @@ pub fn appendZombie(
     zombie: game.Zombie,
     partial_ticks: f32,
 ) !void {
-    return appendZombieShaped(mesh, gpa, world_map, zombie.animal, zombie.renderAge(partial_ticks), partial_ticks);
+    return appendZombieShaped(mesh, gpa, world_map, zombie.animal, mob_model.biped, zombie.renderAge(partial_ticks), partial_ticks);
 }
 
 pub fn appendPigZombie(
@@ -502,7 +521,7 @@ pub fn appendPigZombie(
     pig_zombie: game.PigZombie,
     partial_ticks: f32,
 ) !void {
-    return appendZombieShaped(mesh, gpa, world_map, pig_zombie.animal, pig_zombie.renderAge(partial_ticks), partial_ticks);
+    return appendZombieShaped(mesh, gpa, world_map, pig_zombie.animal, mob_model.biped, pig_zombie.renderAge(partial_ticks), partial_ticks);
 }
 
 pub fn appendWolf(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, wolf: game.Wolf, partial_ticks: f32) !void {
@@ -2156,6 +2175,88 @@ test "a walking creeper swings its legs but keeps its body still" {
     const still_body = partBounds(still, creeper_body);
     const walking_body = partBounds(walking, creeper_body);
     try std.testing.expectApproxEqAbs(still_body[1][2], walking_body[1][2], 1.0e-5);
+}
+
+test "a skeleton is drawn thinner in the limbs than a zombie, and the same in head and body" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var skeleton: MeshBuilder = .{};
+    defer skeleton.deinit(gpa);
+    try appendSkeleton(&skeleton, gpa, &world_map, game.Skeleton.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    var zombie: MeshBuilder = .{};
+    defer zombie.deinit(gpa);
+    try appendZombie(&zombie, gpa, &world_map, game.Zombie.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 6 * 4), skeleton.vertices.items.len);
+
+    for ([_]usize{ biped_right_arm, biped_left_arm, biped_right_leg, biped_left_leg }) |limb| {
+        const thin = partBounds(skeleton, limb);
+        const thick = partBounds(zombie, limb);
+        try std.testing.expect(thin[1][0] - thin[0][0] < thick[1][0] - thick[0][0]);
+    }
+
+    for ([_]usize{ biped_body, mob_model.biped.head_index }) |shared| {
+        const bony = partBounds(skeleton, shared);
+        const rotten = partBounds(zombie, shared);
+        try std.testing.expectApproxEqAbs(bony[1][0] - bony[0][0], rotten[1][0] - rotten[0][0], 1.0e-5);
+    }
+
+    const bounds = meshBounds(skeleton);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+}
+
+test "a skeleton holds its arms out ahead like the zombie it is posed as" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendSkeleton(&mesh, gpa, &world_map, game.Skeleton.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    const body = partBounds(mesh, biped_body);
+    const right_arm = partBounds(mesh, biped_right_arm);
+    const left_arm = partBounds(mesh, biped_left_arm);
+
+    try std.testing.expect(right_arm[1][2] > body[1][2]);
+    try std.testing.expect(left_arm[1][2] > body[1][2]);
+}
+
+test "a mirrored box keeps its corners and flips only its texture across u" {
+    const gpa = std.testing.allocator;
+
+    const plain: mob_model.Part = .{
+        .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 12, 2 }, .tex_u = 40, .tex_v = 16 },
+        .pivot = .{ 0, 0, 0 },
+    };
+    var mirrored = plain;
+    mirrored.box.mirror = true;
+
+    var straight: MeshBuilder = .{};
+    defer straight.deinit(gpa);
+    try mob_model.appendPart(&straight, gpa, plain, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+
+    var flipped: MeshBuilder = .{};
+    defer flipped.deinit(gpa);
+    try mob_model.appendPart(&flipped, gpa, mirrored, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+
+    try std.testing.expectEqual(straight.vertices.items.len, flipped.vertices.items.len);
+
+    const straight_bounds = meshBounds(straight);
+    const flipped_bounds = meshBounds(flipped);
+    for (0..3) |axis| {
+        try std.testing.expectApproxEqAbs(straight_bounds[0][axis], flipped_bounds[0][axis], 1.0e-6);
+        try std.testing.expectApproxEqAbs(straight_bounds[1][axis], flipped_bounds[1][axis], 1.0e-6);
+    }
+
+    var differs = false;
+    for (straight.vertices.items, flipped.vertices.items) |a, b| {
+        if (a.u != b.u or a.v != b.v) differs = true;
+    }
+    try std.testing.expect(differs);
 }
 
 test "a zombie is drawn the same shambling shape as a pig zombie" {

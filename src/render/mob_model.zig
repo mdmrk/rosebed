@@ -11,6 +11,7 @@ pub const Box = struct {
     tex_u: f32,
     tex_v: f32,
     inflate: f32 = 0,
+    mirror: bool = false,
 };
 
 pub const Role = enum { still, head, leg_ahead, leg_behind, wing_right, wing_left };
@@ -383,10 +384,26 @@ pub fn bipedPosed(model: Model, pose: BipedPose) [biped_parts.len]Part {
     return parts;
 }
 
-pub fn zombiePosed(pose: BipedPose, age: f32) [biped_parts.len]Part {
+const skeleton_parts = [6]Part{
+    biped_parts[body_index],
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 12, 2 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },
+    .{ .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 12, 2 }, .tex_u = 0, .tex_v = 16, .mirror = true }, .pivot = .{ 2, -12, 0 } },
+    .{ .box = .{ .origin = .{ -1, -2, -1 }, .size = .{ 2, 12, 2 }, .tex_u = 40, .tex_v = 16 }, .pivot = .{ -5, -22, 0 } },
+    .{ .box = .{ .origin = .{ -1, -2, -1 }, .size = .{ 2, 12, 2 }, .tex_u = 40, .tex_v = 16, .mirror = true }, .pivot = .{ 5, -22, 0 } },
+    biped_parts[5],
+};
+
+pub const skeleton: Model = .{
+    .parts = &skeleton_parts,
+    .head_index = 5,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub fn zombiePosed(model: Model, pose: BipedPose, age: f32) [biped_parts.len]Part {
     const pi = std.math.pi;
 
-    var parts = bipedPosed(biped, pose);
+    var parts = bipedPosed(model, pose);
     const right_arm = &parts[right_arm_index];
     const left_arm = &parts[left_arm_index];
 
@@ -511,10 +528,11 @@ fn faceSpecs(box: Box) [6]FaceSpec {
     const w = box.size[0];
     const h = box.size[1];
     const d = box.size[2];
-    const x1 = box.origin[0] - box.inflate;
+    var x1 = box.origin[0] - box.inflate;
     const y1 = box.origin[1] - box.inflate;
     const z1 = box.origin[2] - box.inflate;
-    const x2 = box.origin[0] + w + box.inflate;
+    var x2 = box.origin[0] + w + box.inflate;
+    if (box.mirror) std.mem.swap(f32, &x1, &x2);
     const y2 = box.origin[1] + h + box.inflate;
     const z2 = box.origin[2] + d + box.inflate;
     const tu = box.tex_u;
@@ -548,12 +566,16 @@ pub fn appendBox(
                 (c[2] + pivot[2]) * scale,
             };
         }
-        const uvs = [4][2]f32{
+        var uvs = [4][2]f32{
             .{ face.rect[2] / tex_width, face.rect[1] / tex_height },
             .{ face.rect[0] / tex_width, face.rect[1] / tex_height },
             .{ face.rect[0] / tex_width, face.rect[3] / tex_height },
             .{ face.rect[2] / tex_width, face.rect[3] / tex_height },
         };
+        if (box.mirror) {
+            std.mem.reverse([3]f32, &positions);
+            std.mem.reverse([2]f32, &uvs);
+        }
         try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
     }
 }
@@ -580,12 +602,16 @@ pub fn appendPart(
             const xz = rotateYaw(rolled[0], world_scale[2], pose.yaw);
             positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
         }
-        const uvs = [4][2]f32{
+        var uvs = [4][2]f32{
             .{ face.rect[2] / tex_width, face.rect[1] / tex_height },
             .{ face.rect[0] / tex_width, face.rect[1] / tex_height },
             .{ face.rect[0] / tex_width, face.rect[3] / tex_height },
             .{ face.rect[2] / tex_width, face.rect[3] / tex_height },
         };
+        if (part.box.mirror) {
+            std.mem.reverse([3]f32, &positions);
+            std.mem.reverse([2]f32, &uvs);
+        }
         try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
     }
 }

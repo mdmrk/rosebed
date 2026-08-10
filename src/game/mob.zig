@@ -93,6 +93,7 @@ const vanilla = [_]Type{
     @import("wolf.zig").mob_type,
     @import("ghast.zig").mob_type,
     @import("creeper.zig").mob_type,
+    @import("skeleton.zig").mob_type,
     @import("zombie.zig").mob_type,
     @import("pig_zombie.zig").mob_type,
 };
@@ -105,8 +106,9 @@ pub const slime: Id = 4;
 pub const wolf: Id = 5;
 pub const ghast: Id = 6;
 pub const creeper: Id = 7;
-pub const zombie: Id = 8;
-pub const pig_zombie: Id = 9;
+pub const skeleton: Id = 8;
+pub const zombie: Id = 9;
+pub const pig_zombie: Id = 10;
 
 var types: [capacity]Type = initialTypes();
 var count: usize = vanilla.len;
@@ -154,9 +156,10 @@ test "the vanilla mob types keep the ids the save format is written against" {
     try std.testing.expectEqual(wolf, find("Wolf").?);
     try std.testing.expectEqual(ghast, find("Ghast").?);
     try std.testing.expectEqual(creeper, find("Creeper").?);
+    try std.testing.expectEqual(skeleton, find("Skeleton").?);
     try std.testing.expectEqual(zombie, find("Zombie").?);
     try std.testing.expectEqual(pig_zombie, find("PigZombie").?);
-    try std.testing.expectEqual(@as(Id, 10), registered());
+    try std.testing.expectEqual(@as(Id, 11), registered());
 }
 
 test "the vanilla mob types carry the entity ids the wire spawns them by" {
@@ -168,9 +171,10 @@ test "the vanilla mob types carry the entity ids the wire spawns them by" {
     try std.testing.expectEqual(wolf, byWireId(95).?);
     try std.testing.expectEqual(ghast, byWireId(56).?);
     try std.testing.expectEqual(creeper, byWireId(50).?);
+    try std.testing.expectEqual(skeleton, byWireId(51).?);
     try std.testing.expectEqual(zombie, byWireId(54).?);
     try std.testing.expectEqual(pig_zombie, byWireId(57).?);
-    try std.testing.expectEqual(@as(?Id, null), byWireId(51));
+    try std.testing.expectEqual(@as(?Id, null), byWireId(52));
 }
 
 test "a type with no entity id of its own is never spawned over the wire" {
@@ -223,8 +227,8 @@ test "a registered type lands after the vanilla ones and answers to its name" {
         .destroy = get(pig).destroy,
     });
 
-    try std.testing.expectEqual(@as(Id, 10), custom);
+    try std.testing.expectEqual(@as(Id, 11), custom);
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
-    try std.testing.expectEqual(@as(Id, 11), registered());
+    try std.testing.expectEqual(@as(Id, 12), registered());
 }

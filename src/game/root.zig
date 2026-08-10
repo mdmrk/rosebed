@@ -26,6 +26,7 @@ pub const Player = @import("player.zig");
 pub const raycast = @import("raycast.zig");
 pub const Settings = @import("settings.zig");
 pub const Sheep = @import("sheep.zig");
+pub const Skeleton = @import("skeleton.zig");
 pub const Slime = @import("slime.zig");
 pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
@@ -54,6 +55,7 @@ test {
     _ = Pig;
     _ = PigZombie;
     _ = Sheep;
+    _ = Skeleton;
     _ = Slime;
     _ = Wolf;
     _ = Zombie;

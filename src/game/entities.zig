@@ -23,6 +23,7 @@ const Pig = @import("pig.zig");
 const PigZombie = @import("pig_zombie.zig");
 const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
+const Skeleton = @import("skeleton.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
 const Zombie = @import("zombie.zig");
@@ -834,6 +835,21 @@ pub fn spawnDrowningBubbles(
     }
 }
 
+pub fn loose(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    shot: Skeleton.Shot,
+    rand: *world.JavaRandom,
+) !void {
+    try self.arrows.append(gpa, Arrow.loosedBy(
+        shot.from,
+        shot.toward,
+        Skeleton.arrow_speed,
+        Skeleton.arrow_spread,
+        rand,
+    ));
+}
+
 pub fn shootArrow(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1094,6 +1110,11 @@ pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
 pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
+}
+
+pub fn spawnSkeleton(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.skeleton, position, &unused);
 }
 
 pub fn spawnCreeper(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
@@ -3330,4 +3351,101 @@ test "a creeper killed before its fuse runs out leaves its gunpowder behind" {
     }
     try std.testing.expectEqual(@as(u32, 2), gunpowder);
     try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
+}
+
+test "a skeleton that sees the player looses a real arrow into the world" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnSkeleton(gpa, math.Vec3.init(8.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(14.5, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    for (0..8) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (entities.arrows.items.len > 0) break;
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), entities.arrows.items.len);
+
+    const arrow = entities.arrows.items[0];
+    try std.testing.expect(!arrow.from_player);
+    try std.testing.expect(arrow.base.motion.x > 0.0);
+    try std.testing.expect(arrow.base.position.y > 1.0 + Skeleton.arrow_lift);
+    try std.testing.expectEqual(
+        @as(?Animal.Entity.Id, player.base.id),
+        entities.first(Skeleton, mob.skeleton).?.monster.target,
+    );
+}
+
+test "a skeleton comes back from its chunk, and leaves arrows and bones when killed" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Bones");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        try entities.spawnSkeleton(gpa, math.Vec3.init(8.5, 1, 8.5));
+        entities.first(Skeleton, mob.skeleton).?.animal.health = 7;
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.countOf(mob.skeleton));
+    const skeleton = restored.first(Skeleton, mob.skeleton).?;
+    try std.testing.expectEqual(@as(i32, 7), skeleton.animal.health);
+
+    var rand = world.JavaRandom.init(2);
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    skeleton.pending_arrows = 2;
+    skeleton.pending_bones = 1;
+    skeleton.animal.dead = true;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    try soloTick(&restored, gpa, &w, &player, &rand);
+
+    var arrows: u32 = 0;
+    var bones: u32 = 0;
+    for (restored.items.items) |item| {
+        if (item.stack.id != .item) continue;
+        switch (item.stack.id.item) {
+            .arrow => arrows += 1,
+            .bone => bones += 1,
+            else => {},
+        }
+    }
+    try std.testing.expectEqual(@as(u32, 2), arrows);
+    try std.testing.expectEqual(@as(u32, 1), bones);
 }
