@@ -48,6 +48,7 @@ look_ticks_left: i32 = 0,
 watched_player: ?Entity.Id = null,
 path: ?world.pathfinder.Path = null,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
+path_weight: *const fn (*const world.World, i32, i32, i32) f32 = blockPathWeight,
 action_state: *const fn (
     *Animal,
     std.mem.Allocator,
@@ -288,7 +289,7 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
 
     if (world_map.getBlock(x, y - 1, z) != .grass) return false;
     if (@max(world_map.getSkyLight(x, y, z), world_map.getBlockLight(x, y, z)) <= 8) return false;
-    if (blockPathWeight(world_map, x, y, z) < 0.0) return false;
+    if (self.path_weight(world_map, x, y, z) < 0.0) return false;
 
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
 }
@@ -517,7 +518,7 @@ pub fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const w
         const x = math.util.floorDouble(self.base.position.x + @as(f64, @floatFromInt(rand.nextIntBound(13))) - 6.0);
         const y = math.util.floorDouble(self.base.position.y + @as(f64, @floatFromInt(rand.nextIntBound(7))) - 3.0);
         const z = math.util.floorDouble(self.base.position.z + @as(f64, @floatFromInt(rand.nextIntBound(13))) - 6.0);
-        const weight = blockPathWeight(world_map, x, y, z);
+        const weight = self.path_weight(world_map, x, y, z);
         if (weight > best_weight) {
             best_weight = weight;
             best = .{ x, y, z };

@@ -92,6 +92,7 @@ const vanilla = [_]Type{
     @import("slime.zig").mob_type,
     @import("wolf.zig").mob_type,
     @import("ghast.zig").mob_type,
+    @import("pig_zombie.zig").mob_type,
 };
 
 pub const pig: Id = 0;
@@ -101,6 +102,7 @@ pub const chicken: Id = 3;
 pub const slime: Id = 4;
 pub const wolf: Id = 5;
 pub const ghast: Id = 6;
+pub const pig_zombie: Id = 7;
 
 var types: [capacity]Type = initialTypes();
 var count: usize = vanilla.len;
@@ -147,7 +149,8 @@ test "the vanilla mob types keep the ids the save format is written against" {
     try std.testing.expectEqual(slime, find("Slime").?);
     try std.testing.expectEqual(wolf, find("Wolf").?);
     try std.testing.expectEqual(ghast, find("Ghast").?);
-    try std.testing.expectEqual(@as(Id, 7), registered());
+    try std.testing.expectEqual(pig_zombie, find("PigZombie").?);
+    try std.testing.expectEqual(@as(Id, 8), registered());
 }
 
 test "the vanilla mob types carry the entity ids the wire spawns them by" {
@@ -158,6 +161,7 @@ test "the vanilla mob types carry the entity ids the wire spawns them by" {
     try std.testing.expectEqual(slime, byWireId(55).?);
     try std.testing.expectEqual(wolf, byWireId(95).?);
     try std.testing.expectEqual(ghast, byWireId(56).?);
+    try std.testing.expectEqual(pig_zombie, byWireId(57).?);
     try std.testing.expectEqual(@as(?Id, null), byWireId(50));
 }
 
@@ -211,8 +215,8 @@ test "a registered type lands after the vanilla ones and answers to its name" {
         .destroy = get(pig).destroy,
     });
 
-    try std.testing.expectEqual(@as(Id, 7), custom);
+    try std.testing.expectEqual(@as(Id, 8), custom);
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
-    try std.testing.expectEqual(@as(Id, 8), registered());
+    try std.testing.expectEqual(@as(Id, 9), registered());
 }

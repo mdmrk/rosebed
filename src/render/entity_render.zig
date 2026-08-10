@@ -439,6 +439,25 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+pub fn appendPigZombie(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    pig_zombie: game.PigZombie,
+    partial_ticks: f32,
+) !void {
+    const parts = mob_model.zombiePosed(.{
+        .limb_swing = pig_zombie.animal.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = pig_zombie.animal.limbSwingAmount(partial_ticks),
+        .head_yaw = pig_zombie.animal.headYaw(partial_ticks),
+        .head_pitch = pig_zombie.animal.headPitch(partial_ticks),
+    }, pig_zombie.renderAge(partial_ticks));
+
+    return appendAnimal(mesh, gpa, world_map, pig_zombie.animal, partial_ticks, mob_model.biped, .{
+        .posed = &parts,
+    });
+}
+
 pub fn appendWolf(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, wolf: game.Wolf, partial_ticks: f32) !void {
     const parts = mob_model.wolfPosed(.{
         .limb_swing = wolf.animal.limbSwingPhase(partial_ticks),
@@ -1969,6 +1988,101 @@ test "a shaft on a head part way out reaches back far enough to meet its base" {
         for (mesh.vertices.items) |vertex| lowest = @min(lowest, vertex.y);
         try std.testing.expect(lowest <= base_top + 1.0e-5);
     }
+}
+
+const biped_body = 0;
+const biped_right_leg = 1;
+const biped_left_leg = 2;
+const biped_right_arm = 3;
+const biped_left_arm = 4;
+
+test "a pig zombie renders a whole biped standing on the ground it was placed on" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendPigZombie(&mesh, gpa, &world_map, game.PigZombie.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
+
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0), bounds[1][1], 1.0e-5);
+}
+
+test "a pig zombie holds both arms out ahead of its body" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendPigZombie(&mesh, gpa, &world_map, game.PigZombie.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    const body = partBounds(mesh, biped_body);
+    const right_arm = partBounds(mesh, biped_right_arm);
+    const left_arm = partBounds(mesh, biped_left_arm);
+
+    try std.testing.expect(right_arm[1][2] > body[1][2]);
+    try std.testing.expect(left_arm[1][2] > body[1][2]);
+    try std.testing.expect(right_arm[1][0] < left_arm[0][0]);
+}
+
+test "a pig zombie's outstretched arms sway apart as it ages" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var pig_zombie = game.PigZombie.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var young: MeshBuilder = .{};
+    defer young.deinit(gpa);
+    try appendPigZombie(&young, gpa, &world_map, pig_zombie, 0);
+
+    pig_zombie.ticks_existed = 20;
+
+    var older: MeshBuilder = .{};
+    defer older.deinit(gpa);
+    try appendPigZombie(&older, gpa, &world_map, pig_zombie, 0);
+
+    try std.testing.expect(partBounds(young, biped_right_arm)[0][0] != partBounds(older, biped_right_arm)[0][0]);
+    try std.testing.expect(partBounds(young, biped_left_arm)[0][0] != partBounds(older, biped_left_arm)[0][0]);
+}
+
+test "a walking pig zombie swings its legs but keeps its arms reaching forward" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var pig_zombie = game.PigZombie.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendPigZombie(&still, gpa, &world_map, pig_zombie, 1.0);
+
+    pig_zombie.animal.limb_swing = 1.0;
+    pig_zombie.animal.limb_swing_amount = 1.0;
+    pig_zombie.animal.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendPigZombie(&walking, gpa, &world_map, pig_zombie, 1.0);
+
+    const still_right = partBounds(still, biped_right_leg);
+    const still_left = partBounds(still, biped_left_leg);
+    const walking_right = partBounds(walking, biped_right_leg);
+    const walking_left = partBounds(walking, biped_left_leg);
+
+    const ahead = @max(walking_right[1][2] - still_right[1][2], walking_left[1][2] - still_left[1][2]);
+    const behind = @min(walking_right[0][2] - still_right[0][2], walking_left[0][2] - still_left[0][2]);
+    try std.testing.expect(ahead > 0.1);
+    try std.testing.expect(behind < -0.1);
+
+    const still_arm = partBounds(still, biped_right_arm);
+    const walking_arm = partBounds(walking, biped_right_arm);
+    try std.testing.expectApproxEqAbs(still_arm[1][2], walking_arm[1][2], 1.0e-5);
 }
 
 const wolf_head = 0;

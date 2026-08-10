@@ -19,6 +19,7 @@ pub const Particle = @import("particle.zig");
 pub const physics = @import("physics.zig");
 pub const PickupFx = @import("pickup_fx.zig");
 pub const Pig = @import("pig.zig");
+pub const PigZombie = @import("pig_zombie.zig");
 pub const Player = @import("player.zig");
 pub const raycast = @import("raycast.zig");
 pub const Settings = @import("settings.zig");
@@ -47,6 +48,7 @@ test {
     _ = Chicken;
     _ = Cow;
     _ = Pig;
+    _ = PigZombie;
     _ = Sheep;
     _ = Slime;
     _ = Wolf;

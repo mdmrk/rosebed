@@ -367,6 +367,32 @@ pub fn bipedPosed(model: Model, pose: BipedPose) [biped_parts.len]Part {
     return parts;
 }
 
+pub fn zombiePosed(pose: BipedPose, age: f32) [biped_parts.len]Part {
+    const pi = std.math.pi;
+
+    var parts = bipedPosed(biped, pose);
+    const right_arm = &parts[right_arm_index];
+    const left_arm = &parts[left_arm_index];
+
+    const raise = math.util.sin(pose.swing_progress * pi);
+    const eased = math.util.sin((1.0 - (1.0 - pose.swing_progress) * (1.0 - pose.swing_progress)) * pi);
+
+    right_arm.rotate_z = 0;
+    left_arm.rotate_z = 0;
+    right_arm.rotate_y = -(0.1 - raise * 0.6);
+    left_arm.rotate_y = 0.1 - raise * 0.6;
+    right_arm.rotate_x = pi * -0.5;
+    left_arm.rotate_x = pi * -0.5;
+    right_arm.rotate_x -= raise * 1.2 - eased * 0.4;
+    left_arm.rotate_x -= raise * 1.2 - eased * 0.4;
+    right_arm.rotate_z += math.util.cos(age * 0.09) * 0.05 + 0.05;
+    left_arm.rotate_z -= math.util.cos(age * 0.09) * 0.05 + 0.05;
+    right_arm.rotate_x += math.util.sin(age * 0.067) * 0.05;
+    left_arm.rotate_x -= math.util.sin(age * 0.067) * 0.05;
+
+    return parts;
+}
+
 const armor_outer_inflate: f32 = 1.0;
 const armor_inner_inflate: f32 = 0.5;
 

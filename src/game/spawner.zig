@@ -10,6 +10,7 @@ const Entities = @import("entities.zig");
 const Ghast = @import("ghast.zig");
 const mob = @import("mob.zig");
 const Pig = @import("pig.zig");
+const PigZombie = @import("pig_zombie.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
 const Wolf = @import("wolf.zig");
@@ -56,23 +57,19 @@ pub const Kind = enum {
 pub const Monster = enum {
     slime,
     ghast,
+    pig_zombie,
 
     pub fn maxPerChunk(self: Monster) u32 {
         return switch (self) {
             .ghast => Ghast.max_spawned_in_chunk,
-            .slime => max_per_chunk,
+            .slime, .pig_zombie => max_per_chunk,
         };
     }
 };
 
-pub fn monsterFor(dimension: world.Dimension) Monster {
-    return switch (dimension) {
-        .overworld => .slime,
-        .nether => .ghast,
-    };
-}
-
 const Creature = struct { weight: i32, kind: Kind };
+const Horror = struct { weight: i32, monster: Monster };
+const Chosen = union(Category) { monster: Monster, creature: Kind };
 
 const base_creatures = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
@@ -85,6 +82,15 @@ const wooded_creatures = base_creatures ++ [_]Creature{
     .{ .weight = 2, .kind = .wolf },
 };
 
+const overworld_monsters = [_]Horror{
+    .{ .weight = 10, .monster = .slime },
+};
+
+const nether_monsters = [_]Horror{
+    .{ .weight = 10, .monster = .ghast },
+    .{ .weight = 10, .monster = .pig_zombie },
+};
+
 pub fn creatureList(in_biome: world.biome.Biome) []const Creature {
     return switch (in_biome) {
         .forest, .taiga => &wooded_creatures,
@@ -92,14 +98,18 @@ pub fn creatureList(in_biome: world.biome.Biome) []const Creature {
     };
 }
 
-fn totalWeight(list: []const Creature) i32 {
-    var total: i32 = 0;
-    for (list) |entry| total += entry.weight;
-    return total;
+pub fn monsterList(dimension: world.Dimension) []const Horror {
+    return switch (dimension) {
+        .overworld => &overworld_monsters,
+        .nether => &nether_monsters,
+    };
 }
 
-fn pickCreature(list: []const Creature, rand: *world.JavaRandom) Creature {
-    var roll = rand.nextIntBound(totalWeight(list));
+fn pickWeighted(comptime T: type, list: []const T, rand: *world.JavaRandom) T {
+    var total: i32 = 0;
+    for (list) |entry| total += entry.weight;
+
+    var roll = rand.nextIntBound(total);
     for (list) |entry| {
         roll -= entry.weight;
         if (roll < 0) return entry;
@@ -117,7 +127,8 @@ pub fn chunksAroundOnePlayer() usize {
 
 fn liveCount(entities: *const Entities, category: Category) i32 {
     return switch (category) {
-        .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast)),
+        .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast) +
+            entities.countOf(mob.pig_zombie)),
         .creature => @intCast(entities.animalCount()),
     };
 }
@@ -215,12 +226,13 @@ fn spawnInChunk(
     chunk_x: i32,
     chunk_z: i32,
 ) !u32 {
-    const creature: ?Creature = switch (category) {
-        .creature => pickCreature(
+    const chosen: Chosen = switch (category) {
+        .creature => .{ .creature = pickWeighted(
+            Creature,
             creatureList(world_map.biomeAt(chunk_x * world.constants.chunk_width, chunk_z * world.constants.chunk_width)),
             rand,
-        ),
-        .monster => null,
+        ).kind },
+        .monster => .{ .monster = pickWeighted(Horror, monsterList(dimension), rand).monster },
     };
 
     const origin_x = chunk_x * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
@@ -256,63 +268,70 @@ fn spawnInChunk(
             // The mob is built first (a sheep rolls its fleece there, a chicken its first clutch),
             // then turned, then asked whether it can stand where it was put.
             const position = math.Vec3.init(at_x, at_y, at_z);
-            const kind = (creature orelse {
-                const monster = monsterFor(dimension);
-                switch (monster) {
-                    .slime => {
-                        var slime = Slime.spawn(position, rand);
-                        slime.animal.faceYaw(rand.nextFloat() * 360.0);
-                        if (!slime.canSpawnHere(world_seed, rand)) continue;
-                        try entities.adopt(gpa, mob.slime, slime);
-                    },
-                    .ghast => {
-                        var ghast = Ghast.spawn(position);
-                        ghast.animal.faceYaw(rand.nextFloat() * 360.0);
-                        if (!ghast.canSpawnHere(world_map, rand)) continue;
-                        try entities.adopt(gpa, mob.ghast, ghast);
-                    },
-                }
+            switch (chosen) {
+                .monster => |monster| {
+                    switch (monster) {
+                        .slime => {
+                            var slime = Slime.spawn(position, rand);
+                            slime.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!slime.canSpawnHere(world_seed, rand)) continue;
+                            try entities.adopt(gpa, mob.slime, slime);
+                        },
+                        .ghast => {
+                            var ghast = Ghast.spawn(position);
+                            ghast.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!ghast.canSpawnHere(world_map, rand)) continue;
+                            try entities.adopt(gpa, mob.ghast, ghast);
+                        },
+                        .pig_zombie => {
+                            var pig_zombie = PigZombie.spawn(position);
+                            pig_zombie.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!pig_zombie.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.pig_zombie, pig_zombie);
+                        },
+                    }
 
-                spawned += 1;
-                if (spawned >= monster.maxPerChunk()) return spawned;
-                continue;
-            }).kind;
+                    spawned += 1;
+                    if (spawned >= monster.maxPerChunk()) return spawned;
+                },
+                .creature => |kind| {
+                    switch (kind) {
+                        .pig => {
+                            var pig = Pig.spawn(position);
+                            pig.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!pig.animal.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.pig, pig);
+                        },
+                        .sheep => {
+                            var sheep = Sheep.spawn(position, rand);
+                            sheep.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!sheep.animal.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.sheep, sheep);
+                        },
+                        .cow => {
+                            var cow = Cow.spawn(position);
+                            cow.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!cow.animal.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.cow, cow);
+                        },
+                        .chicken => {
+                            var chicken = Chicken.spawn(position, rand);
+                            chicken.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!chicken.animal.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.chicken, chicken);
+                        },
+                        .wolf => {
+                            var wolf = Wolf.spawn(position);
+                            wolf.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!wolf.animal.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.wolf, wolf);
+                        },
+                    }
 
-            switch (kind) {
-                .pig => {
-                    var pig = Pig.spawn(position);
-                    pig.animal.faceYaw(rand.nextFloat() * 360.0);
-                    if (!pig.animal.canSpawnHere(world_map)) continue;
-                    try entities.adopt(gpa, mob.pig, pig);
-                },
-                .sheep => {
-                    var sheep = Sheep.spawn(position, rand);
-                    sheep.animal.faceYaw(rand.nextFloat() * 360.0);
-                    if (!sheep.animal.canSpawnHere(world_map)) continue;
-                    try entities.adopt(gpa, mob.sheep, sheep);
-                },
-                .cow => {
-                    var cow = Cow.spawn(position);
-                    cow.animal.faceYaw(rand.nextFloat() * 360.0);
-                    if (!cow.animal.canSpawnHere(world_map)) continue;
-                    try entities.adopt(gpa, mob.cow, cow);
-                },
-                .chicken => {
-                    var chicken = Chicken.spawn(position, rand);
-                    chicken.animal.faceYaw(rand.nextFloat() * 360.0);
-                    if (!chicken.animal.canSpawnHere(world_map)) continue;
-                    try entities.adopt(gpa, mob.chicken, chicken);
-                },
-                .wolf => {
-                    var wolf = Wolf.spawn(position);
-                    wolf.animal.faceYaw(rand.nextFloat() * 360.0);
-                    if (!wolf.animal.canSpawnHere(world_map)) continue;
-                    try entities.adopt(gpa, mob.wolf, wolf);
+                    spawned += 1;
+                    if (spawned >= kind.maxPerChunk()) return spawned;
                 },
             }
-
-            spawned += 1;
-            if (spawned >= kind.maxPerChunk()) return spawned;
         }
     }
 
@@ -391,7 +410,7 @@ fn spawnUntilFirstAnimal(
 ) !u32 {
     var total: u32 = 0;
     for (0..rounds) |_| {
-        total += try performSpawning(gpa, entities, world_map, &soloView(player_position), spawn_point, test_seed, rand);
+        total += try performSpawning(gpa, entities, world_map, &soloView(player_position), spawn_point, .overworld, test_seed, rand);
         if (total > 0) break;
     }
     return total;
@@ -444,7 +463,7 @@ test "every kind we can make finds its way into a grassy world" {
     var seen = [_]bool{false} ** std.enums.values(Kind).len;
 
     for (0..4000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
 
         // Empty the fields between rounds, so the population cap never ends the run early.
         inline for (.{ mob.sheep, mob.pig, mob.chicken, mob.cow, mob.wolf }, 0..) |type_id, kind| {
@@ -585,7 +604,7 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     const player = math.Vec3.init(0, cavern, 0);
 
     for (0..8000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
         if (entities.countOf(mob.slime) > 0) break;
     }
 
@@ -604,6 +623,61 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
 }
 
+test "the nether fills its caverns with pig zombies as well as ghasts" {
+    const gpa = std.testing.allocator;
+    var w = try stoneCavern(gpa, 2, 5, cavern);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, cavern, 0);
+
+    for (0..8000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .nether, test_seed, &rand);
+        if (entities.countOf(mob.pig_zombie) > 0 and entities.countOf(mob.ghast) > 0) break;
+    }
+
+    try std.testing.expect(entities.countOf(mob.pig_zombie) > 0);
+    try std.testing.expect(entities.countOf(mob.ghast) > 0);
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.slime));
+    try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
+
+    var horde = entities.of(PigZombie, mob.pig_zombie);
+    while (horde.next()) |pig_zombie| {
+        const at = pig_zombie.animal.base.position;
+        try std.testing.expectEqual(.stone, w.getBlock(
+            math.util.floorDouble(at.x),
+            math.util.floorDouble(at.y) - 1,
+            math.util.floorDouble(at.z),
+        ));
+        try std.testing.expectEqual(@as(i32, 0), pig_zombie.anger_level);
+    }
+}
+
+test "the overworld's monster list never rolls a nether horror" {
+    var rand = world.JavaRandom.init(4);
+    for (0..2000) |_| {
+        try std.testing.expectEqual(Monster.slime, pickWeighted(Horror, monsterList(.overworld), &rand).monster);
+    }
+
+    var ghasts: u32 = 0;
+    var pig_zombies: u32 = 0;
+    const total = 4000;
+    for (0..total) |_| {
+        switch (pickWeighted(Horror, monsterList(.nether), &rand).monster) {
+            .ghast => ghasts += 1,
+            .pig_zombie => pig_zombies += 1,
+            .slime => unreachable,
+        }
+    }
+
+    // BiomeGenHell weights the ghast and the pig zombie ten apiece.
+    try std.testing.expect(ghasts * 100 / total > 45 and ghasts * 100 / total < 55);
+    try std.testing.expectEqual(total, ghasts + pig_zombies);
+}
+
 test "slimes never spawn in a cavern above the sixteenth layer" {
     const gpa = std.testing.allocator;
     var w = try stoneCavern(gpa, 2, 5, 40);
@@ -616,7 +690,7 @@ test "slimes never spawn in a cavern above the sixteenth layer" {
     const player = math.Vec3.init(0, 40, 0);
 
     for (0..8000) |_| {
-        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
     }
 
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.slime));
@@ -638,7 +712,7 @@ test "the monster cap is counted apart from the animals" {
     const before = entities.countOf(mob.slime);
     const player = math.Vec3.init(0, cavern, 0);
     for (0..500) |_| {
-        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, test_seed, &rand);
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
     }
 
     try std.testing.expectEqual(before, entities.countOf(mob.slime));
@@ -654,7 +728,7 @@ test "the biome's creature list picks each kind by its own weight" {
     var rolls = [_]u32{0} ** std.enums.values(Kind).len;
     const total = 4000;
     for (0..total) |_| {
-        rolls[@intFromEnum(pickCreature(creatureList(.plains), &rand).kind)] += 1;
+        rolls[@intFromEnum(pickWeighted(Creature, creatureList(.plains), &rand).kind)] += 1;
     }
 
     // Of the plains list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
@@ -684,7 +758,7 @@ test "only forest and taiga put a wolf on the list, at one part in twenty-one" {
     var rolled: u32 = 0;
     const total = 20000;
     for (0..total) |_| {
-        if (pickCreature(creatureList(.taiga), &rand).kind == .wolf) rolled += 1;
+        if (pickWeighted(Creature, creatureList(.taiga), &rand).kind == .wolf) rolled += 1;
     }
 
     const share = rolled * 1000 / total;

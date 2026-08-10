@@ -681,5 +681,5 @@ test "the nether spawns none of the overworld's animals" {
 
     for (0..200) |_| try level.tick(gpa, arena.allocator());
 
-    try std.testing.expectEqual(@as(usize, 0), level.entities.mobs.items.len);
+    try std.testing.expectEqual(@as(usize, 0), level.entities.animalCount());
 }

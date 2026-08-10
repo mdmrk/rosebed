@@ -10,6 +10,7 @@ pub const cow_id = "Cow";
 pub const chicken_id = "Chicken";
 pub const slime_id = "Slime";
 pub const ghast_id = "Ghast";
+pub const pig_zombie_id = "PigZombie";
 pub const wolf_id = "Wolf";
 pub const wolf_owner = "Player";
 pub const item_id = "Item";
@@ -58,6 +59,11 @@ pub const Slime = struct {
 
 pub const Ghast = struct {
     living: Living,
+};
+
+pub const PigZombie = struct {
+    living: Living,
+    anger: i16 = 0,
 };
 
 pub const Wolf = struct {
@@ -233,6 +239,19 @@ pub fn storeGhast(gpa: std.mem.Allocator, ghast: Ghast) !nbt.Tag {
     }
 
     try storeLiving(gpa, &compound, ghast_id, ghast.living);
+
+    return .{ .compound = compound };
+}
+
+pub fn storePigZombie(gpa: std.mem.Allocator, pig_zombie: PigZombie) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, pig_zombie_id, pig_zombie.living);
+    try put(gpa, &compound, "Anger", .{ .short = pig_zombie.anger });
 
     return .{ .compound = compound };
 }
@@ -445,6 +464,10 @@ pub fn isGhast(compound: nbt.Compound) bool {
     return hasId(compound, ghast_id);
 }
 
+pub fn isPigZombie(compound: nbt.Compound) bool {
+    return hasId(compound, pig_zombie_id);
+}
+
 pub fn isWolf(compound: nbt.Compound) bool {
     return hasId(compound, wolf_id);
 }
@@ -597,6 +620,12 @@ pub fn loadSlime(compound: nbt.Compound) ?Slime {
     if (!isSlime(compound)) return null;
     const living = loadLiving(compound) orelse return null;
     return .{ .living = living, .size = intField(compound, "Size", 0) };
+}
+
+pub fn loadPigZombie(compound: nbt.Compound) ?PigZombie {
+    if (!isPigZombie(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{ .living = living, .anger = shortField(compound, "Anger", 0) };
 }
 
 pub fn loadWolf(compound: nbt.Compound) ?Wolf {

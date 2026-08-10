@@ -1083,6 +1083,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
                 .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
                 .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
+                .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
@@ -2746,6 +2747,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
         try render.entity_render.appendWolf(coat, app_state.frame, &app_state.level.world_map, wolf.*, partial);
     }
+    var pig_zombie_mesh: render.MeshBuilder = .{};
+    defer pig_zombie_mesh.deinit(app_state.frame);
+    var horde = app_state.level.entities.of(game.PigZombie, game.mob.pig_zombie);
+    while (horde.next()) |pig_zombie| {
+        try render.entity_render.appendPigZombie(&pig_zombie_mesh, app_state.frame, &app_state.level.world_map, pig_zombie.*, partial);
+    }
     var painting_mesh: render.MeshBuilder = .{};
     defer painting_mesh.deinit(app_state.frame);
     for (app_state.level.entities.paintings.items) |painting| {
@@ -2877,6 +2884,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             drawEntityMesh(coat[0]);
             app_state.textures.terrain.bind();
         }
+    }
+
+    if (pig_zombie_mesh.vertices.items.len > 0) {
+        app_state.textures.pig_zombie.bind();
+        drawEntityMesh(&pig_zombie_mesh);
+        app_state.textures.terrain.bind();
     }
 
     if (slime_mesh.vertices.items.len > 0) {
@@ -3177,11 +3190,62 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     gl.Disable(gl.BLEND);
 }
 
+var capture_started: bool = false;
+var capture_frames: u32 = 0;
+
 pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
     _ = frame_arena.reset(.retain_capacity);
+
+    if (!capture_started) {
+        capture_started = true;
+        try startWorld(app_state, "ShotWorld", "ShotWorld", 4242);
+        app_state.level.world_map.setTime(1000);
+
+        const cx: i32 = 0;
+        const cy: i32 = 70;
+        const cz: i32 = 0;
+        var bx: i32 = cx - 8;
+        while (bx <= cx + 8) : (bx += 1) {
+            var by: i32 = cy - 2;
+            while (by <= cy + 6) : (by += 1) {
+                var bz: i32 = cz - 2;
+                while (bz <= cz + 16) : (bz += 1) {
+                    const edge = bx == cx - 8 or bx == cx + 8 or by == cy - 2 or by == cy + 6 or bz == cz - 2 or bz == cz + 16;
+                    app_state.level.world_map.setBlock(bx, by, bz, if (edge) .stone else .air);
+                }
+            }
+        }
+        var lx: i32 = cx - 6;
+        while (lx <= cx + 6) : (lx += 4) {
+            var lz: i32 = cz + 2;
+            while (lz <= cz + 14) : (lz += 4) {
+                app_state.level.world_map.setBlock(lx, cy + 5, lz, .glowstone);
+            }
+        }
+        world.light.relightChunk(&app_state.level.world_map, 0, 0) catch {};
+
+        app_state.player.base.position = .{ .x = 0.5, .y = @floatFromInt(cy - 1), .z = 0.5 };
+        app_state.player.base.prev_position = app_state.player.base.position;
+        app_state.player.yaw = 180.0;
+        app_state.player.pitch = 0.0;
+
+        try app_state.level.entities.spawnPigZombie(app_state.gpa, .{ .x = -2.0, .y = @floatFromInt(cy - 1), .z = 6.0 });
+        try app_state.level.entities.spawnPigZombie(app_state.gpa, .{ .x = 1.5, .y = @floatFromInt(cy - 1), .z = 8.0 });
+        try app_state.level.entities.spawnPigZombie(app_state.gpa, .{ .x = 3.5, .y = @floatFromInt(cy - 1), .z = 5.0 });
+        try app_state.level.entities.spawnPig(app_state.gpa, .{ .x = -4.0, .y = @floatFromInt(cy - 1), .z = 9.0 });
+
+        var horde = app_state.level.entities.of(game.PigZombie, game.mob.pig_zombie);
+        var turn: f32 = 0;
+        while (horde.next()) |pig_zombie| {
+            pig_zombie.animal.faceYaw(turn);
+            pig_zombie.ticks_existed = @intFromFloat(turn);
+            turn += 40.0;
+        }
+    }
+    capture_frames += 1;
     const px = drawableSize(app_state);
     gl.Viewport(0, 0, px.w, px.h);
     const gui = guiSize(app_state);
@@ -3339,6 +3403,31 @@ pub fn iterate(
     }
 
     try sdl3.video.gl.swapWindow(app_state.window);
+
+    if (capture_frames == 120) {
+        const px2 = drawableSize(app_state);
+        const w: usize = @intCast(px2.w);
+        const h: usize = @intCast(px2.h);
+        const pixels = try app_state.gpa.alloc(u8, w * h * 3);
+        defer app_state.gpa.free(pixels);
+        gl.PixelStorei(gl.PACK_ALIGNMENT, 1);
+        gl.ReadPixels(0, 0, px2.w, px2.h, gl.RGB, gl.UNSIGNED_BYTE, pixels.ptr);
+
+        var file = try std.Io.Dir.cwd().createFile(app_state.io, "frame.ppm", .{});
+        defer file.close(app_state.io);
+        var header_buf: [64]u8 = undefined;
+        const header = try std.fmt.bufPrint(&header_buf, "P6\n{d} {d}\n255\n", .{ w, h });
+        var wbuf: [4096]u8 = undefined;
+        var writer = file.writer(app_state.io, &wbuf);
+        try writer.interface.writeAll(header);
+        var row: usize = h;
+        while (row > 0) {
+            row -= 1;
+            try writer.interface.writeAll(pixels[row * w * 3 ..][0 .. w * 3]);
+        }
+        try writer.interface.flush();
+        return .success;
+    }
 
     return .run;
 }

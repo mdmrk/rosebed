@@ -19,6 +19,7 @@ const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
 const PickupFx = @import("pickup_fx.zig");
 const Pig = @import("pig.zig");
+const PigZombie = @import("pig_zombie.zig");
 const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Slime = @import("slime.zig");
@@ -1091,6 +1092,11 @@ pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
 pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
+}
+
+pub fn spawnPigZombie(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.pig_zombie, position, &unused);
 }
 
 pub fn spawnWolf(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
@@ -3081,4 +3087,111 @@ test "a portal that runs along x throws its particles across z instead" {
         try std.testing.expect(particle.origin.x >= 8.0 and particle.origin.x < 9.0);
         try std.testing.expect(@abs(particle.base.motion.z) > @abs(particle.base.motion.y));
     }
+}
+
+test "hitting one pig zombie turns the whole horde within thirty-two blocks on the player" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnPigZombie(gpa, math.Vec3.init(8.5, 1, 8.5));
+    try entities.spawnPigZombie(gpa, math.Vec3.init(28.5, 1, 8.5));
+    try entities.spawnPigZombie(gpa, math.Vec3.init(200.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(6.5, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    const struck = entities.mobs.items[0].animal.base.id;
+    try std.testing.expect(entities.hurtTarget(
+        .{ .mob = struck },
+        1,
+        .{ .position = player.base.position, .player = player.base.id },
+        &rand,
+    ));
+    try soloTick(&entities, gpa, &w, &player, &rand);
+
+    var horde = entities.of(PigZombie, mob.pig_zombie);
+    var roused: usize = 0;
+    while (horde.next()) |pig_zombie| {
+        if (pig_zombie.anger_level == 0) continue;
+        try std.testing.expectEqual(player.base.id, pig_zombie.target.?);
+        roused += 1;
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), roused);
+}
+
+test "a pig zombie in reach takes five hearts off the player it is angry at" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnPigZombie(gpa, math.Vec3.init(8.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(9.0, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    const pig_zombie = entities.first(PigZombie, mob.pig_zombie).?;
+    pig_zombie.becomeAngryAt(player.base.id, &rand);
+
+    const full = player.health;
+    for (0..40) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (player.health < full) break;
+    }
+
+    try std.testing.expectEqual(full - PigZombie.attack_strength, player.health);
+}
+
+test "an angry pig zombie comes back angry from its chunk" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Grudge");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        try entities.spawnPigZombie(gpa, math.Vec3.init(8.5, 1, 8.5));
+        const pig_zombie = entities.first(PigZombie, mob.pig_zombie).?;
+        pig_zombie.anger_level = 617;
+        pig_zombie.animal.health = 14;
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.countOf(mob.pig_zombie));
+    const pig_zombie = restored.first(PigZombie, mob.pig_zombie).?;
+    try std.testing.expectEqual(@as(i32, 617), pig_zombie.anger_level);
+    try std.testing.expectEqual(@as(i32, 14), pig_zombie.animal.health);
 }
