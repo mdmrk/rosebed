@@ -10,6 +10,7 @@ pub const cow_id = "Cow";
 pub const chicken_id = "Chicken";
 pub const slime_id = "Slime";
 pub const ghast_id = "Ghast";
+pub const creeper_id = "Creeper";
 pub const zombie_id = "Zombie";
 pub const pig_zombie_id = "PigZombie";
 pub const wolf_id = "Wolf";
@@ -60,6 +61,11 @@ pub const Slime = struct {
 
 pub const Ghast = struct {
     living: Living,
+};
+
+pub const Creeper = struct {
+    living: Living,
+    powered: bool = false,
 };
 
 pub const Zombie = struct {
@@ -244,6 +250,19 @@ pub fn storeGhast(gpa: std.mem.Allocator, ghast: Ghast) !nbt.Tag {
     }
 
     try storeLiving(gpa, &compound, ghast_id, ghast.living);
+
+    return .{ .compound = compound };
+}
+
+pub fn storeCreeper(gpa: std.mem.Allocator, creeper: Creeper) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, creeper_id, creeper.living);
+    if (creeper.powered) try put(gpa, &compound, "powered", .{ .byte = 1 });
 
     return .{ .compound = compound };
 }
@@ -481,6 +500,10 @@ pub fn isGhast(compound: nbt.Compound) bool {
     return hasId(compound, ghast_id);
 }
 
+pub fn isCreeper(compound: nbt.Compound) bool {
+    return hasId(compound, creeper_id);
+}
+
 pub fn isZombie(compound: nbt.Compound) bool {
     return hasId(compound, zombie_id);
 }
@@ -641,6 +664,12 @@ pub fn loadSlime(compound: nbt.Compound) ?Slime {
     if (!isSlime(compound)) return null;
     const living = loadLiving(compound) orelse return null;
     return .{ .living = living, .size = intField(compound, "Size", 0) };
+}
+
+pub fn loadCreeper(compound: nbt.Compound) ?Creeper {
+    if (!isCreeper(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{ .living = living, .powered = boolField(compound, "powered") };
 }
 
 pub fn loadZombie(compound: nbt.Compound) ?Zombie {

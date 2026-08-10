@@ -14,9 +14,11 @@ attack_strength: i32 = 2,
 attack_time: i32 = 0,
 target: ?Animal.Entity.Id = null,
 pending_attack: bool = false,
+has_attacked: bool = false,
+attack: *const fn (*Monster, Animal, Animal.PlayerView, f32) void = strike,
+attack_blocked: *const fn (*Monster, Animal, Animal.PlayerView, f32) void = ignoreBlocked,
 
 pub const max_health: i32 = 20;
-pub const move_speed: f32 = 0.5;
 pub const attack_cooldown: i32 = 20;
 pub const attack_reach: f32 = 2.0;
 pub const sight_range: f64 = 16.0;
@@ -82,7 +84,7 @@ pub fn findPlayerToAttack(
     return view.id;
 }
 
-pub fn attackEntity(self: *Monster, animal: Animal, view: Animal.PlayerView, distance: f32) void {
+pub fn strike(self: *Monster, animal: Animal, view: Animal.PlayerView, distance: f32) void {
     if (self.attack_time > 0 or distance >= attack_reach) return;
 
     const box = animal.base.boundingBox();
@@ -92,8 +94,9 @@ pub fn attackEntity(self: *Monster, animal: Animal, view: Animal.PlayerView, dis
     self.pending_attack = true;
 }
 
-pub fn beginTick(self: *Monster, animal: *Animal) void {
-    animal.move_speed = move_speed;
+fn ignoreBlocked(_: *Monster, _: Animal, _: Animal.PlayerView, _: f32) void {}
+
+pub fn beginTick(self: *Monster, _: *Animal) void {
     if (self.attack_time > 0) self.attack_time -= 1;
 }
 
@@ -119,6 +122,8 @@ pub fn updateActionState(
 ) !void {
     if (brightnessOf(world_map, animal.*) > bright_light) animal.entity_age += 2;
 
+    self.has_attacked = false;
+
     if (self.target == null) {
         self.target = self.findPlayerToAttack(animal.*, world_map, players, hostile);
         if (self.target != null) try self.pathToTarget(animal, gpa, world_map, players);
@@ -127,12 +132,18 @@ pub fn updateActionState(
             self.target = null;
         } else {
             const distance: f32 = @floatCast(@sqrt(animal.distanceSquaredTo(view.position)));
-            if (canSee(animal.*, world_map, view)) self.attackEntity(animal.*, view, distance);
+            if (canSee(animal.*, world_map, view)) {
+                self.attack(self, animal.*, view, distance);
+            } else {
+                self.attack_blocked(self, animal.*, view, distance);
+            }
         }
     }
 
-    if (self.target == null or (animal.path != null and rand.nextIntBound(20) != 0)) {
-        if ((animal.path == null and rand.nextIntBound(80) == 0) or rand.nextIntBound(80) == 0) {
+    if (self.has_attacked or self.target == null or (animal.path != null and rand.nextIntBound(20) != 0)) {
+        if (!self.has_attacked and
+            ((animal.path == null and rand.nextIntBound(80) == 0) or rand.nextIntBound(80) == 0))
+        {
             try animal.findWanderPath(gpa, world_map, rand);
         }
     } else {
@@ -145,7 +156,7 @@ pub fn updateActionState(
         const chase: ?Animal.Chase = if (self.targetView(players)) |view| .{
             .position = view.position,
             .eye_height = view.eye_height,
-            .ceased = false,
+            .ceased = self.has_attacked,
         } else null;
         animal.followPath(gpa, rand, chase);
     } else {
@@ -173,16 +184,16 @@ test "a monster reaches only a player standing beside it, and then waits out its
         .alive = true,
     };
 
-    self.attackEntity(animal, beside, 1.0);
+    self.attack(&self, animal, beside, 1.0);
     try std.testing.expect(self.pending_attack);
     try std.testing.expectEqual(attack_cooldown, self.attack_time);
 
     self.pending_attack = false;
-    self.attackEntity(animal, beside, 1.0);
+    self.attack(&self, animal, beside, 1.0);
     try std.testing.expect(!self.pending_attack);
 
     self.attack_time = 0;
-    self.attackEntity(animal, beside, attack_reach);
+    self.attack(&self, animal, beside, attack_reach);
     try std.testing.expect(!self.pending_attack);
 
     const overhead = Animal.PlayerView{
@@ -190,7 +201,7 @@ test "a monster reaches only a player standing beside it, and then waits out its
         .eye_height = 1.62,
         .alive = true,
     };
-    self.attackEntity(animal, overhead, 1.0);
+    self.attack(&self, animal, overhead, 1.0);
     try std.testing.expect(!self.pending_attack);
 
     animal.base.position.y = 1;

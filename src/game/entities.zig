@@ -7,6 +7,7 @@ const Animal = @import("animal.zig");
 const Arrow = @import("arrow.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
+const Creeper = @import("creeper.zig");
 const Entity = @import("entity.zig");
 const explosion = @import("explosion.zig");
 const FallingBlock = @import("falling_block.zig");
@@ -1095,6 +1096,11 @@ pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) 
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
 }
 
+pub fn spawnCreeper(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.creeper, position, &unused);
+}
+
 pub fn spawnZombie(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.zombie, position, &unused);
@@ -1310,7 +1316,7 @@ fn pushNeighbours(self: *Entities, animal: *Animal) void {
 pub fn tickMobs(
     self: *Entities,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *world.World,
     roster: []const *Player,
     players: Animal.Players,
     rand: *world.JavaRandom,
@@ -2565,7 +2571,7 @@ test "a registered type outnumbering the vanilla ones still ticks in insertion o
 fn soloTick(
     entities: *Entities,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *world.World,
     player: *Player,
     rand: *world.JavaRandom,
 ) !void {
@@ -2961,7 +2967,7 @@ fn heldCount(player: *const Player, id: world.Id) u32 {
 fn twoPlayerTick(
     entities: *Entities,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *world.World,
     one: *Player,
     two: *Player,
     rand: *world.JavaRandom,
@@ -3266,4 +3272,62 @@ test "a zombie comes back from its chunk with its wounds" {
     try std.testing.expectEqual(@as(usize, 1), restored.countOf(mob.zombie));
     try std.testing.expectEqual(@as(usize, 0), restored.countOf(mob.pig_zombie));
     try std.testing.expectEqual(@as(i32, 12), restored.first(Zombie, mob.zombie).?.animal.health);
+}
+
+test "a creeper that reaches the player blows a hole in the world and leaves no gunpowder" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 8);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnCreeper(gpa, math.Vec3.init(8.5, 8, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(9.0, 8, 8.5));
+    player.base.id = entities.takeId();
+
+    const full = player.health;
+
+    for (0..Creeper.fuse_ticks + 4) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (entities.countOf(mob.creeper) == 0) break;
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.creeper));
+    try std.testing.expect(player.health < full);
+    try std.testing.expectEqual(.air, w.getBlock(8, 7, 8));
+
+    for (entities.items.items) |item| {
+        try std.testing.expect(item.stack.id != .item or item.stack.id.item != .gunpowder);
+    }
+}
+
+test "a creeper killed before its fuse runs out leaves its gunpowder behind" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnCreeper(gpa, math.Vec3.init(8.5, 1, 8.5));
+    const id = entities.mobs.items[0].animal.base.id;
+
+    _ = entities.hurtTarget(.{ .mob = id }, Creeper.max_health, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    entities.first(Creeper, mob.creeper).?.pending_drops = 2;
+
+    var player = Player.spawn(math.Vec3.init(0, 1, 0));
+    for (0..Animal.death_ticks + 2) |_| try soloTick(&entities, gpa, &w, &player, &rand);
+
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.creeper));
+
+    var gunpowder: u32 = 0;
+    for (entities.items.items) |item| {
+        if (item.stack.id == .item and item.stack.id.item == .gunpowder) gunpowder += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), gunpowder);
+    try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
 }

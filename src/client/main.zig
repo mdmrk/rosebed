@@ -1083,6 +1083,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
                 .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
                 .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
+                .creeper => try app_state.level.entities.spawnCreeper(app_state.gpa, position),
                 .zombie => try app_state.level.entities.spawnZombie(app_state.gpa, position),
                 .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
             };
@@ -2748,6 +2749,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
         try render.entity_render.appendWolf(coat, app_state.frame, &app_state.level.world_map, wolf.*, partial);
     }
+    var creeper_mesh: render.MeshBuilder = .{};
+    defer creeper_mesh.deinit(app_state.frame);
+    var creepers = app_state.level.entities.of(game.Creeper, game.mob.creeper);
+    while (creepers.next()) |creeper| {
+        try render.entity_render.appendCreeper(&creeper_mesh, app_state.frame, &app_state.level.world_map, creeper.*, partial);
+    }
     var zombie_mesh: render.MeshBuilder = .{};
     defer zombie_mesh.deinit(app_state.frame);
     var shamblers = app_state.level.entities.of(game.Zombie, game.mob.zombie);
@@ -2891,6 +2898,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             drawEntityMesh(coat[0]);
             app_state.textures.terrain.bind();
         }
+    }
+
+    if (creeper_mesh.vertices.items.len > 0) {
+        app_state.textures.creeper.bind();
+        drawEntityMesh(&creeper_mesh);
+        app_state.textures.terrain.bind();
     }
 
     if (zombie_mesh.vertices.items.len > 0) {

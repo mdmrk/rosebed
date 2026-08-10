@@ -439,6 +439,32 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+pub fn appendCreeper(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    creeper: game.Creeper,
+    partial_ticks: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+
+    try appendAnimal(mesh, gpa, world_map, creeper.animal, partial_ticks, mob_model.creeper, .{
+        .scale = creeper.swellScale(partial_ticks),
+    });
+
+    whiten(mesh, first_vertex, creeper.flashWhitening(partial_ticks));
+}
+
+fn whiten(mesh: *MeshBuilder, first_vertex: usize, amount: f32) void {
+    if (amount <= 0.0) return;
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        for (0..3) |channel| {
+            const base: f32 = @floatFromInt(vertex.color[channel]);
+            vertex.color[channel] = @intFromFloat(base + (255.0 - base) * amount);
+        }
+    }
+}
+
 fn appendZombieShaped(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -2031,6 +2057,105 @@ test "a pig zombie renders a whole biped standing on the ground it was placed on
     const bounds = meshBounds(mesh);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0), bounds[1][1], 1.0e-5);
+}
+
+const creeper_head = 0;
+const creeper_body = 1;
+const creeper_leg_front_right = 2;
+
+test "a creeper renders a head, a body and four legs standing on the ground" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendCreeper(&mesh, gpa, &world_map, game.Creeper.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
+
+    // ModelCreeper's legs stop at 22 px, not 24, so the feet sit two pixels off the floor.
+    const bounds = meshBounds(mesh);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0 / 16.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 28.0 / 16.0), bounds[1][1], 1.0e-5);
+
+    const head = partBounds(mesh, creeper_head);
+    const body = partBounds(mesh, creeper_body);
+    try std.testing.expect(head[0][1] >= body[1][1] - 1.0e-5);
+}
+
+test "a creeper about to blow swells wider and flashes white" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var creeper = game.Creeper.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var calm: MeshBuilder = .{};
+    defer calm.deinit(gpa);
+    try appendCreeper(&calm, gpa, &world_map, creeper, 1.0);
+
+    creeper.fuse = game.Creeper.fuse_ticks;
+    creeper.prev_fuse = game.Creeper.fuse_ticks;
+
+    var swollen: MeshBuilder = .{};
+    defer swollen.deinit(gpa);
+    try appendCreeper(&swollen, gpa, &world_map, creeper, 1.0);
+
+    const calm_body = partBounds(calm, creeper_body);
+    const swollen_body = partBounds(swollen, creeper_body);
+    try std.testing.expect(swollen_body[1][0] - swollen_body[0][0] > calm_body[1][0] - calm_body[0][0]);
+}
+
+test "a creeper drawn on a lit frame of its flash comes out paler" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var creeper = game.Creeper.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var dark: MeshBuilder = .{};
+    defer dark.deinit(gpa);
+    try appendCreeper(&dark, gpa, &world_map, creeper, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), creeper.flashWhitening(1.0), 1.0e-6);
+
+    creeper.fuse = 27;
+    creeper.prev_fuse = 27;
+    try std.testing.expect(creeper.flashWhitening(1.0) > 0.0);
+
+    var pale: MeshBuilder = .{};
+    defer pale.deinit(gpa);
+    try appendCreeper(&pale, gpa, &world_map, creeper, 1.0);
+
+    try std.testing.expect(pale.vertices.items[0].color[0] > dark.vertices.items[0].color[0]);
+}
+
+test "a walking creeper swings its legs but keeps its body still" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var creeper = game.Creeper.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendCreeper(&still, gpa, &world_map, creeper, 1.0);
+
+    creeper.animal.limb_swing = 1.0;
+    creeper.animal.limb_swing_amount = 1.0;
+    creeper.animal.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendCreeper(&walking, gpa, &world_map, creeper, 1.0);
+
+    const still_leg = partBounds(still, creeper_leg_front_right);
+    const walking_leg = partBounds(walking, creeper_leg_front_right);
+    try std.testing.expect(walking_leg[1][2] - walking_leg[0][2] > still_leg[1][2] - still_leg[0][2]);
+
+    const still_body = partBounds(still, creeper_body);
+    const walking_body = partBounds(walking, creeper_body);
+    try std.testing.expectApproxEqAbs(still_body[1][2], walking_body[1][2], 1.0e-5);
 }
 
 test "a zombie is drawn the same shambling shape as a pig zombie" {

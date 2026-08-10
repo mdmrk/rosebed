@@ -7,11 +7,11 @@ const Animal = @import("animal.zig");
 const Mob = @import("mob.zig");
 const Monster = @import("monster.zig");
 pub const max_health: i32 = Monster.max_health;
-pub const idle_move_speed: f32 = Monster.move_speed;
 const physics = @import("physics.zig");
 const Zombie = @import("zombie.zig");
 pub const width: f64 = Zombie.width;
 pub const height: f64 = Zombie.height;
+pub const idle_move_speed: f32 = Zombie.move_speed;
 
 const PigZombie = @This();
 

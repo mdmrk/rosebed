@@ -4,6 +4,7 @@ pub const Chicken = @import("chicken.zig");
 pub const commands = @import("commands.zig");
 pub const Cow = @import("cow.zig");
 pub const crafting = @import("crafting.zig");
+pub const Creeper = @import("creeper.zig");
 pub const Entities = @import("entities.zig");
 pub const Entity = @import("entity.zig");
 pub const explosion = @import("explosion.zig");
@@ -49,6 +50,7 @@ test {
     _ = Arrow;
     _ = Chicken;
     _ = Cow;
+    _ = Creeper;
     _ = Pig;
     _ = PigZombie;
     _ = Sheep;

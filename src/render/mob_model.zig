@@ -138,6 +138,22 @@ pub const chicken: Model = .{
     .texture_height = 32,
 };
 
+const creeper_parts = [6]Part{
+    .{ .box = .{ .origin = .{ -4, -8, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -20, 0 }, .role = .head },
+    .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -20, 0 } },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -8, 4 }, .role = .leg_ahead },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 2, -8, 4 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -8, -4 }, .role = .leg_behind },
+    .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 6, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ 2, -8, -4 }, .role = .leg_ahead },
+};
+
+pub const creeper: Model = .{
+    .parts = &creeper_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
 const wolf_head_index: usize = 0;
 const wolf_body_index: usize = 1;
 const wolf_leg_back_right: usize = 2;
