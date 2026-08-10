@@ -328,8 +328,30 @@ test "kill takes no arguments at all" {
     try std.testing.expectEqualStrings("Kill", parse("/Kill", local_user).unknown);
 }
 
+test "tp reads a player and three coordinates" {
+    const jump = parse("/tp Player 12.5 64 -3.25", local_user).tp;
+    try std.testing.expectEqualStrings("Player", jump.user);
+    try std.testing.expectApproxEqAbs(@as(f64, 12.5), jump.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 64.0), jump.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, -3.25), jump.z, 1.0e-9);
+}
+
+test "tp reports whichever coordinate it could not read" {
+    try std.testing.expectEqualStrings("here", parse("/tp Player here 64 0", local_user).unparsed);
+    try std.testing.expectEqualStrings("up", parse("/tp Player 0 up 0", local_user).unparsed);
+    try std.testing.expectEqualStrings("yonder", parse("/tp Player 0 64 yonder", local_user).unparsed);
+}
+
+test "tp stays silent when the argument count is wrong" {
+    try std.testing.expectEqual(Result.nothing, parse("/tp", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/tp Player", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/tp Player Notch", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/tp Player 0 64 0 0", local_user));
+}
+
 test "an unrecognised verb reports itself" {
-    try std.testing.expectEqualStrings("tp", parse("/tp Player Notch", local_user).unknown);
+    try std.testing.expectEqualStrings("fly", parse("/fly", local_user).unknown);
+    try std.testing.expectEqualStrings("warp", parse("/warp Player Notch", local_user).unknown);
     try std.testing.expectEqual(Result.nothing, parse("/", local_user));
 }
 
@@ -342,6 +364,7 @@ test "help is built from the verbs, one line each under a heading" {
     try std.testing.expectEqualStrings("   spawn <mob> [num]              spawns a mob where you look", help_lines[4]);
     try std.testing.expectEqualStrings("   seed <|copy>                   shows world seed", help_lines[5]);
     try std.testing.expectEqualStrings("   time <add|set> <amount>        adds to or sets the world time (0-24000)", help_lines[6]);
+    try std.testing.expectEqualStrings("   tp <player> <x> <y> <z>        teleports player to position in world", help_lines[7]);
 }
 
 test "every verb names itself in help and answers to that name" {
