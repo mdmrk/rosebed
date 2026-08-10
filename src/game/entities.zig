@@ -25,6 +25,7 @@ const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Skeleton = @import("skeleton.zig");
 const Slime = @import("slime.zig");
+const Spider = @import("spider.zig");
 const Wolf = @import("wolf.zig");
 const Zombie = @import("zombie.zig");
 
@@ -1110,6 +1111,11 @@ pub fn spawnSlime(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, 
 pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
+}
+
+pub fn spawnSpider(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
+    var unused = world.JavaRandom.init(0);
+    _ = try self.spawnMob(gpa, mob.spider, position, &unused);
 }
 
 pub fn spawnSkeleton(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
@@ -3448,4 +3454,72 @@ test "a skeleton comes back from its chunk, and leaves arrows and bones when kil
     }
     try std.testing.expectEqual(@as(u32, 2), arrows);
     try std.testing.expectEqual(@as(u32, 1), bones);
+}
+
+test "a spider bites the player it caught in the dark" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnSpider(gpa, math.Vec3.init(8.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(9.2, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    const full = player.health;
+    for (0..60) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (player.health < full) break;
+    }
+
+    try std.testing.expect(player.health < full);
+    try std.testing.expectEqual(player.base.id, entities.first(Spider, mob.spider).?.monster.target.?);
+}
+
+test "a spider comes back from its chunk still able to climb" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var handle = try world.save.open(io, tmp.dir, "Webs");
+    defer handle.close(gpa, io);
+
+    var generator = try world.TerrainGenerator.init(gpa, 7);
+    defer generator.deinit(gpa);
+
+    {
+        var w = try world.testing.flatWorld(gpa, 1);
+        defer w.deinit();
+        w.persistence = .{ .handle = &handle, .io = io };
+
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+        w.entity_io = entities.entityIo();
+
+        try entities.spawnSpider(gpa, math.Vec3.init(8.5, 1, 8.5));
+        entities.first(Spider, mob.spider).?.animal.health = 6;
+
+        try w.saveLoadedChunks();
+    }
+
+    var reloaded = world.World.init(gpa);
+    defer reloaded.deinit();
+    reloaded.persistence = .{ .handle = &handle, .io = io };
+
+    var restored: Entities = .{};
+    defer restored.deinit(gpa);
+    reloaded.entity_io = restored.entityIo();
+
+    _ = try reloaded.getOrGenerateChunk(generator, 0, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), restored.countOf(mob.spider));
+    const spider = restored.first(Spider, mob.spider).?;
+    try std.testing.expectEqual(@as(i32, 6), spider.animal.health);
+    try std.testing.expect(spider.animal.climbs_walls);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.4), spider.animal.base.width, 1.0e-9);
 }

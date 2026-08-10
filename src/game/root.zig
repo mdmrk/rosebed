@@ -29,6 +29,7 @@ pub const Sheep = @import("sheep.zig");
 pub const Skeleton = @import("skeleton.zig");
 pub const Slime = @import("slime.zig");
 pub const spawner = @import("spawner.zig");
+pub const Spider = @import("spider.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
 pub const Wolf = @import("wolf.zig");
@@ -57,6 +58,7 @@ test {
     _ = Sheep;
     _ = Skeleton;
     _ = Slime;
+    _ = Spider;
     _ = Wolf;
     _ = Zombie;
     _ = Monster;

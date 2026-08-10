@@ -155,6 +155,85 @@ pub const creeper: Model = .{
     .texture_height = 32,
 };
 
+const spider_leg_z = std.math.pi * 0.25;
+const spider_leg_y = std.math.pi * 0.125;
+
+const spider_parts = [11]Part{
+    .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 32, .tex_v = 4 }, .pivot = .{ 0, -9, -3 }, .role = .head },
+    .{ .box = .{ .origin = .{ -3, -3, -3 }, .size = .{ 6, 6, 6 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -9, 0 } },
+    .{ .box = .{ .origin = .{ -5, -4, -6 }, .size = .{ 10, 8, 12 }, .tex_u = 0, .tex_v = 12 }, .pivot = .{ 0, -9, 9 } },
+    .{ .box = .{ .origin = .{ -15, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ -4, -9, 2 } },
+    .{ .box = .{ .origin = .{ -1, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ 4, -9, 2 } },
+    .{ .box = .{ .origin = .{ -15, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ -4, -9, 1 } },
+    .{ .box = .{ .origin = .{ -1, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ 4, -9, 1 } },
+    .{ .box = .{ .origin = .{ -15, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ -4, -9, 0 } },
+    .{ .box = .{ .origin = .{ -1, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ 4, -9, 0 } },
+    .{ .box = .{ .origin = .{ -15, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ -4, -9, -1 } },
+    .{ .box = .{ .origin = .{ -1, -1, -1 }, .size = .{ 16, 2, 2 }, .tex_u = 18, .tex_v = 0 }, .pivot = .{ 4, -9, -1 } },
+};
+
+pub const spider: Model = .{
+    .parts = &spider_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub const SpiderPose = struct {
+    limb_swing: f32,
+    limb_swing_amount: f32,
+    head_yaw: f32,
+    head_pitch: f32,
+};
+
+pub fn spiderPosed(pose: SpiderPose) [spider_parts.len]Part {
+    const degrees = std.math.pi / 180.0;
+    const pi = std.math.pi;
+    const first_leg = 3;
+
+    var parts = spider_parts;
+    parts[0].rotate_y = pose.head_yaw * degrees;
+    parts[0].rotate_x = pose.head_pitch * degrees;
+
+    const splay = [8]f32{
+        -spider_leg_z,
+        spider_leg_z,
+        -spider_leg_z * 0.74,
+        spider_leg_z * 0.74,
+        -spider_leg_z * 0.74,
+        spider_leg_z * 0.74,
+        -spider_leg_z,
+        spider_leg_z,
+    };
+    const sweep = [8]f32{
+        spider_leg_y * 2.0,
+        -spider_leg_y * 2.0,
+        spider_leg_y,
+        -spider_leg_y,
+        -spider_leg_y,
+        spider_leg_y,
+        -spider_leg_y * 2.0,
+        spider_leg_y * 2.0,
+    };
+
+    const phases = [4]f32{ 0.0, pi, pi * 0.5, pi * 3.0 / 2.0 };
+    var stride: [4]f32 = undefined;
+    var lift: [4]f32 = undefined;
+    for (phases, 0..) |phase, index| {
+        stride[index] = -(math.util.cos(pose.limb_swing * 0.6662 * 2.0 + phase) * 0.4) * pose.limb_swing_amount;
+        lift[index] = @abs(math.util.sin(pose.limb_swing * 0.6662 + phase) * 0.4) * pose.limb_swing_amount;
+    }
+
+    for (0..8) |leg| {
+        const pair = leg / 2;
+        const mirrored = leg % 2 == 1;
+        parts[first_leg + leg].rotate_z = splay[leg] + if (mirrored) -lift[pair] else lift[pair];
+        parts[first_leg + leg].rotate_y = sweep[leg] + if (mirrored) -stride[pair] else stride[pair];
+    }
+
+    return parts;
+}
+
 const wolf_head_index: usize = 0;
 const wolf_body_index: usize = 1;
 const wolf_leg_back_right: usize = 2;

@@ -439,6 +439,42 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+fn spiderPoseOf(spider: game.Spider, partial_ticks: f32) [mob_model.spider.parts.len]mob_model.Part {
+    return mob_model.spiderPosed(.{
+        .limb_swing = spider.animal.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = spider.animal.limbSwingAmount(partial_ticks),
+        .head_yaw = spider.animal.headYaw(partial_ticks),
+        .head_pitch = spider.animal.headPitch(partial_ticks),
+    });
+}
+
+pub fn appendSpider(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    spider: game.Spider,
+    partial_ticks: f32,
+) !void {
+    const parts = spiderPoseOf(spider, partial_ticks);
+    return appendAnimal(mesh, gpa, world_map, spider.animal, partial_ticks, mob_model.spider, .{
+        .posed = &parts,
+    });
+}
+
+pub fn appendSpiderEyes(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    spider: game.Spider,
+    partial_ticks: f32,
+) !void {
+    const parts = spiderPoseOf(spider, partial_ticks);
+    return appendAnimal(mesh, gpa, world_map, spider.animal, partial_ticks, mob_model.spider, .{
+        .posed = &parts,
+        .glow_alpha = spider.eyeGlow(world_map),
+    });
+}
+
 pub fn appendCreeper(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -548,6 +584,7 @@ pub fn appendWolf(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const 
 
 const Trim = struct {
     tint: [3]f32 = untinted,
+    glow_alpha: ?f32 = null,
     wing_flap: f32 = 0,
     scale: [3]f32 = .{ 1, 1, 1 },
     shade: f32 = 1,
@@ -591,10 +628,22 @@ fn appendAnimal(
         try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose);
     }
 
+    if (trim.glow_alpha) |alpha| {
+        setGlow(mesh, first_vertex, alpha);
+        return;
+    }
+
     const brightness = brightnessOf(world_map, animal.base);
     mesh.scaleColors(first_vertex, brightness * trim.shade);
     tintColors(mesh, first_vertex, trim.tint);
     if (animal.hurt_time > 0 or animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
+}
+
+fn setGlow(mesh: *MeshBuilder, first_vertex: usize, alpha: f32) void {
+    const opacity: u8 = @intFromFloat(std.math.clamp(alpha, 0.0, 1.0) * 255.0);
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        vertex.color = .{ 255, 255, 255, opacity };
+    }
 }
 
 fn tintColors(mesh: *MeshBuilder, first_vertex: usize, tint: [3]f32) void {
@@ -2175,6 +2224,112 @@ test "a walking creeper swings its legs but keeps its body still" {
     const still_body = partBounds(still, creeper_body);
     const walking_body = partBounds(walking, creeper_body);
     try std.testing.expectApproxEqAbs(still_body[1][2], walking_body[1][2], 1.0e-5);
+}
+
+const spider_head = 0;
+const spider_neck = 1;
+const spider_body = 2;
+const spider_first_leg = 3;
+
+test "a spider renders a head, a neck, a body and eight legs" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendSpider(&mesh, gpa, &world_map, game.Spider.spawn(.{ .x = 0, .y = 64, .z = 0 }), 0);
+
+    try std.testing.expectEqual(@as(usize, 11 * 6 * 4), mesh.vertices.items.len);
+
+    const head = partBounds(mesh, spider_head);
+    const body = partBounds(mesh, spider_body);
+    try std.testing.expect(head[1][2] > body[1][2]);
+
+    // The legs reach well past the body on both sides, which is what makes a spider wide.
+    const body_span = body[1][0] - body[0][0];
+    const whole = meshBounds(mesh);
+    try std.testing.expect(whole[1][0] - whole[0][0] > body_span * 2.0);
+}
+
+test "a walking spider paddles its legs, and a still one holds them splayed" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var spider = game.Spider.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendSpider(&still, gpa, &world_map, spider, 1.0);
+
+    spider.animal.limb_swing = 1.0;
+    spider.animal.limb_swing_amount = 1.0;
+    spider.animal.prev_limb_swing_amount = 1.0;
+
+    var walking: MeshBuilder = .{};
+    defer walking.deinit(gpa);
+    try appendSpider(&walking, gpa, &world_map, spider, 1.0);
+
+    var moved: usize = 0;
+    for (0..8) |leg| {
+        const at_rest = partBounds(still, spider_first_leg + leg);
+        const striding = partBounds(walking, spider_first_leg + leg);
+        if (@abs(at_rest[1][1] - striding[1][1]) > 1.0e-4) moved += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 8), moved);
+
+    const neck_still = partBounds(still, spider_neck);
+    const neck_walking = partBounds(walking, spider_neck);
+    try std.testing.expectApproxEqAbs(neck_still[1][1], neck_walking[1][1], 1.0e-5);
+}
+
+test "the spider's legs mirror each other across its body" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    try appendSpider(&mesh, gpa, &world_map, game.Spider.spawn(.{ .x = 0, .y = 0, .z = 0 }), 0);
+
+    var pair: usize = 0;
+    while (pair < 8) : (pair += 2) {
+        const left = partBounds(mesh, spider_first_leg + pair);
+        const right = partBounds(mesh, spider_first_leg + pair + 1);
+        try std.testing.expectApproxEqAbs(-left[0][0], right[1][0], 1.0e-5);
+        try std.testing.expectApproxEqAbs(left[0][1], right[0][1], 1.0e-5);
+    }
+}
+
+test "the spider's eye layer is flat white, lit by its own glow rather than the world" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const spider = game.Spider.spawn(.{ .x = 0, .y = 0, .z = 0 });
+
+    var body: MeshBuilder = .{};
+    defer body.deinit(gpa);
+    try appendSpider(&body, gpa, &world_map, spider, 0);
+
+    var eyes: MeshBuilder = .{};
+    defer eyes.deinit(gpa);
+    try appendSpiderEyes(&eyes, gpa, &world_map, spider, 0);
+
+    try std.testing.expectEqual(body.vertices.items.len, eyes.vertices.items.len);
+
+    const glow: u8 = @intFromFloat(spider.eyeGlow(&world_map) * 255.0);
+    for (eyes.vertices.items) |vertex| {
+        try std.testing.expectEqual([4]u8{ 255, 255, 255, glow }, vertex.color);
+    }
+    try std.testing.expect(body.vertices.items[0].color[0] < 255);
+
+    for (body.vertices.items, eyes.vertices.items) |lit, glowing| {
+        try std.testing.expectApproxEqAbs(lit.x, glowing.x, 1.0e-6);
+        try std.testing.expectApproxEqAbs(lit.y, glowing.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(lit.z, glowing.z, 1.0e-6);
+    }
 }
 
 test "a skeleton is drawn thinner in the limbs than a zombie, and the same in head and body" {

@@ -15,8 +15,9 @@ attack_time: i32 = 0,
 target: ?Animal.Entity.Id = null,
 pending_attack: bool = false,
 has_attacked: bool = false,
-attack: *const fn (*Monster, Animal, Animal.PlayerView, f32) void = strike,
-attack_blocked: *const fn (*Monster, Animal, Animal.PlayerView, f32) void = ignoreBlocked,
+needs_line_of_sight: bool = true,
+attack: *const fn (*Monster, *Animal, *const world.World, Animal.PlayerView, f32, *world.JavaRandom) void = strike,
+attack_blocked: *const fn (*Monster, *Animal, *const world.World, Animal.PlayerView, f32, *world.JavaRandom) void = ignoreBlocked,
 
 pub const max_health: i32 = 20;
 pub const attack_cooldown: i32 = 20;
@@ -77,14 +78,20 @@ pub fn findPlayerToAttack(
     players: Animal.Players,
     hostile: bool,
 ) ?Animal.Entity.Id {
-    _ = self;
     if (!hostile) return null;
     const view = players.closestTo(animal.base.position, sight_range) orelse return null;
-    if (!canSee(animal, world_map, view)) return null;
+    if (self.needs_line_of_sight and !canSee(animal, world_map, view)) return null;
     return view.id;
 }
 
-pub fn strike(self: *Monster, animal: Animal, view: Animal.PlayerView, distance: f32) void {
+pub fn strike(
+    self: *Monster,
+    animal: *Animal,
+    _: *const world.World,
+    view: Animal.PlayerView,
+    distance: f32,
+    _: *world.JavaRandom,
+) void {
     if (self.attack_time > 0 or distance >= attack_reach) return;
 
     const box = animal.base.boundingBox();
@@ -94,7 +101,7 @@ pub fn strike(self: *Monster, animal: Animal, view: Animal.PlayerView, distance:
     self.pending_attack = true;
 }
 
-fn ignoreBlocked(_: *Monster, _: Animal, _: Animal.PlayerView, _: f32) void {}
+fn ignoreBlocked(_: *Monster, _: *Animal, _: *const world.World, _: Animal.PlayerView, _: f32, _: *world.JavaRandom) void {}
 
 pub fn beginTick(self: *Monster, _: *Animal) void {
     if (self.attack_time > 0) self.attack_time -= 1;
@@ -133,9 +140,9 @@ pub fn updateActionState(
         } else {
             const distance: f32 = @floatCast(@sqrt(animal.distanceSquaredTo(view.position)));
             if (canSee(animal.*, world_map, view)) {
-                self.attack(self, animal.*, view, distance);
+                self.attack(self, animal, world_map, view, distance, rand);
             } else {
-                self.attack_blocked(self, animal.*, view, distance);
+                self.attack_blocked(self, animal, world_map, view, distance, rand);
             }
         }
     }
@@ -175,6 +182,11 @@ pub fn deliverAttack(self: *Monster, animal: *Animal, context: Mob.Tick) void {
 }
 
 test "a monster reaches only a player standing beside it, and then waits out its cooldown" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
     var animal = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.6, .height = 1.8 });
     var self: Monster = .{ .attack_strength = 5 };
 
@@ -184,16 +196,16 @@ test "a monster reaches only a player standing beside it, and then waits out its
         .alive = true,
     };
 
-    self.attack(&self, animal, beside, 1.0);
+    self.attack(&self, &animal, &w, beside, 1.0, &rand);
     try std.testing.expect(self.pending_attack);
     try std.testing.expectEqual(attack_cooldown, self.attack_time);
 
     self.pending_attack = false;
-    self.attack(&self, animal, beside, 1.0);
+    self.attack(&self, &animal, &w, beside, 1.0, &rand);
     try std.testing.expect(!self.pending_attack);
 
     self.attack_time = 0;
-    self.attack(&self, animal, beside, attack_reach);
+    self.attack(&self, &animal, &w, beside, attack_reach, &rand);
     try std.testing.expect(!self.pending_attack);
 
     const overhead = Animal.PlayerView{
@@ -201,7 +213,7 @@ test "a monster reaches only a player standing beside it, and then waits out its
         .eye_height = 1.62,
         .alive = true,
     };
-    self.attack(&self, animal, overhead, 1.0);
+    self.attack(&self, &animal, &w, overhead, 1.0, &rand);
     try std.testing.expect(!self.pending_attack);
 
     animal.base.position.y = 1;
@@ -248,6 +260,13 @@ test "a monster loses sight of a player it cannot reach through a wall" {
     while (y <= 4) : (y += 1) w.setBlock(10, @intCast(y), 8, .stone);
     try std.testing.expect(!canSee(animal, &w, player));
     try std.testing.expect(self.findPlayerToAttack(animal, &w, Animal.Players.one(&player), true) == null);
+
+    var blind = self;
+    blind.needs_line_of_sight = false;
+    try std.testing.expectEqual(
+        @as(Animal.Entity.Id, 3),
+        blind.findPlayerToAttack(animal, &w, Animal.Players.one(&player), true).?,
+    );
 }
 
 test "a monster prefers the dark to wander into" {

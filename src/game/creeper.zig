@@ -76,7 +76,14 @@ fn douse(self: *Creeper) void {
     if (self.fuse < 0) self.fuse = 0;
 }
 
-fn attackEntity(monster: *Monster, _: Animal, _: Animal.PlayerView, distance: f32) void {
+fn attackEntity(
+    monster: *Monster,
+    _: *Animal,
+    _: *const world.World,
+    _: Animal.PlayerView,
+    distance: f32,
+    _: *world.JavaRandom,
+) void {
     const self: *Creeper = @fieldParentPtr("monster", monster);
 
     const reach = if (self.state > 0) hold_range else ignite_range;
@@ -94,7 +101,14 @@ fn attackEntity(monster: *Monster, _: Animal, _: Animal.PlayerView, distance: f3
     monster.has_attacked = true;
 }
 
-fn attackBlockedEntity(monster: *Monster, _: Animal, _: Animal.PlayerView, _: f32) void {
+fn attackBlockedEntity(
+    monster: *Monster,
+    _: *Animal,
+    _: *const world.World,
+    _: Animal.PlayerView,
+    _: f32,
+    _: *world.JavaRandom,
+) void {
     const self: *Creeper = @fieldParentPtr("monster", monster);
     if (self.fuse > 0) self.douse();
 }
@@ -293,6 +307,10 @@ test "a creeper is the size, health and speed EntityCreeper inherits" {
 }
 
 test "a creeper lights its fuse inside three blocks and holds it out to seven" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Creeper.spawn(math.Vec3.init(8.5, 1, 8.5));
 
     const player = Animal.PlayerView{
@@ -301,25 +319,29 @@ test "a creeper lights its fuse inside three blocks and holds it out to seven" {
         .alive = true,
     };
 
-    self.monster.attack(&self.monster, self.animal, player, 5.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 5.0, &rand);
     try std.testing.expectEqual(@as(i32, 0), self.fuse);
     try std.testing.expectEqual(idle_state, self.state);
     try std.testing.expect(!self.monster.has_attacked);
 
-    self.monster.attack(&self.monster, self.animal, player, 2.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 2.0, &rand);
     try std.testing.expectEqual(@as(i32, 1), self.fuse);
     try std.testing.expectEqual(lit_state, self.state);
     try std.testing.expect(self.monster.has_attacked);
 
-    self.monster.attack(&self.monster, self.animal, player, 6.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 6.0, &rand);
     try std.testing.expectEqual(@as(i32, 2), self.fuse);
 
-    self.monster.attack(&self.monster, self.animal, player, 8.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 8.0, &rand);
     try std.testing.expectEqual(@as(i32, 1), self.fuse);
     try std.testing.expectEqual(idle_state, self.state);
 }
 
 test "a creeper held beside the player for thirty ticks blows itself up" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Creeper.spawn(math.Vec3.init(8.5, 1, 8.5));
 
     const player = Animal.PlayerView{
@@ -329,17 +351,21 @@ test "a creeper held beside the player for thirty ticks blows itself up" {
     };
 
     for (0..fuse_ticks - 1) |_| {
-        self.monster.attack(&self.monster, self.animal, player, 1.0);
+        self.monster.attack(&self.monster, &self.animal, &w, player, 1.0, &rand);
         try std.testing.expect(self.pending_blast == null);
         try std.testing.expect(!self.animal.dead);
     }
 
-    self.monster.attack(&self.monster, self.animal, player, 1.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 1.0, &rand);
     try std.testing.expectEqual(blast_size, self.pending_blast.?);
     try std.testing.expect(self.animal.dead);
 }
 
 test "a charged creeper leaves twice the crater" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Creeper.spawn(math.Vec3.init(8.5, 1, 8.5));
     self.powered = true;
     self.fuse = fuse_ticks - 1;
@@ -349,12 +375,16 @@ test "a charged creeper leaves twice the crater" {
         .eye_height = 1.62,
         .alive = true,
     };
-    self.monster.attack(&self.monster, self.animal, player, 1.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 1.0, &rand);
 
     try std.testing.expectEqual(powered_blast_size, self.pending_blast.?);
 }
 
 test "a creeper that loses sight of the player lets its fuse burn back down" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Creeper.spawn(math.Vec3.init(8.5, 1, 8.5));
     self.fuse = 10;
     self.state = lit_state;
@@ -365,12 +395,12 @@ test "a creeper that loses sight of the player lets its fuse burn back down" {
         .alive = true,
     };
 
-    self.monster.attack_blocked(&self.monster, self.animal, player, 1.0);
+    self.monster.attack_blocked(&self.monster, &self.animal, &w, player, 1.0, &rand);
     try std.testing.expectEqual(@as(i32, 9), self.fuse);
     try std.testing.expectEqual(idle_state, self.state);
 
     self.fuse = 0;
-    self.monster.attack_blocked(&self.monster, self.animal, player, 1.0);
+    self.monster.attack_blocked(&self.monster, &self.animal, &w, player, 1.0, &rand);
     try std.testing.expectEqual(@as(i32, 0), self.fuse);
 }
 
@@ -441,6 +471,10 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
     try std.testing.expect(dropped_nothing);
     try std.testing.expect(dropped_something);
 
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var blast_rand = world.JavaRandom.init(0);
     var blown = Creeper.spawn(math.Vec3.init(8, 1, 8));
     blown.fuse = fuse_ticks - 1;
     const player = Animal.PlayerView{
@@ -448,7 +482,7 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
         .eye_height = 1.62,
         .alive = true,
     };
-    blown.monster.attack(&blown.monster, blown.animal, player, 1.0);
+    blown.monster.attack(&blown.monster, &blown.animal, &w, player, 1.0, &blast_rand);
 
     try std.testing.expect(blown.animal.dead);
     try std.testing.expect(blown.takeDrops() == null);

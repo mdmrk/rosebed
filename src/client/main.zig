@@ -1085,6 +1085,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
                 .creeper => try app_state.level.entities.spawnCreeper(app_state.gpa, position),
                 .skeleton => try app_state.level.entities.spawnSkeleton(app_state.gpa, position),
+                .spider => try app_state.level.entities.spawnSpider(app_state.gpa, position),
                 .zombie => try app_state.level.entities.spawnZombie(app_state.gpa, position),
                 .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
             };
@@ -2750,6 +2751,15 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
         try render.entity_render.appendWolf(coat, app_state.frame, &app_state.level.world_map, wolf.*, partial);
     }
+    var spider_mesh: render.MeshBuilder = .{};
+    defer spider_mesh.deinit(app_state.frame);
+    var spider_eyes_mesh: render.MeshBuilder = .{};
+    defer spider_eyes_mesh.deinit(app_state.frame);
+    var spiders = app_state.level.entities.of(game.Spider, game.mob.spider);
+    while (spiders.next()) |spider| {
+        try render.entity_render.appendSpider(&spider_mesh, app_state.frame, &app_state.level.world_map, spider.*, partial);
+        try render.entity_render.appendSpiderEyes(&spider_eyes_mesh, app_state.frame, &app_state.level.world_map, spider.*, partial);
+    }
     var skeleton_mesh: render.MeshBuilder = .{};
     defer skeleton_mesh.deinit(app_state.frame);
     var skeletons = app_state.level.entities.of(game.Skeleton, game.mob.skeleton);
@@ -2905,6 +2915,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             drawEntityMesh(coat[0]);
             app_state.textures.terrain.bind();
         }
+    }
+
+    if (spider_mesh.vertices.items.len > 0) {
+        app_state.textures.spider.bind();
+        drawEntityMesh(&spider_mesh);
+        app_state.textures.spider_eyes.bind();
+        gl.Enable(gl.BLEND);
+        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        drawEntityMesh(&spider_eyes_mesh);
+        gl.Disable(gl.BLEND);
+        app_state.textures.terrain.bind();
     }
 
     if (skeleton_mesh.vertices.items.len > 0) {

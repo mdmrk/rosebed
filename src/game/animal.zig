@@ -18,6 +18,8 @@ move_speed: f32 = default_move_speed,
 eye_fraction: f64 = eye_height_fraction,
 look_pitch_speed: f32 = default_look_pitch_speed,
 can_despawn: bool = true,
+climbs_walls: bool = false,
+death_max_rotation: f32 = default_death_max_rotation,
 yaw: f32 = 0,
 prev_yaw: f32 = 0,
 pitch: f32 = 0,
@@ -79,6 +81,9 @@ pub const hurt_resistance_ticks: i32 = 20;
 pub const death_ticks: i32 = 20;
 pub const default_move_speed: f32 = 0.7;
 pub const default_look_pitch_speed: f32 = 40.0;
+pub const default_death_max_rotation: f32 = 90.0;
+pub const climb_speed_cap: f64 = 0.15;
+pub const climb_lift: f64 = 0.2;
 pub const chase_path_range: f32 = 16.0;
 
 const wander_radius: f32 = 10.0;
@@ -198,6 +203,10 @@ pub fn faceYaw(self: *Animal, yaw: f32) void {
     self.prev_yaw = yaw;
     self.render_yaw = yaw;
     self.prev_render_yaw = yaw;
+}
+
+pub fn isOnLadder(self: Animal) bool {
+    return self.climbs_walls and self.base.blocked_horizontally;
 }
 
 pub fn isAlive(self: Animal) bool {
@@ -423,8 +432,17 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
         }
     } else {
         self.moveFlying(strafe, forward, if (was_on_ground) ground_acceleration else air_acceleration);
+
+        if (self.isOnLadder()) {
+            self.base.motion.x = std.math.clamp(self.base.motion.x, -climb_speed_cap, climb_speed_cap);
+            self.base.motion.z = std.math.clamp(self.base.motion.z, -climb_speed_cap, climb_speed_cap);
+            self.fall_distance = 0;
+            self.base.motion.y = @max(self.base.motion.y, -climb_speed_cap);
+        }
+
         const moved = self.base.move(world_map);
         self.updateFallState(moved.dy, rand);
+        if (self.base.blocked_horizontally and self.isOnLadder()) self.base.motion.y = climb_lift;
 
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;
@@ -790,7 +808,7 @@ pub fn limbSwingPhase(self: Animal, partial_ticks: f32) f32 {
 pub fn deathTilt(self: Animal, partial_ticks: f32) f32 {
     if (self.death_time == 0) return 0;
     const progress = (@as(f32, @floatFromInt(self.death_time)) + partial_ticks - 1.0) / 20.0 * 1.6;
-    return @min(@sqrt(progress), 1.0) * 90.0;
+    return @min(@sqrt(progress), 1.0) * self.death_max_rotation;
 }
 
 const test_spec: Spec = .{ .width = 0.9, .height = 0.9 };

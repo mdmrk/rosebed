@@ -15,6 +15,7 @@ const PigZombie = @import("pig_zombie.zig");
 const Sheep = @import("sheep.zig");
 const Skeleton = @import("skeleton.zig");
 const Slime = @import("slime.zig");
+const Spider = @import("spider.zig");
 const Wolf = @import("wolf.zig");
 const Zombie = @import("zombie.zig");
 
@@ -61,6 +62,7 @@ pub const Monster = enum {
     slime,
     creeper,
     skeleton,
+    spider,
     zombie,
     ghast,
     pig_zombie,
@@ -68,7 +70,7 @@ pub const Monster = enum {
     pub fn maxPerChunk(self: Monster) u32 {
         return switch (self) {
             .ghast => Ghast.max_spawned_in_chunk,
-            .slime, .creeper, .skeleton, .zombie, .pig_zombie => max_per_chunk,
+            .slime, .creeper, .skeleton, .spider, .zombie, .pig_zombie => max_per_chunk,
         };
     }
 };
@@ -92,6 +94,7 @@ const overworld_monsters = [_]Horror{
     .{ .weight = 10, .monster = .zombie },
     .{ .weight = 10, .monster = .creeper },
     .{ .weight = 10, .monster = .skeleton },
+    .{ .weight = 10, .monster = .spider },
     .{ .weight = 10, .monster = .slime },
 };
 
@@ -138,7 +141,8 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
     return switch (category) {
         .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast) +
             entities.countOf(mob.creeper) + entities.countOf(mob.skeleton) +
-            entities.countOf(mob.zombie) + entities.countOf(mob.pig_zombie)),
+            entities.countOf(mob.spider) + entities.countOf(mob.zombie) +
+            entities.countOf(mob.pig_zombie)),
         .creature => @intCast(entities.animalCount()),
     };
 }
@@ -286,6 +290,12 @@ fn spawnInChunk(
                             slime.animal.faceYaw(rand.nextFloat() * 360.0);
                             if (!slime.canSpawnHere(world_seed, rand)) continue;
                             try entities.adopt(gpa, mob.slime, slime);
+                        },
+                        .spider => {
+                            var spider = Spider.spawn(position);
+                            spider.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!spider.canSpawnHere(world_map, rand)) continue;
+                            try entities.adopt(gpa, mob.spider, spider);
                         },
                         .skeleton => {
                             var skeleton = Skeleton.spawn(position);
@@ -666,12 +676,13 @@ test "zombies spawn in the overworld's dark caverns, and never in the daylight" 
     for (0..8000) |_| {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
         if (entities.countOf(mob.zombie) > 0 and entities.countOf(mob.creeper) > 0 and
-            entities.countOf(mob.skeleton) > 0) break;
+            entities.countOf(mob.skeleton) > 0 and entities.countOf(mob.spider) > 0) break;
     }
 
     try std.testing.expect(entities.countOf(mob.zombie) > 0);
     try std.testing.expect(entities.countOf(mob.creeper) > 0);
     try std.testing.expect(entities.countOf(mob.skeleton) > 0);
+    try std.testing.expect(entities.countOf(mob.spider) > 0);
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.pig_zombie));
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.ghast));
     try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
@@ -705,6 +716,7 @@ test "a lit overworld surface keeps the zombies out" {
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.zombie));
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.creeper));
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.skeleton));
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.spider));
 }
 
 test "the nether fills its caverns with pig zombies as well as ghasts" {
@@ -744,7 +756,7 @@ test "the overworld's monster list never rolls a nether horror" {
     var rand = world.JavaRandom.init(4);
     for (0..2000) |_| {
         switch (pickWeighted(Horror, monsterList(.overworld), &rand).monster) {
-            .slime, .creeper, .skeleton, .zombie => {},
+            .slime, .creeper, .skeleton, .spider, .zombie => {},
             .ghast, .pig_zombie => return error.TestUnexpectedResult,
         }
     }
@@ -756,7 +768,7 @@ test "the overworld's monster list never rolls a nether horror" {
         switch (pickWeighted(Horror, monsterList(.nether), &rand).monster) {
             .ghast => ghasts += 1,
             .pig_zombie => pig_zombies += 1,
-            .slime, .creeper, .skeleton, .zombie => unreachable,
+            .slime, .creeper, .skeleton, .spider, .zombie => unreachable,
         }
     }
 

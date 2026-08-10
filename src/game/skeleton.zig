@@ -70,7 +70,14 @@ pub fn tick(
     try self.animal.tick(gpa, world_map, players, rand);
 }
 
-fn attackEntity(monster: *Monster, animal: Animal, view: Animal.PlayerView, distance: f32) void {
+fn attackEntity(
+    monster: *Monster,
+    animal: *Animal,
+    _: *const world.World,
+    view: Animal.PlayerView,
+    distance: f32,
+    _: *world.JavaRandom,
+) void {
     const self: *Skeleton = @fieldParentPtr("monster", monster);
     if (distance >= bow_range) return;
 
@@ -253,6 +260,10 @@ test "a skeleton is the size, health and speed EntitySkeleton inherits" {
 }
 
 test "a skeleton looses an arrow at a player inside ten blocks, then draws for thirty ticks" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Skeleton.spawn(math.Vec3.init(8.5, 1, 8.5));
 
     const player = Animal.PlayerView{
@@ -261,22 +272,26 @@ test "a skeleton looses an arrow at a player inside ten blocks, then draws for t
         .alive = true,
     };
 
-    self.monster.attack(&self.monster, self.animal, player, 12.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 12.0, &rand);
     try std.testing.expect(self.pending_shot == null);
     try std.testing.expect(!self.monster.has_attacked);
 
-    self.monster.attack(&self.monster, self.animal, player, 6.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 6.0, &rand);
     try std.testing.expect(self.pending_shot != null);
     try std.testing.expectEqual(draw_ticks, self.monster.attack_time);
     try std.testing.expect(self.monster.has_attacked);
 
     _ = self.takeShot();
-    self.monster.attack(&self.monster, self.animal, player, 6.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 6.0, &rand);
     try std.testing.expect(self.pending_shot == null);
     try std.testing.expect(self.monster.has_attacked);
 }
 
 test "a skeleton's arrow leaves above its head and leads the player it is aimed at" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Skeleton.spawn(math.Vec3.init(8.5, 64, 8.5));
 
     const player = Animal.PlayerView{
@@ -284,7 +299,7 @@ test "a skeleton's arrow leaves above its head and leads the player it is aimed 
         .eye_height = 1.62,
         .alive = true,
     };
-    self.monster.attack(&self.monster, self.animal, player, 6.0);
+    self.monster.attack(&self.monster, &self.animal, &w, player, 6.0, &rand);
 
     const shot = self.takeShot().?;
     try std.testing.expectApproxEqAbs(
@@ -303,6 +318,10 @@ test "a skeleton's arrow leaves above its head and leads the player it is aimed 
 }
 
 test "a skeleton turns to face whatever it is shooting" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(0);
     var self = Skeleton.spawn(math.Vec3.init(8.5, 1, 8.5));
     self.animal.faceYaw(0);
 
@@ -311,7 +330,7 @@ test "a skeleton turns to face whatever it is shooting" {
         .eye_height = 1.62,
         .alive = true,
     };
-    self.monster.attack(&self.monster, self.animal, behind, 6.0);
+    self.monster.attack(&self.monster, &self.animal, &w, behind, 6.0, &rand);
 
     try std.testing.expectApproxEqAbs(@as(f32, 180.0), @abs(self.animal.yaw), 1.0e-4);
 }
