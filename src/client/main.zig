@@ -783,6 +783,7 @@ fn containerClickAt(
     size: u8,
     click_type: ClickType,
     box_height: f32,
+    shift: bool,
 ) !void {
     const gui = guiSize(app_state);
     const index = render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height) orelse {
@@ -791,25 +792,79 @@ fn containerClickAt(
         }
         return;
     };
+    if (shift) return quickMove(app_state, slots, grid, size, index);
+
     const slot = slots[index];
     switch (slot.kind) {
-        .inventory => slotClick(app_state, &app_state.player.inventory.slots[slot.index], click_type, .{}),
-        .craft_input => slotClick(app_state, &grid[slot.index], click_type, .{}),
         .craft_result => try resultSlotClick(app_state, grid, size),
-        .armor => slotClick(
-            app_state,
-            &app_state.player.inventory.armor[slot.index],
-            click_type,
-            .{ .armor = @enumFromInt(slot.index) },
-        ),
-        .furnace_input, .furnace_fuel => {
-            const furnace = openedFurnace(app_state) orelse return;
-            slotClick(app_state, furnace.slot(slot.index), click_type, .{});
-        },
         .furnace_output => try furnaceOutputClick(app_state, click_type),
-        .chest => {
-            const slot_ptr = openedChestSlot(app_state, slot.index) orelse return;
-            slotClick(app_state, slot_ptr, click_type, .{});
+        else => {
+            const storage = slotStorage(app_state, slot, grid) orelse return;
+            slotClick(app_state, storage, click_type, slotRules(slot));
+        },
+    }
+}
+
+fn slotRules(slot: render.container_screen.Slot) SlotRules {
+    if (slot.kind != .armor) return .{};
+    return .{ .armor = @enumFromInt(slot.index) };
+}
+
+fn slotStorage(
+    app_state: *AppState,
+    slot: render.container_screen.Slot,
+    grid: []?game.Inventory.ItemStack,
+) ?*?game.Inventory.ItemStack {
+    return switch (slot.kind) {
+        .inventory => &app_state.player.inventory.slots[slot.index],
+        .craft_input => &grid[slot.index],
+        .armor => &app_state.player.inventory.armor[slot.index],
+        .furnace_input, .furnace_fuel => (openedFurnace(app_state) orelse return null).slot(slot.index),
+        .chest => openedChestSlot(app_state, slot.index),
+        .craft_result, .furnace_output => null,
+    };
+}
+
+fn quickMove(
+    app_state: *AppState,
+    slots: []const render.container_screen.Slot,
+    grid: []?game.Inventory.ItemStack,
+    size: u8,
+    from: usize,
+) !void {
+    const range = render.container_screen.quickRange(slots, from);
+
+    var targets: [render.chest_screen.max_slot_count]*?game.Inventory.ItemStack = undefined;
+    var count: usize = 0;
+    for (0..range.end - range.start) |step| {
+        const index = if (range.reverse) range.end - 1 - step else range.start + step;
+        targets[count] = slotStorage(app_state, slots[index], grid) orelse continue;
+        count += 1;
+    }
+
+    switch (slots[from].kind) {
+        .craft_result => {
+            const result = game.crafting.findMatch(grid, size) orelse return;
+            var moving = result;
+            game.Inventory.mergeStack(targets[0..count], &moving);
+            if (moving.count == result.count) return;
+            game.crafting.consume(grid);
+            try app_state.stats.craft(app_state.gpa, result.id, result.count - moving.count);
+        },
+        .furnace_output => {
+            const furnace = openedFurnace(app_state) orelse return;
+            var moving = furnace.output orelse return;
+            const before = moving.count;
+            game.Inventory.mergeStack(targets[0..count], &moving);
+            if (moving.count == before) return;
+            furnace.output = if (moving.count == 0) null else moving;
+            try app_state.stats.craft(app_state.gpa, moving.id, before - moving.count);
+        },
+        else => {
+            const source = slotStorage(app_state, slots[from], grid) orelse return;
+            var moving = source.* orelse return;
+            game.Inventory.mergeStack(targets[0..count], &moving);
+            source.* = if (moving.count == 0) null else moving;
         },
     }
 }
@@ -832,21 +887,27 @@ fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
     try app_state.stats.craft(app_state.gpa, output.id, taken);
 }
 
+fn shiftHeld() bool {
+    const mods = sdl3.keyboard.getModState();
+    return mods.left_shift or mods.right_shift;
+}
+
 fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
+    const shift = shiftHeld();
     if (app_state.furnace_open != null) {
         const layout = render.furnace_screen.slots();
-        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height);
+        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
         var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
         const layout = render.chest_screen.slots(rows, &buffer);
-        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows));
+        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
     } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height);
+        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
     } else {
         const layout = render.inventory_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height);
+        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height, shift);
     }
 }
 

@@ -49,6 +49,28 @@ pub fn appendPlayerSlots(out: []Slot) void {
     }
 }
 
+pub const QuickRange = struct { start: usize, end: usize, reverse: bool };
+
+pub fn quickRange(slots: []const Slot, from: usize) QuickRange {
+    const player_start = slots.len - player_slot_count;
+    const hotbar_start = slots.len - game.Inventory.hotbar_size;
+
+    if (from < player_start) {
+        const reverse = switch (slots[from].kind) {
+            .craft_result, .furnace_output, .chest => true,
+            else => false,
+        };
+        return .{ .start = player_start, .end = slots.len, .reverse = reverse };
+    }
+
+    if (player_start > 0 and slots[0].kind == .chest) {
+        return .{ .start = 0, .end = player_start, .reverse = false };
+    }
+
+    if (from < hotbar_start) return .{ .start = hotbar_start, .end = slots.len, .reverse = false };
+    return .{ .start = player_start, .end = hotbar_start, .reverse = false };
+}
+
 pub fn origin(res: gui.Scaled, box_height: f32) [2]f32 {
     return .{ @floor((res.width - width) / 2.0), @floor((res.height - box_height) / 2.0) };
 }
@@ -231,4 +253,53 @@ test "clicking the background between slots hits no slot but is not outside" {
 
     try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, x, y, res, height));
     try std.testing.expect(!isOutside(x, y, res, height));
+}
+
+test "a furnace shift-click walks ContainerFurnace's slot ranges" {
+    const furnace_screen = @import("furnace_screen.zig");
+    const layout = furnace_screen.slots();
+
+    const output = quickRange(&layout, 2);
+    try std.testing.expectEqual(QuickRange{ .start = 3, .end = 39, .reverse = true }, output);
+    try std.testing.expectEqual(QuickRange{ .start = 3, .end = 39, .reverse = false }, quickRange(&layout, 0));
+    try std.testing.expectEqual(QuickRange{ .start = 30, .end = 39, .reverse = false }, quickRange(&layout, 3));
+    try std.testing.expectEqual(QuickRange{ .start = 30, .end = 39, .reverse = false }, quickRange(&layout, 29));
+    try std.testing.expectEqual(QuickRange{ .start = 3, .end = 30, .reverse = false }, quickRange(&layout, 30));
+    try std.testing.expectEqual(QuickRange{ .start = 3, .end = 30, .reverse = false }, quickRange(&layout, 38));
+}
+
+test "a workbench shift-click walks ContainerWorkbench's slot ranges" {
+    const crafting_screen = @import("crafting_screen.zig");
+    const layout = crafting_screen.slots();
+
+    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 46, .reverse = true }, quickRange(&layout, 0));
+    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 46, .reverse = false }, quickRange(&layout, 9));
+    try std.testing.expectEqual(QuickRange{ .start = 37, .end = 46, .reverse = false }, quickRange(&layout, 10));
+    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 37, .reverse = false }, quickRange(&layout, 37));
+}
+
+test "an inventory shift-click walks ContainerPlayer's slot ranges" {
+    const inventory_screen = @import("inventory_screen.zig");
+    const layout = inventory_screen.slots();
+
+    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = true }, quickRange(&layout, 0));
+    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = false }, quickRange(&layout, 1));
+    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = false }, quickRange(&layout, 8));
+    try std.testing.expectEqual(QuickRange{ .start = 36, .end = 45, .reverse = false }, quickRange(&layout, 9));
+    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 36, .reverse = false }, quickRange(&layout, 44));
+}
+
+test "a chest shift-click moves stacks both ways, unlike the other containers" {
+    const chest_screen = @import("chest_screen.zig");
+    var buffer: [chest_screen.max_slot_count]Slot = undefined;
+
+    const single = chest_screen.slots(3, &buffer);
+    try std.testing.expectEqual(QuickRange{ .start = 27, .end = 63, .reverse = true }, quickRange(single, 0));
+    try std.testing.expectEqual(QuickRange{ .start = 0, .end = 27, .reverse = false }, quickRange(single, 27));
+    try std.testing.expectEqual(QuickRange{ .start = 0, .end = 27, .reverse = false }, quickRange(single, 62));
+
+    var wide: [chest_screen.max_slot_count]Slot = undefined;
+    const double = chest_screen.slots(6, &wide);
+    try std.testing.expectEqual(QuickRange{ .start = 54, .end = 90, .reverse = true }, quickRange(double, 53));
+    try std.testing.expectEqual(QuickRange{ .start = 0, .end = 54, .reverse = false }, quickRange(double, 54));
 }

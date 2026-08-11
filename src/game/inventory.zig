@@ -103,6 +103,101 @@ pub fn addStack(self: *Inventory, stack: ItemStack) u8 {
     return remaining;
 }
 
+pub fn mergeStack(targets: []const *?ItemStack, moving: *ItemStack) void {
+    const limit = moving.id.maxStackSize();
+
+    if (limit > 1) {
+        for (targets) |target| {
+            if (moving.count == 0) break;
+            if (target.*) |*existing| {
+                if (!existing.id.eql(moving.id) or existing.meta != moving.meta) continue;
+
+                const total = @as(u16, existing.count) + moving.count;
+                if (total <= limit) {
+                    existing.count = @intCast(total);
+                    moving.count = 0;
+                } else if (existing.count < limit) {
+                    moving.count -= limit - existing.count;
+                    existing.count = limit;
+                }
+            }
+        }
+    }
+
+    if (moving.count == 0) return;
+    for (targets) |target| {
+        if (target.* != null) continue;
+        target.* = moving.*;
+        moving.count = 0;
+        return;
+    }
+}
+
+test "a merged stack tops up matching slots before taking an empty one" {
+    var slots: [4]?ItemStack = @splat(null);
+    slots[0] = .{ .id = .{ .block = .planks }, .count = 60 };
+    slots[2] = .{ .id = .{ .block = .planks }, .count = 62 };
+
+    var targets: [4]*?ItemStack = undefined;
+    for (&slots, &targets) |*slot, *target| target.* = slot;
+
+    var moving: ItemStack = .{ .id = .{ .block = .planks }, .count = 10 };
+    mergeStack(&targets, &moving);
+
+    try std.testing.expectEqual(@as(u8, 0), moving.count);
+    try std.testing.expectEqual(@as(u8, 64), slots[0].?.count);
+    try std.testing.expectEqual(@as(u8, 64), slots[2].?.count);
+    try std.testing.expectEqual(@as(u8, 4), slots[1].?.count);
+    try std.testing.expect(slots[3] == null);
+}
+
+test "a merged stack skips slots holding something else" {
+    var slots: [3]?ItemStack = @splat(null);
+    slots[0] = .{ .id = .{ .block = .stone }, .count = 1 };
+    slots[1] = .{ .id = .{ .block = .planks }, .count = 1, .meta = 3 };
+
+    var targets: [3]*?ItemStack = undefined;
+    for (&slots, &targets) |*slot, *target| target.* = slot;
+
+    var moving: ItemStack = .{ .id = .{ .block = .planks }, .count = 5 };
+    mergeStack(&targets, &moving);
+
+    try std.testing.expectEqual(@as(u8, 0), moving.count);
+    try std.testing.expectEqual(@as(u8, 1), slots[1].?.count);
+    try std.testing.expectEqual(@as(u8, 5), slots[2].?.count);
+}
+
+test "an unstackable item never tops up, it only takes an empty slot" {
+    var slots: [2]?ItemStack = @splat(null);
+    slots[0] = .{ .id = .{ .item = .pickaxe_iron }, .count = 1 };
+
+    var targets: [2]*?ItemStack = undefined;
+    for (&slots, &targets) |*slot, *target| target.* = slot;
+
+    var moving: ItemStack = .{ .id = .{ .item = .pickaxe_iron }, .count = 1, .meta = 12 };
+    mergeStack(&targets, &moving);
+
+    try std.testing.expectEqual(@as(u8, 0), moving.count);
+    try std.testing.expectEqual(@as(u8, 1), slots[0].?.count);
+    try std.testing.expectEqual(@as(u16, 12), slots[1].?.meta);
+}
+
+test "a merge with nowhere left to go leaves the remainder behind" {
+    var slots: [2]?ItemStack = .{
+        .{ .id = .{ .block = .planks }, .count = 64 },
+        .{ .id = .{ .block = .stone }, .count = 64 },
+    };
+
+    var targets: [2]*?ItemStack = undefined;
+    for (&slots, &targets) |*slot, *target| target.* = slot;
+
+    var moving: ItemStack = .{ .id = .{ .block = .planks }, .count = 7 };
+    mergeStack(&targets, &moving);
+
+    try std.testing.expectEqual(@as(u8, 7), moving.count);
+    try std.testing.expectEqual(@as(u8, 64), slots[0].?.count);
+}
+
 test "consuming an item takes one from the first slot holding it" {
     var inv: Inventory = .{};
     inv.slots[2] = .{ .id = .{ .item = .arrow }, .count = 3 };
