@@ -1185,12 +1185,15 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             reply(app_state, "{s}{s}", .{ world_seed, copy_msg });
         },
         .give => |give| {
-            try app_state.level.entities.throwFromPlayer(
-                app_state.gpa,
-                &app_state.player,
-                .{ .id = give.id, .count = give.count },
-                &app_state.level.world_map.rand,
-            );
+            const leftover = app_state.player.inventory.addStack(.{ .id = give.id, .count = give.count });
+            if (leftover > 0) {
+                try app_state.level.entities.throwFromPlayer(
+                    app_state.gpa,
+                    &app_state.player,
+                    .{ .id = give.id, .count = leftover },
+                    &app_state.level.world_map.rand,
+                );
+            }
             reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
         },
         .spawn => |spawn| {
