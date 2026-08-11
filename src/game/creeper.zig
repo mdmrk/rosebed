@@ -84,7 +84,7 @@ fn attackEntity(
     distance: f32,
     _: *world.JavaRandom,
 ) void {
-    const self: *Creeper = @fieldParentPtr("monster", monster);
+    const self: *Creeper = @alignCast(@fieldParentPtr("monster", monster));
 
     const reach = if (self.state > 0) hold_range else ignite_range;
     if (distance >= reach) {
@@ -109,7 +109,7 @@ fn attackBlockedEntity(
     _: f32,
     _: *world.JavaRandom,
 ) void {
-    const self: *Creeper = @fieldParentPtr("monster", monster);
+    const self: *Creeper = @alignCast(@fieldParentPtr("monster", monster));
     if (self.fuse > 0) self.douse();
 }
 

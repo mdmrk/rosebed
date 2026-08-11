@@ -1290,6 +1290,10 @@ fn closeMultiplayer(app_state: *AppState) !void {
 
 fn connectToServer(app_state: *AppState) !void {
     if (!app_state.multiplayer_state.canConnect()) return;
+    if (wasm) {
+        reply(app_state, "Multiplayer is not available in the browser", .{});
+        return;
+    }
 
     var stored: [128]u8 = undefined;
     const typed = app_state.multiplayer_state.address.text();

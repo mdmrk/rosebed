@@ -277,6 +277,8 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
             .{ .name = "render", .module = modules.render_mod },
             .{ .name = "game", .module = modules.game_mod },
             .{ .name = "assets", .module = modules.assets_mod },
+            .{ .name = "net", .module = modules.net_mod },
+            .{ .name = "remote", .module = modules.remote_mod },
         },
     });
     client_mod.addAnonymousImport("icon_png", .{

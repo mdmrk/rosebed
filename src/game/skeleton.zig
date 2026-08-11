@@ -78,7 +78,7 @@ fn attackEntity(
     distance: f32,
     _: *world.JavaRandom,
 ) void {
-    const self: *Skeleton = @fieldParentPtr("monster", monster);
+    const self: *Skeleton = @alignCast(@fieldParentPtr("monster", monster));
     if (distance >= bow_range) return;
 
     const dx = view.position.x - animal.base.position.x;
