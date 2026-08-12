@@ -87,6 +87,7 @@ pub const Shape = union(enum) {
     bed,
     sign,
     wire,
+    rail,
     lever,
     button,
     plate,
@@ -421,6 +422,8 @@ pub const Block = enum(u8) {
     sandstone = 24,
     note_block = 25,
     bed = 26,
+    rail_powered = 27,
+    rail_detector = 28,
     piston_sticky = 29,
     tall_grass = 31,
     dead_bush = 32,
@@ -454,6 +457,7 @@ pub const Block = enum(u8) {
     burning_furnace = 62,
     sign_post = 63,
     door_wood = 64,
+    rail = 66,
     stairs_cobblestone = 67,
     wall_sign = 68,
     lever = 69,
@@ -544,6 +548,7 @@ pub const Block = enum(u8) {
             .cake => .cake,
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
+            .rail, .rail_powered, .rail_detector => .circuits,
             .fire => .fire,
             .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
@@ -562,6 +567,7 @@ pub const Block = enum(u8) {
             .portal => .portal,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
             .redstone_wire => .wire,
+            .rail, .rail_powered, .rail_detector => .rail,
             .lever => .lever,
             .button => .button,
             .pressure_plate_stone, .pressure_plate_planks => .plate,
@@ -654,6 +660,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .torch_redstone_off, .torch_redstone_on => 2,
             .dispenser => 4,
+            .rail_detector => 20,
             .button, .pressure_plate_stone, .pressure_plate_planks => 20,
             .ore_redstone_glowing => 30,
             else => switch (self.vanillaMaterial()) {
@@ -753,6 +760,7 @@ pub const Block = enum(u8) {
             .torch, .torch_redstone_off, .torch_redstone_on => torchBounds(metadata),
             .portal => portalBounds(false),
             .redstone_wire => wire_bounds,
+            .rail, .rail_powered, .rail_detector => railBounds(metadata),
             .lever => leverBounds(metadata),
             .button => buttonBounds(metadata),
             .pressure_plate_stone, .pressure_plate_planks => plateBounds(metadata),
@@ -846,6 +854,9 @@ pub const Block = enum(u8) {
             .torch => uniform(80),
             .ore_redstone_glowing => uniform(51),
             .redstone_wire => uniform(wire_cross_tile),
+            .rail => uniform(rail_straight_tile),
+            .rail_powered => uniform(rail_powered_off_tile),
+            .rail_detector => uniform(rail_detector_tile),
             .lever => uniform(lever_tile),
             .button, .pressure_plate_stone => uniform(1),
             .pressure_plate_planks => uniform(4),
@@ -923,7 +934,7 @@ pub const Block = enum(u8) {
     pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
-            .torch, .wire, .lever, .repeater => self.faceTextures().get(.down),
+            .torch, .wire, .lever, .repeater, .rail => self.faceTextures().get(.down),
             else => null,
         };
     }
@@ -978,6 +989,7 @@ pub const Block = enum(u8) {
             .bookshelf => 1.5,
             .obsidian => 10.0,
             .torch => 0.0,
+            .rail, .rail_powered, .rail_detector => 0.7,
             .block_diamond => 5.0,
             .workbench => 2.5,
             .chest => 2.5,
@@ -1099,6 +1111,9 @@ pub const Block = enum(u8) {
             .ore_diamond => "Diamond Ore",
             .ore_redstone, .ore_redstone_glowing => "Redstone Ore",
             .redstone_wire => "Redstone Dust",
+            .rail => "Rail",
+            .rail_powered => "Powered Rail",
+            .rail_detector => "Detector Rail",
             .lever => "Lever",
             .button => "Button",
             .pressure_plate_stone, .pressure_plate_planks => "Pressure Plate",
@@ -1181,6 +1196,8 @@ pub const Block = enum(u8) {
             .ore_diamond => .{ .id = .{ .item = .diamond }, .count = 1 },
             .ore_redstone, .ore_redstone_glowing => .{ .id = .{ .item = .redstone }, .count = @intCast(4 + rand.nextIntBound(2)) },
             .redstone_wire => .{ .id = .{ .item = .redstone }, .count = 1 },
+            .rail_powered => .{ .id = .{ .block = .rail_powered }, .count = 1 },
+            .rail_detector => .{ .id = .{ .block = .rail_detector }, .count = 1 },
             .torch_redstone_off, .torch_redstone_on => .{ .id = .{ .block = .torch_redstone_on }, .count = 1 },
             .repeater_off, .repeater_on => .{ .id = .{ .item = .repeater }, .count = 1 },
             .ore_lapis => .{ .id = .{ .item = .dye }, .count = @intCast(4 + rand.nextIntBound(5)), .meta = item.dye_meta_lapis },
@@ -1652,6 +1669,49 @@ const dispenser_side_tile: u8 = 45;
 const dispenser_top_tile: u8 = 62;
 const dispenser_front_tile: u8 = 46;
 pub const dispenser_default_facing: u4 = @intFromEnum(Side.south);
+
+pub const rail_straight_tile: u8 = 128;
+pub const rail_curved_tile: u8 = 112;
+pub const rail_powered_off_tile: u8 = 163;
+pub const rail_powered_on_tile: u8 = 179;
+pub const rail_detector_tile: u8 = 195;
+pub const rail_flag_bit: u4 = 8;
+pub const rail_shape_mask: u4 = 7;
+
+pub fn isRail(id: Block) bool {
+    return id == .rail or id == .rail_powered or id == .rail_detector;
+}
+
+pub fn railIsFlagged(id: Block) bool {
+    return id == .rail_powered or id == .rail_detector;
+}
+
+pub fn railShape(id: Block, metadata: u4) u4 {
+    return if (railIsFlagged(id)) metadata & rail_shape_mask else metadata;
+}
+
+pub fn railIsSloped(shape: u4) bool {
+    return shape >= 2 and shape <= 5;
+}
+
+pub fn railTile(id: Block, metadata: u4) u8 {
+    return switch (id) {
+        .rail_powered => if (metadata & rail_flag_bit == 0) rail_powered_off_tile else rail_powered_on_tile,
+        .rail_detector => rail_detector_tile,
+        else => if (metadata >= 6) rail_curved_tile else rail_straight_tile,
+    };
+}
+
+const rail_flat_height: f32 = 2.0 / 16.0;
+const rail_slope_height: f32 = 10.0 / 16.0;
+
+fn railBounds(metadata: u4) Bounds {
+    const tall = metadata >= 2 and metadata <= 5;
+    return .{
+        .min = .{ 0, 0, 0 },
+        .max = .{ 1, if (tall) rail_slope_height else rail_flat_height, 1 },
+    };
+}
 
 pub fn dispenserStep(metadata: u4) [2]i32 {
     return switch (metadata) {
@@ -3267,6 +3327,13 @@ test "registering over an unclaimed id changes what every caller sees" {
     try std.testing.expectEqual(1.0 / 2.5 / 30.0, custom.strength(null, 1.0));
 }
 
+test "a rail's inventory icon is its flat sprite, not a cube" {
+    try std.testing.expectEqual(@as(?u8, rail_straight_tile), Block.rail.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, rail_powered_off_tile), Block.rail_powered.flatItemTile(0));
+    try std.testing.expectEqual(@as(?u8, rail_detector_tile), Block.rail_detector.flatItemTile(0));
+    try std.testing.expect(Block.stone.flatItemTile(0) == null);
+}
+
 test "registry keys come straight off the enum tags, so they cannot drift" {
     try std.testing.expectEqualStrings("stone", Block.stone.def().key);
     try std.testing.expectEqualStrings("torch_redstone_on", Block.torch_redstone_on.def().key);
@@ -3276,7 +3343,7 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
 
     try std.testing.expect(Block.stone.isVanilla());
     try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(27))).isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(30))).isVanilla());
 }
 
 test "a registered block answers to its own key without shadowing a vanilla one" {

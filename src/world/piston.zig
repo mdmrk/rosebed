@@ -745,7 +745,7 @@ test "a record naming a block this port does not have comes back as air" {
     var tag = try store(gpa, 0, 0, 0, .{ .stored = .cobblestone });
     defer nbt.deinit(gpa, &tag);
 
-    tag.compound.getPtr("blockId").?.* = .{ .int = 27 };
+    tag.compound.getPtr("blockId").?.* = .{ .int = 30 };
 
     try std.testing.expectEqual(Block.air, load(tag.compound).?.state.stored);
 }

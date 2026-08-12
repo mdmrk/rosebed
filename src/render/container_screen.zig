@@ -21,7 +21,7 @@ const tooltip_offset_y: f32 = -12;
 const tooltip_padding: f32 = 3;
 const tooltip_line_height: f32 = 8;
 
-pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output, chest, dispenser };
+pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output, chest, dispenser, minecart };
 pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 pub const Label = struct { text: []const u8, x: f32, y: f32 };
 
@@ -57,13 +57,13 @@ pub fn quickRange(slots: []const Slot, from: usize) QuickRange {
 
     if (from < player_start) {
         const reverse = switch (slots[from].kind) {
-            .craft_result, .furnace_output, .chest, .dispenser => true,
+            .craft_result, .furnace_output, .chest, .dispenser, .minecart => true,
             else => false,
         };
         return .{ .start = player_start, .end = slots.len, .reverse = reverse };
     }
 
-    if (player_start > 0 and (slots[0].kind == .chest or slots[0].kind == .dispenser)) {
+    if (player_start > 0 and (slots[0].kind == .chest or slots[0].kind == .dispenser or slots[0].kind == .minecart)) {
         return .{ .start = 0, .end = player_start, .reverse = false };
     }
 
@@ -293,13 +293,13 @@ test "a chest shift-click moves stacks both ways, unlike the other containers" {
     const chest_screen = @import("chest_screen.zig");
     var buffer: [chest_screen.max_slot_count]Slot = undefined;
 
-    const single = chest_screen.slots(3, &buffer);
+    const single = chest_screen.slots(3, &buffer, .chest);
     try std.testing.expectEqual(QuickRange{ .start = 27, .end = 63, .reverse = true }, quickRange(single, 0));
     try std.testing.expectEqual(QuickRange{ .start = 0, .end = 27, .reverse = false }, quickRange(single, 27));
     try std.testing.expectEqual(QuickRange{ .start = 0, .end = 27, .reverse = false }, quickRange(single, 62));
 
     var wide: [chest_screen.max_slot_count]Slot = undefined;
-    const double = chest_screen.slots(6, &wide);
+    const double = chest_screen.slots(6, &wide, .chest);
     try std.testing.expectEqual(QuickRange{ .start = 54, .end = 90, .reverse = true }, quickRange(double, 53));
     try std.testing.expectEqual(QuickRange{ .start = 0, .end = 54, .reverse = false }, quickRange(double, 54));
 }

@@ -27,7 +27,7 @@ pub fn height(rows: u8) f32 {
     return 114 + @as(f32, @floatFromInt(rows)) * container.slot_pitch;
 }
 
-pub fn slots(rows: u8, out: *[max_slot_count]container.Slot) []container.Slot {
+pub fn slots(rows: u8, out: *[max_slot_count]container.Slot, kind: container.SlotKind) []container.Slot {
     const shift = (@as(f32, @floatFromInt(rows)) - 4) * container.slot_pitch;
     var n: usize = 0;
 
@@ -36,7 +36,7 @@ pub fn slots(rows: u8, out: *[max_slot_count]container.Slot) []container.Slot {
             out[n] = .{
                 .x = 8 + @as(f32, @floatFromInt(col)) * container.slot_pitch,
                 .y = 18 + @as(f32, @floatFromInt(row)) * container.slot_pitch,
-                .kind = .chest,
+                .kind = kind,
                 .index = col + row * 9,
             };
             n += 1;
@@ -110,7 +110,7 @@ pub fn draw(
     try drawBackdrop(ui, rows);
 
     var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(rows, &buffer);
+    const layout = slots(rows, &buffer, .chest);
 
     var stacks: [max_slot_count]?game.Inventory.ItemStack = undefined;
     for (layout, stacks[0..layout.len]) |slot, *stack| {
@@ -120,7 +120,7 @@ pub fn draw(
                 upper.items[slot.index]
             else
                 lower.?.items[slot.index - world.chest.slot_count],
-            .craft_input, .craft_result, .armor, .dispenser => unreachable,
+            .craft_input, .craft_result, .armor, .dispenser, .minecart => unreachable,
             .furnace_input, .furnace_fuel, .furnace_output => unreachable,
         };
     }
@@ -139,9 +139,40 @@ test "a single chest is three rows tall and a double chest six" {
     try std.testing.expectEqual(@as(usize, 54 + 36), slotCount(6));
 }
 
+pub fn drawCargo(
+    ui: gui.Ui,
+    inventory: game.Inventory,
+    cargo: []const ?world.Stack,
+    title: []const u8,
+    held: ?game.Inventory.ItemStack,
+) !void {
+    const rows: u8 = world.chest.rows;
+
+    container.begin();
+    try drawBackdrop(ui, rows);
+
+    var buffer: [max_slot_count]container.Slot = undefined;
+    const layout = slots(rows, &buffer, .minecart);
+
+    var stacks: [max_slot_count]?game.Inventory.ItemStack = undefined;
+    for (layout, stacks[0..layout.len]) |slot, *stack| {
+        stack.* = switch (slot.kind) {
+            .inventory => inventory.slots[slot.index],
+            .minecart => cargo[slot.index],
+            else => unreachable,
+        };
+    }
+
+    try container.drawContents(ui, layout, stacks[0..layout.len], &.{
+        .{ .text = title, .x = chest_label_x, .y = chest_label_y },
+        .{ .text = "Inventory", .x = inventory_label_x, .y = height(rows) - 96 + 2 },
+    }, held, height(rows));
+    container.end();
+}
+
 test "the chest rows sit where ContainerChest puts them" {
     var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(3, &buffer);
+    const layout = slots(3, &buffer, .chest);
 
     try std.testing.expectEqual(slotCount(3), layout.len);
     try std.testing.expectEqual(container.SlotKind.chest, layout[0].kind);
@@ -153,7 +184,7 @@ test "the chest rows sit where ContainerChest puts them" {
 
 test "the player's own slots follow the chest's, one pixel below the furnace's" {
     var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(3, &buffer);
+    const layout = slots(3, &buffer, .chest);
 
     const first_player = layout[27];
     try std.testing.expectEqual(container.SlotKind.inventory, first_player.kind);
@@ -167,7 +198,7 @@ test "the player's own slots follow the chest's, one pixel below the furnace's" 
 
 test "a double chest pushes the player's slots down three more rows" {
     var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(6, &buffer);
+    const layout = slots(6, &buffer, .chest);
 
     try std.testing.expectEqual(slotCount(6), layout.len);
     try std.testing.expectEqual(@as(usize, 53), layout[53].index);
@@ -179,7 +210,7 @@ test "a double chest pushes the player's slots down three more rows" {
 test "clicking the middle of a chest slot finds it" {
     const res = gui.scaledResolution(640, 480, 1000);
     var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(3, &buffer);
+    const layout = slots(3, &buffer, .chest);
     const org = container.origin(res, height(3));
 
     const click_x = (org[0] + layout[10].x + 8) * res.factor;

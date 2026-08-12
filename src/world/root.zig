@@ -41,6 +41,7 @@ pub const NoiseGeneratorPerlin = @import("noise_perlin.zig");
 pub const pathfinder = @import("pathfinder.zig");
 pub const piston = @import("piston.zig");
 pub const portal = @import("portal.zig");
+pub const rail = @import("rail.zig");
 pub const redstone = @import("redstone.zig");
 pub const RegionFile = @import("region.zig");
 pub const save = @import("save.zig");
@@ -76,6 +77,7 @@ test {
     _ = sign;
     _ = jukebox;
     _ = dispenser;
+    _ = rail;
     _ = caves;
     _ = decorate;
     _ = lakes;

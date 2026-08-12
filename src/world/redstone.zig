@@ -1,11 +1,14 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const Side = block.Side;
 const block_update = @import("block_update.zig");
 const constants = @import("constants.zig");
 const piston = @import("piston.zig");
+const rail = @import("rail.zig");
 const testing_world = @import("testing.zig");
 const World = @import("world_map.zig");
 
@@ -17,6 +20,7 @@ pub fn canProvidePower(id: Block) bool {
     return switch (id) {
         .redstone_wire => wires_provide_power,
         .lever, .button, .pressure_plate_stone, .pressure_plate_planks => true,
+        .rail_detector => true,
         .torch_redstone_off, .torch_redstone_on => true,
         else => false,
     };
@@ -113,6 +117,7 @@ pub fn isPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side)
         .redstone_wire => wirePoweringTo(world_map, x, y, z, side),
         .torch_redstone_on => torchPoweringTo(metadata, side),
         .lever, .button => block.isPowered(metadata),
+        .rail_detector => metadata & block.rail_flag_bit != 0,
         .pressure_plate_stone, .pressure_plate_planks => metadata > 0,
         .repeater_on => repeaterPoweringTo(metadata, side),
         else => false,
@@ -124,6 +129,7 @@ pub fn isIndirectlyPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, s
     return switch (world_map.getBlock(x, y, z)) {
         .redstone_wire => wires_provide_power and wirePoweringTo(world_map, x, y, z, side),
         .torch_redstone_on, .torch_redstone_off => side == .down and isPoweringTo(world_map, x, y, z, side),
+        .rail_detector => metadata & block.rail_flag_bit != 0 and side == .up,
         .lever => switchIndirectlyPoweringTo(metadata, side, true),
         .button => switchIndirectlyPoweringTo(metadata, side, false),
         .pressure_plate_stone, .pressure_plate_planks => metadata != 0 and side == .up,
@@ -470,6 +476,132 @@ fn doorPowerChange(world_map: *World, x: i32, y: i32, z: i32, powered: bool) std
     try block_update.toggleDoor(world_map, x, y, z);
 }
 
+fn railIsPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return isBlockIndirectlyGettingPowered(world_map, x, y, z) or
+        isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
+}
+
+fn poweredRailChain(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4, ahead: bool, depth: u8) bool {
+    if (depth >= 8) return false;
+
+    var cx = x;
+    var cy = y;
+    var cz = z;
+    var shape = metadata & block.rail_shape_mask;
+    var level = true;
+
+    switch (shape) {
+        0 => if (ahead) {
+            cz += 1;
+        } else {
+            cz -= 1;
+        },
+        1 => if (ahead) {
+            cx -= 1;
+        } else {
+            cx += 1;
+        },
+        2 => {
+            if (ahead) {
+                cx -= 1;
+            } else {
+                cx += 1;
+                cy += 1;
+                level = false;
+            }
+            shape = 1;
+        },
+        3 => {
+            if (ahead) {
+                cx -= 1;
+                cy += 1;
+                level = false;
+            } else {
+                cx += 1;
+            }
+            shape = 1;
+        },
+        4 => {
+            if (ahead) {
+                cz += 1;
+            } else {
+                cz -= 1;
+                cy += 1;
+                level = false;
+            }
+            shape = 0;
+        },
+        5 => {
+            if (ahead) {
+                cz += 1;
+                cy += 1;
+                level = false;
+            } else {
+                cz -= 1;
+            }
+            shape = 0;
+        },
+        else => {},
+    }
+
+    if (poweredRailLink(world_map, cx, cy, cz, ahead, depth, shape)) return true;
+    return level and poweredRailLink(world_map, cx, cy - 1, cz, ahead, depth, shape);
+}
+
+fn poweredRailLink(world_map: *const World, x: i32, y: i32, z: i32, ahead: bool, depth: u8, axis: u4) bool {
+    if (world_map.getBlock(x, y, z) != .rail_powered) return false;
+
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    const shape = metadata & block.rail_shape_mask;
+    if (axis == 1 and (shape == 0 or shape == 4 or shape == 5)) return false;
+    if (axis == 0 and (shape == 1 or shape == 2 or shape == 3)) return false;
+
+    if (metadata & block.rail_flag_bit == 0) return false;
+    if (railIsPowered(world_map, x, y, z)) return true;
+    return poweredRailChain(world_map, x, y, z, metadata, ahead, depth + 1);
+}
+
+fn railNeighborChange(
+    world_map: *World,
+    x: i32,
+    y: i32,
+    z: i32,
+    id: Block,
+    source: Block,
+) std.mem.Allocator.Error!void {
+    if (!rail.canStay(world_map, x, y, z)) return;
+
+    if (id == .rail_powered) {
+        const metadata = world_map.getBlockMetadata(x, y, z);
+        const shape = metadata & block.rail_shape_mask;
+        const live = railIsPowered(world_map, x, y, z) or
+            poweredRailChain(world_map, x, y, z, metadata, true, 0) or
+            poweredRailChain(world_map, x, y, z, metadata, false, 0);
+
+        var changed = false;
+        if (live and metadata & block.rail_flag_bit == 0) {
+            try world_map.setBlockMetadataWithNotify(x, y, z, shape | block.rail_flag_bit);
+            changed = true;
+        } else if (!live and metadata & block.rail_flag_bit != 0) {
+            try world_map.setBlockMetadataWithNotify(x, y, z, shape);
+            changed = true;
+        }
+
+        if (changed) {
+            try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
+            if (block.railIsSloped(shape)) try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, id);
+        }
+        return;
+    }
+
+    if (id != .rail) return;
+    if (!canProvidePower(source)) return;
+
+    var logic = rail.Logic.at(world_map, x, y, z);
+    if (logic.adjacentTracks() != 3) return;
+    try rail.refreshAt(world_map, x, y, z, false);
+}
+
 fn dispenserIsPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
     return isBlockIndirectlyGettingPowered(world_map, x, y, z) or
         isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
@@ -552,6 +684,7 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32, source: Block
             if (!dispenserIsPowered(world_map, x, y, z)) return;
             try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
         },
+        .rail, .rail_powered, .rail_detector => try railNeighborChange(world_map, x, y, z, id, source),
         .piston, .piston_sticky => try piston.onNeighborChange(world_map, x, y, z),
         .piston_head => try piston.onHeadNeighborChange(world_map, x, y, z),
         else => {},
@@ -569,6 +702,7 @@ pub fn handlesTick(id: Block) bool {
         .pressure_plate_planks,
         .ore_redstone_glowing,
         .dispenser,
+        .rail_detector,
         => true,
         else => false,
     };
@@ -593,7 +727,79 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Alloca
         .dispenser => {
             if (dispenserIsPowered(world_map, x, y, z)) try world_map.dispense(x, y, z);
         },
+        .rail_detector => {
+            if (world_map.getBlockMetadata(x, y, z) & block.rail_flag_bit == 0) return;
+            const occupied = detectorOccupied(world_map, x, y, z);
+            try setDetectorRail(world_map, x, y, z, occupied);
+        },
         else => {},
+    }
+}
+
+const detector_inset: f64 = 2.0 / 16.0;
+const detector_height: f64 = 0.25;
+
+pub fn detectorBox(x: i32, y: i32, z: i32) math.AABB {
+    const fx: f64 = @floatFromInt(x);
+    const fy: f64 = @floatFromInt(y);
+    const fz: f64 = @floatFromInt(z);
+    return math.AABB.init(
+        fx + detector_inset,
+        fy,
+        fz + detector_inset,
+        fx + 1.0 - detector_inset,
+        fy + detector_height,
+        fz + 1.0 - detector_inset,
+    );
+}
+
+pub fn onMinecartOverRail(world_map: *World, cart: math.AABB) std.mem.Allocator.Error!void {
+    var x = math.util.floorDouble(cart.min_x);
+    const max_x = math.util.floorDouble(cart.max_x);
+    const max_y = math.util.floorDouble(cart.max_y);
+    const max_z = math.util.floorDouble(cart.max_z);
+    while (x <= max_x) : (x += 1) {
+        var y = math.util.floorDouble(cart.min_y);
+        while (y <= max_y) : (y += 1) {
+            var z = math.util.floorDouble(cart.min_z);
+            while (z <= max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z) != .rail_detector) continue;
+                if (!detectorBox(x, y, z).intersects(cart)) continue;
+                try setDetectorRail(world_map, x, y, z, true);
+            }
+        }
+    }
+}
+
+fn detectorOccupied(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    const probe = world_map.entity_probe orelse return false;
+    const box = detectorBox(x, y, z);
+    return probe.anyInBox(
+        probe.context,
+        .{ box.min_x, box.min_y, box.min_z },
+        .{ box.max_x, box.max_y, box.max_z },
+        false,
+    );
+}
+
+fn setDetectorRail(world_map: *World, x: i32, y: i32, z: i32, occupied: bool) std.mem.Allocator.Error!void {
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    const live = metadata & block.rail_flag_bit != 0;
+
+    if (occupied and !live) {
+        try world_map.setBlockMetadataWithNotify(x, y, z, metadata | block.rail_flag_bit);
+        try world_map.notifyBlocksOfNeighborChange(x, y, z, .rail_detector);
+        try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .rail_detector);
+    }
+
+    if (!occupied and live) {
+        try world_map.setBlockMetadataWithNotify(x, y, z, metadata & block.rail_shape_mask);
+        try world_map.notifyBlocksOfNeighborChange(x, y, z, .rail_detector);
+        try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .rail_detector);
+    }
+
+    if (occupied) {
+        try world_map.scheduleBlockUpdate(x, y, z, .rail_detector, Block.rail_detector.tickRate());
     }
 }
 

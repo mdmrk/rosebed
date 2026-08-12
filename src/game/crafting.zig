@@ -215,6 +215,33 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
     }, .{ .item = .boat }, 1),
     shaped(3, 3, &.{
+        i(.ingot_iron), null,      i(.ingot_iron),
+        i(.ingot_iron), i(.stick), i(.ingot_iron),
+        i(.ingot_iron), null,      i(.ingot_iron),
+    }, .{ .block = .rail }, 16),
+    shaped(3, 3, &.{
+        i(.ingot_gold), null,         i(.ingot_gold),
+        i(.ingot_gold), i(.stick),    i(.ingot_gold),
+        i(.ingot_gold), i(.redstone), i(.ingot_gold),
+    }, .{ .block = .rail_powered }, 6),
+    shaped(3, 3, &.{
+        i(.ingot_iron), null,                     i(.ingot_iron),
+        i(.ingot_iron), b(.pressure_plate_stone), i(.ingot_iron),
+        i(.ingot_iron), i(.redstone),             i(.ingot_iron),
+    }, .{ .block = .rail_detector }, 6),
+    shaped(3, 2, &.{
+        i(.ingot_iron), null,           i(.ingot_iron),
+        i(.ingot_iron), i(.ingot_iron), i(.ingot_iron),
+    }, .{ .item = .minecart }, 1),
+    shaped(1, 2, &.{
+        b(.chest),
+        i(.minecart),
+    }, .{ .item = .minecart_chest }, 1),
+    shaped(1, 2, &.{
+        b(.furnace),
+        i(.minecart),
+    }, .{ .item = .minecart_furnace }, 1),
+    shaped(3, 3, &.{
         b(.planks), b(.planks),   b(.planks),
         b(.planks), i(.redstone), b(.planks),
         b(.planks), b(.planks),   b(.planks),

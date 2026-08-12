@@ -163,11 +163,36 @@ fn tickBoats(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !voi
 
     for (self.roster.items) |player| {
         if (player.riding == Animal.Entity.no_id) continue;
-        const boat = self.entities.boatById(player.riding) orelse {
-            player.riding = Animal.Entity.no_id;
-            continue;
-        };
+        const boat = self.entities.boatById(player.riding) orelse continue;
         player.base.position = boat.riderPosition();
+        player.base.prev_position = player.base.position;
+        player.base.motion = math.Vec3.init(0, 0, 0);
+    }
+}
+
+fn dropStaleRides(self: *Level) void {
+    for (self.roster.items) |player| {
+        if (player.riding == Animal.Entity.no_id) continue;
+        if (self.entities.boatById(player.riding) != null) continue;
+        if (self.entities.minecartById(player.riding) != null) continue;
+        player.riding = Animal.Entity.no_id;
+    }
+}
+
+fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {
+    var rider: Animal.Entity.Id = Animal.Entity.no_id;
+    for (self.roster.items) |player| {
+        if (player.riding == Animal.Entity.no_id) continue;
+        rider = player.riding;
+        break;
+    }
+
+    try self.entities.tickMinecarts(gpa, &self.world_map, rider, rand);
+
+    for (self.roster.items) |player| {
+        if (player.riding == Animal.Entity.no_id) continue;
+        const cart = self.entities.minecartById(player.riding) orelse continue;
+        player.base.position = cart.riderPosition();
         player.base.prev_position = player.base.position;
         player.base.motion = math.Vec3.init(0, 0, 0);
     }
@@ -278,6 +303,8 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.refreshViews();
 
     try self.tickBoats(gpa, rand);
+    try self.tickMinecarts(gpa, rand);
+    self.dropStaleRides();
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items);

@@ -6,6 +6,7 @@ const constants = @import("constants.zig");
 const item = @import("item.zig");
 const light = @import("light.zig");
 const portal = @import("portal.zig");
+const rail = @import("rail.zig");
 const testing_world = @import("testing.zig");
 const World = @import("world_map.zig");
 
@@ -274,6 +275,7 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .snow_layer => world_map.getBlock(x, y - 1, z).isOpaqueCube(),
         .torch, .torch_redstone_off, .torch_redstone_on => torchCanStay(world_map, x, y, z),
         .redstone_wire, .pressure_plate_stone, .pressure_plate_planks => world_map.getBlock(x, y - 1, z).isNormalCube(),
+        .rail, .rail_powered, .rail_detector => rail.canStay(world_map, x, y, z),
         .repeater_off, .repeater_on => world_map.getBlock(x, y - 1, z).isNormalCube(),
         .lever => leverCanStay(world_map, x, y, z) and leverHasAnySupport(world_map, x, y, z),
         .button => buttonCanStay(world_map, x, y, z) and buttonHasAnySupport(world_map, x, y, z),

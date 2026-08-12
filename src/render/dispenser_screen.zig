@@ -47,7 +47,7 @@ pub fn draw(
         stack.* = switch (slot.kind) {
             .inventory => inventory.slots[slot.index],
             .dispenser => state.items[slot.index],
-            .craft_input, .craft_result, .armor, .chest => unreachable,
+            .craft_input, .craft_result, .armor, .chest, .minecart => unreachable,
             .furnace_input, .furnace_fuel, .furnace_output => unreachable,
         };
     }

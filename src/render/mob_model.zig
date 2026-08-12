@@ -301,6 +301,49 @@ pub const boat: Model = .{
     .texture_height = 32,
 };
 
+const cart_length: f32 = 20;
+const cart_wall: f32 = 8;
+const cart_beam: f32 = 16;
+const cart_lift: f32 = 4;
+const cart_plate_drop: f32 = 0.1;
+
+const cart_floor: Box = .{
+    .origin = .{ -cart_length / 2, -cart_beam / 2, -1 },
+    .size = .{ cart_length, cart_beam, 2 },
+    .tex_u = 0,
+    .tex_v = 10,
+};
+
+const cart_inner: Box = .{
+    .origin = .{ -cart_length / 2 + 1, -cart_beam / 2 + 1, -1 },
+    .size = .{ cart_length - 2, cart_beam - 2, 1 },
+    .tex_u = 44,
+    .tex_v = 10,
+};
+
+const cart_side: Box = .{
+    .origin = .{ -cart_length / 2 + 2, -cart_wall - 1, -1 },
+    .size = .{ cart_length - 4, cart_wall, 2 },
+    .tex_u = 0,
+    .tex_v = 0,
+};
+
+const minecart_parts = [6]Part{
+    .{ .box = cart_floor, .pivot = .{ 0, cart_lift, 0 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = cart_side, .pivot = .{ -cart_length / 2 + 1, cart_lift, 0 }, .rotate_y = std.math.pi * 1.5 },
+    .{ .box = cart_side, .pivot = .{ cart_length / 2 - 1, cart_lift, 0 }, .rotate_y = std.math.pi * 0.5 },
+    .{ .box = cart_side, .pivot = .{ 0, cart_lift, -cart_beam / 2 + 1 }, .rotate_y = std.math.pi },
+    .{ .box = cart_side, .pivot = .{ 0, cart_lift, cart_beam / 2 - 1 } },
+    .{ .box = cart_inner, .pivot = .{ 0, cart_lift + cart_plate_drop, 0 }, .rotate_x = std.math.pi * -0.5 },
+};
+
+pub const minecart: Model = .{
+    .parts = &minecart_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
 pub const WolfPose = struct {
     limb_swing: f32,
     limb_swing_amount: f32,
@@ -927,4 +970,43 @@ test "ModelBoat's hull and four walls close into a boat" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.625), bounds[3][1][2], tol);
     try std.testing.expectApproxEqAbs(@as(f32, -0.625), bounds[4][0][2], tol);
     try std.testing.expectApproxEqAbs(hull[0][2], bounds[4][1][2], tol);
+}
+
+test "ModelMinecart's floor, four walls and inner plate close into a cart" {
+    const gpa = std.testing.allocator;
+
+    var bounds: [6][2][3]f32 = undefined;
+    for (minecart.parts, &bounds) |part, *out| {
+        var mesh: MeshBuilder = .{};
+        defer mesh.deinit(gpa);
+        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+        try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
+
+        out[0] = .{ 1000, 1000, 1000 };
+        out[1] = .{ -1000, -1000, -1000 };
+        for (mesh.vertices.items) |v| {
+            out[0] = .{ @min(out[0][0], v.x), @min(out[0][1], v.y), @min(out[0][2], v.z) };
+            out[1] = .{ @max(out[1][0], v.x), @max(out[1][1], v.y), @max(out[1][2], v.z) };
+        }
+    }
+
+    const tol: f32 = 1.0e-5;
+    const floor = bounds[0];
+    try std.testing.expectApproxEqAbs(@as(f32, -0.625), floor[0][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.625), floor[1][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.3125), floor[0][1], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.1875), floor[1][1], tol);
+
+    for (bounds[1..5]) |wall| {
+        try std.testing.expectApproxEqAbs(floor[1][1], wall[0][1], tol);
+        try std.testing.expectApproxEqAbs(@as(f32, 0.3125), wall[1][1], tol);
+    }
+
+    // RenderMinecart passes -0.1 as ModelMinecart.render's third argument, which the model
+    // folds into the inner plate's pivot. Without it the plate's top face lands exactly on
+    // the floor's and the two z-fight.
+    const inner = bounds[5];
+    try std.testing.expect(inner[1][1] < floor[1][1]);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.19375), inner[1][1], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.25625), inner[0][1], tol);
 }

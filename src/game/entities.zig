@@ -16,6 +16,7 @@ const Fireball = @import("fireball.zig");
 const Ghast = @import("ghast.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
+const Minecart = @import("minecart.zig");
 const mob = @import("mob.zig");
 const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
@@ -41,6 +42,7 @@ particles: std.ArrayList(Particle) = .empty,
 pickups: std.ArrayList(PickupFx) = .empty,
 paintings: std.ArrayList(Painting) = .empty,
 boats: std.ArrayList(Boat) = .empty,
+minecarts: std.ArrayList(Minecart) = .empty,
 next_entity_id: Entity.Id = 1,
 
 pub const Mob = struct {
@@ -52,6 +54,7 @@ pub const Target = union(enum) {
     mob: Entity.Id,
     painting: Entity.Id,
     boat: Entity.Id,
+    minecart: Entity.Id,
 };
 
 pub fn Iterator(comptime T: type) type {
@@ -92,7 +95,7 @@ pub fn mobById(self: *const Entities, id: Entity.Id) ?Mob {
 pub fn mobAt(self: *const Entities, target: Target) ?Mob {
     return switch (target) {
         .mob => |id| self.mobById(id),
-        .painting, .boat => null,
+        .painting, .boat, .minecart => null,
     };
 }
 
@@ -101,6 +104,27 @@ pub fn boatById(self: *Entities, id: Entity.Id) ?*Boat {
         if (boat.base.id == id and !boat.dead) return boat;
     }
     return null;
+}
+
+pub fn minecartById(self: *Entities, id: Entity.Id) ?*Minecart {
+    for (self.minecarts.items) |*cart| {
+        if (cart.base.id == id and !cart.dead) return cart;
+    }
+    return null;
+}
+
+pub fn spawnMinecart(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: f64,
+    y: f64,
+    z: f64,
+    kind: Minecart.Kind,
+) !Entity.Id {
+    var cart = Minecart.spawn(x, y - Minecart.y_offset, z, kind);
+    cart.base.id = self.takeId();
+    try self.minecarts.append(gpa, cart);
+    return cart.base.id;
 }
 
 pub fn spawnBoat(self: *Entities, gpa: std.mem.Allocator, x: f64, y: f64, z: f64) !Entity.Id {
@@ -227,6 +251,22 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
         }
     }
 
+    for (self.minecarts.items) |cart| {
+        if (cart.dead) continue;
+
+        const box = cart.base.boundingBox().expand(collision_border, collision_border, collision_border);
+        const target: Target = .{ .minecart = cart.base.id };
+        if (boxHolds(box, start)) {
+            found = target;
+            nearest = 0;
+        } else if (boxRayDistance(box, start, along, reach)) |distance| {
+            if (distance < nearest or nearest == 0) {
+                found = target;
+                nearest = distance;
+            }
+        }
+    }
+
     for (self.boats.items) |boat| {
         if (boat.dead) continue;
 
@@ -277,6 +317,7 @@ pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: ?Animal.
         },
         .painting => false,
         .boat => |id| (self.boatById(id) orelse return false).hurt(amount),
+        .minecart => |id| (self.minecartById(id) orelse return false).hurt(amount),
     };
 }
 
@@ -313,6 +354,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.pickups.deinit(gpa);
     self.paintings.deinit(gpa);
     self.boats.deinit(gpa);
+    self.minecarts.deinit(gpa);
     for (self.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
     self.mobs.deinit(gpa);
 }
@@ -324,7 +366,8 @@ pub fn animalCount(self: *const Entities) usize {
 
 pub fn count(self: *const Entities) usize {
     return self.items.items.len + self.arrows.items.len + self.fireballs.items.len +
-        self.falling_blocks.items.len + self.paintings.items.len + self.boats.items.len + self.mobs.items.len;
+        self.falling_blocks.items.len + self.paintings.items.len + self.boats.items.len +
+        self.minecarts.items.len + self.mobs.items.len;
 }
 
 pub fn dropStackAt(
@@ -1042,10 +1085,87 @@ fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?A
     };
 }
 
+pub fn tickMinecarts(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    rider: Entity.Id,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.minecarts.items.len) {
+        const cart = &self.minecarts.items[index];
+        const step = cart.tick(world_map, rider == cart.base.id);
+
+        if (step.smoking and rand.nextIntBound(4) == 0) {
+            cart.fuel -= 1;
+            if (cart.fuel < 0) cart.push = math.Vec3.init(0, 0, 0);
+            const smoke = math.Vec3.init(
+                cart.base.position.x,
+                cart.base.position.y + Minecart.y_offset + 0.8,
+                cart.base.position.z,
+            );
+            try self.particles.append(gpa, Particle.spawnSmoke(smoke, math.Vec3.init(0, 0, 0), rand));
+        }
+
+        try world.redstone.onMinecartOverRail(world_map, cart.base.boundingBox());
+        self.shoveMinecarts(index);
+
+        if (cart.dead) {
+            const wreck = cart.*;
+            _ = self.minecarts.orderedRemove(index);
+            try self.breakUpMinecart(gpa, wreck, rand);
+            continue;
+        }
+        index += 1;
+    }
+}
+
+fn shoveMinecarts(self: *Entities, index: usize) void {
+    const reach = Minecart.collision_reach;
+    const box = self.minecarts.items[index].base.boundingBox().expand(reach, 0, reach);
+
+    for (0..self.minecarts.items.len) |other| {
+        if (other == index) continue;
+        if (self.minecarts.items[other].dead) continue;
+        if (!self.minecarts.items[other].base.boundingBox().intersects(box)) continue;
+        self.minecarts.items[other].collideWith(&self.minecarts.items[index]);
+    }
+}
+
+fn breakUpMinecart(self: *Entities, gpa: std.mem.Allocator, cart: Minecart, rand: *world.JavaRandom) !void {
+    const x = math.util.floorDouble(cart.base.position.x);
+    const y = math.util.floorDouble(cart.base.position.y);
+    const z = math.util.floorDouble(cart.base.position.z);
+
+    try self.dropStack(gpa, x, y, z, .{ .id = .{ .item = .minecart }, .count = 1 }, rand);
+
+    for (cart.items) |maybe| {
+        const stack = maybe orelse continue;
+        try self.dropStack(gpa, x, y, z, .{ .id = stack.id, .count = stack.count, .meta = stack.meta }, rand);
+    }
+
+    if (cart.kind == .empty) return;
+    const extra = Minecart.droppedItem(cart.kind);
+    try self.dropStack(gpa, x, y, z, .{ .id = extra, .count = 1 }, rand);
+}
+
 pub const BoatRider = struct {
     id: Entity.Id,
     motion: math.Vec3,
 };
+
+fn shoveBoats(self: *Entities, index: usize) void {
+    const reach = Boat.collision_reach;
+    const box = self.boats.items[index].base.boundingBox().expand(reach, 0, reach);
+
+    for (0..self.boats.items.len) |other| {
+        if (other == index) continue;
+        if (self.boats.items[other].dead) continue;
+        if (!self.boats.items[other].base.boundingBox().intersects(box)) continue;
+        self.boats.items[other].collideWith(&self.boats.items[index]);
+    }
+}
 
 fn breakUpBoat(self: *Entities, gpa: std.mem.Allocator, boat: Boat, rand: *world.JavaRandom) !void {
     const x = math.util.floorDouble(boat.base.position.x);
@@ -1081,6 +1201,8 @@ pub fn tickBoats(
             const wake = boat.wakeAt(rand);
             try self.particles.append(gpa, Particle.spawnSplash(wake.position, wake.motion, rand));
         }
+
+        self.shoveBoats(index);
 
         for (0..4) |corner| {
             const cell = boat.crushedSnow(corner);
@@ -1450,6 +1572,11 @@ fn collectChunkEntities(
         if (chunkOf(boat.base.position.x) != chunk_x or chunkOf(boat.base.position.z) != chunk_z) continue;
         try out.append(gpa, try world.entity_nbt.storeBoat(gpa, boat.toRecord()));
     }
+    for (self.minecarts.items) |cart| {
+        if (cart.dead) continue;
+        if (chunkOf(cart.base.position.x) != chunk_x or chunkOf(cart.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeMinecart(gpa, cart.toRecord()));
+    }
 }
 
 fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!void {
@@ -1471,6 +1598,10 @@ fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world
         var boat = Boat.fromRecord(record);
         boat.base.id = self.takeId();
         try self.boats.append(gpa, boat);
+    } else if (world.entity_nbt.loadMinecart(entity)) |record| {
+        var cart = Minecart.fromRecord(record);
+        cart.base.id = self.takeId();
+        try self.minecarts.append(gpa, cart);
     }
 }
 
@@ -1491,6 +1622,9 @@ pub fn anyInBox(self: *Entities, box: math.AABB, living_only: bool) bool {
     }
     for (self.boats.items) |*boat| {
         if (boat.base.boundingBox().intersects(box)) return true;
+    }
+    for (self.minecarts.items) |*cart| {
+        if (cart.base.boundingBox().intersects(box)) return true;
     }
     return false;
 }

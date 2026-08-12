@@ -21,6 +21,7 @@ pub const item_id = "Item";
 pub const arrow_id = "Arrow";
 pub const painting_id = "Painting";
 pub const boat_id = "Boat";
+pub const minecart_id = "Minecart";
 
 pub const max_stored_motion: f64 = 10.0;
 
@@ -149,6 +150,16 @@ pub const Painting = struct {
 
 pub const Boat = struct {
     base: Base,
+};
+
+pub const minecart_slots = 27;
+
+pub const Minecart = struct {
+    base: Base,
+    kind: u8 = 0,
+    fuel: i32 = 0,
+    push: [2]f64 = .{ 0, 0 },
+    items: [minecart_slots]?block.Stack = @splat(null),
 };
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
@@ -405,6 +416,61 @@ pub fn storeBoat(gpa: std.mem.Allocator, boat: Boat) !nbt.Tag {
     return .{ .compound = compound };
 }
 
+fn storedStackId(stack: block.Stack) i16 {
+    return switch (stack.id) {
+        .block => |id| @intCast(@intFromEnum(id)),
+        .item => |id| @bitCast(@as(u16, @intFromEnum(id))),
+    };
+}
+
+fn storeCartStack(gpa: std.mem.Allocator, index: u8, stack: block.Stack) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try put(gpa, &compound, "Slot", .{ .byte = @bitCast(index) });
+    try put(gpa, &compound, "id", .{ .short = storedStackId(stack) });
+    try put(gpa, &compound, "Count", .{ .byte = @bitCast(stack.count) });
+    try put(gpa, &compound, "Damage", .{ .short = @bitCast(stack.meta) });
+
+    return .{ .compound = compound };
+}
+
+pub fn storeMinecart(gpa: std.mem.Allocator, cart: Minecart) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeBase(gpa, &compound, minecart_id, cart.base);
+    try put(gpa, &compound, "Type", .{ .int = cart.kind });
+    if (cart.kind == 2) {
+        try put(gpa, &compound, "Fuel", .{ .int = cart.fuel });
+        try put(gpa, &compound, "PushX", .{ .double = cart.push[0] });
+        try put(gpa, &compound, "PushZ", .{ .double = cart.push[1] });
+    }
+
+    if (cart.kind == 1) {
+        var items: std.ArrayList(nbt.Tag) = .empty;
+        errdefer {
+            for (items.items) |*tag| nbt.deinit(gpa, tag);
+            items.deinit(gpa);
+        }
+        for (cart.items, 0..) |maybe, index| {
+            const stack = maybe orelse continue;
+            try items.append(gpa, try storeCartStack(gpa, @intCast(index), stack));
+        }
+        try put(gpa, &compound, "Items", .{
+            .list = .{ .element_type = .compound, .items = try items.toOwnedSlice(gpa) },
+        });
+    }
+
+    return .{ .compound = compound };
+}
+
 pub fn storePainting(gpa: std.mem.Allocator, painting: Painting) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -589,6 +655,58 @@ pub fn isPainting(compound: nbt.Compound) bool {
 
 pub fn isBoat(compound: nbt.Compound) bool {
     return hasId(compound, boat_id);
+}
+
+pub fn isMinecart(compound: nbt.Compound) bool {
+    return hasId(compound, minecart_id);
+}
+
+fn doubleField(compound: nbt.Compound, key: []const u8, fallback: f64) f64 {
+    return switch (compound.get(key) orelse return fallback) {
+        .double => |value| value,
+        else => fallback,
+    };
+}
+
+fn loadCartStack(compound: nbt.Compound) ?block.Stack {
+    const raw: u16 = @bitCast(shortField(compound, "id", 0));
+    const count = switch (compound.get("Count") orelse return null) {
+        .byte => |value| @as(u8, @bitCast(value)),
+        else => return null,
+    };
+    if (count == 0) return null;
+
+    const id: block.Id = if (raw < 256)
+        .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
+    else
+        .{ .item = @enumFromInt(raw) };
+    return .{ .id = id, .count = count, .meta = @bitCast(shortField(compound, "Damage", 0)) };
+}
+
+pub fn loadMinecart(compound: nbt.Compound) ?Minecart {
+    if (!isMinecart(compound)) return null;
+    var cart: Minecart = .{ .base = loadBase(compound) orelse return null };
+
+    cart.kind = @intCast(@max(intField(compound, "Type", 0), 0));
+    cart.fuel = intField(compound, "Fuel", 0);
+    cart.push = .{ doubleField(compound, "PushX", 0), doubleField(compound, "PushZ", 0) };
+
+    if (compound.get("Items")) |tag| switch (tag) {
+        .list => |list| for (list.items) |entry| switch (entry) {
+            .compound => |slot_compound| {
+                const index = switch (slot_compound.get("Slot") orelse continue) {
+                    .byte => |value| @as(u8, @bitCast(value)),
+                    else => continue,
+                };
+                if (index >= minecart_slots) continue;
+                cart.items[index] = loadCartStack(slot_compound);
+            },
+            else => {},
+        },
+        else => {},
+    };
+
+    return cart;
 }
 
 pub fn loadBoat(compound: nbt.Compound) ?Boat {

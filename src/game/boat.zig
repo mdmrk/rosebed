@@ -140,6 +140,31 @@ fn settleYaw(self: *Boat) void {
     self.yaw += @floatCast(std.math.clamp(delta, -max_yaw_step, max_yaw_step));
 }
 
+pub const collision_reach: f64 = 0.2;
+const shove: f64 = 0.05;
+
+pub fn collideWith(self: *Boat, other: *Boat) void {
+    var dx = other.base.position.x - self.base.position.x;
+    var dz = other.base.position.z - self.base.position.z;
+
+    // Entity.applyEntityCollision takes the larger of the two gaps and square-roots that,
+    // not the distance between the boats. Kept as vanilla has it.
+    const widest = @max(@abs(dx), @abs(dz));
+    if (widest < 0.01) return;
+
+    const spread = @sqrt(widest);
+    dx /= spread;
+    dz /= spread;
+    const scale = @min(1.0 / spread, 1.0);
+    dx *= scale * shove;
+    dz *= scale * shove;
+
+    self.base.motion.x -= dx;
+    self.base.motion.z -= dz;
+    other.base.motion.x += dx;
+    other.base.motion.z += dz;
+}
+
 pub fn hurt(self: *Boat, amount: i32) bool {
     if (self.dead) return true;
     self.rock_direction = -self.rock_direction;
@@ -260,6 +285,27 @@ test "a rider's push drives the boat but never past the speed cap" {
     try std.testing.expect(boat.base.motion.x <= 0.4);
     try std.testing.expect(boat.base.motion.z <= 0.4);
     try std.testing.expect(boat.base.motion.x > 0.3);
+}
+
+test "two overlapping boats shove each other apart" {
+    var left = Boat.spawn(8.0, 64, 8.5);
+    var right = Boat.spawn(8.9, 64, 8.5);
+
+    right.collideWith(&left);
+
+    try std.testing.expect(right.base.motion.x > 0);
+    try std.testing.expect(left.base.motion.x < 0);
+    try std.testing.expectApproxEqAbs(right.base.motion.x, -left.base.motion.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), right.base.motion.z, 1.0e-12);
+}
+
+test "boats sitting on the same spot are left alone" {
+    var a = Boat.spawn(8.5, 64, 8.5);
+    var b = Boat.spawn(8.505, 64, 8.5);
+
+    b.collideWith(&a);
+    try std.testing.expectEqual(@as(f64, 0), b.base.motion.x);
+    try std.testing.expectEqual(@as(f64, 0), a.base.motion.x);
 }
 
 test "a boat breaks up after enough damage and shrugs off a little" {

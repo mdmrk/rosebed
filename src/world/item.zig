@@ -197,6 +197,8 @@ pub const Armor = struct {
     }
 };
 
+pub const MinecartKind = enum(u2) { empty, chest, furnace };
+
 pub const Def = struct {
     key: []const u8 = "",
     name: []const u8 = "",
@@ -206,6 +208,7 @@ pub const Def = struct {
     placed_block: ?Block = null,
     bucket_fill: ?Fill = null,
     record_name: ?[]const u8 = null,
+    minecart_kind: ?MinecartKind = null,
     heal_amount: ?u8 = null,
     max_damage: ?u16 = null,
     max_stack_size: u8 = 64,
@@ -245,6 +248,7 @@ fn vanillaDefs() [def_capacity]Def {
             .placed_block = self.vanillaPlacedBlock(),
             .bucket_fill = self.vanillaBucketFill(),
             .record_name = self.vanillaRecordName(),
+            .minecart_kind = self.vanillaMinecartKind(),
             .heal_amount = self.vanillaHealAmount(),
             .max_damage = self.vanillaMaxDamage(),
             .max_stack_size = self.vanillaMaxStackSize(),
@@ -325,6 +329,7 @@ pub const Item = enum(u16) {
     bucket = 325,
     bucket_water = 326,
     bucket_lava = 327,
+    minecart = 328,
     door_iron = 330,
     redstone = 331,
     snowball = 332,
@@ -337,6 +342,8 @@ pub const Item = enum(u16) {
     paper = 339,
     book = 340,
     slime_ball = 341,
+    minecart_chest = 342,
+    minecart_furnace = 343,
     egg = 344,
     compass = 345,
     clock = 347,
@@ -473,6 +480,7 @@ pub const Item = enum(u16) {
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self == .boat) return 1;
+        if (self.vanillaMinecartKind() != null) return 1;
         if (self.vanillaBucketFill() != null) return 1;
         if (self.vanillaRecordName() != null) return 1;
         if (self.vanillaHealAmount() != null) return 1;
@@ -502,6 +510,19 @@ pub const Item = enum(u16) {
             .bucket_water => .water,
             .bucket_lava => .lava,
             .bucket_milk => .milk,
+            else => null,
+        };
+    }
+
+    pub fn minecartKind(self: Item) ?MinecartKind {
+        return self.def().minecart_kind;
+    }
+
+    fn vanillaMinecartKind(self: Item) ?MinecartKind {
+        return switch (self) {
+            .minecart => .empty,
+            .minecart_chest => .chest,
+            .minecart_furnace => .furnace,
             else => null,
         };
     }
@@ -660,6 +681,9 @@ pub const Item = enum(u16) {
             .painting => 1 * 16 + 10,
             .sign => 2 * 16 + 10,
             .boat => 8 * 16 + 8,
+            .minecart => 8 * 16 + 7,
+            .minecart_chest => 9 * 16 + 7,
+            .minecart_furnace => 10 * 16 + 7,
             .compass => 3 * 16 + 6,
             .clock => 4 * 16 + 6,
             .glowstone_dust => 4 * 16 + 9,
@@ -769,6 +793,9 @@ pub const Item = enum(u16) {
             .painting => "Painting",
             .sign => "Sign",
             .boat => "Boat",
+            .minecart => "Minecart",
+            .minecart_chest => "Minecart with Chest",
+            .minecart_furnace => "Minecart with Furnace",
             .compass => "Compass",
             .clock => "Clock",
             .glowstone_dust => "Glowstone Dust",
@@ -1003,6 +1030,14 @@ test "only leaves wear shears down, where a tool wears on anything it breaks" {
     try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
+}
+
+test "the three minecarts read the icon column setIconCoord puts them in" {
+    try std.testing.expectEqual(@as(?u8, 135), Item.minecart.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 151), Item.minecart_chest.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 167), Item.minecart_furnace.iconTile(0));
+    try std.testing.expectEqual(@as(u8, 1), Item.minecart.maxStackSize());
+    try std.testing.expectEqualStrings("Minecart", Item.minecart.displayName(0));
 }
 
 test "both records sit one after the other on the bottom row and never stack" {

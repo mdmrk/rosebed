@@ -19,6 +19,7 @@ const light = @import("light.zig");
 const nbt = @import("nbt.zig");
 const piston = @import("piston.zig");
 const portal = @import("portal.zig");
+const rail = @import("rail.zig");
 const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
@@ -833,6 +834,7 @@ fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocat
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
     if (id == .dispenser) try self.setBlockMetadataWithNotify(x, y, z, self.dispenserDefaultFacing(x, y, z));
+    if (block.isRail(id)) try rail.refreshAt(self, x, y, z, true);
     try redstone.onBlockAdded(self, x, y, z, id);
 }
 

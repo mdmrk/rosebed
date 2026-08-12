@@ -367,6 +367,7 @@ fn buildTorch(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, metadata: u4
 
 const wire_lift: f32 = 1.0 / 64.0;
 const wire_climb_top: f32 = 7.0 / 320.0;
+const rail_lift: f32 = 1.0 / 16.0;
 const wire_gap: f32 = 5.0 / 16.0;
 const wire_crop: f32 = 5.0 / 256.0;
 
@@ -381,6 +382,83 @@ fn wireColor(metadata: u4, brightness: f32) [4]u8 {
         @intFromFloat(brightness * blue * 255.0),
         255,
     };
+}
+
+fn buildRail(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const brightness = world.light.brightnessAt(world_map, x, y, z, 0);
+    const color = shadeColor(brightness, Colorizer.white);
+    const uv = Atlas.tileUv(tileFor(options, world.block.railTile(id, metadata)));
+    const shape = world.block.railShape(id, metadata);
+
+    const west = origin[0];
+    const east = origin[0] + 1.0;
+    const north = origin[2];
+    const south = origin[2] + 1.0;
+    const flat = origin[1] + rail_lift;
+
+    var px = [4]f32{ east, east, west, west };
+    var pz = [4]f32{ north, south, south, north };
+    var py = [4]f32{ flat, flat, flat, flat };
+
+    switch (shape) {
+        1, 2, 3, 7 => {
+            px = .{ east, west, west, east };
+            pz = .{ south, south, north, north };
+        },
+        8 => {
+            px = .{ west, west, east, east };
+            pz = .{ south, north, north, south };
+        },
+        9 => {
+            px = .{ west, east, east, west };
+            pz = .{ north, north, south, south };
+        },
+        else => {},
+    }
+
+    switch (shape) {
+        2, 4 => {
+            py[0] += 1.0;
+            py[3] += 1.0;
+        },
+        3, 5 => {
+            py[1] += 1.0;
+            py[2] += 1.0;
+        },
+        else => {},
+    }
+
+    const positions = [4][3]f32{
+        .{ px[0], py[0], pz[0] },
+        .{ px[1], py[1], pz[1] },
+        .{ px[2], py[2], pz[2] },
+        .{ px[3], py[3], pz[3] },
+    };
+    const uvs = [4][2]f32{
+        .{ uv.u1, uv.v0 },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u0, uv.v1 },
+        .{ uv.u0, uv.v0 },
+    };
+
+    try mesh.quad(gpa, positions, uvs, color);
+
+    var back_positions = positions;
+    var back_uvs = uvs;
+    std.mem.reverse([3]f32, &back_positions);
+    std.mem.reverse([2]f32, &back_uvs);
+    try mesh.quad(gpa, back_positions, back_uvs, color);
 }
 
 fn buildWire(
@@ -1180,6 +1258,11 @@ pub fn buildBlockAt(
 
     if (id.shape() == .wire) {
         try buildWire(target, gpa, world_map, metadata, x, y, z, origin, options);
+        return;
+    }
+
+    if (id.shape() == .rail) {
+        try buildRail(target, gpa, world_map, id, metadata, x, y, z, origin, options);
         return;
     }
 

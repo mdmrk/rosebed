@@ -2726,3 +2726,45 @@ pub fn boatRock(boat: game.Boat, partial_ticks: f32) f32 {
     const damage = @max(@as(f32, @floatFromInt(boat.damage)) - partial_ticks, 0);
     return @sin(since_hit) * since_hit * damage / 10.0 * @as(f32, @floatFromInt(boat.rock_direction));
 }
+
+pub fn appendMinecart(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    cart: game.Minecart,
+    partial_ticks: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const pos = cart.base.renderPosition(partial_ticks);
+    const yaw = cart.prev_yaw + (cart.yaw - cart.prev_yaw) * partial_ticks;
+
+    const pose: mob_model.Pose = .{
+        .position = .{
+            @floatCast(pos.x),
+            @floatCast(pos.y + game.Minecart.y_offset),
+            @floatCast(pos.z),
+        },
+        .yaw = yaw * to_radians,
+        .roll = minecartRock(cart, partial_ticks) * to_radians,
+    };
+
+    for (mob_model.minecart.parts) |part| {
+        try mob_model.appendPart(
+            mesh,
+            gpa,
+            part,
+            mob_model.minecart.texture_width,
+            mob_model.minecart.texture_height,
+            pose,
+        );
+    }
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, cart.base));
+}
+
+pub fn minecartRock(cart: game.Minecart, partial_ticks: f32) f32 {
+    const since_hit = @as(f32, @floatFromInt(cart.time_since_hit)) - partial_ticks;
+    if (since_hit <= 0) return 0;
+    const damage = @max(@as(f32, @floatFromInt(cart.damage)) - partial_ticks, 0);
+    return @sin(since_hit) * since_hit * damage / 10.0 * @as(f32, @floatFromInt(cart.rock_direction));
+}

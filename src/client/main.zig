@@ -109,6 +109,7 @@ const AppState = struct {
     furnace_open: ?world.World.BlockPos = null,
     chest_open: ?world.World.BlockPos = null,
     dispenser_open: ?world.World.BlockPos = null,
+    minecart_open: game.Entity.Id = game.Entity.no_id,
     paused: bool = false,
     dead: bool = false,
     options_open: bool = false,
@@ -852,6 +853,7 @@ fn slotStorage(
         .furnace_input, .furnace_fuel => (openedFurnace(app_state) orelse return null).slot(slot.index),
         .chest => openedChestSlot(app_state, slot.index),
         .dispenser => (openedDispenser(app_state) orelse return null).slot(slot.index),
+        .minecart => (openedMinecart(app_state) orelse return null).slot(slot.index),
         .craft_result, .furnace_output => null,
     };
 }
@@ -931,11 +933,15 @@ fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
         var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
-        const layout = render.chest_screen.slots(rows, &buffer);
+        const layout = render.chest_screen.slots(rows, &buffer, .chest);
         try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
     } else if (openedDispenser(app_state) != null) {
         const layout = render.dispenser_screen.slots();
         try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
+    } else if (openedMinecart(app_state) != null) {
+        var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
+        const layout = render.chest_screen.slots(game.Minecart.chest_rows, &buffer, .minecart);
+        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(game.Minecart.chest_rows), shift);
     } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
         try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
@@ -962,7 +968,8 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 
 fn containerOpen(app_state: *const AppState) bool {
     return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
-        app_state.chest_open != null or app_state.dispenser_open != null or app_state.sign_edit != null;
+        app_state.chest_open != null or app_state.dispenser_open != null or
+        app_state.minecart_open != game.Entity.no_id or app_state.sign_edit != null;
 }
 
 fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
@@ -996,6 +1003,7 @@ fn closeContainer(app_state: *AppState) !void {
     app_state.furnace_open = null;
     app_state.chest_open = null;
     app_state.dispenser_open = null;
+    app_state.minecart_open = game.Entity.no_id;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
     try dropGrid(app_state, &app_state.crafting_grid);
@@ -1016,6 +1024,11 @@ fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
 fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
     const pos = app_state.furnace_open orelse return null;
     return app_state.level.world_map.furnaceAt(pos.x, pos.y, pos.z);
+}
+
+fn openedMinecart(app_state: *AppState) ?*game.Minecart {
+    if (app_state.minecart_open == game.Entity.no_id) return null;
+    return app_state.level.entities.minecartById(app_state.minecart_open);
 }
 
 fn openDispenser(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -2198,6 +2211,7 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
         app_state.player.riding = boat.base.id;
         return true;
     }
+    if (target == .minecart) return interactWithMinecart(app_state, target.minecart);
     const entry = app_state.level.entities.mobAt(target) orelse return false;
     const held: ?world.Item = if (app_state.player.inventory.selectedStack()) |stack| switch (stack.id) {
         .item => |id| id,
@@ -2211,6 +2225,32 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
     const milked = game.Cow.interact(held orelse return false) orelse return false;
     holdStack(app_state, milked);
     try app_state.stats.use(app_state.gpa, .{ .item = held.? });
+    return true;
+}
+
+fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
+    const cart = app_state.level.entities.minecartById(id) orelse return false;
+    switch (cart.kind) {
+        .empty => app_state.player.riding = cart.base.id,
+        .chest => {
+            app_state.minecart_open = cart.base.id;
+            try updateMouseMode(app_state);
+        },
+        .furnace => {
+            const held = app_state.player.inventory.selectedStack();
+            if (held) |stack| {
+                if (stack.id.eql(.{ .item = .coal })) {
+                    consumeSelectedStack(app_state);
+                    cart.fuel += game.Minecart.coal_fuel;
+                }
+            }
+            cart.push = math.Vec3.init(
+                cart.base.position.x - app_state.player.base.position.x,
+                0,
+                cart.base.position.z - app_state.player.base.position.z,
+            );
+        },
+    }
     return true;
 }
 
@@ -2425,6 +2465,27 @@ fn placeBoatAtTarget(app_state: *AppState) !bool {
     return true;
 }
 
+fn placeMinecartAtTarget(app_state: *AppState, kind: game.Minecart.Kind) !bool {
+    const hit = game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+    if (!world.block.isRail(app_state.level.world_map.getBlock(hit.x, hit.y, hit.z))) return false;
+
+    _ = try app_state.level.entities.spawnMinecart(
+        app_state.gpa,
+        @as(f64, @floatFromInt(hit.x)) + 0.5,
+        @as(f64, @floatFromInt(hit.y)) + 0.5,
+        @as(f64, @floatFromInt(hit.z)) + 0.5,
+        kind,
+    );
+    try app_state.stats.use(app_state.gpa, app_state.player.inventory.selectedStack().?.id);
+    consumeSelectedStack(app_state);
+    return true;
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
@@ -2437,6 +2498,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held == .sign) return placeSignAtTarget(app_state);
             if (held == .boat) return placeBoatAtTarget(app_state);
             if (held.recordName() != null) return insertRecordAtTarget(app_state, held);
+            if (held.minecartKind()) |kind| return placeMinecartAtTarget(app_state, kind);
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
                     if (game.raycast.cast(
@@ -2957,6 +3019,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    var cart_mesh: render.MeshBuilder = .{};
+    defer cart_mesh.deinit(app_state.frame);
+    for (app_state.level.entities.minecarts.items) |cart| {
+        if (cart.dead) continue;
+        try render.entity_render.appendMinecart(&cart_mesh, app_state.frame, &app_state.level.world_map, cart, partial);
+    }
+
     var boat_mesh: render.MeshBuilder = .{};
     defer boat_mesh.deinit(app_state.frame);
     for (app_state.level.entities.boats.items) |boat| {
@@ -3139,6 +3208,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (boat_mesh.vertices.items.len > 0) {
         app_state.textures.boat.bind();
         drawEntityMesh(&boat_mesh);
+    }
+    if (cart_mesh.vertices.items.len > 0) {
+        app_state.textures.cart.bind();
+        drawEntityMesh(&cart_mesh);
     }
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
@@ -3664,6 +3737,14 @@ pub fn iterate(
         try render.chest_screen.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
     } else if (openedDispenser(app_state)) |open| {
         try render.dispenser_screen.draw(ui, app_state.player.inventory, open, app_state.held_stack);
+    } else if (openedMinecart(app_state)) |cart| {
+        try render.chest_screen.drawCargo(
+            ui,
+            app_state.player.inventory,
+            &cart.items,
+            "Minecart with Chest",
+            app_state.held_stack,
+        );
     } else if (app_state.workbench_open) {
         try render.crafting_screen.draw(
             ui,
