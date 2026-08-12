@@ -1183,7 +1183,7 @@ pub fn tickMinecarts(
                 cart.base.position.y + Minecart.y_offset + 0.8,
                 cart.base.position.z,
             );
-            try self.particles.append(gpa, Particle.spawnSmoke(smoke, math.Vec3.init(0, 0, 0), rand));
+            try self.particles.append(gpa, Particle.spawnLargeSmoke(smoke, math.Vec3.init(0, 0, 0), rand));
         }
 
         try world.redstone.onMinecartOverRail(world_map, cart.base.boundingBox());

@@ -99,7 +99,17 @@ pub fn spawn(
     return particle;
 }
 
+pub const large_smoke_scale: f32 = 2.5;
+
 pub fn spawnSmoke(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    return spawnSmokeScaled(position, drift, rand, 1.0);
+}
+
+pub fn spawnLargeSmoke(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    return spawnSmokeScaled(position, drift, rand, large_smoke_scale);
+}
+
+fn spawnSmokeScaled(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom, scale: f32) Particle {
     var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
     particle.kind = .smoke;
     particle.base.motion = math.Vec3.init(
@@ -110,9 +120,53 @@ pub fn spawnSmoke(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom
     const shade = rand.nextFloat() * 0.3;
     particle.color = .{ shade, shade, shade };
     particle.scale *= 12.0 / 16.0;
-    particle.max_age = @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2));
+    particle.scale *= scale;
+
+    const base_age: i32 = @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2));
+    particle.max_age = @intFromFloat(@as(f32, @floatFromInt(base_age)) * scale);
+
     particle.tile = 7;
     return particle;
+}
+
+test "a large puff is two and a half times the size of an ordinary one" {
+    var small_rand = world.JavaRandom.init(4);
+    var large_rand = world.JavaRandom.init(4);
+
+    const small = spawnSmoke(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &small_rand);
+    const large = spawnLargeSmoke(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &large_rand);
+
+    try std.testing.expectEqual(Kind.smoke, large.kind);
+    try std.testing.expectEqual(small.tile, large.tile);
+    try std.testing.expectEqual(small.color, large.color);
+    try std.testing.expectApproxEqAbs(small.scale * large_smoke_scale, large.scale, 1.0e-6);
+    try std.testing.expect(large.max_age > small.max_age);
+}
+
+test "the large puff's lifetime is truncated twice, the way EntitySmokeFX does it" {
+    for (0..64) |seed| {
+        var a = world.JavaRandom.init(@intCast(seed));
+        var b = world.JavaRandom.init(@intCast(seed));
+        const small = spawnSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &a);
+        const large = spawnLargeSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &b);
+
+        const scaled_after: i32 = @intFromFloat(@as(f32, @floatFromInt(small.max_age)) * large_smoke_scale);
+        try std.testing.expectEqual(scaled_after, large.max_age);
+    }
+
+    const raw: f32 = 3.9;
+    const cut_first: i32 = @intFromFloat(@as(f32, @floatFromInt(@as(i32, @intFromFloat(raw)))) * large_smoke_scale);
+    const scaled_first: i32 = @intFromFloat(raw * large_smoke_scale);
+    try std.testing.expectEqual(@as(i32, 7), cut_first);
+    try std.testing.expectEqual(@as(i32, 9), scaled_first);
+}
+
+test "both puffs draw the same number of values from the stream" {
+    var a = world.JavaRandom.init(11);
+    var b = world.JavaRandom.init(11);
+    _ = spawnSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &a);
+    _ = spawnLargeSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &b);
+    try std.testing.expectEqual(a.seed, b.seed);
 }
 
 pub fn spawnSplash(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
