@@ -51,6 +51,7 @@ look_ticks_left: i32 = 0,
 watched_player: ?Entity.Id = null,
 path: ?world.pathfinder.Path = null,
 killer: ?Attacker = null,
+riding: Entity.Id = Entity.no_id,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
 path_weight: *const fn (*const world.World, i32, i32, i32) f32 = blockPathWeight,
 action_state: *const fn (

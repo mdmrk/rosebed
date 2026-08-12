@@ -445,8 +445,42 @@ pub fn hurt(self: *Minecart, amount: i32) bool {
 }
 
 pub fn riderPosition(self: Minecart) math.Vec3 {
-    return math.Vec3.init(self.base.position.x, self.base.position.y, self.base.position.z);
+    return math.Vec3.init(
+        self.base.position.x,
+        self.base.position.y + y_offset + mounted_offset,
+        self.base.position.z,
+    );
 }
+
+pub const scoop_speed_squared: f64 = 0.01;
+
+pub fn wouldScoop(self: Minecart) bool {
+    if (self.kind != .empty) return false;
+    if (self.rider != Entity.no_id) return false;
+    const speed = self.base.motion.x * self.base.motion.x + self.base.motion.z * self.base.motion.z;
+    return speed > scoop_speed_squared;
+}
+
+pub fn shoveOff(self: *Minecart, other: *Entity) void {
+    var dx = other.position.x - self.base.position.x;
+    var dz = other.position.z - self.base.position.z;
+    const square = dx * dx + dz * dz;
+    if (square < 1.0e-4) return;
+
+    const distance = @sqrt(square);
+    dx /= distance;
+    dz /= distance;
+    const scale = @min(1.0 / distance, 1.0);
+    dx *= scale * shove * shove_half;
+    dz *= scale * shove * shove_half;
+
+    self.base.motion.x -= dx;
+    self.base.motion.z -= dz;
+    other.motion.x += dx / bystander_share;
+    other.motion.z += dz / bystander_share;
+}
+
+const bystander_share: f64 = 4.0;
 
 pub fn slot(self: *Minecart, index: usize) *?world.Stack {
     return &self.items[index];
@@ -643,6 +677,55 @@ test "far from the origin EntityMinecart's skew test lets carts roll through eac
     far_b.collideWith(&far_a);
     try std.testing.expectEqual(@as(f64, 0), far_b.base.motion.x);
     try std.testing.expectEqual(@as(f64, 0.3), far_a.base.motion.x);
+}
+
+test "a cart shoves a bystander at a quarter of what it takes itself" {
+    var cart = Minecart.spawn(8.0, 12.15, 8.5, .empty);
+    var bystander = Entity.init(math.Vec3.init(8.8, 12.15, 8.5), 0.6, 1.8);
+
+    cart.shoveOff(&bystander);
+
+    try std.testing.expect(cart.base.motion.x < 0);
+    try std.testing.expect(bystander.motion.x > 0);
+    try std.testing.expectApproxEqAbs(-cart.base.motion.x / 4.0, bystander.motion.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), bystander.motion.z, 1.0e-12);
+}
+
+test "a bystander standing exactly on the cart is left alone" {
+    var cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    var bystander = Entity.init(math.Vec3.init(8.5, 12.15, 8.5), 0.6, 1.8);
+
+    cart.shoveOff(&bystander);
+    try std.testing.expectEqual(@as(f64, 0), cart.base.motion.x);
+    try std.testing.expectEqual(@as(f64, 0), bystander.motion.x);
+}
+
+test "only a moving, empty, riderless cart scoops a passenger up" {
+    var rolling = Minecart.spawn(0, 0, 0, .empty);
+    rolling.base.motion = math.Vec3.init(0.2, 0, 0);
+    try std.testing.expect(rolling.wouldScoop());
+
+    var crawling = Minecart.spawn(0, 0, 0, .empty);
+    crawling.base.motion = math.Vec3.init(0.05, 0, 0);
+    try std.testing.expect(!crawling.wouldScoop());
+
+    var occupied = Minecart.spawn(0, 0, 0, .empty);
+    occupied.base.motion = math.Vec3.init(0.2, 0, 0);
+    occupied.rider = 7;
+    try std.testing.expect(!occupied.wouldScoop());
+
+    for ([_]Kind{ .chest, .furnace }) |kind| {
+        var cargo = Minecart.spawn(0, 0, 0, kind);
+        cargo.base.motion = math.Vec3.init(0.2, 0, 0);
+        try std.testing.expect(!cargo.wouldScoop());
+    }
+}
+
+test "a rider sits just above the cart floor" {
+    const cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    const seat = cart.riderPosition();
+    try std.testing.expectApproxEqAbs(@as(f64, 12.15 + 0.05), seat.y, 1.0e-12);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), seat.x, 1.0e-12);
 }
 
 test "a minecart breaks after enough damage and shrugs off a little" {

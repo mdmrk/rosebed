@@ -2232,7 +2232,11 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
 fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
     const cart = app_state.level.entities.minecartById(id) orelse return false;
     switch (cart.kind) {
-        .empty => app_state.player.riding = cart.base.id,
+        .empty => {
+            if (cart.rider != game.Entity.no_id and cart.rider != app_state.player.base.id) return true;
+            app_state.player.riding = cart.base.id;
+            cart.rider = app_state.player.base.id;
+        },
         .chest => {
             app_state.minecart_open = cart.base.id;
             try updateMouseMode(app_state);
@@ -2456,6 +2460,12 @@ fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
     return true;
+}
+
+fn dismount(app_state: *AppState) void {
+    const mount = app_state.player.riding;
+    app_state.player.riding = game.Entity.no_id;
+    if (app_state.level.entities.minecartById(mount)) |cart| cart.rider = game.Entity.no_id;
 }
 
 fn useFishingRod(app_state: *AppState) !bool {
@@ -2685,7 +2695,7 @@ fn tick(app_state: *AppState) !void {
     const was_in_water = app_state.player.base.in_water;
     if (app_state.player.riding != game.Entity.no_id) {
         app_state.player.tickRidden(strafe, forward);
-        if (moving_allowed and app_state.keys.sneak) app_state.player.riding = game.Entity.no_id;
+        if (moving_allowed and app_state.keys.sneak) dismount(app_state);
     } else {
         app_state.player.tick(
             &app_state.level.world_map,

@@ -175,7 +175,10 @@ fn dropStaleRides(self: *Level) void {
     for (self.roster.items) |player| {
         if (player.riding == Animal.Entity.no_id) continue;
         if (self.entities.boatById(player.riding) != null) continue;
-        if (self.entities.minecartById(player.riding) != null) continue;
+        if (self.entities.minecartById(player.riding)) |cart| {
+            cart.rider = player.base.id;
+            continue;
+        }
         if (self.entities.mobById(player.riding)) |mount| {
             if (mount.animal.isAlive()) {
                 player.base.position = mountedSeat(mount.animal);
@@ -197,14 +200,7 @@ fn mountedSeat(animal: *const Animal) math.Vec3 {
 }
 
 fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {
-    var rider: Animal.Entity.Id = Animal.Entity.no_id;
-    for (self.roster.items) |player| {
-        if (player.riding == Animal.Entity.no_id) continue;
-        rider = player.riding;
-        break;
-    }
-
-    try self.entities.tickMinecarts(gpa, &self.world_map, rider, rand);
+    try self.entities.tickMinecarts(gpa, &self.world_map, self.roster.items, rand);
 
     for (self.roster.items) |player| {
         if (player.riding == Animal.Entity.no_id) continue;
@@ -212,6 +208,18 @@ fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) 
         player.base.position = cart.riderPosition();
         player.base.prev_position = player.base.position;
         player.base.motion = math.Vec3.init(0, 0, 0);
+    }
+
+    for (self.entities.minecarts.items) |*cart| {
+        if (cart.rider == Animal.Entity.no_id) continue;
+        const entry = self.entities.mobById(cart.rider) orelse continue;
+        if (!entry.animal.isAlive()) {
+            cart.rider = Animal.Entity.no_id;
+            continue;
+        }
+        entry.animal.base.position = cart.riderPosition();
+        entry.animal.base.prev_position = entry.animal.base.position;
+        entry.animal.base.motion = math.Vec3.init(0, 0, 0);
     }
 }
 
