@@ -19,6 +19,7 @@ state: i8 = idle_state,
 powered: bool = false,
 pending_blast: ?f32 = null,
 pending_drops: u8 = 0,
+pending_record: ?world.Item = null,
 
 pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
@@ -164,21 +165,32 @@ pub fn flashWhitening(self: Creeper, partial_ticks: f32) f32 {
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
     const self: *Creeper = @fieldParentPtr("animal", animal);
     self.pending_drops = @intCast(rand.nextIntBound(3));
+
+    const killer = animal.killer orelse return;
+    if (killer.mob_type != Mob.skeleton) return;
+    self.pending_record = if (rand.nextIntBound(2) == 0) .record_13 else .record_cat;
 }
 
 pub const Drops = struct {
     count: u8,
+    record: ?world.Item = null,
 
-    pub fn stack(_: Drops) world.Stack {
+    pub fn stack(self: Drops) world.Stack {
+        if (self.record) |record| return .{ .id = .{ .item = record }, .count = 1 };
         return .{ .id = .{ .item = .gunpowder }, .count = 1 };
     }
 };
 
 pub fn takeDrops(self: *Creeper) ?Drops {
-    if (self.pending_drops == 0) return null;
-    const drops: Drops = .{ .count = self.pending_drops };
-    self.pending_drops = 0;
-    return drops;
+    if (self.pending_drops > 0) {
+        const drops: Drops = .{ .count = self.pending_drops };
+        self.pending_drops = 0;
+        return drops;
+    }
+
+    const record = self.pending_record orelse return null;
+    self.pending_record = null;
+    return .{ .count = 1, .record = record };
 }
 
 pub fn toRecord(self: Creeper) world.entity_nbt.Creeper {
@@ -446,6 +458,62 @@ test "a fusing creeper stands its ground instead of walking on" {
     try std.testing.expect(self.fuse > 0);
     try std.testing.expect(self.animal.path == null);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), self.animal.base.position.x, 0.5);
+}
+
+test "a creeper a skeleton killed leaves one of the two records behind its gunpowder" {
+    var saw_13 = false;
+    var saw_cat = false;
+
+    for (0..20) |seed| {
+        var rand = world.JavaRandom.init(@intCast(seed));
+        var self = Creeper.spawn(math.Vec3.init(8, 1, 8));
+
+        _ = self.hurt(max_health, .{
+            .position = math.Vec3.init(6, 1, 8),
+            .mob = 11,
+            .mob_type = Mob.skeleton,
+        }, &rand);
+
+        var record: ?world.Item = null;
+        while (self.takeDrops()) |drops| {
+            if (drops.record) |dropped| {
+                try std.testing.expectEqual(@as(u8, 1), drops.count);
+                try std.testing.expectEqual(dropped, drops.stack().id.item);
+                record = dropped;
+            } else {
+                try std.testing.expectEqual(world.Item.gunpowder, drops.stack().id.item);
+            }
+        }
+
+        switch (record orelse return error.TestUnexpectedResult) {
+            .record_13 => saw_13 = true,
+            .record_cat => saw_cat = true,
+            else => return error.TestUnexpectedResult,
+        }
+    }
+
+    try std.testing.expect(saw_13 and saw_cat);
+}
+
+test "only a skeleton's kill leaves a record, and a stale attacker cannot conjure one" {
+    var rand = world.JavaRandom.init(0);
+
+    var by_player = Creeper.spawn(math.Vec3.init(8, 1, 8));
+    _ = by_player.hurt(max_health, .{ .position = math.Vec3.init(6, 1, 8), .player = 3 }, &rand);
+    try std.testing.expect(by_player.pending_record == null);
+
+    var drowned = Creeper.spawn(math.Vec3.init(8, 1, 8));
+    _ = drowned.hurt(1, .{
+        .position = math.Vec3.init(6, 1, 8),
+        .mob = 11,
+        .mob_type = Mob.skeleton,
+    }, &rand);
+    try std.testing.expect(drowned.animal.isAlive());
+
+    drowned.animal.hurt_resistance = 0;
+    _ = drowned.animal.hurt(max_health, null, &rand);
+    try std.testing.expect(!drowned.animal.isAlive());
+    try std.testing.expect(drowned.pending_record == null);
 }
 
 test "a dying creeper drops nought to two gunpowder, but one that detonates leaves nothing" {

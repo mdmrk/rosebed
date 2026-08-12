@@ -19,6 +19,7 @@ in_tile: world.Block = .air,
 in_tile_metadata: u4 = 0,
 in_ground: bool = false,
 from_player: bool = false,
+owner: Entity.Id = Entity.no_id,
 shake: i32 = 0,
 ticks_in_ground: i32 = 0,
 ticks_in_air: i32 = 0,
@@ -67,6 +68,7 @@ pub fn shotBy(player: Player, rand: *world.JavaRandom) Arrow {
     var arrow: Arrow = .{
         .base = Entity.init(position, size, size),
         .from_player = true,
+        .owner = player.base.id,
     };
 
     const heading = math.Vec3.init(
@@ -78,8 +80,8 @@ pub fn shotBy(player: Player, rand: *world.JavaRandom) Arrow {
     return arrow;
 }
 
-pub fn loosedBy(from: math.Vec3, toward: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) Arrow {
-    var arrow: Arrow = .{ .base = Entity.init(from, size, size) };
+pub fn loosedBy(owner: Entity.Id, from: math.Vec3, toward: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) Arrow {
+    var arrow: Arrow = .{ .base = Entity.init(from, size, size), .owner = owner };
     arrow.setHeading(toward, speed, spread, rand);
     return arrow;
 }

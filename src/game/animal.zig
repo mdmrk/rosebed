@@ -5,6 +5,7 @@ const world = @import("world");
 const testing_world = world.testing;
 
 pub const Entity = @import("entity.zig");
+const Mob = @import("mob.zig");
 const physics = @import("physics.zig");
 
 const Animal = @This();
@@ -49,6 +50,7 @@ dead: bool = false,
 look_ticks_left: i32 = 0,
 watched_player: ?Entity.Id = null,
 path: ?world.pathfinder.Path = null,
+killer: ?Attacker = null,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
 path_weight: *const fn (*const world.World, i32, i32, i32) f32 = blockPathWeight,
 action_state: *const fn (
@@ -130,6 +132,8 @@ pub const PlayerView = struct {
 pub const Attacker = struct {
     position: math.Vec3,
     player: Entity.Id = Entity.no_id,
+    mob: Entity.Id = Entity.no_id,
+    mob_type: ?Mob.Id = null,
 };
 
 pub const Players = struct {
@@ -338,7 +342,10 @@ pub fn hurt(self: *Animal, amount: i32, source: ?Attacker, rand: *world.JavaRand
         }
     }
 
-    if (self.health <= 0) self.on_death(self, rand);
+    if (self.health <= 0) {
+        self.killer = source;
+        self.on_death(self, rand);
+    }
     return true;
 }
 

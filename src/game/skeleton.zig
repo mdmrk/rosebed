@@ -37,6 +37,7 @@ pub const spec: Animal.Spec = .{
 };
 
 pub const Shot = struct {
+    owner: Animal.Entity.Id = Animal.Entity.no_id,
     from: math.Vec3,
     toward: math.Vec3,
 };
@@ -95,7 +96,7 @@ fn attackEntity(
         const dy = view.position.y + view.eye_height - aim_drop - from.y;
         const lob: f64 = math.util.sqrtF(dx * dx + dz * dz) * aim_lob;
 
-        self.pending_shot = .{ .from = from, .toward = math.Vec3.init(dx, dy + lob, dz) };
+        self.pending_shot = .{ .owner = animal.base.id, .from = from, .toward = math.Vec3.init(dx, dy + lob, dz) };
         monster.attack_time = draw_ticks;
     }
 

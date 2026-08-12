@@ -232,12 +232,14 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
     return found;
 }
 
-pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: Animal.Attacker, rand: *world.JavaRandom) bool {
+pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     return switch (target) {
         .mob => |id| {
             const entry = self.mobById(id) orelse return false;
             const hit = mob.get(entry.type_id).hurt(entry.animal, amount, source, rand);
-            if (hit and entry.animal.isAlive()) Wolf.alertOwned(self, source, entry.animal, true);
+            if (hit and entry.animal.isAlive()) {
+                if (source) |from| Wolf.alertOwned(self, from, entry.animal, true);
+            }
             return hit;
         },
         .painting => false,
@@ -860,6 +862,7 @@ pub fn loose(
     rand: *world.JavaRandom,
 ) !void {
     try self.arrows.append(gpa, Arrow.loosedBy(
+        shot.owner,
         shot.from,
         shot.toward,
         Skeleton.arrow_speed,
@@ -911,23 +914,39 @@ fn arrowStrike(self: *Entities, arrow: Arrow, roster: []const *Player, limit: f6
         }
     }.hit;
 
+    const shielded = arrow.ticks_in_air < Arrow.owner_grace_ticks;
+
     for (self.mobs.items) |entry| {
+        if (shielded and !arrow.from_player and entry.animal.base.id == arrow.owner) continue;
         const box = entry.animal.base.boundingBox();
         if (box.intersects(swept)) {
             consider(box, .{ .mob = .{ .mob = entry.animal.base.id } }, start, along, limit, &found, &nearest);
         }
     }
 
-    if (!arrow.from_player or arrow.ticks_in_air >= Arrow.owner_grace_ticks) {
-        for (roster) |player| {
-            const box = player.base.boundingBox();
-            if (box.intersects(swept)) {
-                consider(box, .{ .player = player.base.id }, start, along, limit, &found, &nearest);
-            }
+    for (roster) |player| {
+        if (shielded and arrow.from_player and player.base.id == arrow.owner) continue;
+        const box = player.base.boundingBox();
+        if (box.intersects(swept)) {
+            consider(box, .{ .player = player.base.id }, start, along, limit, &found, &nearest);
         }
     }
 
     return found;
+}
+
+fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?Animal.Attacker {
+    if (arrow.from_player) {
+        const shooter = playerById(roster, arrow.owner) orelse return null;
+        return .{ .position = shooter.base.position, .player = shooter.base.id };
+    }
+
+    const entry = self.mobById(arrow.owner) orelse return null;
+    return .{
+        .position = entry.animal.base.position,
+        .mob = entry.animal.base.id,
+        .mob_type = entry.type_id,
+    };
 }
 
 pub fn tickArrows(
@@ -937,7 +956,6 @@ pub fn tickArrows(
     roster: []const *Player,
     rand: *world.JavaRandom,
 ) !void {
-    const shooter = roster[0];
     var i: usize = 0;
     while (i < self.arrows.items.len) {
         const arrow = &self.arrows.items[i];
@@ -947,11 +965,9 @@ pub fn tickArrows(
             const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
 
             if (self.arrowStrike(arrow.*, roster, limit)) |strike| {
+                const source = self.arrowShooter(arrow.*, roster);
                 const landed = switch (strike) {
-                    .mob => |target| self.hurtTarget(target, Arrow.damage, .{
-                        .position = shooter.base.position,
-                        .player = shooter.base.id,
-                    }, rand),
+                    .mob => |target| self.hurtTarget(target, Arrow.damage, source, rand),
                     .player => |id| blk: {
                         const struck = playerById(roster, id) orelse break :blk false;
                         const absorbed = struck.absorbsHit(Arrow.damage);
@@ -2130,6 +2146,39 @@ test "an arrow shot at a pig sticks in it, hurts it and is gone" {
 
     try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
     try std.testing.expectEqual(before - Arrow.damage, entities.first(Pig, mob.pig).?.animal.health);
+}
+
+test "an arrow a skeleton loosed credits the skeleton, not the nearest player" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnSkeleton(gpa, math.Vec3.init(8.5, 1, 8.5));
+    try entities.spawnCreeper(gpa, math.Vec3.init(8.5, 1, 12.5));
+
+    const bowman = entities.first(Skeleton, mob.skeleton).?.animal.base.id;
+    const quarry = entities.first(Creeper, mob.creeper).?;
+    quarry.animal.health = 1;
+
+    try entities.loose(gpa, .{
+        .owner = bowman,
+        .from = math.Vec3.init(8.5, 2, 8.5),
+        .toward = math.Vec3.init(0, 0, 1),
+    }, &rand);
+
+    var player = archer(math.Vec3.init(0.5, 1, 0.5), 0, 0);
+    for (0..8) |_| try entities.tickArrows(gpa, &w, &[_]*Player{&player}, &rand);
+
+    try std.testing.expect(!quarry.animal.isAlive());
+    const killer = quarry.animal.killer.?;
+    try std.testing.expectEqual(bowman, killer.mob);
+    try std.testing.expectEqual(@as(?mob.Id, mob.skeleton), killer.mob_type);
+    try std.testing.expectEqual(Animal.Entity.no_id, killer.player);
+    try std.testing.expect(quarry.pending_record != null);
 }
 
 test "an arrow ignores the archer who just fired it" {
