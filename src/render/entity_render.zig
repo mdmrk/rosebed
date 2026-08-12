@@ -2803,3 +2803,27 @@ pub fn appendFishHook(
     const level: u8 = @intFromFloat(brightness * 255.0);
     try mesh.quad(gpa, positions, uvs, .{ level, level, level, 255 });
 }
+
+pub const line_color: [4]u8 = .{ 0, 0, 0, 255 };
+
+pub fn appendFishLine(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    hook: game.FishHook,
+    angler: game.FishHook.Angler,
+    partial_ticks: f32,
+) !void {
+    const tip = game.FishHook.rodTip(angler);
+
+    var previous = hook.linePoint(tip, 0, partial_ticks);
+    for (1..game.FishHook.line_segments + 1) |step| {
+        const next = hook.linePoint(tip, step, partial_ticks);
+        try mesh.line(
+            gpa,
+            .{ @floatCast(previous.x), @floatCast(previous.y), @floatCast(previous.z) },
+            .{ @floatCast(next.x), @floatCast(next.y), @floatCast(next.z) },
+            line_color,
+        );
+        previous = next;
+    }
+}

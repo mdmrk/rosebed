@@ -3351,6 +3351,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     try drawPeers(app_state, partial);
     if (app_state.third_person) try drawPlayer(app_state, partial);
+    try drawFishLines(app_state, partial);
 
     try drawSelectionOutline(app_state);
     try drawBreakingCrack(app_state);
@@ -3604,6 +3605,41 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     gl.Disable(gl.POLYGON_OFFSET_FILL);
     gl.PolygonOffset(0.0, 0.0);
     gl.Disable(gl.BLEND);
+}
+
+fn drawFishLines(app_state: *AppState, partial: f32) !void {
+    if (app_state.level.entities.hooks.items.len == 0) return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+
+    const player = &app_state.player;
+    const angler: game.FishHook.Angler = .{
+        .position = player.base.renderPosition(partial),
+        .yaw = player.prev_yaw + (player.yaw - player.prev_yaw) * partial,
+        .pitch = player.prev_pitch + (player.pitch - player.prev_pitch) * partial,
+        .body_yaw = player.prev_render_yaw + (player.render_yaw - player.prev_render_yaw) * partial,
+        .swing = player.swingProgress(partial),
+        .third_person = app_state.third_person,
+    };
+
+    for (app_state.level.entities.hooks.items) |hook| {
+        if (hook.dead or hook.angler != player.base.id) continue;
+        try render.entity_render.appendFishLine(&mesh, app_state.frame, hook, angler, partial);
+    }
+    if (mesh.vertices.items.len == 0) return;
+
+    gl.LineWidth(2.0);
+    app_state.shader.setInt("u_textured", 0);
+    app_state.shader.setInt("u_alpha_test", 0);
+
+    var gpu = render.GpuMesh.uploadLines(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt("u_textured", 1);
+    gl.LineWidth(1.0);
 }
 
 fn drawSelectionOutline(app_state: *AppState) !void {

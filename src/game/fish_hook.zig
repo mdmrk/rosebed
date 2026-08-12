@@ -2,6 +2,77 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+pub const line_segments: usize = 16;
+pub const line_lift: f64 = 0.25;
+
+const rod_tip_offset = math.Vec3.init(-0.5, 0.03, 0.8);
+const third_person_side: f64 = 0.35;
+const third_person_reach: f64 = 0.85;
+const third_person_drop: f64 = 0.45;
+const swing_yaw_scale: f32 = 0.5;
+const swing_pitch_scale: f32 = 0.7;
+
+fn rotateAroundX(v: math.Vec3, angle: f32) math.Vec3 {
+    const c: f64 = math.util.cos(angle);
+    const s: f64 = math.util.sin(angle);
+    return math.Vec3.init(v.x, v.y * c + v.z * s, v.z * c - v.y * s);
+}
+
+fn rotateAroundY(v: math.Vec3, angle: f32) math.Vec3 {
+    const c: f64 = math.util.cos(angle);
+    const s: f64 = math.util.sin(angle);
+    return math.Vec3.init(v.x * c + v.z * s, v.y, v.z * c - v.x * s);
+}
+
+pub const Angler = struct {
+    position: math.Vec3,
+    yaw: f32,
+    pitch: f32,
+    body_yaw: f32,
+    swing: f32,
+    third_person: bool,
+};
+
+pub fn rodTip(angler: Angler) math.Vec3 {
+    const degrees = std.math.pi / 180.0;
+
+    if (angler.third_person) {
+        const body = angler.body_yaw * degrees;
+        const sin_body: f64 = math.util.sin(body);
+        const cos_body: f64 = math.util.cos(body);
+        return math.Vec3.init(
+            angler.position.x - cos_body * third_person_side - sin_body * third_person_reach,
+            angler.position.y - third_person_drop,
+            angler.position.z - sin_body * third_person_side + cos_body * third_person_reach,
+        );
+    }
+
+    const swing_bend: f32 = math.util.sin(math.util.sqrtF(angler.swing) * std.math.pi);
+    var offset = rotateAroundX(rod_tip_offset, -angler.pitch * degrees);
+    offset = rotateAroundY(offset, -angler.yaw * degrees);
+    offset = rotateAroundY(offset, swing_bend * swing_yaw_scale);
+    offset = rotateAroundX(offset, -swing_bend * swing_pitch_scale);
+
+    return math.Vec3.init(
+        angler.position.x + offset.x,
+        angler.position.y + offset.y,
+        angler.position.z + offset.z,
+    );
+}
+
+pub fn linePoint(self: FishHook, tip: math.Vec3, step: usize, partial_ticks: f32) math.Vec3 {
+    const at = self.base.renderPosition(partial_ticks);
+    const from = math.Vec3.init(at.x, at.y + line_lift, at.z);
+    const run = math.Vec3.init(tip.x - from.x, tip.y - from.y, tip.z - from.z);
+
+    const t: f64 = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(line_segments));
+    return math.Vec3.init(
+        at.x + run.x * t,
+        at.y + run.y * (t * t + t) * 0.5 + line_lift,
+        at.z + run.z * t,
+    );
+}
+
 const testing_world = world.testing;
 
 const Entity = @import("entity.zig");
@@ -304,6 +375,60 @@ test "a caught fish is thrown back toward the angler" {
     try std.testing.expectApproxEqAbs(@as(f64, 0), toss.x, 1.0e-12);
     try std.testing.expect(toss.z < 0);
     try std.testing.expect(toss.y > 0);
+}
+
+test "the line runs from the bobber to the rod tip and sags between" {
+    var hook: FishHook = .{ .base = Entity.init(math.Vec3.init(8.5, 12.0, 16.5), size, size) };
+    hook.base.prev_position = hook.base.position;
+
+    const angler: Angler = .{
+        .position = math.Vec3.init(8.5, 13.0, 8.5),
+        .yaw = 0,
+        .pitch = 0,
+        .body_yaw = 0,
+        .swing = 0,
+        .third_person = false,
+    };
+    const tip = rodTip(angler);
+
+    const start = hook.linePoint(tip, 0, 1.0);
+    try std.testing.expectApproxEqAbs(hook.base.position.x, start.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(hook.base.position.y + line_lift, start.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(hook.base.position.z, start.z, 1.0e-9);
+
+    const end = hook.linePoint(tip, line_segments, 1.0);
+    try std.testing.expectApproxEqAbs(tip.x, end.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(tip.y, end.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(tip.z, end.z, 1.0e-9);
+
+    const middle = hook.linePoint(tip, line_segments / 2, 1.0);
+    const straight = (start.y + end.y) / 2.0;
+    try std.testing.expect(middle.y < straight);
+}
+
+test "the rod tip sits off the angler's hand and swings with the cast" {
+    const facing: Angler = .{
+        .position = math.Vec3.init(8.5, 13.0, 8.5),
+        .yaw = 0,
+        .pitch = 0,
+        .body_yaw = 0,
+        .swing = 0,
+        .third_person = false,
+    };
+
+    const still = rodTip(facing);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), still.x, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.3), still.z, 1.0e-6);
+
+    var mid_swing = facing;
+    mid_swing.swing = 0.25;
+    const swung = rodTip(mid_swing);
+    try std.testing.expect(@abs(swung.x - still.x) > 1.0e-3 or @abs(swung.y - still.y) > 1.0e-3);
+
+    var behind = facing;
+    behind.third_person = true;
+    const over_shoulder = rodTip(behind);
+    try std.testing.expectApproxEqAbs(@as(f64, 13.0 - 0.45), over_shoulder.y, 1.0e-9);
 }
 
 test "a bobber cast too far away is out of range" {
