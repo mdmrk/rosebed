@@ -324,6 +324,7 @@ pub const Item = enum(u16) {
     pork_raw = 319,
     pork_cooked = 320,
     painting = 321,
+    apple_gold = 322,
     sign = 323,
     door_wood = 324,
     bucket = 325,
@@ -546,6 +547,7 @@ pub const Item = enum(u16) {
     fn vanillaHealAmount(self: Item) ?u8 {
         return switch (self) {
             .apple => 4,
+            .apple_gold => 42,
             .mushroom_stew => 10,
             .bread => 5,
             .pork_raw => 3,
@@ -648,6 +650,7 @@ pub const Item = enum(u16) {
             .boots_gold => 3 * 16 + 4,
             .leather => 6 * 16 + 7,
             .apple => 10,
+            .apple_gold => 11,
             .bow => 1 * 16 + 5,
             .arrow => 2 * 16 + 5,
             .coal => 7,
@@ -761,6 +764,7 @@ pub const Item = enum(u16) {
             .boots_gold => "Golden boots",
             .leather => "Leather",
             .apple => "Apple",
+            .apple_gold => "Golden apple",
             .bow => "Bow",
             .arrow => "Arrow",
             .diamond => "Diamond",
@@ -1030,6 +1034,14 @@ test "only leaves wear shears down, where a tool wears on anything it breaks" {
     try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
+}
+
+test "a golden apple is ItemFood's single-stack heal of forty-two" {
+    try std.testing.expectEqual(@as(?u8, 42), Item.apple_gold.healAmount());
+    try std.testing.expectEqual(@as(?u8, 11), Item.apple_gold.iconTile(0));
+    try std.testing.expectEqual(@as(u8, 1), Item.apple_gold.maxStackSize());
+    try std.testing.expectEqualStrings("Golden apple", Item.apple_gold.displayName(0));
+    try std.testing.expectEqual(@as(?u8, 4), Item.apple.healAmount());
 }
 
 test "the three minecarts read the icon column setIconCoord puts them in" {
