@@ -12,6 +12,7 @@ const constants = @import("constants.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
 const JavaRandom = @import("java_random.zig");
+const jukebox = @import("jukebox.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
 const nbt = @import("nbt.zig");
@@ -103,9 +104,11 @@ save_queue: std.ArrayList(ChunkCoord) = .empty,
 furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
 chests: std.AutoHashMapUnmanaged(BlockPos, chest.Chest) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
+jukeboxes: std.AutoHashMapUnmanaged(BlockPos, jukebox.Jukebox) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
+jukebox_updates: std.ArrayList(BlockPos) = .empty,
 piston_updates: std.ArrayList(BlockPos) = .empty,
 piston_shoves: std.ArrayList(PistonShove) = .empty,
 
@@ -166,11 +169,13 @@ pub fn deinit(self: *World) void {
     self.furnaces.deinit(self.allocator);
     self.chests.deinit(self.allocator);
     self.signs.deinit(self.allocator);
+    self.jukeboxes.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
     self.chest_updates.deinit(self.allocator);
+    self.jukebox_updates.deinit(self.allocator);
     self.torch_updates.deinit(self.allocator);
 }
 
@@ -533,6 +538,21 @@ pub fn removeSign(self: *World, x: i32, y: i32, z: i32) ?sign.Sign {
     return removed.value;
 }
 
+pub fn jukeboxAt(self: *World, x: i32, y: i32, z: i32) ?*jukebox.Jukebox {
+    return self.jukeboxes.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addJukebox(self: *World, x: i32, y: i32, z: i32) !*jukebox.Jukebox {
+    const entry = try self.jukeboxes.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeJukebox(self: *World, x: i32, y: i32, z: i32) ?jukebox.Jukebox {
+    const removed = self.jukeboxes.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
 pub fn movingPistonAt(self: *World, x: i32, y: i32, z: i32) ?*piston.Moving {
     return self.pistons.getPtr(.{ .x = x, .y = y, .z = z });
 }
@@ -651,6 +671,24 @@ pub fn spillOrphanChests(self: *World) !void {
     for (self.chest_updates.items) |pos| _ = self.chests.remove(pos);
 }
 
+pub fn spillOrphanJukeboxes(self: *World) !void {
+    self.jukebox_updates.clearRetainingCapacity();
+
+    var it = self.jukeboxes.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
+        if (self.getBlock(pos.x, pos.y, pos.z) == .jukebox) continue;
+
+        if (entry.value_ptr.record) |record| {
+            try self.dropped.append(self.allocator, .{ .pos = pos, .stack = .{ .id = .{ .item = record }, .count = 1 } });
+        }
+        try self.jukebox_updates.append(self.allocator, pos);
+    }
+
+    for (self.jukebox_updates.items) |pos| _ = self.jukeboxes.remove(pos);
+}
+
 fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.Tag)) !void {
     var it = self.furnaces.iterator();
     while (it.next()) |entry| {
@@ -679,6 +717,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try piston.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
+
+    var jukeboxes_it = self.jukeboxes.iterator();
+    while (jukeboxes_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try jukebox.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
@@ -694,6 +739,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     }
     if (chest.load(compound)) |placed| {
         (try self.addChest(placed.x, placed.y, placed.z)).* = placed.state;
+        return;
+    }
+    if (jukebox.load(compound)) |placed| {
+        (try self.addJukebox(placed.x, placed.y, placed.z)).* = placed.state;
         return;
     }
     const placed = furnace.load(compound) orelse return;

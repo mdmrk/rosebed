@@ -205,6 +205,7 @@ pub const Def = struct {
     armor: ?Armor = null,
     placed_block: ?Block = null,
     bucket_fill: ?Fill = null,
+    record_name: ?[]const u8 = null,
     heal_amount: ?u8 = null,
     max_damage: ?u16 = null,
     max_stack_size: u8 = 64,
@@ -214,7 +215,7 @@ pub const Def = struct {
 };
 
 pub const first_item_id: u16 = 256;
-pub const def_capacity: u16 = 1024;
+pub const def_capacity: u16 = 2048;
 
 const vanilla_keys: [def_capacity][]const u8 = keysFromEnum();
 
@@ -243,6 +244,7 @@ fn vanillaDefs() [def_capacity]Def {
             .armor = self.vanillaArmor(),
             .placed_block = self.vanillaPlacedBlock(),
             .bucket_fill = self.vanillaBucketFill(),
+            .record_name = self.vanillaRecordName(),
             .heal_amount = self.vanillaHealAmount(),
             .max_damage = self.vanillaMaxDamage(),
             .max_stack_size = self.vanillaMaxStackSize(),
@@ -345,6 +347,8 @@ pub const Item = enum(u16) {
     bed = 355,
     repeater = 356,
     shears = 359,
+    record_13 = 2256,
+    record_cat = 2257,
     _,
 
     pub fn def(self: Item) *const Def {
@@ -468,6 +472,7 @@ pub const Item = enum(u16) {
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self.vanillaBucketFill() != null) return 1;
+        if (self.vanillaRecordName() != null) return 1;
         if (self.vanillaHealAmount() != null) return 1;
         return if (self.vanillaMaxDamage() != null) 1 else 64;
     }
@@ -495,6 +500,18 @@ pub const Item = enum(u16) {
             .bucket_water => .water,
             .bucket_lava => .lava,
             .bucket_milk => .milk,
+            else => null,
+        };
+    }
+
+    pub fn recordName(self: Item) ?[]const u8 {
+        return self.def().record_name;
+    }
+
+    fn vanillaRecordName(self: Item) ?[]const u8 {
+        return switch (self) {
+            .record_13 => "13",
+            .record_cat => "cat",
             else => null,
         };
     }
@@ -648,6 +665,8 @@ pub const Item = enum(u16) {
             .cake => 1 * 16 + 13,
             .bed => 2 * 16 + 13,
             .shears => 5 * 16 + 13,
+            .record_13 => 15 * 16 + 0,
+            .record_cat => 15 * 16 + 1,
             .flint_and_steel => 5,
             else => null,
         };
@@ -754,6 +773,7 @@ pub const Item = enum(u16) {
             .cake => "Cake",
             .bed => "Bed",
             .shears => "Shears",
+            .record_13, .record_cat => "Music Disc",
             .flint_and_steel => "Flint and Steel",
             else => "",
         };
@@ -979,6 +999,19 @@ test "only leaves wear shears down, where a tool wears on anything it breaks" {
     try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
+}
+
+test "both records sit one after the other on the bottom row and never stack" {
+    try std.testing.expectEqualStrings("13", Item.record_13.recordName().?);
+    try std.testing.expectEqualStrings("cat", Item.record_cat.recordName().?);
+    try std.testing.expectEqual(@as(?u8, 240), Item.record_13.iconTile(0));
+    try std.testing.expectEqual(@as(?u8, 241), Item.record_cat.iconTile(0));
+    try std.testing.expectEqual(@as(u8, 1), Item.record_13.maxStackSize());
+    try std.testing.expectEqual(@as(u8, 1), Item.record_cat.maxStackSize());
+    try std.testing.expectEqualStrings("Music Disc", Item.record_13.displayName(0));
+    try std.testing.expectEqualStrings("Music Disc", Item.record_cat.displayName(0));
+    try std.testing.expect(Item.record_13.isVanilla() and Item.record_cat.isVanilla());
+    try std.testing.expect(Item.diamond.recordName() == null);
 }
 
 test "an id no vanilla item claims falls back to the empty definition" {

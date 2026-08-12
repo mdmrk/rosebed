@@ -26,6 +26,7 @@ pub const Dimension = generator.Dimension;
 pub const item = @import("item.zig");
 pub const Item = item.Item;
 pub const JavaRandom = @import("java_random.zig");
+pub const jukebox = @import("jukebox.zig");
 pub const lakes = @import("lakes.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const light = @import("light.zig");
@@ -72,6 +73,7 @@ test {
     _ = chest;
     _ = piston;
     _ = sign;
+    _ = jukebox;
     _ = caves;
     _ = decorate;
     _ = lakes;

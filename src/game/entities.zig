@@ -353,6 +353,23 @@ pub fn dropStack(
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
 
+pub fn ejectRecord(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    stack: Inventory.ItemStack,
+    rand: *world.JavaRandom,
+) !void {
+    const position = math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat()) * 0.7 + 0.66,
+        @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+    );
+    try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
+}
+
 const throw_speed: f64 = 0.3;
 const throw_lift: f64 = 0.1;
 const throw_pickup_delay: u16 = 40;

@@ -652,6 +652,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     );
     try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
+    try ejectBrokenJukebox(app_state, x, y, z);
     try closeBrokenChest(app_state, x, y, z);
     _ = app_state.level.world_map.removeSign(x, y, z);
     app_state.digging = null;
@@ -678,6 +679,19 @@ fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
         const stack = removed.slot(index).* orelse continue;
         try spawnDroppedItem(app_state, x, y, z, stack);
     }
+}
+
+fn ejectBrokenJukebox(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    const removed = app_state.level.world_map.removeJukebox(x, y, z) orelse return;
+    const record = removed.record orelse return;
+    try app_state.level.entities.ejectRecord(
+        app_state.gpa,
+        x,
+        y,
+        z,
+        .{ .id = .{ .item = record }, .count = 1 },
+        &app_state.level.world_map.rand,
+    );
 }
 
 fn closeBrokenChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -2001,6 +2015,9 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try applyBlockChanges(app_state);
                 return true;
             },
+            .jukebox => {
+                if (try ejectJukeboxRecord(app_state, hit.x, hit.y, hit.z)) return true;
+            },
             .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
             else => |id| {
                 if (id.def().on_activated) |hook| {
@@ -2013,6 +2030,23 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
         }
     }
     return placeBlockAtTarget(app_state);
+}
+
+fn ejectJukeboxRecord(app_state: *AppState, x: i32, y: i32, z: i32) !bool {
+    if (app_state.level.world_map.getBlockMetadata(x, y, z) == 0) return false;
+
+    const taken = try world.jukebox.takeRecord(&app_state.level.world_map, x, y, z);
+    const record = taken orelse return true;
+    try app_state.level.entities.ejectRecord(
+        app_state.gpa,
+        x,
+        y,
+        z,
+        .{ .id = .{ .item = record }, .count = 1 },
+        &app_state.level.world_map.rand,
+    );
+    try applyBlockChanges(app_state);
+    return true;
 }
 
 fn lightRedstoneOre(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -2310,6 +2344,23 @@ fn placeBedAtTarget(app_state: *AppState) !bool {
     return true;
 }
 
+fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
+    const hit = game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse return false;
+    if (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) != .jukebox) return false;
+    if (app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z) != 0) return false;
+
+    try world.jukebox.insertRecord(&app_state.level.world_map, hit.x, hit.y, hit.z, record);
+    try app_state.stats.use(app_state.gpa, .{ .item = record });
+    consumeSelectedStack(app_state);
+    try applyBlockChanges(app_state);
+    return true;
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
@@ -2320,6 +2371,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held == .painting) return hangPaintingAtTarget(app_state);
             if (held == .bed) return placeBedAtTarget(app_state);
             if (held == .sign) return placeSignAtTarget(app_state);
+            if (held.recordName() != null) return insertRecordAtTarget(app_state, held);
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
                     if (game.raycast.cast(
