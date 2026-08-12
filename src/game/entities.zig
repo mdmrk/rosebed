@@ -355,6 +355,64 @@ pub fn dropStack(
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
 
+const dispense_reach: f64 = 0.6;
+const dispense_drop: f64 = 0.3;
+const dispense_lift: f64 = 0.2;
+const dispense_spread: f64 = 0.0075 * 6.0;
+const dispense_arrow_speed: f32 = 1.1;
+const dispense_arrow_spread: f32 = 6.0;
+const dispense_arrow_lift: f64 = 0.1;
+
+pub fn dispense(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    shot: world.World.Dispensed,
+    rand: *world.JavaRandom,
+) !void {
+    const dx: f64 = @floatFromInt(shot.step[0]);
+    const dz: f64 = @floatFromInt(shot.step[1]);
+    const muzzle = math.Vec3.init(
+        @as(f64, @floatFromInt(shot.pos.x)) + dx * dispense_reach + 0.5,
+        @as(f64, @floatFromInt(shot.pos.y)) + 0.5,
+        @as(f64, @floatFromInt(shot.pos.z)) + dz * dispense_reach + 0.5,
+    );
+
+    const is_arrow = switch (shot.stack.id) {
+        .item => |id| id == .arrow,
+        .block => false,
+    };
+
+    if (is_arrow) {
+        var arrow = Arrow.loosedBy(
+            Entity.no_id,
+            muzzle,
+            math.Vec3.init(dx, dispense_arrow_lift, dz),
+            dispense_arrow_speed,
+            dispense_arrow_spread,
+            rand,
+        );
+        arrow.from_player = true;
+        try self.arrows.append(gpa, arrow);
+        return;
+    }
+
+    const launched = math.Vec3.init(muzzle.x, muzzle.y - dispense_drop, muzzle.z);
+    var item = ItemEntity.spawn(launched, .{
+        .id = shot.stack.id,
+        .count = shot.stack.count,
+        .meta = shot.stack.meta,
+    }, rand);
+
+    item.pickup_delay = 0;
+    const speed = rand.nextDouble() * 0.1 + 0.2;
+    item.base.motion = .{
+        .x = dx * speed + rand.nextGaussian() * dispense_spread,
+        .y = dispense_lift + rand.nextGaussian() * dispense_spread,
+        .z = dz * speed + rand.nextGaussian() * dispense_spread,
+    };
+    try self.items.append(gpa, item);
+}
+
 pub fn ejectRecord(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -2146,6 +2204,53 @@ test "an arrow shot at a pig sticks in it, hurts it and is gone" {
 
     try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
     try std.testing.expectEqual(before - Arrow.damage, entities.first(Pig, mob.pig).?.animal.health);
+}
+
+test "a dispenser lobs an ordinary stack out of its face" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(4);
+    try entities.dispense(gpa, .{
+        .pos = .{ .x = 8, .y = 12, .z = 8 },
+        .step = .{ 0, 1 },
+        .stack = .{ .id = .{ .block = .cobblestone }, .count = 1 },
+    }, &rand);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.items.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
+
+    const thrown = entities.items.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), thrown.base.position.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 12.2), thrown.base.position.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.1), thrown.base.position.z, 1.0e-9);
+    try std.testing.expect(thrown.base.motion.z > 0.1);
+    try std.testing.expect(@abs(thrown.base.motion.x) < 0.1);
+    try std.testing.expect(thrown.canPickUp());
+}
+
+test "a dispenser loaded with arrows shoots them instead of dropping them" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(4);
+    try entities.dispense(gpa, .{
+        .pos = .{ .x = 8, .y = 12, .z = 8 },
+        .step = .{ -1, 0 },
+        .stack = .{ .id = .{ .item = .arrow }, .count = 1 },
+    }, &rand);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.arrows.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
+
+    const shot = entities.arrows.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 7.9), shot.base.position.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 12.5), shot.base.position.y, 1.0e-9);
+    try std.testing.expect(shot.base.motion.x < -1.0);
+    try std.testing.expect(shot.from_player);
+    try std.testing.expectEqual(Entity.no_id, shot.owner);
 }
 
 test "an arrow a skeleton loosed credits the skeleton, not the nearest player" {

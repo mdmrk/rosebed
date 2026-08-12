@@ -107,6 +107,7 @@ const AppState = struct {
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     chest_open: ?world.World.BlockPos = null,
+    dispenser_open: ?world.World.BlockPos = null,
     paused: bool = false,
     dead: bool = false,
     options_open: bool = false,
@@ -652,6 +653,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     );
     try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
     try spillFurnace(app_state, x, y, z);
+    try spillDispenser(app_state, x, y, z);
     try ejectBrokenJukebox(app_state, x, y, z);
     try closeBrokenChest(app_state, x, y, z);
     _ = app_state.level.world_map.removeSign(x, y, z);
@@ -676,6 +678,19 @@ fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     }
 
     for (0..world.furnace.slot_count) |index| {
+        const stack = removed.slot(index).* orelse continue;
+        try spawnDroppedItem(app_state, x, y, z, stack);
+    }
+}
+
+fn spillDispenser(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    var removed = app_state.level.world_map.removeDispenser(x, y, z) orelse return;
+
+    if (app_state.dispenser_open) |open| {
+        if (open.x == x and open.y == y and open.z == z) try closeContainer(app_state);
+    }
+
+    for (0..world.dispenser.slot_count) |index| {
         const stack = removed.slot(index).* orelse continue;
         try spawnDroppedItem(app_state, x, y, z, stack);
     }
@@ -835,6 +850,7 @@ fn slotStorage(
         .armor => &app_state.player.inventory.armor[slot.index],
         .furnace_input, .furnace_fuel => (openedFurnace(app_state) orelse return null).slot(slot.index),
         .chest => openedChestSlot(app_state, slot.index),
+        .dispenser => (openedDispenser(app_state) orelse return null).slot(slot.index),
         .craft_result, .furnace_output => null,
     };
 }
@@ -916,6 +932,9 @@ fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
         var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
         const layout = render.chest_screen.slots(rows, &buffer);
         try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
+    } else if (openedDispenser(app_state) != null) {
+        const layout = render.dispenser_screen.slots();
+        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
     } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
         try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
@@ -942,7 +961,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 
 fn containerOpen(app_state: *const AppState) bool {
     return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
-        app_state.chest_open != null or app_state.sign_edit != null;
+        app_state.chest_open != null or app_state.dispenser_open != null or app_state.sign_edit != null;
 }
 
 fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
@@ -975,6 +994,7 @@ fn closeContainer(app_state: *AppState) !void {
     app_state.workbench_open = false;
     app_state.furnace_open = null;
     app_state.chest_open = null;
+    app_state.dispenser_open = null;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
     try dropGrid(app_state, &app_state.crafting_grid);
@@ -995,6 +1015,18 @@ fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
 fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
     const pos = app_state.furnace_open orelse return null;
     return app_state.level.world_map.furnaceAt(pos.x, pos.y, pos.z);
+}
+
+fn openDispenser(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+    _ = try app_state.level.world_map.addDispenser(x, y, z);
+    app_state.dispenser_open = .{ .x = x, .y = y, .z = z };
+    try updateMouseMode(app_state);
+}
+
+fn openedDispenser(app_state: *AppState) ?*world.dispenser.Dispenser {
+    const pos = app_state.dispenser_open orelse return null;
+    if (app_state.level.world_map.getBlock(pos.x, pos.y, pos.z) != .dispenser) return null;
+    return app_state.level.world_map.dispenserAt(pos.x, pos.y, pos.z);
 }
 
 fn openChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
@@ -1991,6 +2023,10 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 try openChest(app_state, hit.x, hit.y, hit.z);
                 return true;
             },
+            .dispenser => {
+                try openDispenser(app_state, hit.x, hit.y, hit.z);
+                return true;
+            },
             .door_wood => {
                 try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
                 try applyBlockChanges(app_state);
@@ -2418,6 +2454,11 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         _ = try app_state.level.world_map.addFurnace(px, py, pz);
     }
     if (placed == .chest) _ = try app_state.level.world_map.addChest(px, py, pz);
+    if (placed == .dispenser) {
+        const facing = world.block.dispenserFacingFromYaw(app_state.player.yaw);
+        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        _ = try app_state.level.world_map.addDispenser(px, py, pz);
+    }
     if (placed.isStairs()) {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
@@ -3576,6 +3617,8 @@ pub fn iterate(
         );
     } else if (openedChest(app_state)) |open| {
         try render.chest_screen.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
+    } else if (openedDispenser(app_state)) |open| {
+        try render.dispenser_screen.draw(ui, app_state.player.inventory, open, app_state.held_stack);
     } else if (app_state.workbench_open) {
         try render.crafting_screen.draw(
             ui,

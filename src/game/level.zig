@@ -144,6 +144,11 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
         try self.entities.spawnFallingBlock(gpa, fall.pos.x, fall.pos.y, fall.pos.z, fall.id);
     }
     self.world_map.falling.clearRetainingCapacity();
+
+    for (self.world_map.dispensed.items) |shot| {
+        try self.entities.dispense(gpa, shot, &self.world_map.rand);
+    }
+    self.world_map.dispensed.clearRetainingCapacity();
 }
 
 fn tickFallingBlocks(self: *Level, gpa: std.mem.Allocator) !void {
@@ -265,6 +270,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.world_map.tickFurnaces();
     try self.world_map.spillOrphanChests();
     try self.world_map.spillOrphanJukeboxes();
+    try self.world_map.spillOrphanDispensers();
     try self.world_map.tickPistons();
     try self.entities.applyPistonShoves(&self.world_map, self.roster.items);
     try self.applyBlockChanges(gpa, scratch);

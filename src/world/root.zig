@@ -16,6 +16,7 @@ pub const Climate = @import("climate.zig");
 pub const constants = @import("constants.zig");
 pub const decorate = @import("decorate.zig");
 pub const deflate = @import("deflate.zig");
+pub const dispenser = @import("dispenser.zig");
 pub const dungeons = @import("dungeons.zig");
 pub const entity_nbt = @import("entity_nbt.zig");
 pub const fluid = @import("fluid.zig");
@@ -74,6 +75,7 @@ test {
     _ = piston;
     _ = sign;
     _ = jukebox;
+    _ = dispenser;
     _ = caves;
     _ = decorate;
     _ = lakes;

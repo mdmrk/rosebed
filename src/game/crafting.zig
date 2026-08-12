@@ -206,6 +206,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks),  b(.planks),
     }, .{ .block = .jukebox }, 1),
     shaped(3, 3, &.{
+        b(.cobblestone), b(.cobblestone), b(.cobblestone),
+        b(.cobblestone), i(.bow),         b(.cobblestone),
+        b(.cobblestone), i(.redstone),    b(.cobblestone),
+    }, .{ .block = .dispenser }, 1),
+    shaped(3, 3, &.{
         b(.planks), b(.planks),   b(.planks),
         b(.planks), i(.redstone), b(.planks),
         b(.planks), b(.planks),   b(.planks),

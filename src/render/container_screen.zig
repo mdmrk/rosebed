@@ -21,7 +21,7 @@ const tooltip_offset_y: f32 = -12;
 const tooltip_padding: f32 = 3;
 const tooltip_line_height: f32 = 8;
 
-pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output, chest };
+pub const SlotKind = enum { inventory, craft_input, craft_result, armor, furnace_input, furnace_fuel, furnace_output, chest, dispenser };
 pub const Slot = struct { x: f32, y: f32, kind: SlotKind = .inventory, index: usize };
 pub const Label = struct { text: []const u8, x: f32, y: f32 };
 
@@ -57,13 +57,13 @@ pub fn quickRange(slots: []const Slot, from: usize) QuickRange {
 
     if (from < player_start) {
         const reverse = switch (slots[from].kind) {
-            .craft_result, .furnace_output, .chest => true,
+            .craft_result, .furnace_output, .chest, .dispenser => true,
             else => false,
         };
         return .{ .start = player_start, .end = slots.len, .reverse = reverse };
     }
 
-    if (player_start > 0 and slots[0].kind == .chest) {
+    if (player_start > 0 and (slots[0].kind == .chest or slots[0].kind == .dispenser)) {
         return .{ .start = 0, .end = player_start, .reverse = false };
     }
 

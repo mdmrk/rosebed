@@ -470,6 +470,11 @@ fn doorPowerChange(world_map: *World, x: i32, y: i32, z: i32, powered: bool) std
     try block_update.toggleDoor(world_map, x, y, z);
 }
 
+fn dispenserIsPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return isBlockIndirectlyGettingPowered(world_map, x, y, z) or
+        isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
+}
+
 fn trapdoorPowerChange(world_map: *World, x: i32, y: i32, z: i32, powered: bool) std.mem.Allocator.Error!void {
     if (block.trapdoorIsOpen(world_map.getBlockMetadata(x, y, z)) == powered) return;
     try block_update.toggleTrapdoor(world_map, x, y, z);
@@ -542,6 +547,11 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32, source: Block
             if (!canProvidePower(source)) return;
             try trapdoorPowerChange(world_map, x, y, z, isBlockIndirectlyGettingPowered(world_map, x, y, z));
         },
+        .dispenser => {
+            if (!canProvidePower(source)) return;
+            if (!dispenserIsPowered(world_map, x, y, z)) return;
+            try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+        },
         .piston, .piston_sticky => try piston.onNeighborChange(world_map, x, y, z),
         .piston_head => try piston.onHeadNeighborChange(world_map, x, y, z),
         else => {},
@@ -558,6 +568,7 @@ pub fn handlesTick(id: Block) bool {
         .pressure_plate_stone,
         .pressure_plate_planks,
         .ore_redstone_glowing,
+        .dispenser,
         => true,
         else => false,
     };
@@ -579,6 +590,9 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Alloca
             try plateSettle(world_map, x, y, z);
         },
         .ore_redstone_glowing => try world_map.setBlockWithNotify(x, y, z, .ore_redstone),
+        .dispenser => {
+            if (dispenserIsPowered(world_map, x, y, z)) try world_map.dispense(x, y, z);
+        },
         else => {},
     }
 }
@@ -843,6 +857,76 @@ test "a lever with nothing to hang on pops off the wall" {
     try w.setBlockWithNotify(7, 12, 8, .air);
 
     try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+}
+
+fn armedDispenser(w: *World, facing: u4) !void {
+    try w.setBlockWithNotify(8, 12, 8, .dispenser);
+    try w.setBlockMetadataWithNotify(8, 12, 8, facing);
+    const state = try w.addDispenser(8, 12, 8);
+    state.slot(0).* = .{ .id = .{ .block = .cobblestone }, .count = 3 };
+}
+
+test "a lever powering a dispenser makes it hand one item out four ticks later" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+    try armedDispenser(&w, @intFromEnum(block.Side.south));
+
+    w.setBlock(7, 12, 8, .stone);
+    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5 | block.power_bit);
+    try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
+
+    w.time += Block.dispenser.tickRate();
+    try w.tickUpdates();
+
+    try std.testing.expectEqual(@as(usize, 1), w.dispensed.items.len);
+    const shot = w.dispensed.items[0];
+    try std.testing.expectEqual(Block.cobblestone, shot.stack.id.block);
+    try std.testing.expectEqual(@as(u8, 1), shot.stack.count);
+    try std.testing.expectEqual([2]i32{ 0, 1 }, shot.step);
+    try std.testing.expectEqual(@as(u8, 2), w.dispenserAt(8, 12, 8).?.items[0].?.count);
+}
+
+test "an unpowered dispenser is never scheduled and an empty one queues nothing" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+    try armedDispenser(&w, @intFromEnum(block.Side.west));
+
+    w.setBlock(7, 12, 8, .stone);
+    w.time += Block.dispenser.tickRate();
+    try w.tickUpdates();
+    try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
+
+    w.dispenserAt(8, 12, 8).?.slot(0).* = null;
+    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5 | block.power_bit);
+    w.time += Block.dispenser.tickRate();
+    try w.tickUpdates();
+    try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
+}
+
+test "a dispenser fires the way its metadata points" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    try std.testing.expectEqual([2]i32{ 0, 1 }, block.dispenserStep(@intFromEnum(block.Side.south)));
+    try std.testing.expectEqual([2]i32{ 0, -1 }, block.dispenserStep(@intFromEnum(block.Side.north)));
+    try std.testing.expectEqual([2]i32{ 1, 0 }, block.dispenserStep(@intFromEnum(block.Side.east)));
+    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(@intFromEnum(block.Side.west)));
+    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(0));
+}
+
+test "a dispenser walled in on one side turns away from the wall when it is placed" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    w.setBlock(8, 12, 7, .stone);
+    try w.setBlockWithNotify(8, 12, 8, .dispenser);
+    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.south)), w.getBlockMetadata(8, 12, 8));
+
+    try w.setBlockWithNotify(8, 12, 8, .air);
+    w.setBlock(8, 12, 7, .air);
+    w.setBlock(9, 12, 8, .stone);
+    try w.setBlockWithNotify(8, 12, 8, .dispenser);
+    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.west)), w.getBlockMetadata(8, 12, 8));
 }
 
 test "redstone ore lights up when touched and goes dark on its own" {

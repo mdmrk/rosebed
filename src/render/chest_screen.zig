@@ -120,7 +120,7 @@ pub fn draw(
                 upper.items[slot.index]
             else
                 lower.?.items[slot.index - world.chest.slot_count],
-            .craft_input, .craft_result, .armor => unreachable,
+            .craft_input, .craft_result, .armor, .dispenser => unreachable,
             .furnace_input, .furnace_fuel, .furnace_output => unreachable,
         };
     }

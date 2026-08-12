@@ -102,7 +102,7 @@ pub fn draw(
             .furnace_input => state.input,
             .furnace_fuel => state.fuel,
             .furnace_output => state.output,
-            .craft_input, .craft_result, .armor, .chest => unreachable,
+            .craft_input, .craft_result, .armor, .chest, .dispenser => unreachable,
         };
     }
 

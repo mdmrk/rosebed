@@ -9,6 +9,7 @@ const block_update = @import("block_update.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("chunk.zig");
 const constants = @import("constants.zig");
+const dispenser = @import("dispenser.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
 const JavaRandom = @import("java_random.zig");
@@ -47,6 +48,7 @@ pub const ChunkCoord = struct { x: i32, z: i32 };
 pub const BlockPos = struct { x: i32, y: i32, z: i32 };
 
 pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
+pub const Dispensed = struct { pos: BlockPos, step: [2]i32, stack: block.Stack };
 
 pub const FallingBlock = struct { pos: BlockPos, id: Block };
 
@@ -105,10 +107,13 @@ furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
 chests: std.AutoHashMapUnmanaged(BlockPos, chest.Chest) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
 jukeboxes: std.AutoHashMapUnmanaged(BlockPos, jukebox.Jukebox) = .{},
+dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
 jukebox_updates: std.ArrayList(BlockPos) = .empty,
+dispenser_updates: std.ArrayList(BlockPos) = .empty,
+dispensed: std.ArrayList(Dispensed) = .empty,
 piston_updates: std.ArrayList(BlockPos) = .empty,
 piston_shoves: std.ArrayList(PistonShove) = .empty,
 
@@ -170,12 +175,15 @@ pub fn deinit(self: *World) void {
     self.chests.deinit(self.allocator);
     self.signs.deinit(self.allocator);
     self.jukeboxes.deinit(self.allocator);
+    self.dispensers.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
     self.chest_updates.deinit(self.allocator);
     self.jukebox_updates.deinit(self.allocator);
+    self.dispenser_updates.deinit(self.allocator);
+    self.dispensed.deinit(self.allocator);
     self.torch_updates.deinit(self.allocator);
 }
 
@@ -553,6 +561,21 @@ pub fn removeJukebox(self: *World, x: i32, y: i32, z: i32) ?jukebox.Jukebox {
     return removed.value;
 }
 
+pub fn dispenserAt(self: *World, x: i32, y: i32, z: i32) ?*dispenser.Dispenser {
+    return self.dispensers.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addDispenser(self: *World, x: i32, y: i32, z: i32) !*dispenser.Dispenser {
+    const entry = try self.dispensers.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeDispenser(self: *World, x: i32, y: i32, z: i32) ?dispenser.Dispenser {
+    const removed = self.dispensers.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
 pub fn movingPistonAt(self: *World, x: i32, y: i32, z: i32) ?*piston.Moving {
     return self.pistons.getPtr(.{ .x = x, .y = y, .z = z });
 }
@@ -689,6 +712,36 @@ pub fn spillOrphanJukeboxes(self: *World) !void {
     for (self.jukebox_updates.items) |pos| _ = self.jukeboxes.remove(pos);
 }
 
+pub fn spillOrphanDispensers(self: *World) !void {
+    self.dispenser_updates.clearRetainingCapacity();
+
+    var it = self.dispensers.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
+        if (self.getBlock(pos.x, pos.y, pos.z) == .dispenser) continue;
+
+        for (entry.value_ptr.items) |maybe_stack| {
+            const stack = maybe_stack orelse continue;
+            try self.dropped.append(self.allocator, .{ .pos = pos, .stack = stack });
+        }
+        try self.dispenser_updates.append(self.allocator, pos);
+    }
+
+    for (self.dispenser_updates.items) |pos| _ = self.dispensers.remove(pos);
+}
+
+pub fn dispense(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    const step = block.dispenserStep(self.getBlockMetadata(x, y, z));
+    const state = self.dispensers.getPtr(.{ .x = x, .y = y, .z = z }) orelse return;
+    const stack = state.takeRandomStack(&self.rand) orelse return;
+    try self.dispensed.append(self.allocator, .{
+        .pos = .{ .x = x, .y = y, .z = z },
+        .step = step,
+        .stack = stack,
+    });
+}
+
 fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.Tag)) !void {
     var it = self.furnaces.iterator();
     while (it.next()) |entry| {
@@ -724,6 +777,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try jukebox.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
+
+    var dispensers_it = self.dispensers.iterator();
+    while (dispensers_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try dispenser.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
@@ -743,6 +803,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     }
     if (jukebox.load(compound)) |placed| {
         (try self.addJukebox(placed.x, placed.y, placed.z)).* = placed.state;
+        return;
+    }
+    if (dispenser.load(compound)) |placed| {
+        (try self.addDispenser(placed.x, placed.y, placed.z)).* = placed.state;
         return;
     }
     const placed = furnace.load(compound) orelse return;
@@ -768,7 +832,22 @@ fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocat
     if (id == .fire and self.getBlock(x, y - 1, z) == .obsidian) _ = try portal.tryCreate(self, x, y, z);
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+    if (id == .dispenser) try self.setBlockMetadataWithNotify(x, y, z, self.dispenserDefaultFacing(x, y, z));
     try redstone.onBlockAdded(self, x, y, z, id);
+}
+
+fn dispenserDefaultFacing(self: *const World, x: i32, y: i32, z: i32) u4 {
+    const north = self.getBlock(x, y, z - 1).isOpaqueCube();
+    const south = self.getBlock(x, y, z + 1).isOpaqueCube();
+    const west = self.getBlock(x - 1, y, z).isOpaqueCube();
+    const east = self.getBlock(x + 1, y, z).isOpaqueCube();
+
+    var facing: u4 = @intFromEnum(block.Side.south);
+    if (north and !south) facing = @intFromEnum(block.Side.south);
+    if (south and !north) facing = @intFromEnum(block.Side.north);
+    if (west and !east) facing = @intFromEnum(block.Side.east);
+    if (east and !west) facing = @intFromEnum(block.Side.west);
+    return facing;
 }
 
 fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {

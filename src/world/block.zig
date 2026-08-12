@@ -417,6 +417,7 @@ pub const Block = enum(u8) {
     glass = 20,
     ore_lapis = 21,
     block_lapis = 22,
+    dispenser = 23,
     sandstone = 24,
     note_block = 25,
     bed = 26,
@@ -519,7 +520,7 @@ pub const Block = enum(u8) {
             .ore_redstone_glowing, .pressure_plate_stone => .rock,
             .block_lapis, .sandstone, .brick, .obsidian, .netherrack, .glowstone => .rock,
             .slab, .slab_double => .rock,
-            .furnace, .burning_furnace => .rock,
+            .furnace, .burning_furnace, .dispenser => .rock,
             .block_gold, .block_iron, .block_diamond, .door_iron => .iron,
             .grass, .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
@@ -652,6 +653,7 @@ pub const Block = enum(u8) {
         if (self.vanillaFalling()) return 3;
         return switch (self) {
             .torch_redstone_off, .torch_redstone_on => 2,
+            .dispenser => 4,
             .button, .pressure_plate_stone, .pressure_plate_planks => 20,
             .ore_redstone_glowing => 30,
             else => switch (self.vanillaMaterial()) {
@@ -860,6 +862,7 @@ pub const Block = enum(u8) {
                 .east = 59,
             }),
             .furnace, .burning_furnace => furnaceTextures(self, furnace_default_facing),
+            .dispenser => dispenserTextures(dispenser_default_facing),
             .chest => chestItemTextures(),
             .door_wood => uniform(door_bottom_tile),
             .door_iron => uniform(door_bottom_tile + 1),
@@ -978,7 +981,7 @@ pub const Block = enum(u8) {
             .block_diamond => 5.0,
             .workbench => 2.5,
             .chest => 2.5,
-            .furnace, .burning_furnace => 3.5,
+            .furnace, .burning_furnace, .dispenser => 3.5,
             .door_wood, .trapdoor => 3.0,
             .door_iron => 5.0,
             .ice => 0.5,
@@ -1121,6 +1124,7 @@ pub const Block = enum(u8) {
             .block_diamond => "Block of Diamond",
             .workbench => "Crafting Table",
             .furnace, .burning_furnace => "Furnace",
+            .dispenser => "Dispenser",
             .door_wood => "Wooden Door",
             .trapdoor => "Trapdoor",
             .stairs_wood => "Wooden Stairs",
@@ -1641,6 +1645,34 @@ pub fn pistonHeadTextures(metadata: u4) FaceTextures {
     var textures = FaceTextures.initFill(piston_side_tile);
     textures.set(oppositeSide(facing), piston_top_tile);
     textures.set(facing, if (metadata & piston_flag != 0) piston_top_sticky_tile else piston_top_tile);
+    return textures;
+}
+
+const dispenser_side_tile: u8 = 45;
+const dispenser_top_tile: u8 = 62;
+const dispenser_front_tile: u8 = 46;
+pub const dispenser_default_facing: u4 = @intFromEnum(Side.south);
+
+pub fn dispenserStep(metadata: u4) [2]i32 {
+    return switch (metadata) {
+        @intFromEnum(Side.south) => .{ 0, 1 },
+        @intFromEnum(Side.north) => .{ 0, -1 },
+        @intFromEnum(Side.east) => .{ 1, 0 },
+        else => .{ -1, 0 },
+    };
+}
+
+pub fn dispenserFacingFromYaw(yaw: f32) u4 {
+    return furnaceFacingFromYaw(yaw);
+}
+
+pub fn dispenserTextures(metadata: u4) FaceTextures {
+    var textures = FaceTextures.initFill(dispenser_side_tile);
+    textures.set(.down, dispenser_top_tile);
+    textures.set(.up, dispenser_top_tile);
+    if (metadata >= @intFromEnum(Side.north) and metadata <= @intFromEnum(Side.east)) {
+        textures.set(@enumFromInt(metadata), dispenser_front_tile);
+    }
     return textures;
 }
 
@@ -3244,7 +3276,7 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
 
     try std.testing.expect(Block.stone.isVanilla());
     try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(23))).isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(27))).isVanilla());
 }
 
 test "a registered block answers to its own key without shadowing a vanilla one" {

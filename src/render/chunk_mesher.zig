@@ -1285,6 +1285,8 @@ pub fn buildBlockAt(
         textures = world.block.slabTextures(metadata);
     } else if (id == .furnace or id == .burning_furnace) {
         textures = world.block.furnaceTextures(id, metadata);
+    } else if (id == .dispenser) {
+        textures = world.block.dispenserTextures(metadata);
     } else if (id == .chest) {
         textures = world.block.chestTextures(chestRing(world_map, x, y, z));
     } else if (id == .grass) {

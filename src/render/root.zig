@@ -12,6 +12,7 @@ pub const crafting_screen = @import("crafting_screen.zig");
 pub const create_world_screen = @import("create_world_screen.zig");
 pub const death_screen = @import("death_screen.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
+pub const dispenser_screen = @import("dispenser_screen.zig");
 pub const edit_sign_screen = @import("edit_sign_screen.zig");
 pub const entity_render = @import("entity_render.zig");
 pub const Font = @import("font.zig");
@@ -72,6 +73,7 @@ test {
     _ = inventory_screen;
     _ = crafting_screen;
     _ = chest_screen;
+    _ = dispenser_screen;
     _ = furnace_screen;
     _ = button;
     _ = menu;
