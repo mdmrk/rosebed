@@ -238,6 +238,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.block_gold), i(.apple),      b(.block_gold),
         b(.block_gold), b(.block_gold), b(.block_gold),
     }, .{ .item = .apple_gold }, 1),
+    shaped(3, 3, &.{
+        null,      null,      i(.stick),
+        null,      i(.stick), i(.string),
+        i(.stick), null,      i(.string),
+    }, .{ .item = .fishing_rod }, 1),
     shaped(1, 2, &.{
         b(.chest),
         i(.minecart),

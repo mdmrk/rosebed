@@ -2768,3 +2768,38 @@ pub fn minecartRock(cart: game.Minecart, partial_ticks: f32) f32 {
     const damage = @max(@as(f32, @floatFromInt(cart.damage)) - partial_ticks, 0);
     return @sin(since_hit) * since_hit * damage / 10.0 * @as(f32, @floatFromInt(cart.rock_direction));
 }
+
+pub const hook_tile: u8 = 2 * 16 + 1;
+const hook_half: f32 = 0.5;
+
+pub fn appendFishHook(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    hook: game.FishHook,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    const pos = hook.base.renderPosition(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    const tile_size: f32 = 1.0 / 16.0;
+    const left = @as(f32, @floatFromInt(hook_tile % 16)) * tile_size;
+    const top = @as(f32, @floatFromInt(hook_tile / 16)) * tile_size;
+    const right = left + 0.999 / 16.0;
+    const bottom = top + 0.999 / 16.0;
+
+    const positions = [4][3]f32{
+        .{ cx - basis.right_x * hook_half - basis.tilt_x * hook_half, cy - basis.up_y * hook_half, cz - basis.right_z * hook_half - basis.tilt_z * hook_half },
+        .{ cx - basis.right_x * hook_half + basis.tilt_x * hook_half, cy + basis.up_y * hook_half, cz - basis.right_z * hook_half + basis.tilt_z * hook_half },
+        .{ cx + basis.right_x * hook_half + basis.tilt_x * hook_half, cy + basis.up_y * hook_half, cz + basis.right_z * hook_half + basis.tilt_z * hook_half },
+        .{ cx + basis.right_x * hook_half - basis.tilt_x * hook_half, cy - basis.up_y * hook_half, cz + basis.right_z * hook_half - basis.tilt_z * hook_half },
+    };
+    const uvs = [4][2]f32{ .{ left, bottom }, .{ left, top }, .{ right, top }, .{ right, bottom } };
+
+    const brightness = brightnessOf(world_map, hook.base);
+    const level: u8 = @intFromFloat(brightness * 255.0);
+    try mesh.quad(gpa, positions, uvs, .{ level, level, level, 255 });
+}

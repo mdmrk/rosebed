@@ -12,6 +12,7 @@ const Creeper = @import("creeper.zig");
 const Entity = @import("entity.zig");
 const explosion = @import("explosion.zig");
 const FallingBlock = @import("falling_block.zig");
+const FishHook = @import("fish_hook.zig");
 const Fireball = @import("fireball.zig");
 const Ghast = @import("ghast.zig");
 const Inventory = @import("inventory.zig");
@@ -43,6 +44,7 @@ pickups: std.ArrayList(PickupFx) = .empty,
 paintings: std.ArrayList(Painting) = .empty,
 boats: std.ArrayList(Boat) = .empty,
 minecarts: std.ArrayList(Minecart) = .empty,
+hooks: std.ArrayList(FishHook) = .empty,
 next_entity_id: Entity.Id = 1,
 
 pub const Mob = struct {
@@ -104,6 +106,81 @@ pub fn boatById(self: *Entities, id: Entity.Id) ?*Boat {
         if (boat.base.id == id and !boat.dead) return boat;
     }
     return null;
+}
+
+pub fn hookOf(self: *Entities, angler: Entity.Id) ?*FishHook {
+    for (self.hooks.items) |*hook| {
+        if (hook.angler == angler and !hook.dead) return hook;
+    }
+    return null;
+}
+
+pub fn castHook(self: *Entities, gpa: std.mem.Allocator, player: *const Player, rand: *world.JavaRandom) !void {
+    var hook = FishHook.castBy(player.*, rand);
+    hook.base.id = self.takeId();
+    try self.hooks.append(gpa, hook);
+}
+
+pub fn tickHooks(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    roster: []const *Player,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.hooks.items.len) {
+        const hook = &self.hooks.items[index];
+        const angler = playerById(roster, hook.angler);
+
+        if (angler == null or angler.?.health <= 0 or hook.outOfRange(angler.?.base.position)) {
+            _ = self.hooks.swapRemove(index);
+            continue;
+        }
+
+        const step = hook.tick(world_map, rand);
+        if (step.bit) {
+            for (0..bite_splashes) |_| {
+                try self.particles.append(gpa, Particle.spawnSplash(hook.base.position, hook.base.motion, rand));
+            }
+        }
+
+        if (hook.dead) {
+            _ = self.hooks.swapRemove(index);
+            continue;
+        }
+        index += 1;
+    }
+}
+
+const bite_splashes: usize = 6;
+
+pub fn reelHook(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    angler: *const Player,
+    rand: *world.JavaRandom,
+) !?FishHook.Catch {
+    const hook = self.hookOf(angler.base.id) orelse return null;
+    const at = hook.base.position;
+    const toss = hook.pullToward(angler.base.position);
+    const caught = hook.reelIn();
+
+    if (caught == .fish) {
+        var fish = ItemEntity.spawn(at, .{ .id = .{ .item = .fish_raw }, .count = 1 }, rand);
+        fish.base.motion = toss;
+        fish.pickup_delay = 0;
+        try self.items.append(gpa, fish);
+    }
+
+    var index: usize = 0;
+    while (index < self.hooks.items.len) : (index += 1) {
+        if (self.hooks.items[index].dead) {
+            _ = self.hooks.swapRemove(index);
+            break;
+        }
+    }
+    return caught;
 }
 
 pub fn minecartById(self: *Entities, id: Entity.Id) ?*Minecart {
@@ -355,6 +432,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.paintings.deinit(gpa);
     self.boats.deinit(gpa);
     self.minecarts.deinit(gpa);
+    self.hooks.deinit(gpa);
     for (self.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
     self.mobs.deinit(gpa);
 }

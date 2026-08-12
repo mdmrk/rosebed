@@ -15,6 +15,7 @@ pub const Ghast = @import("ghast.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
 pub const Level = @import("level.zig");
+pub const FishHook = @import("fish_hook.zig");
 pub const Minecart = @import("minecart.zig");
 pub const mob = @import("mob.zig");
 pub const Monster = @import("monster.zig");
@@ -53,6 +54,7 @@ test {
     _ = Animal;
     _ = Arrow;
     _ = Boat;
+    _ = FishHook;
     _ = Minecart;
     _ = Chicken;
     _ = Cow;

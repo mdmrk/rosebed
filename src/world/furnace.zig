@@ -25,6 +25,7 @@ pub fn smeltingResult(id: block.Id) ?Stack {
         },
         .item => |i| switch (i) {
             .pork_raw => .{ .id = .{ .item = .pork_cooked }, .count = 1 },
+            .fish_raw => .{ .id = .{ .item = .fish_cooked }, .count = 1 },
             .clay_ball => .{ .id = .{ .item = .brick }, .count = 1 },
             else => null,
         },

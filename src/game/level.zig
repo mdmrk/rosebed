@@ -322,6 +322,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.tickBoats(gpa, rand);
     try self.tickMinecarts(gpa, rand);
     self.dropStaleRides();
+    try self.entities.tickHooks(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items);

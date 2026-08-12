@@ -6,6 +6,7 @@ const World = @import("world_map.zig");
 
 const shears_max_damage: u16 = 238;
 const flint_and_steel_max_damage: u16 = 64;
+const fishing_rod_max_damage: u16 = 64;
 
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
@@ -348,8 +349,11 @@ pub const Item = enum(u16) {
     minecart_furnace = 343,
     egg = 344,
     compass = 345,
+    fishing_rod = 346,
     clock = 347,
     glowstone_dust = 348,
+    fish_raw = 349,
+    fish_cooked = 350,
     dye = 351,
     bone = 352,
     sugar = 353,
@@ -474,6 +478,7 @@ pub const Item = enum(u16) {
     fn vanillaMaxDamage(self: Item) ?u16 {
         if (self == .shears) return shears_max_damage;
         if (self == .flint_and_steel) return flint_and_steel_max_damage;
+        if (self == .fishing_rod) return fishing_rod_max_damage;
         if (self.vanillaTool()) |t| return t.material.maxUses();
         if (self.vanillaArmor()) |a| return a.maxDamage();
         return null;
@@ -549,6 +554,8 @@ pub const Item = enum(u16) {
         return switch (self) {
             .apple => 4,
             .apple_gold => 42,
+            .fish_raw => 2,
+            .fish_cooked => 5,
             .mushroom_stew => 10,
             .bread => 5,
             .pork_raw => 3,
@@ -690,6 +697,9 @@ pub const Item = enum(u16) {
             .minecart_chest => 9 * 16 + 7,
             .minecart_furnace => 10 * 16 + 7,
             .compass => 3 * 16 + 6,
+            .fishing_rod => 4 * 16 + 5,
+            .fish_raw => 5 * 16 + 9,
+            .fish_cooked => 5 * 16 + 10,
             .clock => 4 * 16 + 6,
             .glowstone_dust => 4 * 16 + 9,
             .bone => 1 * 16 + 12,
@@ -804,6 +814,9 @@ pub const Item = enum(u16) {
             .minecart_chest => "Minecart with Chest",
             .minecart_furnace => "Minecart with Furnace",
             .compass => "Compass",
+            .fishing_rod => "Fishing Rod",
+            .fish_raw => "Raw Fish",
+            .fish_cooked => "Cooked Fish",
             .clock => "Clock",
             .glowstone_dust => "Glowstone Dust",
             .bone => "Bone",

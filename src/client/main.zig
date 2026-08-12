@@ -2458,6 +2458,29 @@ fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
     return true;
 }
 
+fn useFishingRod(app_state: *AppState) !bool {
+    const caught = try app_state.level.entities.reelHook(
+        app_state.gpa,
+        &app_state.player,
+        &app_state.level.world_map.rand,
+    );
+
+    if (caught) |what| {
+        if (what == .fish) try app_state.stats.add(app_state.gpa, .{ .general = .fish_caught }, 1);
+        try damageHeldItem(app_state, @intFromEnum(what));
+        app_state.player.swingItem();
+        return true;
+    }
+
+    try app_state.level.entities.castHook(
+        app_state.gpa,
+        &app_state.player,
+        &app_state.level.world_map.rand,
+    );
+    app_state.player.swingItem();
+    return true;
+}
+
 fn placeBoatAtTarget(app_state: *AppState) !bool {
     const hit = game.raycast.cast(
         &app_state.level.world_map,
@@ -2512,6 +2535,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held == .bed) return placeBedAtTarget(app_state);
             if (held == .sign) return placeSignAtTarget(app_state);
             if (held == .boat) return placeBoatAtTarget(app_state);
+            if (held == .fishing_rod) return useFishingRod(app_state);
             if (held.recordName() != null) return insertRecordAtTarget(app_state, held);
             if (held.minecartKind()) |kind| return placeMinecartAtTarget(app_state, kind);
             break :blk held.placedBlock() orelse {
@@ -3021,6 +3045,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             else => &particle_mesh,
         };
         try render.entity_render.appendParticle(target, app_state.frame, &app_state.level.world_map, particle, basis, partial);
+    }
+    for (app_state.level.entities.hooks.items) |hook| {
+        if (hook.dead) continue;
+        try render.entity_render.appendFishHook(&particle_mesh, app_state.frame, &app_state.level.world_map, hook, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
     if (particle_mesh.vertices.items.len > 0) {
