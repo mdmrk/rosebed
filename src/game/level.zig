@@ -214,6 +214,7 @@ fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) 
         if (cart.rider == Animal.Entity.no_id) continue;
         const entry = self.entities.mobById(cart.rider) orelse continue;
         if (!entry.animal.isAlive()) {
+            entry.animal.riding = Animal.Entity.no_id;
             cart.rider = Animal.Entity.no_id;
             continue;
         }

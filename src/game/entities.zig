@@ -1192,7 +1192,7 @@ pub fn tickMinecarts(
 
         if (cart.dead) {
             const wreck = cart.*;
-            self.releaseRider(wreck.rider);
+            self.releaseRider(wreck.rider, wreck.base);
             _ = self.minecarts.orderedRemove(index);
             try self.breakUpMinecart(gpa, wreck, rand);
             continue;
@@ -1241,10 +1241,13 @@ fn shoveMinecarts(self: *Entities, index: usize) void {
     }
 }
 
-pub fn releaseRider(self: *Entities, id: Entity.Id) void {
+pub fn releaseRider(self: *Entities, id: Entity.Id, mount: Entity) void {
     if (id == Entity.no_id) return;
     for (self.mobs.items) |entry| {
-        if (entry.animal.base.id == id) entry.animal.riding = Entity.no_id;
+        if (entry.animal.base.id != id) continue;
+        entry.animal.riding = Entity.no_id;
+        entry.animal.base.position = Entity.dismountPosition(mount);
+        entry.animal.base.prev_position = entry.animal.base.position;
     }
 }
 
@@ -2580,6 +2583,35 @@ test "a rolling empty cart scoops up a pig it runs into, and a chest cart does n
     const pig = entities.first(Pig, mob.pig).?;
     try std.testing.expectEqual(cart_id, pig.animal.riding);
     try std.testing.expectEqual(pig.animal.base.id, entities.minecartById(cart_id).?.rider);
+}
+
+test "a wrecked cart sets its passenger down on top of where it stood" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 12);
+    defer w.deinit();
+    var step: i32 = 4;
+    while (step <= 12) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+
+    var rand = world.JavaRandom.init(3);
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
+    const cart_id = try entities.spawnMinecart(gpa, 7.5, 12.5, 8.5, .empty);
+    entities.minecartById(cart_id).?.base.motion = math.Vec3.init(0.3, 0, 0);
+    for (0..6) |_| try entities.tickMinecarts(gpa, &w, &.{}, &rand);
+
+    const pig = entities.first(Pig, mob.pig).?;
+    try std.testing.expectEqual(cart_id, pig.animal.riding);
+
+    const wreck = entities.minecartById(cart_id).?;
+    const stood_at = wreck.base;
+    _ = wreck.hurt(5);
+    try entities.tickMinecarts(gpa, &w, &.{}, &rand);
+
+    try std.testing.expect(entities.minecartById(cart_id) == null);
+    try std.testing.expectEqual(Entity.no_id, pig.animal.riding);
+    try std.testing.expect(pig.animal.base.position.y >= stood_at.position.y + Minecart.height - 1.0e-9);
 }
 
 test "a chest cart bumps a pig aside instead of carrying it" {

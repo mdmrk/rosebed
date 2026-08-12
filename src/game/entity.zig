@@ -53,6 +53,10 @@ pub fn boundingBox(self: Entity) math.AABB {
     );
 }
 
+pub fn dismountPosition(mount: Entity) math.Vec3 {
+    return math.Vec3.init(mount.position.x, mount.position.y + mount.height, mount.position.z);
+}
+
 pub fn lightSamplePosition(self: Entity) [3]i32 {
     return .{
         math.util.floorDouble(self.position.x),

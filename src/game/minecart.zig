@@ -721,6 +721,17 @@ test "only a moving, empty, riderless cart scoops a passenger up" {
     }
 }
 
+test "stepping off a cart sets you down on top of it, not in the seat" {
+    const cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    const seat = cart.riderPosition();
+    const off = Entity.dismountPosition(cart.base);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 12.15 + height), off.y, 1.0e-12);
+    try std.testing.expect(off.y > seat.y);
+    try std.testing.expectApproxEqAbs(cart.base.position.x, off.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(cart.base.position.z, off.z, 1.0e-12);
+}
+
 test "a rider sits just above the cart floor" {
     const cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
     const seat = cart.riderPosition();

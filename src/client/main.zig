@@ -2465,7 +2465,21 @@ fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
 fn dismount(app_state: *AppState) void {
     const mount = app_state.player.riding;
     app_state.player.riding = game.Entity.no_id;
-    if (app_state.level.entities.minecartById(mount)) |cart| cart.rider = game.Entity.no_id;
+    if (mount == game.Entity.no_id) return;
+
+    const base: ?game.Entity = blk: {
+        if (app_state.level.entities.minecartById(mount)) |cart| {
+            cart.rider = game.Entity.no_id;
+            break :blk cart.base;
+        }
+        if (app_state.level.entities.boatById(mount)) |boat| break :blk boat.base;
+        if (app_state.level.entities.mobById(mount)) |entry| break :blk entry.animal.base;
+        break :blk null;
+    };
+
+    const stood_on = base orelse return;
+    app_state.player.base.position = game.Entity.dismountPosition(stood_on);
+    app_state.player.base.prev_position = app_state.player.base.position;
 }
 
 fn useFishingRod(app_state: *AppState) !bool {
