@@ -1,13 +1,14 @@
 const std = @import("std");
 
 const block = @import("block.zig");
+const chest = @import("chest.zig");
 const Block = @import("block.zig").Block;
 const JavaRandom = @import("java_random.zig");
 const World = @import("world_map.zig");
 
 const room_height: i32 = 3;
 
-pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bool {
+pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !bool {
     const radius_x = rand.nextIntBound(2) + 2;
     const radius_z = rand.nextIntBound(2) + 2;
 
@@ -67,8 +68,10 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
             if (solid_sides != 1) continue;
 
             world_map.setBlock(cx, y, cz, .chest);
+            const state = try world_map.addChest(cx, y, cz);
             for (0..8) |_| {
-                if (rollLootItem(rand)) _ = rand.nextIntBound(27);
+                const stack = rollLootItem(rand) orelse continue;
+                state.slot(@intCast(rand.nextIntBound(chest.slot_count))).* = stack;
             }
             break :tries;
         }
@@ -79,26 +82,94 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) bo
     return true;
 }
 
-fn rollLootItem(rand: *JavaRandom) bool {
+fn some(rand: *JavaRandom, id: block.Id) block.Stack {
+    return .{ .id = id, .count = @intCast(rand.nextIntBound(4) + 1) };
+}
+
+fn one(id: block.Id) block.Stack {
+    return .{ .id = id, .count = 1 };
+}
+
+fn rollLootItem(rand: *JavaRandom) ?block.Stack {
     return switch (rand.nextIntBound(11)) {
-        0, 2, 6, 10 => true,
-        1, 3, 4, 5 => blk: {
-            _ = rand.nextIntBound(4);
-            break :blk true;
-        },
-        7 => rand.nextIntBound(100) == 0,
-        8 => blk: {
-            if (rand.nextIntBound(2) != 0) break :blk false;
-            _ = rand.nextIntBound(4);
-            break :blk true;
-        },
-        9 => blk: {
-            if (rand.nextIntBound(10) != 0) break :blk false;
-            _ = rand.nextIntBound(2);
-            break :blk true;
-        },
+        0 => one(.{ .item = .saddle }),
+        1 => some(rand, .{ .item = .ingot_iron }),
+        2 => one(.{ .item = .bread }),
+        3 => some(rand, .{ .item = .wheat }),
+        4 => some(rand, .{ .item = .gunpowder }),
+        5 => some(rand, .{ .item = .string }),
+        6 => one(.{ .item = .bucket }),
+        7 => if (rand.nextIntBound(100) == 0) one(.{ .item = .apple_gold }) else null,
+        8 => if (rand.nextIntBound(2) == 0) some(rand, .{ .item = .redstone }) else null,
+        9 => if (rand.nextIntBound(10) == 0)
+            one(.{ .item = if (rand.nextIntBound(2) == 0) .record_13 else .record_cat })
+        else
+            null,
+        10 => .{ .id = .{ .item = .dye }, .count = 1, .meta = cocoa_beans_meta },
         else => unreachable,
     };
+}
+
+const cocoa_beans_meta: u16 = 3;
+
+fn burnLootRolls(rand: *JavaRandom) void {
+    switch (rand.nextIntBound(11)) {
+        0, 2, 6, 10 => {},
+        1, 3, 4, 5 => _ = rand.nextIntBound(4),
+        7 => _ = rand.nextIntBound(100),
+        8 => if (rand.nextIntBound(2) == 0) {
+            _ = rand.nextIntBound(4);
+        },
+        9 => if (rand.nextIntBound(10) == 0) {
+            _ = rand.nextIntBound(2);
+        },
+        else => unreachable,
+    }
+}
+
+test "handing out real stacks draws exactly the stream the RNG-only roll drew" {
+    // Dungeon loot sits in the middle of decoration, so any change to how many values
+    // pickCheckLootItem takes shifts every later feature in the chunk. burnLootRolls is
+    // the draw pattern this file had while it only counted; the two must stay in step.
+    var giving = JavaRandom.init(12345);
+    var burning = JavaRandom.init(12345);
+
+    for (0..5000) |_| {
+        _ = rollLootItem(&giving);
+        burnLootRolls(&burning);
+    }
+
+    try std.testing.expectEqual(burning.seed, giving.seed);
+}
+
+test "every branch of the loot table can come out of it" {
+    var seen_saddle = false;
+    var seen_apple = false;
+    var seen_record = false;
+    var seen_cocoa = false;
+    var seen_stack = false;
+
+    var rand = JavaRandom.init(99);
+    for (0..20000) |_| {
+        const stack = rollLootItem(&rand) orelse continue;
+        switch (stack.id.item) {
+            .saddle => seen_saddle = true,
+            .apple_gold => seen_apple = true,
+            .record_13, .record_cat => seen_record = true,
+            .dye => {
+                try std.testing.expectEqual(cocoa_beans_meta, stack.meta);
+                seen_cocoa = true;
+            },
+            .ingot_iron, .wheat, .gunpowder, .string, .redstone => {
+                try std.testing.expect(stack.count >= 1 and stack.count <= 4);
+                seen_stack = true;
+            },
+            .bread, .bucket => try std.testing.expectEqual(@as(u8, 1), stack.count),
+            else => return error.TestUnexpectedResult,
+        }
+    }
+
+    try std.testing.expect(seen_saddle and seen_apple and seen_record and seen_cocoa and seen_stack);
 }
 
 fn testWorldWithChunk() !World {
@@ -124,7 +195,7 @@ test "a dungeon carves a room and places a spawner in solid stone" {
     w.setBlock(12, 41, 8, .air);
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 8, 40, 8);
+    const made = try generate(&w, &rand, 8, 40, 8);
     try std.testing.expect(made);
     try std.testing.expectEqual(.mob_spawner, w.getBlock(8, 40, 8));
     try std.testing.expectEqual(.air, w.getBlock(8, 41, 8));
@@ -139,13 +210,45 @@ test "a dungeon carves a room and places a spawner in solid stone" {
     try std.testing.expect(found_wall);
 }
 
+test "a carved dungeon leaves a stocked chest behind, not a bare block" {
+    var stocked = false;
+    var slots_used: usize = 0;
+
+    for (0..24) |seed| {
+        var w = try testWorldWithChunk();
+        defer w.deinit();
+        w.setBlock(12, 40, 8, .air);
+        w.setBlock(12, 41, 8, .air);
+
+        var rand = JavaRandom.init(@intCast(seed));
+        if (!try generate(&w, &rand, 8, 40, 8)) continue;
+
+        for (0..16) |x| {
+            for (0..16) |z| {
+                const cx: i32 = @intCast(x);
+                const cz: i32 = @intCast(z);
+                if (w.getBlock(cx, 40, cz) != .chest) continue;
+
+                const state = w.chestAt(cx, 40, cz) orelse return error.TestUnexpectedResult;
+                for (state.items) |maybe| {
+                    if (maybe != null) slots_used += 1;
+                }
+                if (!state.isEmpty()) stocked = true;
+            }
+        }
+    }
+
+    try std.testing.expect(stocked);
+    try std.testing.expect(slots_used > 0);
+}
+
 test "a dungeon refuses to carve into open air" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 8, 40, 8);
+    const made = try generate(&w, &rand, 8, 40, 8);
     try std.testing.expect(!made);
 }
 
@@ -169,7 +272,7 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
     w.setBlock(20, 41, 8, .air);
 
     var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 15, 40, 8);
+    const made = try generate(&w, &rand, 15, 40, 8);
     try std.testing.expect(made);
 
     var found_wall_in_neighbor = false;
@@ -192,7 +295,7 @@ test "a dungeon leaves the stone above its room untouched" {
     w.setBlock(12, 41, 8, .air);
 
     var rand = JavaRandom.init(1);
-    try std.testing.expect(generate(&w, &rand, 8, 40, 8));
+    try std.testing.expect(try generate(&w, &rand, 8, 40, 8));
 
     try std.testing.expectEqual(.air, w.getBlock(8, 43, 8));
     for (0..16) |x| {

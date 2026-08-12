@@ -270,7 +270,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = dungeons.generate(world_map, &decorate_rand, x, y, z);
+        _ = try dungeons.generate(world_map, &decorate_rand, x, y, z);
     }
 
     decorate.generateClayPatches(world_map, chunk_x, chunk_z, &decorate_rand);
