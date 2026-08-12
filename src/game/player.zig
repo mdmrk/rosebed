@@ -11,6 +11,8 @@ const raycast = @import("raycast.zig");
 const Player = @This();
 
 base: Entity,
+riding: Entity.Id = Entity.no_id,
+ride_input: math.Vec3 = math.Vec3.init(0, 0, 0),
 yaw: f32 = 0,
 pitch: f32 = 0,
 prev_yaw: f32 = 0,
@@ -124,6 +126,36 @@ pub fn spawn(position: math.Vec3) Player {
     var player: Player = .{ .base = Entity.init(position, width, height) };
     player.base.step_height = step_height;
     return player;
+}
+
+pub const ride_push_speed: f64 = air_speed;
+
+pub fn tickRidden(self: *Player, strafe: f32, forward: f32) void {
+    self.base.beginTick();
+    self.jumped = false;
+    self.drowned = false;
+    self.prev_distance_walked = self.distance_walked;
+    self.prev_camera_yaw = self.camera_yaw;
+    self.prev_camera_pitch = self.camera_pitch;
+    self.prev_yaw = self.yaw;
+    self.prev_pitch = self.pitch;
+    self.prev_render_yaw = self.render_yaw;
+    self.prev_y_size = self.y_size;
+
+    self.base.motion = math.Vec3.init(0, 0, 0);
+    self.fall_distance = 0;
+    self.base.on_ground = true;
+
+    const dir = self.moveDirection(strafe, forward);
+    self.ride_input = math.Vec3.init(
+        @as(f64, dir[0]) * ride_push_speed,
+        0,
+        @as(f64, dir[2]) * ride_push_speed,
+    );
+
+    if (self.hurt_time > 0) self.hurt_time -= 1;
+    if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
+    if (self.health <= 0) self.death_time += 1;
 }
 
 pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {

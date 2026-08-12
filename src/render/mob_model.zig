@@ -267,6 +267,40 @@ pub const wolf: Model = .{
     .texture_height = 32,
 };
 
+const boat_length: f32 = 24;
+const boat_wall: f32 = 6;
+const boat_beam: f32 = 20;
+const boat_lift: f32 = 4;
+
+const boat_hull: Box = .{
+    .origin = .{ -boat_length / 2, -boat_beam / 2 + 2, -3 },
+    .size = .{ boat_length, boat_beam - 4, 4 },
+    .tex_u = 0,
+    .tex_v = 8,
+};
+
+const boat_side: Box = .{
+    .origin = .{ -boat_length / 2 + 2, -boat_wall - 1, -1 },
+    .size = .{ boat_length - 4, boat_wall, 2 },
+    .tex_u = 0,
+    .tex_v = 0,
+};
+
+const boat_parts = [5]Part{
+    .{ .box = boat_hull, .pivot = .{ 0, boat_lift, 0 }, .rotate_x = std.math.pi * 0.5 },
+    .{ .box = boat_side, .pivot = .{ -boat_length / 2 + 1, boat_lift, 0 }, .rotate_y = std.math.pi * 1.5 },
+    .{ .box = boat_side, .pivot = .{ boat_length / 2 - 1, boat_lift, 0 }, .rotate_y = std.math.pi * 0.5 },
+    .{ .box = boat_side, .pivot = .{ 0, boat_lift, -boat_beam / 2 + 1 }, .rotate_y = std.math.pi },
+    .{ .box = boat_side, .pivot = .{ 0, boat_lift, boat_beam / 2 - 1 } },
+};
+
+pub const boat: Model = .{
+    .parts = &boat_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
 pub const WolfPose = struct {
     limb_swing: f32,
     limb_swing_amount: f32,
@@ -852,4 +886,45 @@ test "an armour layer poses exactly like the skin under it" {
         try std.testing.expectEqual(base.rotate_z, layer.rotate_z);
         try std.testing.expectEqual(base.pivot, layer.pivot);
     }
+}
+test "ModelBoat's hull and four walls close into a boat" {
+    const gpa = std.testing.allocator;
+
+    var bounds: [5][2][3]f32 = undefined;
+    for (boat.parts, &bounds) |part, *out| {
+        var mesh: MeshBuilder = .{};
+        defer mesh.deinit(gpa);
+        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+        try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
+
+        out[0] = .{ 1000, 1000, 1000 };
+        out[1] = .{ -1000, -1000, -1000 };
+        for (mesh.vertices.items) |v| {
+            out[0] = .{ @min(out[0][0], v.x), @min(out[0][1], v.y), @min(out[0][2], v.z) };
+            out[1] = .{ @max(out[1][0], v.x), @max(out[1][1], v.y), @max(out[1][2], v.z) };
+        }
+    }
+
+    const tol: f32 = 1.0e-5;
+    const hull = bounds[0];
+    try std.testing.expectApproxEqAbs(@as(f32, -0.75), hull[0][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), hull[1][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.4375), hull[0][1], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.1875), hull[1][1], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.5), hull[0][2], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), hull[1][2], tol);
+
+    for (bounds[1..]) |wall| {
+        try std.testing.expectApproxEqAbs(hull[1][1], wall[0][1], tol);
+        try std.testing.expectApproxEqAbs(@as(f32, 0.1875), wall[1][1], tol);
+    }
+
+    try std.testing.expectApproxEqAbs(@as(f32, -0.75), bounds[1][0][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.625), bounds[1][1][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.625), bounds[2][0][0], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), bounds[2][1][0], tol);
+    try std.testing.expectApproxEqAbs(hull[1][2], bounds[3][0][2], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.625), bounds[3][1][2], tol);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.625), bounds[4][0][2], tol);
+    try std.testing.expectApproxEqAbs(hull[0][2], bounds[4][1][2], tol);
 }

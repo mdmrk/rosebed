@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Animal = @import("animal.zig");
 const Arrow = @import("arrow.zig");
+const Boat = @import("boat.zig");
 const Chicken = @import("chicken.zig");
 const Cow = @import("cow.zig");
 const Creeper = @import("creeper.zig");
@@ -39,6 +40,7 @@ mobs: std.ArrayList(Mob) = .empty,
 particles: std.ArrayList(Particle) = .empty,
 pickups: std.ArrayList(PickupFx) = .empty,
 paintings: std.ArrayList(Painting) = .empty,
+boats: std.ArrayList(Boat) = .empty,
 next_entity_id: Entity.Id = 1,
 
 pub const Mob = struct {
@@ -49,6 +51,7 @@ pub const Mob = struct {
 pub const Target = union(enum) {
     mob: Entity.Id,
     painting: Entity.Id,
+    boat: Entity.Id,
 };
 
 pub fn Iterator(comptime T: type) type {
@@ -89,8 +92,22 @@ pub fn mobById(self: *const Entities, id: Entity.Id) ?Mob {
 pub fn mobAt(self: *const Entities, target: Target) ?Mob {
     return switch (target) {
         .mob => |id| self.mobById(id),
-        .painting => null,
+        .painting, .boat => null,
     };
+}
+
+pub fn boatById(self: *Entities, id: Entity.Id) ?*Boat {
+    for (self.boats.items) |*boat| {
+        if (boat.base.id == id and !boat.dead) return boat;
+    }
+    return null;
+}
+
+pub fn spawnBoat(self: *Entities, gpa: std.mem.Allocator, x: f64, y: f64, z: f64) !Entity.Id {
+    var boat = Boat.spawn(x, y, z);
+    boat.base.id = self.takeId();
+    try self.boats.append(gpa, boat);
+    return boat.base.id;
 }
 
 pub fn removePainting(self: *Entities, id: Entity.Id) ?Painting {
@@ -210,6 +227,22 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
         }
     }
 
+    for (self.boats.items) |boat| {
+        if (boat.dead) continue;
+
+        const box = boat.base.boundingBox().expand(collision_border, collision_border, collision_border);
+        const target: Target = .{ .boat = boat.base.id };
+        if (boxHolds(box, start)) {
+            found = target;
+            nearest = 0;
+        } else if (boxRayDistance(box, start, along, reach)) |distance| {
+            if (distance < nearest or nearest == 0) {
+                found = target;
+                nearest = distance;
+            }
+        }
+    }
+
     for (self.mobs.items) |entry| {
         if (!entry.animal.isAlive()) continue;
 
@@ -243,6 +276,7 @@ pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: ?Animal.
             return hit;
         },
         .painting => false,
+        .boat => |id| (self.boatById(id) orelse return false).hurt(amount),
     };
 }
 
@@ -278,6 +312,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.particles.deinit(gpa);
     self.pickups.deinit(gpa);
     self.paintings.deinit(gpa);
+    self.boats.deinit(gpa);
     for (self.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
     self.mobs.deinit(gpa);
 }
@@ -289,7 +324,7 @@ pub fn animalCount(self: *const Entities) usize {
 
 pub fn count(self: *const Entities) usize {
     return self.items.items.len + self.arrows.items.len + self.fireballs.items.len +
-        self.falling_blocks.items.len + self.paintings.items.len + self.mobs.items.len;
+        self.falling_blocks.items.len + self.paintings.items.len + self.boats.items.len + self.mobs.items.len;
 }
 
 pub fn dropStackAt(
@@ -1007,6 +1042,64 @@ fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?A
     };
 }
 
+pub const BoatRider = struct {
+    id: Entity.Id,
+    motion: math.Vec3,
+};
+
+fn breakUpBoat(self: *Entities, gpa: std.mem.Allocator, boat: Boat, rand: *world.JavaRandom) !void {
+    const x = math.util.floorDouble(boat.base.position.x);
+    const y = math.util.floorDouble(boat.base.position.y);
+    const z = math.util.floorDouble(boat.base.position.z);
+
+    for (0..Boat.plank_drops) |_| {
+        try self.dropStack(gpa, x, y, z, .{ .id = .{ .block = .planks }, .count = 1 }, rand);
+    }
+    for (0..Boat.stick_drops) |_| {
+        try self.dropStack(gpa, x, y, z, .{ .id = .{ .item = .stick }, .count = 1 }, rand);
+    }
+}
+
+pub fn tickBoats(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    rider: ?BoatRider,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.boats.items.len) {
+        const boat = &self.boats.items[index];
+        const push: ?math.Vec3 = if (rider) |on_board|
+            (if (on_board.id == boat.base.id) on_board.motion else null)
+        else
+            null;
+
+        const step = boat.tick(world_map, push);
+
+        for (0..Boat.wakeCount(step.speed)) |_| {
+            const wake = boat.wakeAt(rand);
+            try self.particles.append(gpa, Particle.spawnSplash(wake.position, wake.motion, rand));
+        }
+
+        for (0..4) |corner| {
+            const cell = boat.crushedSnow(corner);
+            if (world_map.getBlock(cell[0], cell[1], cell[2]) != .snow_layer) continue;
+            try world_map.setBlockWithNotify(cell[0], cell[1], cell[2], .air);
+        }
+
+        if (boat.dead) {
+            const wreck = boat.*;
+            _ = self.boats.orderedRemove(index);
+            if (step.broke_up or wreck.damage > Boat.break_damage) {
+                try self.breakUpBoat(gpa, wreck, rand);
+            }
+            continue;
+        }
+        index += 1;
+    }
+}
+
 pub fn tickArrows(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1352,6 +1445,11 @@ fn collectChunkEntities(
         if (chunkOf(painting.position.x) != chunk_x or chunkOf(painting.position.z) != chunk_z) continue;
         try out.append(gpa, try world.entity_nbt.storePainting(gpa, painting.toRecord()));
     }
+    for (self.boats.items) |boat| {
+        if (boat.dead) continue;
+        if (chunkOf(boat.base.position.x) != chunk_x or chunkOf(boat.base.position.z) != chunk_z) continue;
+        try out.append(gpa, try world.entity_nbt.storeBoat(gpa, boat.toRecord()));
+    }
 }
 
 fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!void {
@@ -1369,6 +1467,10 @@ fn restoreChunkEntity(context: *anyopaque, gpa: std.mem.Allocator, entity: world
         try self.arrows.append(gpa, Arrow.fromRecord(record));
     } else if (world.entity_nbt.loadPainting(entity)) |record| {
         if (Painting.fromRecord(record)) |painting| try self.spawnPainting(gpa, painting);
+    } else if (world.entity_nbt.loadBoat(entity)) |record| {
+        var boat = Boat.fromRecord(record);
+        boat.base.id = self.takeId();
+        try self.boats.append(gpa, boat);
     }
 }
 
@@ -1386,6 +1488,9 @@ pub fn anyInBox(self: *Entities, box: math.AABB, living_only: bool) bool {
     }
     for (self.fireballs.items) |*ball| {
         if (ball.base.boundingBox().intersects(box)) return true;
+    }
+    for (self.boats.items) |*boat| {
+        if (boat.base.boundingBox().intersects(box)) return true;
     }
     return false;
 }

@@ -28,6 +28,10 @@ pub fn nextInt(self: *JavaRandom) i32 {
     return self.next(32);
 }
 
+pub fn nextBoolean(self: *JavaRandom) bool {
+    return self.next(1) != 0;
+}
+
 pub fn nextIntBound(self: *JavaRandom, bound: i32) i32 {
     if ((bound & -%bound) == bound) {
         return @intCast((@as(i64, bound) *% @as(i64, self.next(31))) >> 31);

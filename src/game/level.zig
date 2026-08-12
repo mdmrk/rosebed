@@ -151,6 +151,28 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
     self.world_map.dispensed.clearRetainingCapacity();
 }
 
+fn tickBoats(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {
+    var rider: ?Entities.BoatRider = null;
+    for (self.roster.items) |player| {
+        if (player.riding == Animal.Entity.no_id) continue;
+        rider = .{ .id = player.riding, .motion = player.ride_input };
+        break;
+    }
+
+    try self.entities.tickBoats(gpa, &self.world_map, rider, rand);
+
+    for (self.roster.items) |player| {
+        if (player.riding == Animal.Entity.no_id) continue;
+        const boat = self.entities.boatById(player.riding) orelse {
+            player.riding = Animal.Entity.no_id;
+            continue;
+        };
+        player.base.position = boat.riderPosition();
+        player.base.prev_position = player.base.position;
+        player.base.motion = math.Vec3.init(0, 0, 0);
+    }
+}
+
 fn tickFallingBlocks(self: *Level, gpa: std.mem.Allocator) !void {
     var index: usize = 0;
     while (index < self.entities.falling_blocks.items.len) {
@@ -255,6 +277,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.tick_count += 1;
     self.refreshViews();
 
+    try self.tickBoats(gpa, rand);
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items);

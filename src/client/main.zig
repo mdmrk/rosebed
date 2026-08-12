@@ -24,6 +24,7 @@ const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
 const reach_distance = 4.5;
+const boat_reach = 5.0;
 const bucket_reach = 5.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
@@ -2192,6 +2193,11 @@ fn eatHeldFood(app_state: *AppState, held: world.Item, heal_amount: u8) void {
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
+    if (target == .boat) {
+        const boat = app_state.level.entities.boatById(target.boat) orelse return false;
+        app_state.player.riding = boat.base.id;
+        return true;
+    }
     const entry = app_state.level.entities.mobAt(target) orelse return false;
     const held: ?world.Item = if (app_state.player.inventory.selectedStack()) |stack| switch (stack.id) {
         .item => |id| id,
@@ -2397,6 +2403,28 @@ fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
     return true;
 }
 
+fn placeBoatAtTarget(app_state: *AppState) !bool {
+    const hit = game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        boat_reach,
+    ) orelse return false;
+
+    const on_snow = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) == .snow_layer;
+    const floor = if (on_snow) hit.y - 1 else hit.y;
+
+    _ = try app_state.level.entities.spawnBoat(
+        app_state.gpa,
+        @as(f64, @floatFromInt(hit.x)) + 0.5,
+        @as(f64, @floatFromInt(floor)) + 1.0,
+        @as(f64, @floatFromInt(hit.z)) + 0.5,
+    );
+    try app_state.stats.use(app_state.gpa, .{ .item = .boat });
+    consumeSelectedStack(app_state);
+    return true;
+}
+
 fn placeBlockAtTarget(app_state: *AppState) !bool {
     const stack = app_state.player.inventory.selectedStack() orelse return false;
     const placed = switch (stack.id) {
@@ -2407,6 +2435,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held == .painting) return hangPaintingAtTarget(app_state);
             if (held == .bed) return placeBedAtTarget(app_state);
             if (held == .sign) return placeSignAtTarget(app_state);
+            if (held == .boat) return placeBoatAtTarget(app_state);
             if (held.recordName() != null) return insertRecordAtTarget(app_state, held);
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
@@ -2553,13 +2582,18 @@ fn tick(app_state: *AppState) !void {
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
     const was_in_water = app_state.player.base.in_water;
-    app_state.player.tick(
-        &app_state.level.world_map,
-        strafe,
-        forward,
-        moving_allowed and app_state.keys.jump,
-        moving_allowed and app_state.keys.sneak,
-    );
+    if (app_state.player.riding != game.Entity.no_id) {
+        app_state.player.tickRidden(strafe, forward);
+        if (moving_allowed and app_state.keys.sneak) app_state.player.riding = game.Entity.no_id;
+    } else {
+        app_state.player.tick(
+            &app_state.level.world_map,
+            strafe,
+            forward,
+            moving_allowed and app_state.keys.jump,
+            moving_allowed and app_state.keys.sneak,
+        );
+    }
     try recordPlayerTick(app_state, before_move);
     if (app_state.player.isDead() and !app_state.dead) try killPlayer(app_state);
     if (!was_in_water and app_state.player.base.in_water and app_state.level.tick_count > 0) {
@@ -2923,6 +2957,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    var boat_mesh: render.MeshBuilder = .{};
+    defer boat_mesh.deinit(app_state.frame);
+    for (app_state.level.entities.boats.items) |boat| {
+        if (boat.dead) continue;
+        try render.entity_render.appendBoat(&boat_mesh, app_state.frame, &app_state.level.world_map, boat, partial);
+    }
+
     var pig_mesh: render.MeshBuilder = .{};
     defer pig_mesh.deinit(app_state.frame);
     var saddle_mesh: render.MeshBuilder = .{};
@@ -3095,6 +3136,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
+    if (boat_mesh.vertices.items.len > 0) {
+        app_state.textures.boat.bind();
+        drawEntityMesh(&boat_mesh);
+    }
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
         drawEntityMesh(&pig_mesh);

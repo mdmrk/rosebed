@@ -2684,3 +2684,45 @@ test "a shaking wolf is drawn dimmer than a dry one" {
 
     try std.testing.expect(wet.vertices.items[0].color[0] < dry.vertices.items[0].color[0]);
 }
+
+pub fn appendBoat(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    boat: game.Boat,
+    partial_ticks: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const pos = boat.base.renderPosition(partial_ticks);
+    const yaw = boat.prev_yaw + (boat.yaw - boat.prev_yaw) * partial_ticks;
+
+    const pose: mob_model.Pose = .{
+        .position = .{
+            @floatCast(pos.x),
+            @floatCast(pos.y + game.Boat.y_offset),
+            @floatCast(pos.z),
+        },
+        .yaw = yaw * to_radians,
+        .roll = boatRock(boat, partial_ticks) * to_radians,
+    };
+
+    for (mob_model.boat.parts) |part| {
+        try mob_model.appendPart(
+            mesh,
+            gpa,
+            part,
+            mob_model.boat.texture_width,
+            mob_model.boat.texture_height,
+            pose,
+        );
+    }
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, boat.base));
+}
+
+pub fn boatRock(boat: game.Boat, partial_ticks: f32) f32 {
+    const since_hit = @as(f32, @floatFromInt(boat.time_since_hit)) - partial_ticks;
+    if (since_hit <= 0) return 0;
+    const damage = @max(@as(f32, @floatFromInt(boat.damage)) - partial_ticks, 0);
+    return @sin(since_hit) * since_hit * damage / 10.0 * @as(f32, @floatFromInt(boat.rock_direction));
+}

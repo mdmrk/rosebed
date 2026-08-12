@@ -20,6 +20,7 @@ pub const wolf_owner = "Player";
 pub const item_id = "Item";
 pub const arrow_id = "Arrow";
 pub const painting_id = "Painting";
+pub const boat_id = "Boat";
 
 pub const max_stored_motion: f64 = 10.0;
 
@@ -144,6 +145,10 @@ pub const Painting = struct {
     tile: [3]i32,
     direction: u2,
     motive: []const u8,
+};
+
+pub const Boat = struct {
+    base: Base,
 };
 
 fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
@@ -388,6 +393,18 @@ pub fn storeArrow(gpa: std.mem.Allocator, arrow: Arrow) !nbt.Tag {
     return .{ .compound = compound };
 }
 
+pub fn storeBoat(gpa: std.mem.Allocator, boat: Boat) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeBase(gpa, &compound, boat_id, boat.base);
+
+    return .{ .compound = compound };
+}
+
 pub fn storePainting(gpa: std.mem.Allocator, painting: Painting) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -568,6 +585,15 @@ pub fn isArrow(compound: nbt.Compound) bool {
 
 pub fn isPainting(compound: nbt.Compound) bool {
     return hasId(compound, painting_id);
+}
+
+pub fn isBoat(compound: nbt.Compound) bool {
+    return hasId(compound, boat_id);
+}
+
+pub fn loadBoat(compound: nbt.Compound) ?Boat {
+    if (!isBoat(compound)) return null;
+    return .{ .base = loadBase(compound) orelse return null };
 }
 
 fn loadBase(compound: nbt.Compound) ?Base {

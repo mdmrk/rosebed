@@ -237,6 +237,31 @@ pub fn handleWaterMovement(world_map: *const world.World, box: math.AABB) ?math.
     return flow.normalize().scale(flow_acceleration);
 }
 
+pub fn isBoxInMaterial(world_map: *const world.World, box: math.AABB, material: world.Material) bool {
+    const min_x = math.util.floorDouble(box.min_x);
+    const max_x = math.util.floorDouble(box.max_x + 1.0);
+    const min_y = math.util.floorDouble(box.min_y);
+    const max_y = math.util.floorDouble(box.max_y + 1.0);
+    const min_z = math.util.floorDouble(box.min_z);
+    const max_z = math.util.floorDouble(box.max_z + 1.0);
+
+    var x = min_x;
+    while (x < max_x) : (x += 1) {
+        var y = min_y;
+        while (y < max_y) : (y += 1) {
+            var z = min_z;
+            while (z < max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z).material() != material) continue;
+                const meta = world_map.getBlockMetadata(x, y, z);
+                const top: f64 = @floatFromInt(y + 1);
+                const surface = if (meta < 8) top - @as(f64, @floatFromInt(meta)) / 8.0 else top;
+                if (surface >= box.min_y) return true;
+            }
+        }
+    }
+    return false;
+}
+
 pub fn isBoxObstructed(world_map: *const world.World, box: math.AABB) bool {
     var box_buf: [max_colliding_boxes]math.AABB = undefined;
     const count = collidingBoxes(world_map, box, &box_buf);
