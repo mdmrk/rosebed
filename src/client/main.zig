@@ -2218,6 +2218,7 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
         .block => null,
     } else null;
 
+    if (entry.type_id == game.mob.pig) return interactWithPig(app_state, entry.animal, held);
     if (entry.type_id == game.mob.wolf) return interactWithWolf(app_state, entry.animal, held);
     if (entry.type_id == game.mob.sheep) return interactWithSheep(app_state, entry.animal, held);
     if (entry.type_id != game.mob.cow) return false;
@@ -2251,6 +2252,20 @@ fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
             );
         },
     }
+    return true;
+}
+
+fn interactWithPig(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
+    const pig: *game.Pig = @fieldParentPtr("animal", animal);
+    if (pig.saddled) {
+        app_state.player.riding = animal.base.id;
+        return true;
+    }
+
+    if ((held orelse return false) != .saddle) return false;
+    pig.saddled = true;
+    try app_state.stats.use(app_state.gpa, .{ .item = .saddle });
+    consumeSelectedStack(app_state);
     return true;
 }
 

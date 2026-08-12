@@ -13,6 +13,7 @@ const spawner = @import("spawner.zig");
 const Level = @This();
 
 const block_touch_inset: f64 = 0.001;
+const mounted_fraction: f64 = 0.75;
 
 world_map: world.World,
 generator: world.Generator,
@@ -175,8 +176,24 @@ fn dropStaleRides(self: *Level) void {
         if (player.riding == Animal.Entity.no_id) continue;
         if (self.entities.boatById(player.riding) != null) continue;
         if (self.entities.minecartById(player.riding) != null) continue;
+        if (self.entities.mobById(player.riding)) |mount| {
+            if (mount.animal.isAlive()) {
+                player.base.position = mountedSeat(mount.animal);
+                player.base.prev_position = player.base.position;
+                player.base.motion = math.Vec3.init(0, 0, 0);
+                continue;
+            }
+        }
         player.riding = Animal.Entity.no_id;
     }
+}
+
+fn mountedSeat(animal: *const Animal) math.Vec3 {
+    return math.Vec3.init(
+        animal.base.position.x,
+        animal.base.position.y + animal.base.height * mounted_fraction,
+        animal.base.position.z,
+    );
 }
 
 fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {

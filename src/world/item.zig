@@ -331,6 +331,7 @@ pub const Item = enum(u16) {
     bucket_water = 326,
     bucket_lava = 327,
     minecart = 328,
+    saddle = 329,
     door_iron = 330,
     redstone = 331,
     snowball = 332,
@@ -480,7 +481,7 @@ pub const Item = enum(u16) {
 
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
-        if (self == .boat) return 1;
+        if (self == .boat or self == .saddle) return 1;
         if (self.vanillaMinecartKind() != null) return 1;
         if (self.vanillaBucketFill() != null) return 1;
         if (self.vanillaRecordName() != null) return 1;
@@ -684,6 +685,7 @@ pub const Item = enum(u16) {
             .painting => 1 * 16 + 10,
             .sign => 2 * 16 + 10,
             .boat => 8 * 16 + 8,
+            .saddle => 6 * 16 + 8,
             .minecart => 8 * 16 + 7,
             .minecart_chest => 9 * 16 + 7,
             .minecart_furnace => 10 * 16 + 7,
@@ -797,6 +799,7 @@ pub const Item = enum(u16) {
             .painting => "Painting",
             .sign => "Sign",
             .boat => "Boat",
+            .saddle => "Saddle",
             .minecart => "Minecart",
             .minecart_chest => "Minecart with Chest",
             .minecart_furnace => "Minecart with Furnace",
@@ -1034,6 +1037,14 @@ test "only leaves wear shears down, where a tool wears on anything it breaks" {
     try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
     try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
+}
+
+test "a saddle is a single-stack item with no heal and no recipe output" {
+    try std.testing.expectEqual(@as(?u8, 104), Item.saddle.iconTile(0));
+    try std.testing.expectEqual(@as(u8, 1), Item.saddle.maxStackSize());
+    try std.testing.expectEqualStrings("Saddle", Item.saddle.displayName(0));
+    try std.testing.expect(Item.saddle.healAmount() == null);
+    try std.testing.expect(Item.saddle.isVanilla());
 }
 
 test "a golden apple is ItemFood's single-stack heal of forty-two" {
