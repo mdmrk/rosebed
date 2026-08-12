@@ -66,6 +66,12 @@ pub const EntityProbe = struct {
     anyInBox: *const fn (context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool,
 };
 
+pub const SoundSink = struct {
+    context: *anyopaque,
+    playSound: *const fn (context: *anyopaque, name: []const u8, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void,
+    playRecord: *const fn (context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void,
+};
+
 pub const ScheduledTick = struct {
     pos: BlockPos,
     id: Block,
@@ -100,6 +106,7 @@ editing_blocks: bool = false,
 brightness: [16]f32 = light.brightness_table,
 torch_updates: std.ArrayList(TorchUpdate) = .empty,
 entity_probe: ?EntityProbe = null,
+sound_sink: ?SoundSink = null,
 access: ?Access = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
@@ -441,6 +448,16 @@ pub fn markChanged(self: *World, x: i32, y: i32, z: i32) !void {
 
 pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
     if (self.access) |access| try access.updateAllRenderers(access.context);
+}
+
+pub fn playSoundEffect(self: *const World, x: f64, y: f64, z: f64, name: []const u8, volume: f32, pitch: f32) void {
+    const sink = self.sound_sink orelse return;
+    sink.playSound(sink.context, name, x, y, z, volume, pitch);
+}
+
+pub fn playRecord(self: *const World, name: ?[]const u8, x: i32, y: i32, z: i32) void {
+    const sink = self.sound_sink orelse return;
+    sink.playRecord(sink.context, name, x, y, z);
 }
 
 pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void {

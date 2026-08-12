@@ -45,9 +45,9 @@ fn loadTable(gpa: std.mem.Allocator, data: []const u8) ![]const [3]u8 {
 }
 
 pub fn load(gpa: std.mem.Allocator) !Colorizer {
-    const grass = try loadTable(gpa, assets.misc.grasscolor_png);
+    const grass = try loadTable(gpa, assets.misc.grasscolor_png.bytes);
     errdefer gpa.free(grass);
-    const foliage = try loadTable(gpa, assets.misc.foliagecolor_png);
+    const foliage = try loadTable(gpa, assets.misc.foliagecolor_png.bytes);
     return .{ .grass = grass, .foliage = foliage };
 }
 

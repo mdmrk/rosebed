@@ -2,6 +2,7 @@ const std = @import("std");
 
 const version_id = "b1.7.3";
 const manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+const resource_url = "https://resources.download.minecraft.net/";
 const dest_dir = "src/assets";
 
 fn fetchAlloc(gpa: std.mem.Allocator, client: *std.http.Client, url: []const u8) ![]u8 {
@@ -41,6 +42,88 @@ fn findClientDownload(gpa: std.mem.Allocator, version_json: []const u8) !ClientD
         .url = try gpa.dupe(u8, client_obj.get("url").?.string),
         .sha1 = try gpa.dupe(u8, client_obj.get("sha1").?.string),
     };
+}
+
+fn findAssetIndexUrl(gpa: std.mem.Allocator, version_json: []const u8) ![]u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, version_json, .{});
+    defer parsed.deinit();
+
+    const index_obj = parsed.value.object.get("assetIndex").?.object;
+    return gpa.dupe(u8, index_obj.get("url").?.string);
+}
+
+const Resource = struct {
+    path: []const u8,
+    hash: []const u8,
+    size: u64,
+    pool: Pool,
+
+    const Pool = enum { embedded, streamed };
+
+    fn lessThan(_: void, a: Resource, b: Resource) bool {
+        return std.mem.order(u8, a.path, b.path) == .lt;
+    }
+};
+
+fn poolFor(path: []const u8) ?Resource.Pool {
+    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
+    const prefix = path[0..slash];
+    if (std.mem.eql(u8, prefix, "sound") or std.mem.eql(u8, prefix, "newsound")) return .embedded;
+    if (std.mem.eql(u8, prefix, "music") or std.mem.eql(u8, prefix, "newmusic")) return .streamed;
+    if (std.mem.eql(u8, prefix, "streaming")) return .streamed;
+    return null;
+}
+
+fn findResources(gpa: std.mem.Allocator, index_json: []const u8) ![]Resource {
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, index_json, .{});
+    defer parsed.deinit();
+
+    var list: std.ArrayList(Resource) = .empty;
+    errdefer list.deinit(gpa);
+
+    var it = parsed.value.object.get("objects").?.object.iterator();
+    while (it.next()) |entry| {
+        const path = entry.key_ptr.*;
+        if (!std.mem.endsWith(u8, path, ".ogg")) continue;
+        const pool = poolFor(path) orelse continue;
+        try list.append(gpa, .{
+            .path = try gpa.dupe(u8, path),
+            .hash = try gpa.dupe(u8, entry.value_ptr.object.get("hash").?.string),
+            .size = @intCast(entry.value_ptr.object.get("size").?.integer),
+            .pool = pool,
+        });
+    }
+
+    std.mem.sort(Resource, list.items, {}, Resource.lessThan);
+    return list.toOwnedSlice(gpa);
+}
+
+fn upToDate(io: std.Io, dir: std.Io.Dir, resource: Resource) bool {
+    const stat = dir.statFile(io, resource.path, .{}) catch return false;
+    return stat.size == resource.size;
+}
+
+fn fetchResource(
+    gpa: std.mem.Allocator,
+    client: *std.http.Client,
+    io: std.Io,
+    dir: std.Io.Dir,
+    resource: Resource,
+) !void {
+    if (upToDate(io, dir, resource)) return;
+
+    const url = try std.fmt.allocPrint(gpa, "{s}{s}/{s}", .{ resource_url, resource.hash[0..2], resource.hash });
+    defer gpa.free(url);
+
+    const bytes = try fetchAlloc(gpa, client, url);
+    defer gpa.free(bytes);
+
+    var actual_hex: [40]u8 = undefined;
+    sha1Hex(bytes, &actual_hex);
+    if (!std.mem.eql(u8, &actual_hex, resource.hash)) return error.ChecksumMismatch;
+
+    if (std.fs.path.dirname(resource.path)) |parent| try dir.createDirPath(io, parent);
+    try dir.writeFile(io, .{ .sub_path = resource.path, .data = bytes });
 }
 
 fn sha1Hex(bytes: []const u8, out: *[40]u8) void {
@@ -101,7 +184,7 @@ fn emit(writer: anytype, alloc: std.mem.Allocator, node: *Node, depth: usize) !v
         try writer.splatByteAll(' ', depth * 4);
         const ident = try identFor(alloc, name);
         if (child.embed_path) |p| {
-            try writer.print("pub const {s} = @embedFile(\"{s}\");\n", .{ ident, p });
+            try writer.print("pub const {s}: Asset = .{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }};\n", .{ ident, p, p });
         } else {
             try writer.print("pub const {s} = struct {{\n", .{ident});
             try emit(writer, alloc, child, depth + 1);
@@ -111,21 +194,44 @@ fn emit(writer: anytype, alloc: std.mem.Allocator, node: *Node, depth: usize) !v
     }
 }
 
-fn writeManifest(io: std.Io, assets_dir: std.Io.Dir, gpa: std.mem.Allocator, names: *std.ArrayList([]const u8)) !void {
+fn writeManifest(
+    io: std.Io,
+    assets_dir: std.Io.Dir,
+    gpa: std.mem.Allocator,
+    names: *std.ArrayList([]const u8),
+    sounds: []const Resource,
+) !void {
     const root = try Node.init(gpa);
     for (names.items) |p| try insert(gpa, root, p);
 
     var out_buf: std.Io.Writer.Allocating = .init(gpa);
     defer out_buf.deinit();
 
+    try out_buf.writer.writeAll(
+        \\pub const Asset = struct { path: []const u8, bytes: []const u8 };
+        \\
+    );
+
     try emit(&out_buf.writer, gpa, root, 0);
+
+    try out_buf.writer.writeAll(
+        \\pub const sounds = [_]Asset{
+        \\
+    );
+    for (sounds) |sound| {
+        try out_buf.writer.print(
+            "    .{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }},\n",
+            .{ sound.path, sound.path },
+        );
+    }
+    try out_buf.writer.writeAll("};\n");
 
     var out_file = try assets_dir.createFile(io, "root.zig", .{ .truncate = true });
     defer out_file.close(io);
     try out_file.writeStreamingAll(io, out_buf.written());
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     const gpa = std.heap.page_allocator;
 
     var threaded: std.Io.Threaded = .init(gpa, .{});
@@ -196,5 +302,36 @@ pub fn main() !void {
     }
     try tmp_dir.deleteFile(io, jar_name);
 
-    try writeManifest(io, assets_dir, gpa, &names);
+    const index_url = try findAssetIndexUrl(gpa, version_body);
+    defer gpa.free(index_url);
+
+    const index_body = try fetchAlloc(gpa, &client, index_url);
+    defer gpa.free(index_body);
+
+    const resources = try findResources(gpa, index_body);
+    defer gpa.free(resources);
+
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
+    defer args.deinit();
+    _ = args.next();
+    const resource_root = args.next() orelse return error.MissingResourceDir;
+
+    try cwd.createDirPath(io, resource_root);
+    var resource_dir = try cwd.openDir(io, resource_root, .{});
+    defer resource_dir.close(io);
+
+    var embedded: std.ArrayList(Resource) = .empty;
+    defer embedded.deinit(gpa);
+
+    for (resources, 1..) |resource, done| {
+        const dir = switch (resource.pool) {
+            .embedded => assets_dir,
+            .streamed => resource_dir,
+        };
+        try fetchResource(gpa, &client, io, dir, resource);
+        if (resource.pool == .embedded) try embedded.append(gpa, resource);
+        std.log.info("resource {d}/{d} {s}", .{ done, resources.len, resource.path });
+    }
+
+    try writeManifest(io, assets_dir, gpa, &names, embedded.items);
 }

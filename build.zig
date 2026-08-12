@@ -13,6 +13,7 @@ const Modules = struct {
     server_mod: *std.Build.Module,
     world_mod: *std.Build.Module,
     assets_mod: *std.Build.Module,
+    audio_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
     render_mod: *std.Build.Module,
 };
@@ -44,6 +45,7 @@ pub fn setupModules(
         .c_sdl_strip = !debug,
         .c_sdl_lto = lto,
         .c_sdl_sanitize_c = .off,
+        .ext_mixer = true,
         .sdl_system_include_path = include_path,
     }) else b.dependency("sdl3", .{
         .target = target,
@@ -51,6 +53,7 @@ pub fn setupModules(
         .c_sdl_strip = !debug,
         .c_sdl_lto = lto,
         .c_sdl_sanitize_c = .off,
+        .ext_mixer = true,
     });
     const sdl3_mod = sdl3_dep.module("sdl3");
 
@@ -85,6 +88,17 @@ pub fn setupModules(
         .root_source_file = b.path("src/assets/root.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const audio_mod = b.createModule(.{
+        .root_source_file = b.path("src/audio/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sdl3", .module = sdl3_mod },
+            .{ .name = "math", .module = math_mod },
+            .{ .name = "assets", .module = assets_mod },
+        },
     });
 
     const game_mod = b.createModule(.{
@@ -149,6 +163,7 @@ pub fn setupModules(
         .server_mod = server_mod,
         .world_mod = world_mod,
         .assets_mod = assets_mod,
+        .audio_mod = audio_mod,
         .game_mod = game_mod,
         .render_mod = render_mod,
     };
@@ -181,6 +196,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "render", .module = modules.render_mod },
                 .{ .name = "game", .module = modules.game_mod },
                 .{ .name = "assets", .module = modules.assets_mod },
+                .{ .name = "audio", .module = modules.audio_mod },
                 .{ .name = "net", .module = modules.net_mod },
                 .{ .name = "remote", .module = modules.remote_mod },
             },
@@ -236,8 +252,10 @@ pub fn build(b: *std.Build) void {
             .target = b.graph.host,
         }),
     });
+    const fetch_assets_run = b.addRunArtifact(fetch_assets);
+    fetch_assets_run.addArg(b.getInstallPath(.bin, "resources"));
     const fetch_assets_step = b.step("fetch-assets", "Download the official Beta 1.7.3 client jar and extract its assets");
-    fetch_assets_step.dependOn(&b.addRunArtifact(fetch_assets).step);
+    fetch_assets_step.dependOn(&fetch_assets_run.step);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.math_mod })).step);
@@ -248,6 +266,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = server.root_module })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.audio_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.game_mod })).step);
 }
 
@@ -277,6 +296,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
             .{ .name = "render", .module = modules.render_mod },
             .{ .name = "game", .module = modules.game_mod },
             .{ .name = "assets", .module = modules.assets_mod },
+            .{ .name = "audio", .module = modules.audio_mod },
             .{ .name = "net", .module = modules.net_mod },
             .{ .name = "remote", .module = modules.remote_mod },
         },

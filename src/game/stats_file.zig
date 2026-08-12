@@ -15,7 +15,7 @@ const Entry = struct { id: u32, value: i32 };
 pub fn guid(stat_id: u32) ?[]const u8 {
     var prefix_buffer: [16]u8 = undefined;
     const prefix = std.fmt.bufPrint(&prefix_buffer, "{d},", .{stat_id}) catch return null;
-    var lines = std.mem.tokenizeAny(u8, assets.achievement.map_txt, "\r\n");
+    var lines = std.mem.tokenizeAny(u8, assets.achievement.map_txt.bytes, "\r\n");
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, prefix)) return line[prefix.len..];
     }

@@ -109,10 +109,54 @@ pub const Bounds = struct { min: [3]f32, max: [3]f32 };
 
 pub const Mobility = enum { movable, fragile, immovable };
 
+pub const StepSound = enum {
+    powder,
+    wood,
+    gravel,
+    grass,
+    stone,
+    metal,
+    glass,
+    cloth,
+    sand,
+
+    pub fn walk(self: StepSound) []const u8 {
+        return switch (self) {
+            .powder, .stone, .metal, .glass => "step.stone",
+            .wood => "step.wood",
+            .gravel => "step.gravel",
+            .grass => "step.grass",
+            .cloth => "step.cloth",
+            .sand => "step.sand",
+        };
+    }
+
+    pub fn destroy(self: StepSound) []const u8 {
+        return switch (self) {
+            .glass => "random.glass",
+            .sand => "step.gravel",
+            else => self.walk(),
+        };
+    }
+
+    pub fn volume(self: StepSound) f32 {
+        _ = self;
+        return 1.0;
+    }
+
+    pub fn pitch(self: StepSound) f32 {
+        return switch (self) {
+            .metal => 1.5,
+            else => 1.0,
+        };
+    }
+};
+
 pub const Def = struct {
     key: []const u8 = "",
     name: []const u8 = "",
     material: Material = .rock,
+    step_sound: StepSound = .powder,
     shape: Shape = .cube,
     face_textures: FaceTextures = FaceTextures.initFill(0),
     item_render_boxes: []const Bounds = &full_cube_box,
@@ -155,6 +199,7 @@ fn vanillaDefs() [256]Def {
             .key = vanilla_keys[id],
             .name = self.vanillaName(),
             .material = self.vanillaMaterial(),
+            .step_sound = self.vanillaStepSound(),
             .shape = self.vanillaShape(),
             .face_textures = self.vanillaFaceTextures(),
             .item_render_boxes = self.vanillaItemRenderBoxes(),
@@ -514,6 +559,33 @@ pub const Block = enum(u8) {
 
     pub fn material(self: Block) Material {
         return self.def().material;
+    }
+
+    pub fn stepSound(self: Block) StepSound {
+        return self.def().step_sound;
+    }
+
+    fn vanillaStepSound(self: Block) StepSound {
+        return switch (self) {
+            .stone, .cobblestone, .bedrock, .ore_gold, .ore_iron, .ore_coal => .stone,
+            .ore_lapis, .block_lapis, .dispenser, .sandstone, .slab_double, .slab => .stone,
+            .brick, .cobblestone_mossy, .obsidian, .ore_diamond, .furnace => .stone,
+            .burning_furnace, .pressure_plate_stone, .button, .jukebox, .netherrack => .stone,
+            .ore_redstone, .ore_redstone_glowing => .stone,
+            .planks, .log, .bookshelf, .torch, .chest, .workbench, .sign_post => .wood,
+            .door_wood, .wall_sign, .lever, .pressure_plate_planks, .torch_redstone_off => .wood,
+            .torch_redstone_on, .fire, .pumpkin, .jack_o_lantern, .repeater_off => .wood,
+            .repeater_on, .trapdoor => .wood,
+            .dirt, .gravel, .clay => .gravel,
+            .grass, .sapling, .leaves, .sponge, .tall_grass, .dead_bush, .dandelion => .grass,
+            .rose, .mushroom_brown, .mushroom_red, .tnt, .reed => .grass,
+            .rail_powered, .rail_detector, .block_gold, .block_iron, .mob_spawner => .metal,
+            .rail, .door_iron, .block_diamond => .metal,
+            .glass, .ice, .glowstone, .portal => .glass,
+            .wool, .snow_layer, .snow_block, .cactus, .cake => .cloth,
+            .sand, .soul_sand => .sand,
+            else => .powder,
+        };
     }
 
     fn vanillaMaterial(self: Block) Material {

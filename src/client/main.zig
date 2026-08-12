@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const assets = @import("assets");
-const font_png = assets.font.default_png;
+const font_png = assets.font.default_png.bytes;
+const audio = @import("audio");
 const core = @import("core");
 const Timer = core.Timer;
 const game = @import("game");
@@ -19,7 +20,7 @@ const Link = @import("link.zig");
 const ticks_per_second = 20.0;
 const screen_width = 854;
 const screen_height = 480;
-const init_flags = sdl3.InitFlags{ .video = true };
+const init_flags = sdl3.InitFlags{ .video = true, .audio = true };
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -33,7 +34,7 @@ const wasm = builtin.cpu.arch.isWasm();
 const splashes: []const []const u8 = blk: {
     @setEvalBranchQuota(100_000);
     var list: []const []const u8 = &.{};
-    var it = std.mem.tokenizeAny(u8, assets.title.splashes_txt, "\r\n");
+    var it = std.mem.tokenizeAny(u8, assets.title.splashes_txt.bytes, "\r\n");
     while (it.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
         if (trimmed.len > 0) list = list ++ [_][]const u8{trimmed};
@@ -72,6 +73,7 @@ const AppState = struct {
     gl_procs: gl.ProcTable,
     textures: render.Textures,
     texture_fx: render.TextureFx,
+    sound: ?audio.Manager = null,
     colorizer: render.Colorizer,
     sky: render.SkyRenderer,
     font: render.Font,
@@ -197,6 +199,7 @@ const Digging = struct {
     y: i32,
     z: i32,
     progress: f32,
+    sound_ticks: u32 = 0,
 };
 
 fn playerAtSpawn() game.Player {
@@ -431,7 +434,7 @@ pub fn init(
     app_state.font = try render.Font.load(font_png);
     errdefer app_state.font.deinit();
 
-    try app_state.texture_fx.loadSprites(assets.gui.items_png, assets.misc.dial_png);
+    try app_state.texture_fx.loadSprites(assets.gui.items_png.bytes, assets.misc.dial_png.bytes);
 
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
@@ -442,6 +445,15 @@ pub fn init(
 
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
+
+    app_state.sound = audio.Manager.init(gpa, @bitCast(sdl3.timer.getNanosecondsSinceInit())) catch null;
+    if (app_state.sound) |*sound| {
+        const resources = try std.fs.path.join(gpa, &.{ base_path, audio.Manager.folder_name });
+        defer gpa.free(resources);
+        try sound.loadResources(gpa, io, resources);
+        try sound.setVolumes(app_state.settings.sound_volume, app_state.settings.music_volume);
+    }
+    errdefer if (app_state.sound) |*sound| sound.deinit(gpa);
 
     app_state.level.generator = try world.Generator.init(gpa, .overworld, 0);
     errdefer app_state.level.deinit(gpa);
@@ -540,6 +552,18 @@ fn digStep(app_state: *AppState) !void {
     }
 
     app_state.digging.?.progress += strength;
+    if (app_state.digging.?.sound_ticks % 4 == 0) {
+        const step_sound = block_id.stepSound();
+        app_state.level.world_map.playSoundEffect(
+            @as(f64, @floatFromInt(hit.x)) + 0.5,
+            @as(f64, @floatFromInt(hit.y)) + 0.5,
+            @as(f64, @floatFromInt(hit.z)) + 0.5,
+            step_sound.walk(),
+            (step_sound.volume() + 1.0) / 8.0,
+            step_sound.pitch() * 0.5,
+        );
+    }
+    app_state.digging.?.sound_ticks += 1;
     try app_state.level.entities.spawnBlockHitParticle(
         app_state.gpa,
         hit.x,
@@ -589,6 +613,34 @@ fn worldAccess(app_state: *AppState) world.World.Access {
         .markBlockNeedsUpdate = markBlockNeedsUpdate,
         .updateAllRenderers = updateAllRenderers,
     };
+}
+
+fn clickSound(app_state: *AppState) void {
+    if (app_state.sound) |*sound| sound.playSoundFx("random.click", 1.0, 1.0) catch {};
+}
+
+fn soundSink(app_state: *AppState) world.World.SoundSink {
+    return .{
+        .context = app_state,
+        .playSound = playSound,
+        .playRecord = playRecord,
+    };
+}
+
+fn playSound(context: *anyopaque, name: []const u8, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    if (app_state.sound) |*sound| sound.playSound(name, x, y, z, volume, pitch) catch {};
+}
+
+fn playRecord(context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    if (app_state.sound) |*sound| sound.playStreaming(
+        name,
+        @floatFromInt(x),
+        @floatFromInt(y),
+        @floatFromInt(z),
+        1.0,
+    ) catch {};
 }
 
 fn applyBlockChanges(app_state: *AppState) !void {
@@ -644,6 +696,15 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
     const held = app_state.player.inventory.selectedStack();
     const harvested = block_id.harvestableWith(held);
+    const step_sound = block_id.stepSound();
+    app_state.level.world_map.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        step_sound.destroy(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
     try app_state.level.entities.spawnBlockDestroyParticles(
         app_state.gpa,
         x,
@@ -1164,6 +1225,7 @@ fn respawnPlayer(app_state: *AppState) !void {
 fn deathScreenClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const action = render.death_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    clickSound(app_state);
     switch (action) {
         .respawn => try respawnPlayer(app_state),
         .title_menu => try quitToTitle(app_state),
@@ -1363,6 +1425,7 @@ fn connectToServer(app_state: *AppState) !void {
 
     closeWorld(app_state);
     app_state.level.world_map.access = worldAccess(app_state);
+    app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1395,6 +1458,11 @@ fn multiplayerClick(app_state: *AppState) !void {
     ) orelse return;
 
     switch (hit) {
+        .address_field => {},
+        else => clickSound(app_state),
+    }
+
+    switch (hit) {
         .address_field => app_state.multiplayer_state.address.focused = true,
         .connect => try connectToServer(app_state),
         .cancel => try closeMultiplayer(app_state),
@@ -1409,9 +1477,9 @@ fn openTexturePacks(app_state: *AppState) !void {
 
     const thumbnails = try app_state.gpa.alloc(render.Atlas, app_state.packs.len);
     for (app_state.packs, thumbnails) |pack, *thumbnail| {
-        const fallback = if (render.texture_pack.isDefault(pack)) assets.pack_png else assets.gui.unknown_pack_png;
+        const fallback = if (render.texture_pack.isDefault(pack)) assets.pack_png.bytes else assets.gui.unknown_pack_png.bytes;
         thumbnail.* = render.Atlas.load(pack.thumbnail orelse fallback) catch
-            try render.Atlas.load(assets.gui.unknown_pack_png);
+            try render.Atlas.load(assets.gui.unknown_pack_png.bytes);
     }
     app_state.pack_thumbnails = thumbnails;
 
@@ -1447,6 +1515,11 @@ fn texturePacksClick(app_state: *AppState) !void {
         app_state.packs.len,
         app_state.pack_scroll,
     ) orelse return;
+
+    switch (hit) {
+        .entry => {},
+        else => clickSound(app_state),
+    }
 
     switch (hit) {
         .entry => |index| try selectTexturePack(app_state, index),
@@ -1592,6 +1665,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
 
     app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     app_state.level.world_map.access = worldAccess(app_state);
+    app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1739,6 +1813,7 @@ fn switchDimension(app_state: *AppState, target: world.Dimension, x: f64, y: f64
         app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     }
     app_state.level.world_map.access = worldAccess(app_state);
+    app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
 
     placePlayerAt(app_state, x, y, z);
@@ -1813,6 +1888,11 @@ fn selectWorldClick(app_state: *AppState) !void {
     ) orelse return;
 
     switch (hit) {
+        .entry => {},
+        else => clickSound(app_state),
+    }
+
+    switch (hit) {
         .entry => |index| {
             const now = sdl3.timer.getMillisecondsSinceInit();
             const double = render.select_world_screen.isDoubleClick(
@@ -1853,6 +1933,10 @@ fn openRenameWorld(app_state: *AppState) !void {
 fn createWorldClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const hit = render.create_world_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, &app_state.create_state) orelse return;
+    switch (hit) {
+        .name_field, .seed_field => {},
+        else => clickSound(app_state),
+    }
 
     switch (hit) {
         .name_field, .seed_field => app_state.create_state.focus(hit),
@@ -1898,6 +1982,7 @@ fn confirmCreateWorld(app_state: *AppState) !void {
 fn confirmDeleteClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const hit = render.confirm_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, "Delete") orelse return;
+    clickSound(app_state);
     switch (hit) {
         .confirm => {
             if (app_state.selected_world) |index| {
@@ -1914,6 +1999,9 @@ fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f
         .music => app_state.settings.music_volume = value,
         .sound => app_state.settings.sound_volume = value,
         .sensitivity => app_state.settings.sensitivity = value,
+    }
+    if (app_state.sound) |*sound| {
+        sound.setVolumes(app_state.settings.sound_volume, app_state.settings.music_volume) catch {};
     }
 }
 
@@ -1934,6 +2022,7 @@ fn dragScrollbar(app_state: *AppState, dy_pixels: f32) void {
 fn pauseMenuClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const action = render.menu.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    clickSound(app_state);
     switch (action) {
         .resume_game => try togglePause(app_state),
         .statistics => try openStats(app_state),
@@ -1961,6 +2050,7 @@ fn statsClick(app_state: *AppState) !void {
     }
 
     const hit = render.stats_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view) orelse return;
+    clickSound(app_state);
     switch (hit) {
         .done => closeStats(app_state),
         .tab => |tab| app_state.stats_view.tab = tab,
@@ -1974,6 +2064,7 @@ fn statsClick(app_state: *AppState) !void {
 fn optionsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const hit = render.options_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    clickSound(app_state);
     switch (hit) {
         .slider => |s| {
             app_state.dragging_slider = s;
@@ -1990,6 +2081,7 @@ fn optionsClick(app_state: *AppState) !void {
 fn videoClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
     const hit = render.video_settings_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    clickSound(app_state);
     if (hit == .done) {
         app_state.video_open = false;
     } else {
@@ -2004,6 +2096,7 @@ fn videoClick(app_state: *AppState) !void {
 fn controlsClick(app_state: *AppState) void {
     const gui = guiSize(app_state);
     const hit = render.controls_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    clickSound(app_state);
     switch (hit) {
         .binding => |binding| app_state.rebinding = binding,
         .done => {
@@ -2602,6 +2695,15 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(px, py, pz)) return false;
     const meta = world.block_update.placementMetadata(&app_state.level.world_map, px, py, pz, placed, target.face, stack.blockMeta());
     try app_state.level.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
+    const step_sound = placed.stepSound();
+    app_state.level.world_map.playSoundEffect(
+        @as(f64, @floatFromInt(px)) + 0.5,
+        @as(f64, @floatFromInt(py)) + 0.5,
+        @as(f64, @floatFromInt(pz)) + 0.5,
+        step_sound.walk(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
     if (placed == .furnace) {
         const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
         try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
@@ -2699,6 +2801,7 @@ fn leaveServer(app_state: *AppState) !void {
 
 fn tick(app_state: *AppState) !void {
     stepFogBrightness(app_state);
+    if (app_state.sound) |*sound| sound.playRandomMusicIfReady() catch {};
     app_state.chat.tick();
     if (app_state.sign_edit) |*open| open.tick();
 
@@ -2985,7 +3088,17 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
     app_state.shader.setFloat("u_fog_end", far);
 }
 
+fn updateListener(app_state: *AppState) void {
+    const sound = if (app_state.sound) |*value| value else return;
+    const player = &app_state.player;
+    const partial = app_state.timer.render_partial_ticks;
+    const position = player.base.renderPosition(partial);
+    const yaw = player.prev_yaw + (player.yaw - player.prev_yaw) * partial;
+    sound.setListener(.init(position.x, position.y + game.Player.eye_height, position.z), yaw) catch {};
+}
+
 fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
+    updateListener(app_state);
     app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.level.world_map, app_state.colorizer, .{
         .smooth = app_state.settings.ambient_occlusion,
         .fancy = app_state.settings.fancy_graphics,
@@ -4057,13 +4170,16 @@ pub fn event(
                 try statsClick(app_state);
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
-                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| switch (action) {
-                    .singleplayer => try openSelectWorld(app_state),
-                    .multiplayer => try openMultiplayer(app_state),
-                    .texture_packs => try openTexturePacks(app_state),
-                    .options => try openOptions(app_state, .title),
-                    .quit => return .success,
-                };
+                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| {
+                    clickSound(app_state);
+                    switch (action) {
+                        .singleplayer => try openSelectWorld(app_state),
+                        .multiplayer => try openMultiplayer(app_state),
+                        .texture_packs => try openTexturePacks(app_state),
+                        .options => try openOptions(app_state, .title),
+                        .quit => return .success,
+                    }
+                }
             } else if (app_state.screen == .select_world) {
                 try selectWorldClick(app_state);
             } else if (app_state.screen == .create_world) {
@@ -4081,9 +4197,12 @@ pub fn event(
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
             } else if (app_state.chat.open) {} else if (app_state.sign_edit != null) {
-                if (render.edit_sign_screen.hitAt(app_state.mouse_x, app_state.mouse_y, guiSize(app_state))) |hit| switch (hit) {
-                    .done => try closeSignEditor(app_state),
-                };
+                if (render.edit_sign_screen.hitAt(app_state.mouse_x, app_state.mouse_y, guiSize(app_state))) |hit| {
+                    clickSound(app_state);
+                    switch (hit) {
+                        .done => try closeSignEditor(app_state),
+                    }
+                }
             } else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .left);
             } else {
@@ -4138,6 +4257,7 @@ pub fn quit(
         state.base_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.level.deinit(state.gpa);
+        if (state.sound) |*sound| sound.deinit(state.gpa);
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();

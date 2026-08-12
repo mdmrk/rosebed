@@ -39,6 +39,7 @@ time_until_portal: i32 = portal_cooldown,
 inventory: Inventory = .{},
 distance_walked: f32 = 0,
 prev_distance_walked: f32 = 0,
+next_step_distance: i32 = 0,
 camera_yaw: f32 = 0,
 swing_progress: f32 = 0,
 prev_swing_progress: f32 = 0,
@@ -218,6 +219,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     const moved_x = self.base.position.x - before_x;
     const moved_z = self.base.position.z - before_z;
     self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
+    self.playStepSound(world_map);
 
     if (self.base.in_water or self.in_lava) {
         const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
@@ -558,6 +560,28 @@ pub fn eyePosition(self: Player) math.Vec3 {
         .y = self.base.position.y + eye_height - self.y_size,
         .z = self.base.position.z,
     };
+}
+
+fn playStepSound(self: *Player, world_map: *const world.World) void {
+    const x = math.util.floorDouble(self.base.position.x);
+    const y = math.util.floorDouble(self.base.position.y - 0.2);
+    const z = math.util.floorDouble(self.base.position.z);
+    const stepped_on = world_map.getBlock(x, y, z);
+    if (self.distance_walked <= @as(f32, @floatFromInt(self.next_step_distance)) or stepped_on == .air) return;
+
+    self.next_step_distance += 1;
+    const covered = world_map.getBlock(x, y + 1, z) == .snow_layer;
+    if (!covered and stepped_on.material().isLiquid()) return;
+
+    const step_sound = if (covered) world.Block.snow_layer.stepSound() else stepped_on.stepSound();
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        step_sound.walk(),
+        step_sound.volume() * 0.15,
+        step_sound.pitch(),
+    );
 }
 
 pub const swing_duration: i32 = 8;
