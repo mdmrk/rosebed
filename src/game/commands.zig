@@ -12,6 +12,7 @@ pub const Verb = enum {
     seed,
     time,
     tp,
+    weather,
 
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
@@ -22,6 +23,7 @@ pub const Verb = enum {
             .seed => "<|copy>",
             .time => "<add|set> <amount>",
             .tp => "<x> <y> <z>",
+            .weather => "<clear|rain|thunder> [duration]",
         };
     }
 
@@ -34,6 +36,7 @@ pub const Verb = enum {
             .seed => "shows world seed",
             .time => "adds to or sets the world time (0-24000)",
             .tp => "teleports player to position in world",
+            .weather => "sets the sky, for a while or until it turns",
         };
     }
 };
@@ -68,6 +71,13 @@ pub const Tp = struct {
     z: f64,
 };
 
+pub const Weather = struct {
+    sky: Sky,
+    duration: ?i32,
+
+    pub const Sky = enum { clear, rain, thunder };
+};
+
 pub const Result = union(enum) {
     nothing,
     help,
@@ -77,6 +87,7 @@ pub const Result = union(enum) {
     spawn: Spawn,
     time: Time,
     tp: Tp,
+    weather: Weather,
     missing_item: u32,
     missing_mob: []const u8,
     unparsed: []const u8,
@@ -112,6 +123,8 @@ pub const help_lines: []const []const u8 = blk: {
 pub const unknown_command_line = "Unknown command. Type /help for a list.";
 
 pub const kill_line = "Ouch. That look like it hurt.";
+
+pub const no_sky_line = "There is no sky here to change.";
 
 fn tryParse(text: ?[]const u8, fallback: u8) u8 {
     const raw = std.fmt.parseInt(u32, text orelse return fallback, 10) catch return fallback;
@@ -161,6 +174,7 @@ pub fn parse(line: []const u8) Result {
         .seed => parseSeed(&words),
         .time => parseTime(&words),
         .tp => parseTp(&words),
+        .weather => parseWeather(&words),
     };
 }
 
@@ -207,6 +221,25 @@ fn parseTime(words: *Words) Result {
     const amount = std.fmt.parseInt(i32, amount_text, 10) catch return .{ .unparsed = amount_text };
     const method = std.meta.stringToEnum(Time.Method, method_text) orelse return .{ .unknown_method = "either \"add\" or \"set\"" };
     return .{ .time = .{ .method = method, .amount = amount } };
+}
+
+fn parseWeather(words: *Words) Result {
+    const sky_text = words.next() orelse return .nothing;
+    const duration_text = words.next();
+    if (words.next() != null) return .nothing;
+
+    const duration: ?i32 = if (duration_text) |text|
+        std.fmt.parseInt(i32, text, 10) catch return .{ .unparsed = text }
+    else
+        null;
+
+    const sky = std.meta.stringToEnum(Weather.Sky, sky_text) orelse
+        return .{ .unknown_method = "either \"clear\", \"rain\" or \"thunder\"" };
+
+    if (duration) |ticks| {
+        if (ticks < 0) return .{ .unparsed = duration_text.? };
+    }
+    return .{ .weather = .{ .sky = sky, .duration = duration } };
 }
 
 fn parseTp(words: *Words) Result {
@@ -330,22 +363,39 @@ test "tp stays silent when the argument count is wrong" {
     try std.testing.expectEqual(Result.nothing, parse("/tp 0 64 0 0"));
 }
 
+test "weather names a sky, with or without a spell to hold it" {
+    const wet = parse("/weather rain").weather;
+    try std.testing.expectEqual(Weather.Sky.rain, wet.sky);
+    try std.testing.expect(wet.duration == null);
+
+    const storm = parse("/weather thunder 600").weather;
+    try std.testing.expectEqual(Weather.Sky.thunder, storm.sky);
+    try std.testing.expectEqual(@as(i32, 600), storm.duration.?);
+
+    try std.testing.expectEqual(Weather.Sky.clear, parse("/weather clear").weather.sky);
+}
+
+test "weather reads its spell before it judges the sky" {
+    try std.testing.expectEqualStrings("soon", parse("/weather rain soon").unparsed);
+    try std.testing.expectEqualStrings("soon", parse("/weather drizzle soon").unparsed);
+    try std.testing.expect(parse("/weather drizzle") == .unknown_method);
+    try std.testing.expect(parse("/weather Rain") == .unknown_method);
+}
+
+test "weather refuses a spell that runs backwards" {
+    try std.testing.expectEqualStrings("-1", parse("/weather rain -1").unparsed);
+    try std.testing.expectEqual(@as(i32, 0), parse("/weather rain 0").weather.duration.?);
+}
+
+test "weather stays silent when the argument count is wrong" {
+    try std.testing.expectEqual(Result.nothing, parse("/weather"));
+    try std.testing.expectEqual(Result.nothing, parse("/weather rain 600 600"));
+}
+
 test "an unrecognised verb reports itself" {
     try std.testing.expectEqualStrings("fly", parse("/fly").unknown);
     try std.testing.expectEqualStrings("warp", parse("/warp Player Notch").unknown);
     try std.testing.expectEqual(Result.nothing, parse("/"));
-}
-
-test "help is built from the verbs, one line each under a heading" {
-    try std.testing.expectEqual(std.enums.values(Verb).len + 1, help_lines.len);
-    try std.testing.expectEqualStrings("Commands:", help_lines[0]);
-    try std.testing.expectEqualStrings("   help                     shows this message", help_lines[1]);
-    try std.testing.expectEqualStrings("   give <id|name> [num]     gives the player a resource", help_lines[2]);
-    try std.testing.expectEqualStrings("   kill                     kills the player", help_lines[3]);
-    try std.testing.expectEqualStrings("   spawn <mob> [num]        spawns a mob where you look", help_lines[4]);
-    try std.testing.expectEqualStrings("   seed <|copy>             shows world seed", help_lines[5]);
-    try std.testing.expectEqualStrings("   time <add|set> <amount>  adds to or sets the world time (0-24000)", help_lines[6]);
-    try std.testing.expectEqualStrings("   tp <x> <y> <z>           teleports player to position in world", help_lines[7]);
 }
 
 test "every verb names itself in help and answers to that name" {

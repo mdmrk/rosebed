@@ -1420,6 +1420,14 @@ fn lookedAtPosition(app_state: *AppState) math.Vec3 {
     );
 }
 
+fn setWeather(sky: *world.Weather, asked: game.commands.Weather) void {
+    sky.raining = asked.sky != .clear;
+    sky.thundering = asked.sky == .thunder;
+
+    sky.rain_time = asked.duration orelse 0;
+    sky.thunder_time = asked.duration orelse 0;
+}
+
 fn runCommand(app_state: *AppState, line: []const u8) !void {
     switch (game.commands.parse(line)) {
         .nothing => {},
@@ -1489,6 +1497,14 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         .tp => |tp| {
             var player = &app_state.player;
             player.tp(.{ .x = tp.x, .y = tp.y, .z = tp.z });
+        },
+        .weather => |asked| {
+            if (!app_state.dimension.hasSky()) {
+                reply(app_state, "{s}", .{game.commands.no_sky_line});
+                return;
+            }
+            setWeather(&app_state.level.world_map.weather, asked);
+            reply(app_state, "Set the weather to {s}", .{@tagName(asked.sky)});
         },
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
