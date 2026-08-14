@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const achievements = @import("achievements.zig");
 const Entity = @import("entity.zig");
 const game_physics = @import("physics.zig");
 const Inventory = @import("inventory.zig");
@@ -58,8 +59,20 @@ damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
 distance_fallen: f32 = 0,
+earned: std.EnumSet(achievements.Id) = .initEmpty(),
+minecart_start: ?[3]i32 = null,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
+
+pub fn earn(self: *Player, id: achievements.Id) void {
+    self.earned.insert(id);
+}
+
+pub fn takeEarned(self: *Player) std.EnumSet(achievements.Id) {
+    const claimed = self.earned;
+    self.earned = .initEmpty();
+    return claimed;
+}
 
 pub const max_name = 16;
 

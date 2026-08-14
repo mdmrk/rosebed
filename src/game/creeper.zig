@@ -215,6 +215,7 @@ pub const watched_powered: u5 = 17;
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.creeper_id,
     .wire_id = wire_id,
+    .monster = true,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

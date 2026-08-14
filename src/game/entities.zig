@@ -1630,8 +1630,11 @@ fn tickItemsFor(
 
         var picked_up = false;
         if (player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {
+            const collected = item.stack.id;
             const leftover = player.inventory.addStack(item.stack);
             if (leftover < item.stack.count) {
+                if (collected.eql(.{ .block = .log })) player.earn(.mine_wood);
+                if (collected.eql(.{ .item = .leather })) player.earn(.kill_cow);
                 item.stack.count = leftover;
                 try self.pickups.append(gpa, PickupFx.spawn(item.*));
                 picked_up = leftover == 0;
@@ -1830,6 +1833,11 @@ pub fn tickMobs(
         }
 
         if (entry.animal.dead) {
+            if (kind.monster and entry.animal.health <= 0) {
+                if (entry.animal.killer) |slayer| {
+                    if (context.playerById(slayer.player)) |slain_by| slain_by.earn(.kill_enemy);
+                }
+            }
             try kind.onDeath(entry.animal, context);
             _ = self.mobs.orderedRemove(index);
             kind.destroy(entry.animal, gpa);

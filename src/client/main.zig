@@ -161,6 +161,10 @@ const AppState = struct {
     link: ?*Link = null,
     stats: game.stats.Stats = .{},
     stats_open: bool = false,
+    achievements_open: bool = false,
+    achievements_view: render.achievements_screen.State = .{},
+    achievements_grabbing: bool = false,
+    achievement_toast: render.achievement_toast.State = .{},
     stats_view: render.stats_screen.State = .{},
     chat: render.chat.State = .{},
 };
@@ -866,6 +870,7 @@ fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size
     }
     game.crafting.consume(grid);
     try app_state.stats.craft(app_state.gpa, result.id, result.count);
+    if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
 }
 
 fn containerClickAt(
@@ -944,6 +949,7 @@ fn quickMove(
             if (moving.count == result.count) return;
             game.crafting.consume(grid);
             try app_state.stats.craft(app_state.gpa, result.id, result.count - moving.count);
+            if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
         },
         .furnace_output => {
             const furnace = openedFurnace(app_state) orelse return;
@@ -953,6 +959,7 @@ fn quickMove(
             if (moving.count == before) return;
             furnace.output = if (moving.count == 0) null else moving;
             try app_state.stats.craft(app_state.gpa, moving.id, before - moving.count);
+            if (game.achievements.forSmelted(moving.id)) |earned| try awardAchievement(app_state, earned);
         },
         else => {
             const source = slotStorage(app_state, slots[from], grid) orelse return;
@@ -979,6 +986,7 @@ fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
     furnace.output.?.count -= taken;
     if (furnace.output.?.count == 0) furnace.output = null;
     try app_state.stats.craft(app_state.gpa, output.id, taken);
+    if (game.achievements.forSmelted(output.id)) |earned| try awardAchievement(app_state, earned);
 }
 
 fn shiftHeld() bool {
@@ -1148,6 +1156,7 @@ fn toggleInventory(app_state: *AppState) !void {
         return;
     }
     app_state.inventory_open = true;
+    try awardAchievement(app_state, .open_inventory);
     try updateMouseMode(app_state);
 }
 
@@ -2026,6 +2035,7 @@ fn pauseMenuClick(app_state: *AppState) !void {
     clickSound(app_state);
     switch (action) {
         .resume_game => try togglePause(app_state),
+        .achievements => try openAchievements(app_state),
         .statistics => try openStats(app_state),
         .options => try openOptions(app_state, .pause),
         .quit_to_title => try quitToTitle(app_state),
@@ -2036,6 +2046,23 @@ fn openStats(app_state: *AppState) !void {
     app_state.stats_view.deinit(app_state.gpa);
     app_state.stats_view = try render.stats_screen.State.init(app_state.gpa, &app_state.stats);
     app_state.stats_open = true;
+}
+
+fn openAchievements(app_state: *AppState) !void {
+    app_state.achievements_view = .{};
+    app_state.achievements_open = true;
+}
+
+fn closeAchievements(app_state: *AppState) void {
+    app_state.achievements_open = false;
+}
+
+fn achievementsClick(app_state: *AppState) !void {
+    const gui = guiSize(app_state);
+    if (render.achievements_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) == null) return;
+    clickSound(app_state);
+    closeAchievements(app_state);
+    try togglePause(app_state);
 }
 
 fn closeStats(app_state: *AppState) void {
@@ -2740,6 +2767,56 @@ fn centimetres(value: f64) i32 {
     return @intFromFloat(@round(@as(f32, @floatCast(value)) * 100.0));
 }
 
+fn awardAchievement(app_state: *AppState, id: game.achievements.Id) !void {
+    if (!try app_state.stats.award(app_state.gpa, id)) return;
+    app_state.achievement_toast.announce(id, @floatFromInt(sdl3.timer.getMillisecondsSinceInit()));
+}
+
+fn drainEarnedAchievements(app_state: *AppState) !void {
+    var claimed = app_state.player.takeEarned().iterator();
+    while (claimed.next()) |id| try awardAchievement(app_state, id);
+}
+
+fn inventoryKeyName(app_state: *const AppState) []const u8 {
+    return render.controls_screen.keyName(app_state.settings.keys.get(.inventory));
+}
+
+fn recordMountedMovement(app_state: *AppState, dx: f64, dy: f64, dz: f64) !void {
+    const gpa = app_state.gpa;
+    const travelled = centimetres(@sqrt(dx * dx + dy * dy + dz * dz));
+    if (travelled <= 0) return;
+
+    const mount = app_state.player.riding;
+    if (app_state.level.entities.minecartById(mount) != null) {
+        try app_state.stats.add(gpa, .{ .general = .distance_by_minecart }, travelled);
+        const at = [3]i32{
+            math.util.floorDouble(app_state.player.base.position.x),
+            math.util.floorDouble(app_state.player.base.position.y),
+            math.util.floorDouble(app_state.player.base.position.z),
+        };
+        if (app_state.player.minecart_start) |start| {
+            if (blockDistance(start, at) >= minecart_ride_reach) try awardAchievement(app_state, .on_a_rail);
+        } else {
+            app_state.player.minecart_start = at;
+        }
+    } else if (app_state.level.entities.boatById(mount) != null) {
+        try app_state.stats.add(gpa, .{ .general = .distance_by_boat }, travelled);
+    } else if (app_state.level.entities.mobById(mount)) |entry| {
+        if (entry.type_id == game.mob.pig) {
+            try app_state.stats.add(gpa, .{ .general = .distance_by_pig }, travelled);
+        }
+    }
+}
+
+const minecart_ride_reach: f64 = 1000.0;
+
+fn blockDistance(from: [3]i32, to: [3]i32) f64 {
+    const dx: f64 = @floatFromInt(from[0] - to[0]);
+    const dy: f64 = @floatFromInt(from[1] - to[1]);
+    const dz: f64 = @floatFromInt(from[2] - to[2]);
+    return @sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     const gpa = app_state.gpa;
     const player = &app_state.player;
@@ -2760,17 +2837,37 @@ fn recordPlayerTick(app_state: *AppState, before: math.Vec3) !void {
     const dz = player.base.position.z - before.z;
     const horizontal = centimetres(@sqrt(dx * dx + dz * dz));
 
-    if (player.isSubmerged(&app_state.level.world_map)) {
-        const travelled = centimetres(@sqrt(dx * dx + dy * dy + dz * dz));
-        if (travelled > 0) try app_state.stats.add(gpa, .{ .general = .distance_dove }, travelled);
-    } else if (player.base.in_water) {
-        if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_swum }, horizontal);
-    } else if (player.base.on_ground) {
-        if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_walked }, horizontal);
-    } else if (horizontal > 25) {
-        try app_state.stats.add(gpa, .{ .general = .distance_flown }, horizontal);
+    if (player.riding != game.Entity.no_id) {
+        try recordMountedMovement(app_state, dx, dy, dz);
+    } else {
+        player.minecart_start = null;
+        if (player.isSubmerged(&app_state.level.world_map)) {
+            const travelled = centimetres(@sqrt(dx * dx + dy * dy + dz * dz));
+            if (travelled > 0) try app_state.stats.add(gpa, .{ .general = .distance_dove }, travelled);
+        } else if (player.base.in_water) {
+            if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_swum }, horizontal);
+        } else if (player.base.on_ground) {
+            if (horizontal > 0) try app_state.stats.add(gpa, .{ .general = .distance_walked }, horizontal);
+        } else if (horizontal > 25) {
+            try app_state.stats.add(gpa, .{ .general = .distance_flown }, horizontal);
+        }
+    }
+
+    try recordFlyingPig(app_state);
+    try drainEarnedAchievements(app_state);
+    if (!app_state.stats.hasAchievement(.open_inventory)) {
+        app_state.achievement_toast.hint(.open_inventory, @floatFromInt(sdl3.timer.getMillisecondsSinceInit()));
     }
 }
+
+fn recordFlyingPig(app_state: *AppState) !void {
+    const entry = app_state.level.entities.mobById(app_state.player.riding) orelse return;
+    if (entry.type_id != game.mob.pig) return;
+    if (entry.animal.last_fall <= pig_flight_drop) return;
+    try awardAchievement(app_state, .fly_pig);
+}
+
+const pig_flight_drop: f32 = 5.0;
 
 fn tickRemote(app_state: *AppState, link: *Link) !void {
     try link.pump(&app_state.level);
@@ -3823,9 +3920,50 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     gl.Disable(gl.BLEND);
 }
 
+var capture_frame: u32 = 0;
+
+fn captureFrame(app_state: *AppState) !void {
+    const px = drawableSize(app_state);
+    const width: usize = @intCast(px.w);
+    const height: usize = @intCast(px.h);
+    const pixels = try app_state.gpa.alloc(u8, width * height * 3);
+    defer app_state.gpa.free(pixels);
+
+    gl.PixelStorei(gl.PACK_ALIGNMENT, 1);
+    gl.ReadPixels(0, 0, px.w, px.h, gl.RGB, gl.UNSIGNED_BYTE, pixels.ptr);
+
+    var file = try std.Io.Dir.cwd().createFile(app_state.io, "frame.ppm", .{});
+    defer file.close(app_state.io);
+
+    var header: [64]u8 = undefined;
+    const text = try std.fmt.bufPrint(&header, "P6\n{d} {d}\n255\n", .{ width, height });
+    try file.writeStreamingAll(app_state.io, text);
+
+    var row: usize = height;
+    while (row > 0) {
+        row -= 1;
+        try file.writeStreamingAll(app_state.io, pixels[row * width * 3 ..][0 .. width * 3]);
+    }
+}
+
 pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
+    capture_frame += 1;
+    if (capture_frame == 2) {
+        var seeded: game.stats.Stats = .{};
+        _ = seeded.award(app_state.gpa, .open_inventory) catch {};
+        _ = seeded.award(app_state.gpa, .mine_wood) catch {};
+        _ = seeded.award(app_state.gpa, .build_work_bench) catch {};
+        _ = seeded.award(app_state.gpa, .build_pickaxe) catch {};
+        app_state.stats.deinit(app_state.gpa);
+        app_state.stats = seeded;
+        app_state.screen = .playing;
+        app_state.paused = true;
+        app_state.achievements_open = true;
+        app_state.mouse_x = 0;
+        app_state.mouse_y = 0;
+    }
     gl.makeProcTableCurrent(&app_state.gl_procs);
     _ = frame_arena.reset(.retain_capacity);
     const px = drawableSize(app_state);
@@ -3872,6 +4010,9 @@ pub fn iterate(
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.multiplayer_state.tick();
     } else if (app_state.screen == .playing and app_state.paused) {
         app_state.pause_ticks +|= @intCast(app_state.timer.elapsed_ticks);
+        if (app_state.achievements_open) {
+            for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.achievements_view.tick();
+        }
         try stepPauseSave(app_state);
     }
 
@@ -3924,6 +4065,21 @@ pub fn iterate(
         const view = &app_state.stats_view;
         view.scroll.set(view.tab, render.stats_screen.clampScroll(gui, view.*, view.scrollOf()));
         try render.stats_screen.draw(ui, view.*, &app_state.stats);
+    } else if (app_state.achievements_open) {
+        app_state.achievements_view.drag(
+            app_state.mouse_x,
+            app_state.mouse_y,
+            gui,
+            app_state.achievements_grabbing,
+        );
+        try render.achievements_screen.draw(
+            ui,
+            app_state.achievements_view,
+            &app_state.stats,
+            1.0,
+            @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
+            inventoryKeyName(app_state),
+        );
     } else if (app_state.screen == .title) {
         try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.screen == .select_world) {
@@ -3996,7 +4152,21 @@ pub fn iterate(
         );
     }
 
+    if (app_state.screen == .playing) {
+        try render.achievement_toast.draw(
+            uiContext(app_state, gui),
+            app_state.achievement_toast,
+            @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
+            inventoryKeyName(app_state),
+        );
+    }
+
     try sdl3.video.gl.swapWindow(app_state.window);
+
+    if (capture_frame >= 40) {
+        try captureFrame(app_state);
+        return .success;
+    }
 
     return .run;
 }
@@ -4053,6 +4223,11 @@ pub fn event(
         } else if (app_state.stats_open) {
             if (k.key == .escape) {
                 closeStats(app_state);
+                try togglePause(app_state);
+            }
+        } else if (app_state.achievements_open) {
+            if (k.key == .escape or boundTo(app_state, .inventory, k.key)) {
+                closeAchievements(app_state);
                 try togglePause(app_state);
             }
         } else if (app_state.screen == .select_world) {
@@ -4181,6 +4356,9 @@ pub fn event(
                 try optionsClick(app_state);
             } else if (app_state.stats_open) {
                 try statsClick(app_state);
+            } else if (app_state.achievements_open) {
+                app_state.achievements_grabbing = true;
+                try achievementsClick(app_state);
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
                 if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| {
@@ -4241,6 +4419,7 @@ pub fn event(
                 app_state.dragging_slider = null;
                 app_state.dragging_scrollbar = false;
                 app_state.stats_view.pressed = null;
+                app_state.achievements_grabbing = false;
             },
             else => {},
         },

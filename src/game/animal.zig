@@ -40,6 +40,7 @@ attacked_at_yaw: f32 = 0,
 air: i32 = max_air,
 fire: i32 = 0,
 fall_distance: f32 = 0,
+last_fall: f32 = 0,
 entity_age: i32 = 0,
 move_strafing: f32 = 0,
 move_forward: f32 = 0,
@@ -376,6 +377,7 @@ fn fall(self: *Animal, distance: f32, rand: *world.JavaRandom) void {
 fn updateFallState(self: *Animal, dy: f64, rand: *world.JavaRandom) void {
     if (self.base.on_ground) {
         if (self.fall_distance > 0.0) {
+            self.last_fall = self.fall_distance;
             self.fall(self.fall_distance, rand);
             self.fall_distance = 0.0;
         }
@@ -722,6 +724,7 @@ pub fn tick(
 ) !void {
     self.base.beginTick();
     self.drowned = false;
+    self.last_fall = 0;
     self.updateFireAndWater(world_map, rand);
 
     if (self.isAlive() and self.isInsideOpaqueBlock(world_map)) {

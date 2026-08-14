@@ -11,7 +11,7 @@ const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const saving_label = "Saving level..";
 const saving_hold_ticks: u32 = 20;
 
-pub const Action = enum { resume_game, statistics, options, quit_to_title };
+pub const Action = enum { resume_game, achievements, statistics, options, quit_to_title };
 
 const Entry = struct { button: button.Button, action: ?Action };
 
@@ -21,7 +21,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     const top = quarter - 16.0;
     return .{
         .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Back to game", .enabled = true }, .action = .resume_game },
-        .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 98, .label = "Achievements", .enabled = false }, .action = null },
+        .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 98, .label = "Achievements", .enabled = true }, .action = .achievements },
         .{ .button = .{ .x = cx + 2, .y = top + 48, .w = 98, .label = "Statistics", .enabled = true }, .action = .statistics },
         .{ .button = .{ .x = cx - 100, .y = top + 96, .w = 200, .label = "Options...", .enabled = true }, .action = .options },
         .{ .button = .{ .x = cx - 100, .y = top + 120, .w = 200, .label = "Save and quit to title", .enabled = true }, .action = .quit_to_title },
@@ -92,13 +92,21 @@ test "save and quit to title returns to the title screen" {
     try std.testing.expectEqual(@as(?Action, .quit_to_title), actionAt(320, 360, gui.scaledResolution(640, 480, 1000)));
 }
 
-test "clicking a disabled button does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(200, 200, gui.scaledResolution(640, 480, 1000)));
+test "every button on the pause menu leads somewhere" {
+    for (entries(640, 480)) |entry| {
+        try std.testing.expect(entry.button.enabled);
+        try std.testing.expect(entry.action != null);
+    }
 }
 
 test "statistics opens from the right half of the second row" {
     const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?Action, .statistics), actionAt(340, 216, res));
+}
+
+test "achievements opens from the left half of the second row" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    try std.testing.expectEqual(@as(?Action, .achievements), actionAt(300, 216, res));
 }
 
 test "the saving pulse swings between the original's dim and bright grey" {

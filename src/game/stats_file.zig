@@ -203,6 +203,7 @@ pub fn save(gpa: std.mem.Allocator, io: std.Io, base: std.Io.Dir, username: []co
 test "guids come from the achievement map and fall back to null" {
     try std.testing.expectEqualStrings("43ddd8b48469d9a8c011718aa846facb", guid(1000).?);
     try std.testing.expectEqualStrings("c9ee0d494e0524c86a577cf684f5816d", guid(2000).?);
+    try std.testing.expectEqualStrings("8099ff561e194072c9086dea38757a89", guid(5242880).?);
     try std.testing.expectEqual(@as(?[]const u8, null), guid(4242));
 }
 
@@ -273,6 +274,26 @@ test "counters round-trip through the encoded file" {
     try std.testing.expectEqual(@as(i32, 1), restored.get(.{ .mined = .{ .block = .stone } }));
     try std.testing.expectEqual(@as(i32, 4), restored.get(.{ .crafted = .{ .block = .planks } }));
     try std.testing.expectEqual(@as(i32, 1), restored.get(.{ .used = .{ .item = .stick } }));
+}
+
+test "unlocked achievements round-trip through the encoded file" {
+    const gpa = std.testing.allocator;
+    var source: stats.Stats = .{};
+    defer source.deinit(gpa);
+
+    try std.testing.expect(try source.award(gpa, .open_inventory));
+    try std.testing.expect(try source.award(gpa, .mine_wood));
+
+    const text = try encode(gpa, "Player", &source);
+    defer gpa.free(text);
+
+    var restored = (try decode(gpa, text)).?;
+    defer restored.deinit(gpa);
+
+    try std.testing.expect(restored.hasAchievement(.open_inventory));
+    try std.testing.expect(restored.hasAchievement(.mine_wood));
+    try std.testing.expect(!restored.hasAchievement(.build_work_bench));
+    try std.testing.expect(restored.canUnlock(.build_work_bench));
 }
 
 test "a tampered file is rejected by its checksum" {

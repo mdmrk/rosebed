@@ -140,6 +140,7 @@ pub const wire_id: u8 = 54;
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.zombie_id,
     .wire_id = wire_id,
+    .monster = true,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

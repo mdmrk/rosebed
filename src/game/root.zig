@@ -12,6 +12,7 @@ pub const explosion = @import("explosion.zig");
 pub const FallingBlock = @import("falling_block.zig");
 pub const Fireball = @import("fireball.zig");
 pub const FishHook = @import("fish_hook.zig");
+pub const achievements = @import("achievements.zig");
 pub const Ghast = @import("ghast.zig");
 pub const Squid = @import("squid.zig");
 pub const Inventory = @import("inventory.zig");

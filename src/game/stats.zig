@@ -2,6 +2,7 @@ const std = @import("std");
 
 const world = @import("world");
 
+const achievements = @import("achievements.zig");
 const crafting = @import("crafting.zig");
 
 pub const Unit = enum { count, time, distance };
@@ -109,6 +110,7 @@ pub const Kind = enum { mined, crafted, used, depleted };
 
 pub const Key = union(enum) {
     general: General,
+    achievement: achievements.Id,
     mined: world.Id,
     crafted: world.Id,
     used: world.Id,
@@ -142,6 +144,7 @@ fn idFromNumber(raw: u16) world.Id {
 pub fn statId(stat: Key) u32 {
     return switch (stat) {
         .general => |general| general.statId(),
+        .achievement => |id| id.statId(),
         .mined => |id| thing_stat_base + idNumber(id),
         .crafted => |id| thing_stat_base + thing_stat_stride + idNumber(id),
         .used => |id| thing_stat_base + 2 * thing_stat_stride + idNumber(id),
@@ -150,6 +153,7 @@ pub fn statId(stat: Key) u32 {
 }
 
 pub fn keyFromStatId(id: u32) ?Key {
+    if (achievements.fromStatId(id)) |achievement| return .{ .achievement = achievement };
     if (id < thing_stat_base) {
         for (std.enums.values(General)) |general| {
             if (general.statId() == id) return .{ .general = general };
@@ -207,7 +211,7 @@ pub fn tracksMining(id: world.Id) bool {
 
 pub fn registered(stat: Key) bool {
     return switch (stat) {
-        .general => true,
+        .general, .achievement => true,
         .mined => |id| tracksMining(id),
         .used => true,
         .crafted => |id| crafting.isCraftable(id),
@@ -239,6 +243,22 @@ pub const Stats = struct {
         const entry = try self.counts.getOrPut(gpa, stat);
         if (!entry.found_existing) entry.value_ptr.* = 0;
         entry.value_ptr.* +|= amount;
+    }
+
+    pub fn hasAchievement(self: *const Stats, id: achievements.Id) bool {
+        return self.get(.{ .achievement = id }) > 0;
+    }
+
+    pub fn canUnlock(self: *const Stats, id: achievements.Id) bool {
+        const parent = id.def().parent orelse return true;
+        return self.hasAchievement(parent);
+    }
+
+    pub fn award(self: *Stats, gpa: std.mem.Allocator, id: achievements.Id) !bool {
+        if (!self.canUnlock(id)) return false;
+        const fresh = !self.hasAchievement(id);
+        try self.add(gpa, .{ .achievement = id }, 1);
+        return fresh;
     }
 
     pub fn mine(self: *Stats, gpa: std.mem.Allocator, block: world.Block) !void {
@@ -306,7 +326,7 @@ fn collectRows(
     while (it.next()) |entry| {
         if (entry.value_ptr.* <= 0) continue;
         const id = switch (entry.key_ptr.*) {
-            .general => continue,
+            .general, .achievement => continue,
             .mined, .crafted, .used, .depleted => |value| value,
         };
         const is_block = id == .block;
@@ -417,6 +437,11 @@ test "per-block stat ids sit at the four bases StatList uses" {
 test "every stat id round-trips back to its key" {
     for (std.enums.values(General)) |general| {
         const stat: Key = .{ .general = general };
+        try std.testing.expectEqual(stat, keyFromStatId(statId(stat)).?);
+    }
+
+    for (std.enums.values(achievements.Id)) |id| {
+        const stat: Key = .{ .achievement = id };
         try std.testing.expectEqual(stat, keyFromStatId(statId(stat)).?);
     }
 
@@ -559,4 +584,40 @@ test "only damageable items register a depleted count, as StatList's filter does
     try std.testing.expect(registered(.{ .depleted = .{ .item = .helmet_gold } }));
     try std.testing.expect(!registered(.{ .depleted = .{ .item = .ingot_iron } }));
     try std.testing.expect(!registered(.{ .depleted = .{ .block = .stone } }));
+}
+
+
+test "an achievement only counts once its parent is unlocked" {
+    const gpa = std.testing.allocator;
+    var tally: Stats = .{};
+    defer tally.deinit(gpa);
+
+    try std.testing.expect(!try tally.award(gpa, .mine_wood));
+    try std.testing.expect(!tally.hasAchievement(.mine_wood));
+
+    try std.testing.expect(try tally.award(gpa, .open_inventory));
+    try std.testing.expect(tally.hasAchievement(.open_inventory));
+
+    try std.testing.expect(try tally.award(gpa, .mine_wood));
+    try std.testing.expect(tally.hasAchievement(.mine_wood));
+}
+
+test "awarding an achievement twice only announces it the first time" {
+    const gpa = std.testing.allocator;
+    var tally: Stats = .{};
+    defer tally.deinit(gpa);
+
+    try std.testing.expect(try tally.award(gpa, .open_inventory));
+    try std.testing.expect(!try tally.award(gpa, .open_inventory));
+    try std.testing.expectEqual(@as(i32, 2), tally.get(.{ .achievement = .open_inventory }));
+}
+
+test "a locked achievement is still a registered stat, so it reads as zero" {
+    const gpa = std.testing.allocator;
+    var tally: Stats = .{};
+    defer tally.deinit(gpa);
+
+    try std.testing.expectEqual(@as(?i32, 0), tally.value(.{ .achievement = .fly_pig }));
+    try std.testing.expect(!tally.canUnlock(.fly_pig));
+    try std.testing.expect(tally.canUnlock(.open_inventory));
 }

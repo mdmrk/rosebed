@@ -33,6 +33,7 @@ pub const Tick = struct {
 pub const Type = struct {
     name: []const u8,
     wire_id: ?u8 = null,
+    monster: bool = false,
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
     tick: *const fn (*Animal, std.mem.Allocator, *const world.World, Animal.Players, *world.JavaRandom) anyerror!void,
     takeDrops: *const fn (*Animal) ?Drops,
@@ -183,6 +184,15 @@ test "the vanilla mob types carry the entity ids the wire spawns them by" {
     try std.testing.expectEqual(pig_zombie, byWireId(57).?);
     try std.testing.expectEqual(squid, byWireId(94).?);
     try std.testing.expectEqual(@as(?Id, null), byWireId(53));
+}
+
+test "the monster flag marks exactly the mobs EntityMob covers" {
+    const monsters = [_]Id{ creeper, skeleton, spider, zombie, pig_zombie };
+    for (0..registered()) |type_id| {
+        const id: Id = @intCast(type_id);
+        const want = std.mem.indexOfScalar(Id, &monsters, id) != null;
+        try std.testing.expectEqual(want, get(id).monster);
+    }
 }
 
 test "a type with no entity id of its own is never spawned over the wire" {
