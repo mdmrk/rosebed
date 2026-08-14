@@ -59,6 +59,8 @@ armor_gold_2: Atlas,
 sun: Atlas,
 moon: Atlas,
 clouds: Atlas,
+rain: Atlas,
+snow: Atlas,
 water: Atlas,
 
 const Wrap = enum { clamp, repeat };
@@ -130,6 +132,8 @@ fn resourceFor(comptime field: []const u8) Resource {
         .sun => clamped(assets.terrain.sun_png),
         .moon => clamped(assets.terrain.moon_png),
         .clouds => repeated(assets.environment.clouds_png),
+        .rain => repeated(assets.environment.rain_png),
+        .snow => repeated(assets.environment.snow_png),
         .water => repeated(assets.misc.water_png),
     };
 }

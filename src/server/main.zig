@@ -274,6 +274,10 @@ fn saveWorld(server: *Server, name: []const u8) !void {
         .seed = home.level.generator.worldSeed(),
         .spawn = home.level.spawn,
         .time = home.level.world_map.time,
+        .raining = home.level.world_map.weather.raining,
+        .rain_time = home.level.world_map.weather.rain_time,
+        .thundering = home.level.world_map.weather.thundering,
+        .thunder_time = home.level.world_map.weather.thunder_time,
         .last_played = world.RegionFile.unixMilliseconds(server.io),
         .size_on_disk = @intCast(home.handle.diskSize(server.io)),
         .name = @constCast(name),
@@ -415,6 +419,14 @@ fn tick(server: *Server) !void {
         }
         dim.level.entities.clearBlasts();
 
+        for (dim.level.entities.struck.items) |bolt| {
+            for (server.connections.items) |connection| {
+                if (connection.session.dimension != dim.dimension) continue;
+                connection.session.sendLightning(server.gpa, bolt.id, bolt.at) catch {};
+            }
+        }
+        dim.level.entities.clearStruck();
+
         for (dim.level.entities.collected.items) |taken| {
             for (server.connections.items) |connection| {
                 if (connection.session.dimension != dim.dimension) continue;
@@ -425,6 +437,8 @@ fn tick(server: *Server) !void {
     }
 
     for (server.connections.items) |connection| {
+        const sky = server.levelFor(connection).world_map.weather;
+        connection.session.sendRainState(server.gpa, sky.raining) catch {};
         connection.session.reportHealth(server.gpa) catch {};
         broadcastEquipment(server, connection);
         connection.session.sendRiding(server.gpa) catch {};
@@ -468,10 +482,10 @@ pub fn main(init: std.process.Init) !void {
     defer saves_dir.close(io);
 
     var overworld_handle = try world.save.open(io, saves_dir, options.folder);
-    defer overworld_handle.close(gpa, io);
+    errdefer overworld_handle.close(gpa, io);
 
     var nether_handle = try world.save.open(io, saves_dir, options.folder);
-    defer nether_handle.close(gpa, io);
+    errdefer nether_handle.close(gpa, io);
     try nether_handle.useDimension(gpa, io, .nether);
 
     var stored = overworld_handle.readLevel(gpa, io) catch null;
@@ -496,7 +510,11 @@ pub fn main(init: std.process.Init) !void {
             },
         },
     };
-    defer for (&server.dims) |*dim| dim.level.deinit(gpa);
+    // Each dim owns its copy of the save handle; the originals above are only the seed for them.
+    defer for (&server.dims) |*dim| {
+        dim.level.deinit(gpa);
+        dim.handle.close(gpa, io);
+    };
 
     for (&server.dims) |*dim| {
         dim.server = &server;
@@ -505,6 +523,7 @@ pub fn main(init: std.process.Init) !void {
         dim.level.world_map.access = worldAccess(dim);
         dim.level.world_map.note_sink = noteSink(dim);
         dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
+        dim.level.world_map.has_sky = dim.dimension.hasSky();
     }
     server.dimOf(.nether).level.entities.next_entity_id = nether_id_base;
 
@@ -512,6 +531,13 @@ pub fn main(init: std.process.Init) !void {
     if (stored) |info| {
         home.spawn = info.spawn;
         home.world_map.time = info.time;
+        home.world_map.weather = .{
+            .raining = info.raining,
+            .rain_time = info.rain_time,
+            .thundering = info.thundering,
+            .thunder_time = info.thunder_time,
+        };
+        home.world_map.weather.settle();
     } else {
         home.spawn = try findSpawn(home);
     }

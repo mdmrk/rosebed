@@ -337,10 +337,20 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items);
     try self.tickFallingBlocks(gpa);
 
+    self.world_map.tickWeather();
     for (self.roster.items) |player| {
         const center = playerChunkCoord(player);
         try self.world_map.tickRandomBlocks(center.x, center.z);
     }
+    for (self.world_map.takeStrikes()) |strike| {
+        try self.entities.strikeLightning(gpa, &self.world_map, .{
+            .x = @floatFromInt(strike.x),
+            .y = @floatFromInt(strike.y),
+            .z = @floatFromInt(strike.z),
+        }, rand);
+    }
+    self.world_map.clearStrikes();
+    try self.entities.tickLightning(gpa, &self.world_map, self.roster.items, rand);
     try self.pressPressurePlates();
     self.standInPortals();
     try self.world_map.tickUpdates();

@@ -18,8 +18,10 @@ const FishHook = @import("fish_hook.zig");
 const Ghast = @import("ghast.zig");
 const Inventory = @import("inventory.zig");
 const ItemEntity = @import("item_entity.zig");
+const Lightning = @import("lightning.zig");
 const Minecart = @import("minecart.zig");
 const mob = @import("mob.zig");
+pub const lightning_pig_zombie = mob.pig_zombie;
 const Painting = @import("painting.zig");
 const Particle = @import("particle.zig");
 const PickupFx = @import("pickup_fx.zig");
@@ -46,6 +48,8 @@ paintings: std.ArrayList(Painting) = .empty,
 boats: std.ArrayList(Boat) = .empty,
 minecarts: std.ArrayList(Minecart) = .empty,
 hooks: std.ArrayList(FishHook) = .empty,
+bolts: std.ArrayList(Lightning) = .empty,
+struck: std.ArrayList(Struck) = .empty,
 collected: std.ArrayList(Collected) = .empty,
 blasts: std.ArrayList(Blast) = .empty,
 blast_blocks: std.ArrayList([3]i8) = .empty,
@@ -54,6 +58,11 @@ next_entity_id: Entity.Id = 1,
 pub const Collected = struct {
     item: Entity.Id,
     by: Entity.Id,
+};
+
+pub const Struck = struct {
+    id: Entity.Id,
+    at: math.Vec3,
 };
 
 pub const Blast = struct {
@@ -520,6 +529,8 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.boats.deinit(gpa);
     self.minecarts.deinit(gpa);
     self.hooks.deinit(gpa);
+    self.bolts.deinit(gpa);
+    self.struck.deinit(gpa);
     self.collected.deinit(gpa);
     self.blasts.deinit(gpa);
     self.blast_blocks.deinit(gpa);
@@ -1740,6 +1751,122 @@ fn tickItemsFor(
             _ = self.items.swapRemove(i);
         } else {
             i += 1;
+        }
+    }
+}
+
+pub fn strikeLightning(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    at: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    var bolt = Lightning.strike(at, rand);
+    bolt.base.id = self.takeId();
+    try bolt.scorch(world_map, rand);
+    try self.struck.append(gpa, .{ .id = bolt.base.id, .at = at });
+    try self.bolts.append(gpa, bolt);
+}
+
+pub fn showLightning(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    id: Entity.Id,
+    at: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    var bolt = Lightning.strike(at, rand);
+    bolt.base.id = id;
+    bolt.base.remote = .at(0, 0, 0);
+    try self.bolts.append(gpa, bolt);
+}
+
+pub fn clearStruck(self: *Entities) void {
+    self.struck.clearRetainingCapacity();
+}
+
+pub fn tickLightning(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    roster: []const *Player,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.bolts.items.len) {
+        const bolt = &self.bolts.items[index];
+        const step = bolt.tick(rand);
+
+        if (step.struck) {
+            world_map.playSoundEffect(
+                bolt.base.position.x,
+                bolt.base.position.y,
+                bolt.base.position.z,
+                "ambient.weather.thunder",
+                Lightning.thunder_volume,
+                0.8 + rand.nextFloat() * 0.2,
+            );
+            world_map.playSoundEffect(
+                bolt.base.position.x,
+                bolt.base.position.y,
+                bolt.base.position.z,
+                "random.explode",
+                Lightning.crack_volume,
+                0.5 + rand.nextFloat() * 0.2,
+            );
+        }
+        const owned_here = bolt.base.remote == null;
+        if (step.reflash and owned_here) try bolt.scorch(world_map, rand);
+
+        if (bolt.isVisible()) {
+            world_map.weather.flash = world.Weather.flash_ticks;
+            if (owned_here) try self.shockEntities(gpa, bolt.*, roster, rand);
+        }
+
+        if (bolt.dead) {
+            _ = self.bolts.swapRemove(index);
+            continue;
+        }
+        index += 1;
+    }
+}
+
+fn shockEntities(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    bolt: Lightning,
+    roster: []const *Player,
+    rand: *world.JavaRandom,
+) !void {
+    const box = bolt.boundingBox();
+
+    for (roster) |player| {
+        if (!player.base.boundingBox().intersects(box)) continue;
+        player.hurt(Lightning.fire_damage);
+        if (player.fire == 0) player.fire = Lightning.burn_ticks;
+    }
+
+    var index: usize = 0;
+    while (index < self.mobs.items.len) : (index += 1) {
+        const entry = self.mobs.items[index];
+        if (!entry.animal.base.boundingBox().intersects(box)) continue;
+
+        if (entry.type_id == mob.pig) {
+            const at = entry.animal.base.position;
+            const facing = entry.animal.yaw;
+            _ = self.removeMob(gpa, entry.animal.base.id);
+            const zombie = try self.spawnMob(gpa, lightning_pig_zombie, at, rand);
+            zombie.yaw = facing;
+            zombie.prev_yaw = facing;
+            continue;
+        }
+
+        _ = mob.get(entry.type_id).hurt(entry.animal, Lightning.fire_damage, null, rand);
+        if (entry.animal.fire == 0) entry.animal.fire = Lightning.burn_ticks;
+        if (entry.type_id == mob.creeper) {
+            const charged: *Creeper = @fieldParentPtr("animal", entry.animal);
+            charged.powered = true;
         }
     }
 }

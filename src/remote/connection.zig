@@ -264,7 +264,20 @@ fn handlePlaying(
             body.pitch,
         ),
         .explosion => |body| try self.showBlast(gpa, level, body),
+        .weather => |body| {
+            if (body.lightning != lightning_kind) return;
+            try level.entities.showLightning(gpa, @bitCast(body.entity_id), .{
+                .x = game.Entity.Remote.decode(body.x),
+                .y = game.Entity.Remote.decode(body.y),
+                .z = game.Entity.Remote.decode(body.z),
+            }, &level.world_map.rand);
+        },
         .bed => |body| {
+            switch (body.state) {
+                bed_rain_starts => level.world_map.weather.raining = true,
+                bed_rain_stops => level.world_map.weather.raining = false,
+                else => {},
+            }
             if (body.state != bed_not_valid) return;
             var line: ChatLine = .{};
             line.len = @min(bed_not_valid_line.len, line.bytes.len);
@@ -289,6 +302,9 @@ fn handlePlaying(
 
 pub fn tickBodies(self: *Connection, gpa: std.mem.Allocator, level: *game.Level) !void {
     const rand = &level.world_map.rand;
+
+    level.world_map.weather.tickStrength();
+    try level.entities.tickLightning(gpa, &level.world_map, &.{}, rand);
 
     for (self.peers.items) |*peer| peer.player.tickRemote();
 
@@ -1180,6 +1196,9 @@ pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i
 }
 
 pub const bed_not_valid: i8 = 0;
+pub const bed_rain_starts: i8 = 1;
+pub const bed_rain_stops: i8 = 2;
+pub const lightning_kind: i8 = 1;
 pub const bed_not_valid_line = "Your home bed was missing or obstructed";
 pub const in_air_face: u8 = 255;
 

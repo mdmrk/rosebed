@@ -61,6 +61,10 @@ pub const LevelInfo = struct {
     size_on_disk: i64 = 0,
     name: []u8,
     player: ?PlayerState = null,
+    raining: bool = false,
+    rain_time: i32 = 0,
+    thundering: bool = false,
+    thunder_time: i32 = 0,
 
     pub fn deinit(self: *LevelInfo, gpa: std.mem.Allocator) void {
         gpa.free(self.name);
@@ -504,6 +508,10 @@ fn levelToTag(gpa: std.mem.Allocator, info: LevelInfo) !nbt.Tag {
     try put(gpa, &data, "SizeOnDisk", .{ .long = info.size_on_disk });
     try put(gpa, &data, "LevelName", .{ .string = try gpa.dupe(u8, info.name) });
     try put(gpa, &data, "version", .{ .int = 19132 });
+    try put(gpa, &data, "raining", .{ .byte = @intFromBool(info.raining) });
+    try put(gpa, &data, "rainTime", .{ .int = info.rain_time });
+    try put(gpa, &data, "thundering", .{ .byte = @intFromBool(info.thundering) });
+    try put(gpa, &data, "thunderTime", .{ .int = info.thunder_time });
     if (info.player) |player| try put(gpa, &data, "Player", try playerToTag(gpa, player));
 
     var root: nbt.Compound = .{};
@@ -525,6 +533,13 @@ fn compoundField(compound: nbt.Compound, key: []const u8) ?nbt.Compound {
 fn longField(compound: nbt.Compound, key: []const u8, fallback: i64) i64 {
     return switch (compound.get(key) orelse return fallback) {
         .long => |value| value,
+        else => fallback,
+    };
+}
+
+fn byteField(compound: nbt.Compound, key: []const u8, fallback: i8) i8 {
+    return switch (compound.get(key) orelse return fallback) {
+        .byte => |value| value,
         else => fallback,
     };
 }
@@ -676,6 +691,10 @@ fn levelFromTag(gpa: std.mem.Allocator, root: nbt.Tag) !LevelInfo {
         .last_played = longField(data, "LastPlayed", 0),
         .size_on_disk = longField(data, "SizeOnDisk", 0),
         .name = try gpa.dupe(u8, name),
+        .raining = byteField(data, "raining", 0) != 0,
+        .rain_time = intField(data, "rainTime", 0),
+        .thundering = byteField(data, "thundering", 0) != 0,
+        .thunder_time = intField(data, "thunderTime", 0),
     };
     errdefer info.deinit(gpa);
 
@@ -1086,4 +1105,40 @@ test "a world saved before dimensions existed loads as the overworld" {
     defer restored.deinit(gpa);
 
     try std.testing.expectEqual(generator.Dimension.overworld, restored.player.?.dimension);
+}
+
+test "a stormy sky is written into level.dat and read back out" {
+    const gpa = std.testing.allocator;
+
+    var tag = try levelToTag(gpa, .{
+        .seed = 1234,
+        .name = @constCast("Stormy"),
+        .raining = true,
+        .rain_time = 4321,
+        .thundering = true,
+        .thunder_time = 99,
+    });
+    defer nbt.deinit(gpa, &tag);
+
+    var info = try levelFromTag(gpa, tag);
+    defer info.deinit(gpa);
+
+    try std.testing.expect(info.raining);
+    try std.testing.expectEqual(@as(i32, 4321), info.rain_time);
+    try std.testing.expect(info.thundering);
+    try std.testing.expectEqual(@as(i32, 99), info.thunder_time);
+}
+
+test "a world saved under a clear sky comes back dry" {
+    const gpa = std.testing.allocator;
+
+    var tag = try levelToTag(gpa, .{ .seed = 5, .name = @constCast("Clear") });
+    defer nbt.deinit(gpa, &tag);
+
+    var info = try levelFromTag(gpa, tag);
+    defer info.deinit(gpa);
+
+    try std.testing.expect(!info.raining);
+    try std.testing.expect(!info.thundering);
+    try std.testing.expectEqual(@as(i32, 0), info.rain_time);
 }

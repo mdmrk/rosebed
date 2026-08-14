@@ -1580,3 +1580,102 @@ test "breaking a note block forgets how it was tuned" {
     try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(at[0], at[1], at[2]));
     try std.testing.expect(pair.server_level.world_map.noteAt(at[0], at[1], at[2]) == null);
 }
+
+test "the server tells the client when it starts and stops raining" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    pair.server_level.world_map.weather.raining = true;
+    try pair.session.sendRainState(gpa, true);
+    _ = try pair.pumpToClient();
+    try std.testing.expect(pair.client_level.world_map.weather.raining);
+
+    // Saying it twice puts nothing more on the wire.
+    try pair.session.sendRainState(gpa, true);
+    const quiet = try pair.session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
+
+    try pair.session.sendRainState(gpa, false);
+    _ = try pair.pumpToClient();
+    try std.testing.expect(!pair.client_level.world_map.weather.raining);
+}
+
+test "a lightning bolt the server strikes is drawn on the client" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = pair.session.player.?.base.position;
+    try pair.session.sendLightning(gpa, 4242, at);
+    _ = try pair.pumpToClient();
+
+    try std.testing.expectEqual(@as(usize, 1), pair.client_level.entities.bolts.items.len);
+    const bolt = pair.client_level.entities.bolts.items[0];
+    try std.testing.expectEqual(@as(game.Entity.Id, 4242), bolt.base.id);
+    try std.testing.expectApproxEqAbs(at.x, bolt.base.position.x, 1.0 / 32.0);
+    try std.testing.expect(bolt.isVisible());
+}
+
+test "a bolt too far away is never sent" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = pair.session.player.?.base.position;
+    try pair.session.sendLightning(gpa, 1, .{ .x = at.x + 5000.0, .y = at.y, .z = at.z });
+
+    const quiet = try pair.session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
+}
+
+test "a bolt on the client flashes and fades without setting fires" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const ground = pair.standOnGround();
+    const at: math.Vec3 = .{
+        .x = @floatFromInt(ground[0]),
+        .y = @floatFromInt(ground[1] + 1),
+        .z = @floatFromInt(ground[2]),
+    };
+
+    try pair.session.sendLightning(gpa, 7, at);
+    _ = try pair.pumpToClient();
+
+    for (0..200) |_| {
+        if (pair.client_level.entities.bolts.items.len == 0) break;
+        try pair.connection.tickBodies(gpa, &pair.client_level);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), pair.client_level.entities.bolts.items.len);
+    try std.testing.expect(pair.client_level.world_map.getBlock(ground[0], ground[1] + 1, ground[2]) != .fire);
+}
+
+test "rain eases in on the client once the server says it started" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    try std.testing.expectEqual(@as(f32, 0.0), pair.client_level.world_map.weather.rainStrength(1.0));
+
+    try pair.session.sendRainState(gpa, true);
+    _ = try pair.pumpToClient();
+
+    for (0..100) |_| try pair.connection.tickBodies(gpa, &pair.client_level);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pair.client_level.world_map.weather.rainStrength(1.0), 1.0e-3);
+    try std.testing.expect(pair.client_level.world_map.weather.isRaining());
+}

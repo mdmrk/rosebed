@@ -408,6 +408,52 @@ pub fn skyColor(temperature: f32, celestial_angle: f32) Color {
     };
 }
 
+pub const rain_sky_mix: f32 = 12.0 / 16.0;
+pub const rain_sky_grey: f32 = 0.6;
+pub const storm_sky_grey: f32 = 0.2;
+pub const flash_lift: f32 = 0.45;
+pub const rain_fog_dim: f32 = 0.5;
+pub const rain_fog_blue: f32 = 0.4;
+pub const storm_fog_dim: f32 = 0.5;
+
+fn greyed(color: Color, weight: f32, grey_scale: f32) Color {
+    const grey = (color[0] * 0.3 + color[1] * 0.59 + color[2] * 0.11) * grey_scale;
+    const keep = 1.0 - weight * rain_sky_mix;
+    return .{
+        color[0] * keep + grey * (1.0 - keep),
+        color[1] * keep + grey * (1.0 - keep),
+        color[2] * keep + grey * (1.0 - keep),
+    };
+}
+
+pub fn weatheredSkyColor(color: Color, rain: f32, thunder: f32, flash: f32) Color {
+    var out = color;
+    if (rain > 0.0) out = greyed(out, rain, rain_sky_grey);
+    if (thunder > 0.0) out = greyed(out, thunder, storm_sky_grey);
+    if (flash <= 0.0) return out;
+
+    const lit = @min(flash, 1.0) * flash_lift;
+    return .{
+        out[0] * (1.0 - lit) + 0.8 * lit,
+        out[1] * (1.0 - lit) + 0.8 * lit,
+        out[2] * (1.0 - lit) + 1.0 * lit,
+    };
+}
+
+pub fn weatheredFogColor(color: Color, rain: f32, thunder: f32) Color {
+    var out = color;
+    if (rain > 0.0) {
+        const dim = 1.0 - rain * rain_fog_dim;
+        const blue = 1.0 - rain * rain_fog_blue;
+        out = .{ out[0] * dim, out[1] * dim, out[2] * blue };
+    }
+    if (thunder > 0.0) {
+        const dim = 1.0 - thunder * storm_fog_dim;
+        out = .{ out[0] * dim, out[1] * dim, out[2] * dim };
+    }
+    return out;
+}
+
 pub fn fogColor(celestial_angle: f32) Color {
     const factor = dayFactor(celestial_angle);
     return .{
@@ -632,4 +678,41 @@ test "fancy clouds are far thicker geometry than the flat layer" {
 
     try std.testing.expect(fancy.vertices.items.len > flat.vertices.items.len);
     for (fancy.vertices.items) |v| try std.testing.expectEqual(cloud_alpha, v.color[3]);
+}
+
+test "rain washes the colour out of the sky toward grey" {
+    const clear: Color = .{ 0.4, 0.6, 1.0 };
+    const wet = weatheredSkyColor(clear, 1.0, 0.0, 0.0);
+
+    try std.testing.expect(wet[2] < clear[2]);
+    const spread = @max(@max(wet[0], wet[1]), wet[2]) - @min(@min(wet[0], wet[1]), wet[2]);
+    try std.testing.expect(spread < 0.3);
+}
+
+test "a lightning flash lifts the sky toward white-blue" {
+    const stormy: Color = .{ 0.1, 0.1, 0.15 };
+    const lit = weatheredSkyColor(stormy, 1.0, 1.0, 2.0);
+
+    try std.testing.expect(lit[0] > stormy[0]);
+    try std.testing.expect(lit[2] > stormy[2]);
+}
+
+test "a dry sky is left exactly as it was" {
+    const clear: Color = .{ 0.4, 0.6, 1.0 };
+    const same = weatheredSkyColor(clear, 0.0, 0.0, 0.0);
+
+    try std.testing.expectEqual(clear[0], same[0]);
+    try std.testing.expectEqual(clear[1], same[1]);
+    try std.testing.expectEqual(clear[2], same[2]);
+
+    const fog = weatheredFogColor(clear, 0.0, 0.0);
+    try std.testing.expectEqual(clear[2], fog[2]);
+}
+
+test "fog loses more blue than red when it rains" {
+    const clear: Color = .{ 0.7, 0.8, 1.0 };
+    const wet = weatheredFogColor(clear, 1.0, 0.0);
+
+    try std.testing.expectApproxEqAbs(clear[0] * 0.5, wet[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(clear[2] * 0.6, wet[2], 1.0e-6);
 }

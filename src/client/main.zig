@@ -155,6 +155,7 @@ const AppState = struct {
     needs_spawn: bool = false,
     pending_portal: bool = false,
     ticks_since_save: u32 = 0,
+    rain_sound_ticks: u32 = 0,
     pause_save_frames: u32 = 0,
     pause_ticks: u32 = 0,
     pause_saving: bool = false,
@@ -1760,6 +1761,10 @@ fn saveLevel(app_state: *AppState) !void {
         .seed = app_state.level.generator.worldSeed(),
         .spawn = app_state.level.spawn,
         .time = app_state.level.world_map.time,
+        .raining = app_state.level.world_map.weather.raining,
+        .rain_time = app_state.level.world_map.weather.rain_time,
+        .thundering = app_state.level.world_map.weather.thundering,
+        .thunder_time = app_state.level.world_map.weather.thunder_time,
         .last_played = world.RegionFile.unixMilliseconds(app_state.io),
         .size_on_disk = @intCast(handle.diskSize(app_state.io)),
         .name = @constCast(app_state.open_name.text()),
@@ -1815,6 +1820,13 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     if (stored) |info| {
         app_state.open_name.set(info.name);
         app_state.level.world_map.time = info.time;
+        app_state.level.world_map.weather = .{
+            .raining = info.raining,
+            .rain_time = info.rain_time,
+            .thundering = info.thundering,
+            .thunder_time = info.thunder_time,
+        };
+        app_state.level.world_map.weather.settle();
         app_state.level.spawn = info.spawn;
         if (info.player) |player| {
             applyPlayerState(app_state, player);
@@ -1851,6 +1863,7 @@ fn enterSavedDimension(app_state: *AppState, target: world.Dimension) !void {
         app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     }
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+    app_state.level.world_map.has_sky = target.hasSky();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 }
 
@@ -1955,6 +1968,7 @@ fn switchDimension(app_state: *AppState, target: world.Dimension, x: f64, y: f64
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+    app_state.level.world_map.has_sky = target.hasSky();
 
     placePlayerAt(app_state, x, y, z);
     try app_state.level.enter(app_state.gpa, &app_state.player);
@@ -2846,6 +2860,7 @@ fn enterServerDimension(app_state: *AppState, target: world.Dimension) !void {
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+    app_state.level.world_map.has_sky = target.hasSky();
 
     try app_state.level.enter(app_state.gpa, &app_state.player);
     app_state.held_stack = null;
@@ -3217,6 +3232,7 @@ fn tick(app_state: *AppState) !void {
     try app_state.level.entities.tickParticles(app_state.gpa, &app_state.level.world_map, &app_state.level.world_map.rand);
     app_state.level.entities.tickPickups();
     try spawnDisplayParticles(app_state);
+    try spawnRainParticles(app_state);
     try ensureChunksAroundPlayer(app_state);
 
     if (app_state.link != null) return;
@@ -3232,6 +3248,79 @@ fn tick(app_state: *AppState) !void {
 
 const display_particle_samples = 1000;
 const display_particle_range = 16;
+
+const rain_particle_reach: i32 = 10;
+const rain_particle_samples: f32 = 100.0;
+const rain_sound_near: f32 = 0.2;
+const rain_sound_far: f32 = 0.1;
+
+fn spawnRainParticles(app_state: *AppState) !void {
+    if (!app_state.dimension.hasSky()) return;
+
+    var strength = app_state.level.world_map.weather.rainStrength(1.0);
+    if (!app_state.settings.fancy_graphics) strength /= 2.0;
+    if (strength <= 0.0) return;
+
+    const rand = &app_state.level.world_map.rand;
+    const feet = app_state.player.base.position;
+    const px = math.util.floorDouble(feet.x);
+    const py = math.util.floorDouble(feet.y);
+    const pz = math.util.floorDouble(feet.z);
+
+    var heard: u32 = 0;
+    var loudest = math.Vec3.init(0, 0, 0);
+
+    const attempts: usize = @intFromFloat(rain_particle_samples * strength * strength);
+    for (0..attempts) |_| {
+        const x = px + rand.nextIntBound(rain_particle_reach) - rand.nextIntBound(rain_particle_reach);
+        const z = pz + rand.nextIntBound(rain_particle_reach) - rand.nextIntBound(rain_particle_reach);
+        const top = app_state.level.world_map.findTopSolidBlock(x, z);
+        if (top > py + rain_particle_reach or top < py - rain_particle_reach) continue;
+        if (!app_state.level.world_map.biomeAt(x, z).canSpawnLightningBolt()) continue;
+
+        const under = app_state.level.world_map.getBlock(x, top - 1, z);
+        if (under == .air) continue;
+
+        const at = math.Vec3.init(
+            @as(f64, @floatFromInt(x)) + rand.nextFloat(),
+            @as(f64, @floatFromInt(top)) + 0.1,
+            @as(f64, @floatFromInt(z)) + rand.nextFloat(),
+        );
+
+        if (under == .flowing_lava or under == .stationary_lava) {
+            try app_state.level.entities.particles.append(
+                app_state.gpa,
+                game.Particle.spawnSmoke(at, math.Vec3.init(0, 0, 0), rand),
+            );
+            continue;
+        }
+
+        heard += 1;
+        if (rand.nextIntBound(@intCast(heard)) == 0) loudest = at;
+        try app_state.level.entities.particles.append(
+            app_state.gpa,
+            game.Particle.spawnRain(at, rand),
+        );
+    }
+
+    if (heard == 0) return;
+    if (rand.nextIntBound(3) >= @as(i32, @intCast(app_state.rain_sound_ticks))) {
+        app_state.rain_sound_ticks += 1;
+        return;
+    }
+    app_state.rain_sound_ticks = 0;
+
+    const overhead = loudest.y > feet.y + 1.0 and
+        app_state.level.world_map.findTopSolidBlock(px, pz) > py;
+    app_state.level.world_map.playSoundEffect(
+        loudest.x,
+        loudest.y,
+        loudest.z,
+        "ambient.weather.rain",
+        if (overhead) rain_sound_far else rain_sound_near,
+        if (overhead) 0.5 else 1.0,
+    );
+}
 
 fn spawnDisplayParticles(app_state: *AppState) !void {
     const rand = &app_state.level.world_map.rand;
@@ -3418,11 +3507,17 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
             math.util.floorDouble(app_state.player.base.position.z),
         ));
         const render_distance = @intFromEnum(app_state.settings.render_distance);
-        const angle = app_state.level.world_map.celestialAngle(app_state.timer.render_partial_ticks);
-        break :blended render.sky.blendedFogColor(
-            render.sky.skyColor(temperature, angle),
-            render.sky.fogColor(angle),
-            render_distance,
+        const partial = app_state.timer.render_partial_ticks;
+        const angle = app_state.level.world_map.celestialAngle(partial);
+        const weather = app_state.level.world_map.weather;
+        break :blended render.sky.weatheredFogColor(
+            render.sky.blendedFogColor(
+                render.sky.skyColor(temperature, angle),
+                render.sky.fogColor(angle),
+                render_distance,
+            ),
+            weather.rainStrength(partial),
+            weather.thunderStrength(partial),
         );
     };
 
@@ -3870,6 +3965,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setInt("u_alpha_test", 1);
     gl.Disable(gl.BLEND);
 
+    try drawLightning(app_state, view_proj);
+    try drawWeather(app_state, view_proj, partial);
     try drawClouds(app_state, proj, partial);
     if (!app_state.third_person) {
         try drawHeldItem(app_state, proj, partial);
@@ -4017,6 +4114,88 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     app_state.textures.terrain.bind();
 }
 
+fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
+    if (app_state.level.entities.bolts.items.len == 0) return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+
+    for (app_state.level.entities.bolts.items) |bolt| {
+        if (!bolt.isVisible()) continue;
+        try render.lightning.append(&mesh, app_state.frame, bolt.base.position, bolt.seed);
+    }
+    if (mesh.vertices.items.len == 0) return;
+
+    app_state.shader.setMat4("u_view_proj", view_proj.m);
+    app_state.shader.setInt("u_textured", 0);
+    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.Disable(gl.CULL_FACE);
+    gl.DepthMask(gl.FALSE);
+
+    var gpu = render.GpuMesh.upload(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+
+    gl.DepthMask(gl.TRUE);
+    gl.Enable(gl.CULL_FACE);
+    gl.Disable(gl.BLEND);
+    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.textures.terrain.bind();
+}
+
+fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
+    if (!app_state.dimension.hasSky()) return;
+
+    const strength = app_state.level.world_map.weather.rainStrength(partial);
+    if (strength <= 0.0) return;
+
+    const eye = app_state.player.base.renderPosition(partial);
+    const view: render.weather.View = .{
+        .world_map = &app_state.level.world_map,
+        .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
+        .tick_count = @intCast(app_state.level.tick_count),
+        .partial_ticks = partial,
+        .strength = strength,
+        .fancy = app_state.settings.fancy_graphics,
+    };
+
+    app_state.shader.setMat4("u_view_proj", view_proj.m);
+    app_state.shader.setInt("u_alpha_test", 0);
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.Disable(gl.CULL_FACE);
+
+    try drawWeatherLayer(app_state, view, &app_state.textures.snow, render.weather.appendSnow);
+    try drawWeatherLayer(app_state, view, &app_state.textures.rain, render.weather.appendRain);
+
+    gl.Enable(gl.CULL_FACE);
+    gl.Disable(gl.BLEND);
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.textures.terrain.bind();
+}
+
+fn drawWeatherLayer(
+    app_state: *AppState,
+    view: render.weather.View,
+    atlas: *const render.Atlas,
+    append: *const fn (*render.MeshBuilder, std.mem.Allocator, render.weather.View) anyerror!void,
+) !void {
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+
+    try append(&mesh, app_state.frame, view);
+    if (mesh.vertices.items.len == 0) return;
+
+    atlas.bind();
+    var gpu = render.GpuMesh.upload(&mesh);
+    defer gpu.deinit();
+    gpu.draw();
+}
+
 fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     if (!app_state.dimension.hasSky()) return;
 
@@ -4045,6 +4224,17 @@ fn portalWarp(app_state: *const AppState, partial: f32) math.Mat4 {
     return app_state.player.portalMatrix(partial, app_state.level.tick_count);
 }
 
+fn weatheredSky(app_state: *const AppState, color: render.sky.Color, partial: f32) render.sky.Color {
+    const weather = app_state.level.world_map.weather;
+    const flash = @as(f32, @floatFromInt(weather.flash)) - partial;
+    return render.sky.weatheredSkyColor(
+        color,
+        weather.rainStrength(partial),
+        weather.thunderStrength(partial),
+        flash,
+    );
+}
+
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.sky.Color) !void {
     if (!app_state.dimension.hasSky()) return;
 
@@ -4070,7 +4260,7 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
         .projection = proj,
         .view_rotation = rotation,
         .celestial_angle = angle,
-        .sky_color = render.sky.skyColor(temperature, angle),
+        .sky_color = weatheredSky(app_state, render.sky.skyColor(temperature, angle), partial),
         .fog_color = horizon,
         .far_plane_distance = render.sky.farPlaneDistance(render_distance),
         .fog_density = cameraFogDensity(app_state),

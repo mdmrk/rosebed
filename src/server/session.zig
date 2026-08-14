@@ -44,6 +44,7 @@ pending_sign: ?world.World.BlockPos = null,
 quiet_ticks: u32 = 0,
 last_height: f64 = 0,
 dimension: world.Dimension = .overworld,
+raining: bool = false,
 emptied_on_death: bool = false,
 kicked: bool = false,
 
@@ -1380,6 +1381,33 @@ pub fn award(self: *Session, gpa: std.mem.Allocator, stat: game.stats.Key, amoun
     }
 }
 
+pub fn sendRainState(self: *Session, gpa: std.mem.Allocator, raining: bool) !void {
+    if (self.state != .playing) return;
+    if (self.raining == raining) return;
+
+    self.raining = raining;
+    try self.send(gpa, .{ .bed = .{ .state = if (raining) bed_rain_starts else bed_rain_stops } });
+}
+
+pub fn sendLightning(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    id: game.Entity.Id,
+    at: math.Vec3,
+) !void {
+    if (self.state != .playing) return;
+    const player = self.player orelse return;
+    if (player.base.position.distanceTo(at) > weather_range) return;
+
+    try self.send(gpa, .{ .weather = .{
+        .entity_id = @bitCast(id),
+        .lightning = lightning_kind,
+        .x = encodePosition(at.x),
+        .y = encodePosition(at.y),
+        .z = encodePosition(at.z),
+    } });
+}
+
 pub const note_range: f64 = 64.0;
 
 pub fn sendNote(
@@ -1781,6 +1809,10 @@ fn placeSign(self: *Session, level: *game.Level, x: i32, y: i32, z: i32, face: w
 }
 
 pub const bed_not_valid: i8 = 0;
+pub const bed_rain_starts: i8 = 1;
+pub const bed_rain_stops: i8 = 2;
+pub const lightning_kind: i8 = 1;
+pub const weather_range: f64 = 512.0;
 pub const bed_reach_x: f64 = 3.0;
 pub const bed_reach_y: f64 = 2.0;
 

@@ -25,6 +25,7 @@ pub const Ui = gui.Ui;
 pub const held_item = @import("held_item.zig");
 pub const hud = @import("hud.zig");
 pub const inventory_screen = @import("inventory_screen.zig");
+pub const lightning = @import("lightning.zig");
 pub const loading_screen = @import("loading_screen.zig");
 pub const menu = @import("menu.zig");
 pub const MeshBuilder = @import("mesh_builder.zig");
@@ -49,6 +50,7 @@ pub const Textures = @import("textures.zig");
 pub const title_screen = @import("title_screen.zig");
 pub const underwater = @import("underwater.zig");
 pub const video_settings_screen = @import("video_settings_screen.zig");
+pub const weather = @import("weather.zig");
 
 test {
     _ = sign_render;
@@ -62,6 +64,8 @@ test {
     _ = GpuMesh;
     _ = terrain_shader;
     _ = sky;
+    _ = weather;
+    _ = lightning;
     _ = selection;
     _ = SkyRenderer;
     _ = held_item;

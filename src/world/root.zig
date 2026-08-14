@@ -50,6 +50,7 @@ pub const sign = @import("sign.zig");
 pub const springs = @import("springs.zig");
 pub const TerrainGenerator = @import("terrain_gen.zig");
 pub const testing = @import("testing.zig");
+pub const Weather = @import("weather.zig");
 pub const World = @import("world_map.zig");
 
 test {
@@ -78,6 +79,7 @@ test {
     _ = sign;
     _ = jukebox;
     _ = note;
+    _ = Weather;
     _ = dispenser;
     _ = rail;
     _ = caves;

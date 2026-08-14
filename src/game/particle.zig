@@ -19,7 +19,7 @@ color: [3]f32,
 tint: [3]u8 = .{ 255, 255, 255 },
 origin: math.Vec3 = .{ .x = 0, .y = 0, .z = 0 },
 
-pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal, explode, note };
+pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal, explode, note, rain };
 
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
@@ -52,6 +52,12 @@ pub const note_drag: f64 = 0.66;
 pub const note_scale: f32 = 2.0;
 pub const note_lift: f64 = 0.2;
 pub const note_age: i32 = 6;
+pub const rain_tile: u8 = 19;
+pub const rain_tile_spread: i32 = 4;
+pub const rain_gravity: f64 = 0.06;
+pub const rain_drag: f64 = 0.98;
+pub const rain_size: f64 = 0.01;
+pub const rain_ground_friction: f64 = 0.7;
 pub const explode_jitter: f64 = 0.05;
 pub const explode_lift: f64 = 0.004;
 pub const explode_drag: f64 = 0.9;
@@ -285,6 +291,22 @@ pub fn spawnNote(position: math.Vec3, tone: f32, rand: *world.JavaRandom) Partic
     return particle;
 }
 
+pub fn spawnRain(position: math.Vec3, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .rain;
+    particle.base.width = rain_size;
+    particle.base.height = rain_size;
+    particle.base.motion = math.Vec3.init(
+        particle.base.motion.x * 0.3,
+        @as(f64, rand.nextFloat()) * 0.2 + 0.1,
+        particle.base.motion.z * 0.3,
+    );
+    particle.color = .{ 1, 1, 1 };
+    particle.tile = rain_tile + @as(u8, @intCast(rand.nextIntBound(rain_tile_spread)));
+    particle.max_age = @intFromFloat(8.0 / (rand.nextDouble() * 0.8 + 0.2));
+    return particle;
+}
+
 pub fn spawnSlime(position: math.Vec3, rand: *world.JavaRandom) Particle {
     var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
     particle.kind = .slime;
@@ -415,6 +437,16 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             self.applyDrag(heart_drag);
             self.applyGroundFriction();
         },
+        .rain => {
+            self.base.motion.y -= rain_gravity;
+            _ = self.base.move(world_map);
+            self.applyDrag(rain_drag);
+            if (self.base.on_ground) {
+                if (rand.nextDouble() < 0.5) self.age = self.max_age;
+                self.base.motion.x *= rain_ground_friction;
+                self.base.motion.z *= rain_ground_friction;
+            }
+        },
         .note => {
             _ = self.base.move(world_map);
             if (self.base.position.y == self.base.prev_position.y) {
@@ -485,7 +517,7 @@ pub fn lifeProgress(self: Particle, partial_ticks: f32) f32 {
 
 pub fn halfSize(self: Particle, partial_ticks: f32) f32 {
     const factor: f32 = switch (self.kind) {
-        .digging, .splash, .bubble, .slime, .explode => 1.0,
+        .digging, .splash, .bubble, .slime, .explode, .rain => 1.0,
         .smoke, .reddust, .heart, .note => std.math.clamp(self.lifeProgress(partial_ticks) * 32.0, 0.0, 1.0),
         .lava => blk: {
             const progress = self.lifeProgress(partial_ticks);

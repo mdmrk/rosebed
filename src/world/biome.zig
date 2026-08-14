@@ -28,6 +28,21 @@ pub const Biome = enum {
             else => .dirt,
         };
     }
+
+    pub fn snows(self: Biome) bool {
+        return switch (self) {
+            .tundra, .taiga => true,
+            else => false,
+        };
+    }
+
+    pub fn rains(self: Biome) bool {
+        return self != .desert;
+    }
+
+    pub fn canSpawnLightningBolt(self: Biome) bool {
+        return !self.snows() and self.rains();
+    }
 };
 
 fn classifyExact(temperature: f32, humidity: f32) Biome {
@@ -74,4 +89,20 @@ test "default 0.5/0.5 climate is taiga after quantization" {
 test "desert biome tops with sand, others with grass" {
     try std.testing.expectEqual(.sand, Biome.desert.topBlock());
     try std.testing.expectEqual(.grass, Biome.forest.topBlock());
+}
+
+test "snow falls on the cold biomes and rain skips the desert" {
+    try std.testing.expect(Biome.tundra.snows());
+    try std.testing.expect(Biome.taiga.snows());
+    try std.testing.expect(!Biome.forest.snows());
+
+    try std.testing.expect(!Biome.desert.rains());
+    try std.testing.expect(Biome.forest.rains());
+}
+
+test "lightning needs a biome that rains without freezing" {
+    try std.testing.expect(Biome.forest.canSpawnLightningBolt());
+    try std.testing.expect(Biome.rainforest.canSpawnLightningBolt());
+    try std.testing.expect(!Biome.taiga.canSpawnLightningBolt());
+    try std.testing.expect(!Biome.desert.canSpawnLightningBolt());
 }

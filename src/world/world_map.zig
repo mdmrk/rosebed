@@ -25,6 +25,7 @@ const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
 const TerrainGenerator = @import("terrain_gen.zig");
+const Weather = @import("weather.zig");
 
 const World = @This();
 
@@ -109,6 +110,9 @@ torch_updates: std.ArrayList(TorchUpdate) = .empty,
 entity_probe: ?EntityProbe = null,
 sound_sink: ?SoundSink = null,
 note_sink: ?NoteSink = null,
+weather: Weather = .{},
+has_sky: bool = true,
+strikes: std.ArrayList(Strike) = .empty,
 access: ?Access = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
@@ -164,7 +168,32 @@ pub fn celestialAngle(self: *const World, partial_ticks: f32) f32 {
 pub fn calculateSkylightSubtracted(self: *const World, partial_ticks: f32) u4 {
     const angle = self.celestialAngle(partial_ticks);
     const darkness = std.math.clamp(1.0 - (math.util.cos(angle * std.math.pi * 2.0) * 2.0 + 0.5), 0.0, 1.0);
-    return @intFromFloat(darkness * 11.0);
+
+    var daylight: f64 = 1.0 - darkness;
+    daylight *= 1.0 - @as(f64, self.weather.rainStrength(partial_ticks) * 5.0) / 16.0;
+    daylight *= 1.0 - @as(f64, self.weather.thunderStrength(partial_ticks) * 5.0) / 16.0;
+    return @intFromFloat((1.0 - daylight) * 11.0);
+}
+
+pub fn tickWeather(self: *World) void {
+    if (!self.has_sky) return;
+    self.weather.tick(&self.rand);
+}
+
+pub fn findTopSolidBlock(self: *const World, x: i32, z: i32) i32 {
+    var y: i32 = constants.chunk_height - 1;
+    while (y > 0) : (y -= 1) {
+        const material = self.getBlock(x, y, z).material();
+        if (material.isSolid() or material.isLiquid()) return y + 1;
+    }
+    return -1;
+}
+
+pub fn canBlockBeRainedOn(self: *const World, x: i32, y: i32, z: i32) bool {
+    if (!self.weather.isRaining()) return false;
+    if (!self.canBlockSeeTheSky(x, y, z)) return false;
+    if (self.findTopSolidBlock(x, z) > y) return false;
+    return self.biomeAt(x, z).canSpawnLightningBolt();
 }
 
 pub fn init(allocator: std.mem.Allocator) World {
@@ -188,6 +217,7 @@ pub fn deinit(self: *World) void {
     self.signs.deinit(self.allocator);
     self.jukeboxes.deinit(self.allocator);
     self.notes.deinit(self.allocator);
+    self.strikes.deinit(self.allocator);
     self.note_updates.deinit(self.allocator);
     self.dispensers.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
@@ -1006,12 +1036,70 @@ pub const random_tick_samples: usize = 80;
 
 const random_tick_chunk_radius: i32 = 9;
 
+pub const lightning_odds: i32 = 100000;
+pub const snow_odds: i32 = 16;
+pub const frost_light_limit: u4 = 10;
+
+pub const Strike = struct { x: i32, y: i32, z: i32 };
+
+fn settleFrost(self: *World, chunk: *Chunk, x: i32, z: i32, local_x: u32, local_z: u32) !void {
+    if (!self.biomeAt(x, z).snows()) return;
+
+    const y = self.findTopSolidBlock(x, z);
+    if (y < 0 or y >= constants.chunk_height) return;
+    if (chunk.getBlockLight(local_x, @intCast(y), local_z) >= frost_light_limit) return;
+
+    const below = self.getBlock(x, y - 1, z);
+    if (self.weather.isRaining() and
+        self.getBlock(x, y, z) == .air and
+        block_update.canPlaceAt(self, x, y, z, .snow_layer) and
+        below != .air and below != .ice and below.material().isSolid())
+    {
+        try self.setBlockWithNotify(x, y, z, .snow_layer);
+    }
+
+    if (below == .stationary_water and self.getBlockMetadata(x, y - 1, z) == 0) {
+        try self.setBlockWithNotify(x, y - 1, z, .ice);
+    }
+}
+
+pub fn takeStrikes(self: *World) []const Strike {
+    return self.strikes.items;
+}
+
+pub fn clearStrikes(self: *World) void {
+    self.strikes.clearRetainingCapacity();
+}
+
 pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) !void {
     var chunk_x = center_chunk_x - random_tick_chunk_radius;
     while (chunk_x <= center_chunk_x + random_tick_chunk_radius) : (chunk_x += 1) {
         var chunk_z = center_chunk_z - random_tick_chunk_radius;
         while (chunk_z <= center_chunk_z + random_tick_chunk_radius) : (chunk_z += 1) {
             const chunk = self.getChunk(chunk_x, chunk_z) orelse continue;
+            const base_x = chunk_x * constants.chunk_width;
+            const base_z = chunk_z * constants.chunk_width;
+
+            if (self.rand.nextIntBound(lightning_odds) == 0 and self.weather.isThundering() and self.weather.isRaining()) {
+                self.update_lcg = self.update_lcg *% 3 +% 1013904223;
+                const bits = self.update_lcg >> 2;
+                const strike_x = base_x + @as(i32, @intCast(bits & 15));
+                const strike_z = base_z + @as(i32, @intCast((bits >> 8) & 15));
+                const strike_y = self.findTopSolidBlock(strike_x, strike_z);
+                if (self.canBlockBeRainedOn(strike_x, strike_y, strike_z)) {
+                    try self.strikes.append(self.allocator, .{ .x = strike_x, .y = strike_y, .z = strike_z });
+                    self.weather.flash = Weather.flash_ticks;
+                }
+            }
+
+            if (self.rand.nextIntBound(snow_odds) == 0) {
+                self.update_lcg = self.update_lcg *% 3 +% 1013904223;
+                const bits = self.update_lcg >> 2;
+                const local_x: u32 = @intCast(bits & 15);
+                const local_z: u32 = @intCast((bits >> 8) & 15);
+                try self.settleFrost(chunk, base_x + @as(i32, @intCast(local_x)), base_z + @as(i32, @intCast(local_z)), local_x, local_z);
+            }
+
             for (0..random_tick_samples) |_| {
                 self.update_lcg = self.update_lcg *% 3 +% 1013904223;
                 const bits = self.update_lcg >> 2;
