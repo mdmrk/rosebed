@@ -7,6 +7,7 @@ const Block = block.Block;
 const Side = block.Side;
 const block_update = @import("block_update.zig");
 const constants = @import("constants.zig");
+const note = @import("note.zig");
 const piston = @import("piston.zig");
 const rail = @import("rail.zig");
 const testing_world = @import("testing.zig");
@@ -683,6 +684,10 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32, source: Block
             if (!canProvidePower(source)) return;
             if (!dispenserIsPowered(world_map, x, y, z)) return;
             try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+        },
+        .note_block => {
+            if (!canProvidePower(source)) return;
+            try note.onPowerChange(world_map, x, y, z, isBlockGettingPowered(world_map, x, y, z));
         },
         .rail, .rail_powered, .rail_detector => try railNeighborChange(world_map, x, y, z, id, source),
         .piston, .piston_sticky => try piston.onNeighborChange(world_map, x, y, z),

@@ -17,6 +17,7 @@ const jukebox = @import("jukebox.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
 const nbt = @import("nbt.zig");
+const note = @import("note.zig");
 const piston = @import("piston.zig");
 const portal = @import("portal.zig");
 const rail = @import("rail.zig");
@@ -107,6 +108,7 @@ brightness: [16]f32 = light.brightness_table,
 torch_updates: std.ArrayList(TorchUpdate) = .empty,
 entity_probe: ?EntityProbe = null,
 sound_sink: ?SoundSink = null,
+note_sink: ?NoteSink = null,
 access: ?Access = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
@@ -115,11 +117,13 @@ furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
 chests: std.AutoHashMapUnmanaged(BlockPos, chest.Chest) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
 jukeboxes: std.AutoHashMapUnmanaged(BlockPos, jukebox.Jukebox) = .{},
+notes: std.AutoHashMapUnmanaged(BlockPos, note.Note) = .{},
 dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
 jukebox_updates: std.ArrayList(BlockPos) = .empty,
+note_updates: std.ArrayList(BlockPos) = .empty,
 dispenser_updates: std.ArrayList(BlockPos) = .empty,
 dispensed: std.ArrayList(Dispensed) = .empty,
 piston_updates: std.ArrayList(BlockPos) = .empty,
@@ -183,6 +187,8 @@ pub fn deinit(self: *World) void {
     self.chests.deinit(self.allocator);
     self.signs.deinit(self.allocator);
     self.jukeboxes.deinit(self.allocator);
+    self.notes.deinit(self.allocator);
+    self.note_updates.deinit(self.allocator);
     self.dispensers.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
@@ -579,6 +585,63 @@ pub fn removeJukebox(self: *World, x: i32, y: i32, z: i32) ?jukebox.Jukebox {
     return removed.value;
 }
 
+pub fn noteAt(self: *World, x: i32, y: i32, z: i32) ?*note.Note {
+    return self.notes.getPtr(.{ .x = x, .y = y, .z = z });
+}
+
+pub fn addNote(self: *World, x: i32, y: i32, z: i32) !*note.Note {
+    const entry = try self.notes.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeNote(self: *World, x: i32, y: i32, z: i32) ?note.Note {
+    const removed = self.notes.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+    return removed.value;
+}
+
+pub fn forgetOrphanNotes(self: *World) !void {
+    self.note_updates.clearRetainingCapacity();
+
+    var it = self.notes.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
+        if (self.getBlock(pos.x, pos.y, pos.z) == .note_block) continue;
+        try self.note_updates.append(self.allocator, pos);
+    }
+
+    for (self.note_updates.items) |pos| _ = self.notes.remove(pos);
+}
+
+pub fn playNoteAt(self: *World, x: i32, y: i32, z: i32, instrument: note.Instrument, pitch: u8) void {
+    self.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        instrument.soundName(),
+        note_volume,
+        note.pitchOf(pitch),
+    );
+
+    const sink = self.note_sink orelse return;
+    sink.playNote(sink.context, x, y, z, instrument, pitch);
+}
+
+pub const note_volume: f32 = 3.0;
+
+pub const NoteSink = struct {
+    context: *anyopaque,
+    playNote: *const fn (
+        context: *anyopaque,
+        x: i32,
+        y: i32,
+        z: i32,
+        instrument: note.Instrument,
+        pitch: u8,
+    ) void,
+};
+
 pub fn dispenserAt(self: *World, x: i32, y: i32, z: i32) ?*dispenser.Dispenser {
     return self.dispensers.getPtr(.{ .x = x, .y = y, .z = z });
 }
@@ -796,6 +859,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         try out.append(self.allocator, try jukebox.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
     }
 
+    var notes_it = self.notes.iterator();
+    while (notes_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try note.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+    }
+
     var dispensers_it = self.dispensers.iterator();
     while (dispensers_it.next()) |entry| {
         const pos = entry.key_ptr.*;
@@ -821,6 +891,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     }
     if (jukebox.load(compound)) |placed| {
         (try self.addJukebox(placed.x, placed.y, placed.z)).* = placed.state;
+        return;
+    }
+    if (note.load(compound)) |placed| {
+        (try self.addNote(placed.x, placed.y, placed.z)).* = placed.state;
         return;
     }
     if (dispenser.load(compound)) |placed| {

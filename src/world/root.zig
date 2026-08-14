@@ -38,6 +38,7 @@ pub const NoiseGenerator2 = @import("noise_simplex.zig");
 pub const NoiseGeneratorOctaves = @import("noise_octaves.zig");
 pub const NoiseGeneratorOctaves2 = @import("noise_simplex_octaves.zig");
 pub const NoiseGeneratorPerlin = @import("noise_perlin.zig");
+pub const note = @import("note.zig");
 pub const pathfinder = @import("pathfinder.zig");
 pub const piston = @import("piston.zig");
 pub const portal = @import("portal.zig");
@@ -76,6 +77,7 @@ test {
     _ = piston;
     _ = sign;
     _ = jukebox;
+    _ = note;
     _ = dispenser;
     _ = rail;
     _ = caves;

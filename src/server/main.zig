@@ -145,6 +145,25 @@ fn markBlockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.All
 
 fn updateAllRenderers(_: *anyopaque) std.mem.Allocator.Error!void {}
 
+fn playNote(
+    context: *anyopaque,
+    x: i32,
+    y: i32,
+    z: i32,
+    instrument: world.note.Instrument,
+    pitch: u8,
+) void {
+    const dim: *Dim = @ptrCast(@alignCast(context));
+    for (dim.server.connections.items) |connection| {
+        if (connection.session.dimension != dim.dimension) continue;
+        connection.session.sendNote(dim.server.gpa, x, y, z, instrument, pitch) catch {};
+    }
+}
+
+fn noteSink(dim: *Dim) world.World.NoteSink {
+    return .{ .context = dim, .playNote = playNote };
+}
+
 fn readLoop(server: *Server, connection: *Connection) void {
     var buffer: [read_buffer_len]u8 = undefined;
     var reader = connection.stream.reader(server.io, &buffer);
@@ -484,6 +503,7 @@ pub fn main(init: std.process.Init) !void {
         dim.level.attach();
         dim.level.world_map.persistence = .{ .handle = &dim.handle, .io = io };
         dim.level.world_map.access = worldAccess(dim);
+        dim.level.world_map.note_sink = noteSink(dim);
         dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
     }
     server.dimOf(.nether).level.entities.next_entity_id = nether_id_base;

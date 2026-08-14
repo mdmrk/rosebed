@@ -256,6 +256,13 @@ fn handlePlaying(
             const stat = game.stats.keyFromStatId(@bitCast(body.stat_id)) orelse return;
             try self.awarded.append(gpa, .{ .stat = stat, .amount = body.amount });
         },
+        .play_note_block => |body| level.world_map.playNoteAt(
+            body.x,
+            body.y,
+            body.z,
+            @enumFromInt(body.instrument),
+            body.pitch,
+        ),
         .explosion => |body| try self.showBlast(gpa, level, body),
         .bed => |body| {
             if (body.state != bed_not_valid) return;
@@ -1147,10 +1154,24 @@ pub fn reportRespawn(self: *Connection, gpa: std.mem.Allocator) !void {
     try self.send(gpa, .{ .respawn = .{ .dimension = 0 } });
 }
 
+pub const dig_started: u8 = 0;
+pub const dig_finished: u8 = 2;
+
+pub fn reportDigStart(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .block_dig = .{
+        .status = dig_started,
+        .x = x,
+        .y = @intCast(y),
+        .z = z,
+        .face = face,
+    } });
+}
+
 pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .block_dig = .{
-        .status = 2,
+        .status = dig_finished,
         .x = x,
         .y = @intCast(y),
         .z = z,

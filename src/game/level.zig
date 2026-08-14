@@ -347,6 +347,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.world_map.tickFurnaces();
     try self.world_map.spillOrphanChests();
     try self.world_map.spillOrphanJukeboxes();
+    try self.world_map.forgetOrphanNotes();
     try self.world_map.spillOrphanDispensers();
     try self.world_map.tickPistons();
     try self.entities.applyPistonShoves(&self.world_map, self.roster.items);

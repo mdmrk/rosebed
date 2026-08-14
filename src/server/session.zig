@@ -1380,6 +1380,36 @@ pub fn award(self: *Session, gpa: std.mem.Allocator, stat: game.stats.Key, amoun
     }
 }
 
+pub const note_range: f64 = 64.0;
+
+pub fn sendNote(
+    self: *Session,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    instrument: world.note.Instrument,
+    pitch: u8,
+) !void {
+    if (self.state != .playing) return;
+    const player = self.player orelse return;
+
+    const at = math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+    );
+    if (player.base.position.distanceTo(at) > note_range) return;
+
+    try self.send(gpa, .{ .play_note_block = .{
+        .x = x,
+        .y = @intCast(y),
+        .z = z,
+        .instrument = @intFromEnum(instrument),
+        .pitch = pitch,
+    } });
+}
+
 pub const blast_range: f64 = 64.0;
 
 pub fn sendBlast(
@@ -1472,6 +1502,8 @@ fn withinReach(player: *const game.Player, x: i32, y: i32, z: i32) bool {
     return dx * dx + dy * dy + dz * dz <= reach_squared;
 }
 
+pub const dig_started: u8 = 0;
+
 fn digBlock(
     self: *Session,
     gpa: std.mem.Allocator,
@@ -1481,11 +1513,12 @@ fn digBlock(
     y: u8,
     z: i32,
 ) !void {
-    if (status != dig_finished) return;
-
     const player = self.player orelse return;
     const height: i32 = y;
     if (!withinReach(player, x, height, z)) return;
+
+    if (status == dig_started) return world.note.onPunched(&level.world_map, x, height, z);
+    if (status != dig_finished) return;
 
     const broken = level.world_map.getBlock(x, height, z);
     if (broken == .air) return;
@@ -1493,6 +1526,7 @@ fn digBlock(
     const meta = level.world_map.getBlockMetadata(x, height, z);
     try level.world_map.setBlockWithNotify(x, height, z, .air);
     _ = level.world_map.removeSign(x, height, z);
+    _ = level.world_map.removeNote(x, height, z);
     if (broken.harvestableWith(player.inventory.selectedStack())) {
         try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
     }
@@ -1548,6 +1582,7 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: 
             _ = try world.redstone.activate(&level.world_map, x, y, z);
             return true;
         },
+        .note_block => return world.note.onActivated(&level.world_map, x, y, z, .note_block),
         .bed => {
             try self.sleepInBed(gpa, level, x, y, z);
             return true;

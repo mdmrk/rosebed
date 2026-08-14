@@ -45,6 +45,18 @@ const Pair = struct {
 
     fn redrawAll(_: *anyopaque) std.mem.Allocator.Error!void {}
 
+    fn playNote(
+        context: *anyopaque,
+        x: i32,
+        y: i32,
+        z: i32,
+        instrument: world.note.Instrument,
+        pitch: u8,
+    ) void {
+        const self: *Pair = @ptrCast(@alignCast(context));
+        self.session.sendNote(self.gpa, x, y, z, instrument, pitch) catch {};
+    }
+
     fn start(self: *Pair) !void {
         self.server_level.attach();
         self.server_level.world_map.access = .{
@@ -52,6 +64,7 @@ const Pair = struct {
             .markBlockNeedsUpdate = blockNeedsUpdate,
             .updateAllRenderers = redrawAll,
         };
+        self.server_level.world_map.note_sink = .{ .context = self, .playNote = playNote };
         self.server_level.spawn = .{ 8, 70, 8 };
         self.client_level.attach();
         try self.client_level.enter(self.gpa, &self.client_player);
@@ -1429,4 +1442,141 @@ test "digging a block the server counts as mined shows in the tally" {
         if (given.stat == .mined and given.stat.mined.eql(.{ .block = broken })) seen = true;
     }
     try std.testing.expect(seen);
+}
+
+fn standNoteBlock(pair: *Pair) ![3]i32 {
+    const ground = pair.standOnGround();
+    const x, const y, const z = .{ ground[0], ground[1], ground[2] };
+    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .note_block);
+    try pair.server_level.world_map.setBlockWithNotify(x, y + 2, z, .air);
+    try pair.settle(2);
+    return .{ x, y + 1, z };
+}
+
+test "right clicking a note block tunes it up and sounds it for everyone" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = try standNoteBlock(&pair);
+
+    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.pumpToServer();
+
+    try std.testing.expectEqual(@as(u8, 1), pair.server_level.world_map.noteAt(at[0], at[1], at[2]).?.note);
+
+    var heard: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAllPackets(gpa, &heard);
+    try drainToClient(&pair, &heard);
+
+    var played: ?net.packet.Id = null;
+    var pitch: u8 = 0;
+    for (heard.items) |message| {
+        if (message != .play_note_block) continue;
+        played = message.id();
+        pitch = message.play_note_block.pitch;
+        try std.testing.expectEqual(at[0], message.play_note_block.x);
+        try std.testing.expectEqual(@as(i16, @intCast(at[1])), message.play_note_block.y);
+    }
+    try std.testing.expectEqual(net.packet.Id.play_note_block, played.?);
+    try std.testing.expectEqual(@as(u8, 1), pitch);
+}
+
+test "the block below the note block picks the instrument sent down the wire" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = try standNoteBlock(&pair);
+    try pair.server_level.world_map.setBlockWithNotify(at[0], at[1] - 1, at[2], .glass);
+    try pair.settle(2);
+
+    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.pumpToServer();
+
+    var heard: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAllPackets(gpa, &heard);
+    try drainToClient(&pair, &heard);
+
+    var instrument: ?u8 = null;
+    for (heard.items) |message| {
+        if (message == .play_note_block) instrument = message.play_note_block.instrument;
+    }
+    try std.testing.expectEqual(@intFromEnum(world.note.Instrument.click), instrument.?);
+}
+
+test "punching a note block plays it without breaking it" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = try standNoteBlock(&pair);
+
+    try pair.connection.reportDigStart(gpa, at[0], at[1], at[2], 1);
+    try pair.pumpToServer();
+
+    try std.testing.expectEqual(world.Block.note_block, pair.server_level.world_map.getBlock(at[0], at[1], at[2]));
+
+    var heard: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAllPackets(gpa, &heard);
+    try drainToClient(&pair, &heard);
+
+    var played = false;
+    for (heard.items) |message| {
+        if (message == .play_note_block) played = true;
+    }
+    try std.testing.expect(played);
+}
+
+test "a note the server sounds turns into a note particle on the client" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    var spawned: usize = 0;
+    pair.client_level.world_map.note_sink = .{ .context = &spawned, .playNote = countClientNote };
+
+    try pair.session.sendNote(gpa, 8, 70, 8, .snare, 12);
+    _ = try pair.pumpToClient();
+
+    try std.testing.expectEqual(@as(usize, 1), spawned);
+}
+
+fn countClientNote(
+    context: *anyopaque,
+    _: i32,
+    _: i32,
+    _: i32,
+    _: world.note.Instrument,
+    _: u8,
+) void {
+    const spawned: *usize = @ptrCast(@alignCast(context));
+    spawned.* += 1;
+}
+
+test "breaking a note block forgets how it was tuned" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const at = try standNoteBlock(&pair);
+    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.pumpToServer();
+    try std.testing.expect(pair.server_level.world_map.noteAt(at[0], at[1], at[2]) != null);
+
+    try pair.connection.reportDig(gpa, at[0], at[1], at[2], 1);
+    try pair.settle(2);
+
+    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(at[0], at[1], at[2]));
+    try std.testing.expect(pair.server_level.world_map.noteAt(at[0], at[1], at[2]) == null);
 }

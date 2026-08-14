@@ -548,6 +548,7 @@ fn digStep(app_state: *AppState) !void {
 
     if (app_state.digging == null or app_state.digging.?.x != hit.x or app_state.digging.?.y != hit.y or app_state.digging.?.z != hit.z) {
         app_state.digging = .{ .x = hit.x, .y = hit.y, .z = hit.z, .progress = 0 };
+        try startDigging(app_state, hit);
     }
 
     const block_id = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
@@ -616,6 +617,35 @@ fn markBlockNeedsUpdate(context: *anyopaque, x: i32, _: i32, z: i32) std.mem.All
 fn updateAllRenderers(context: *anyopaque) std.mem.Allocator.Error!void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
     try app_state.chunks.markAllDirty(app_state.gpa);
+}
+
+fn playNote(
+    context: *anyopaque,
+    x: i32,
+    y: i32,
+    z: i32,
+    instrument: world.note.Instrument,
+    pitch: u8,
+) void {
+    _ = instrument;
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    const at = math.Vec3.init(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + note_particle_lift,
+        @as(f64, @floatFromInt(z)) + 0.5,
+    );
+    const tone = @as(f32, @floatFromInt(pitch)) / note_tone_span;
+    app_state.level.entities.particles.append(
+        app_state.gpa,
+        game.Particle.spawnNote(at, tone, &app_state.level.world_map.rand),
+    ) catch {};
+}
+
+const note_particle_lift: f64 = 1.2;
+const note_tone_span: f32 = 24.0;
+
+fn noteSink(app_state: *AppState) world.World.NoteSink {
+    return .{ .context = app_state, .playNote = playNote };
 }
 
 fn worldAccess(app_state: *AppState) world.World.Access {
@@ -696,6 +726,14 @@ fn faceIndex(face: world.block.Side) u8 {
     };
 }
 
+fn startDigging(app_state: *AppState, hit: game.raycast.Hit) !void {
+    if (app_state.link) |link| {
+        return link.connection.reportDigStart(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face));
+    }
+    if (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) != .note_block) return;
+    try world.note.onPunched(&app_state.level.world_map, hit.x, hit.y, hit.z);
+}
+
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
     if (app_state.link) |link| {
         try link.connection.reportDig(app_state.gpa, x, y, z, 1);
@@ -731,6 +769,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
     try ejectBrokenJukebox(app_state, x, y, z);
     try closeBrokenChest(app_state, x, y, z);
     _ = app_state.level.world_map.removeSign(x, y, z);
+    _ = app_state.level.world_map.removeNote(x, y, z);
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
 
@@ -1524,6 +1563,7 @@ fn connectToServer(app_state: *AppState) !void {
     closeWorld(app_state);
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
+    app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1764,6 +1804,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     app_state.level.world_map.persistence = .{ .handle = handle, .io = app_state.io };
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
+    app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1912,6 +1953,7 @@ fn switchDimension(app_state: *AppState, target: world.Dimension, x: f64, y: f64
     }
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
+    app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
 
     placePlayerAt(app_state, x, y, z);
@@ -2272,6 +2314,11 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
             },
             .lever, .button, .repeater_off, .repeater_on => {
                 _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
+                try applyBlockChanges(app_state);
+                return true;
+            },
+            .note_block => {
+                _ = try world.note.onActivated(&app_state.level.world_map, hit.x, hit.y, hit.z, .note_block);
                 try applyBlockChanges(app_state);
                 return true;
             },
@@ -2797,6 +2844,7 @@ fn enterServerDimension(app_state: *AppState, target: world.Dimension) !void {
     app_state.dimension = target;
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
+    app_state.level.world_map.note_sink = noteSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
 
     try app_state.level.enter(app_state.gpa, &app_state.player);
