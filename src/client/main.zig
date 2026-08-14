@@ -4155,7 +4155,6 @@ fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
     gpu.draw();
 
     gl.DepthMask(gl.TRUE);
-    gl.Enable(gl.CULL_FACE);
     gl.Disable(gl.BLEND);
     app_state.shader.setInt("u_textured", 1);
     app_state.shader.setInt("u_alpha_test", 1);
@@ -4187,7 +4186,6 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     try drawWeatherLayer(app_state, view, &app_state.textures.snow, render.weather.appendSnow);
     try drawWeatherLayer(app_state, view, &app_state.textures.rain, render.weather.appendRain);
 
-    gl.Enable(gl.CULL_FACE);
     gl.Disable(gl.BLEND);
     app_state.shader.setInt("u_alpha_test", 1);
     app_state.textures.terrain.bind();
