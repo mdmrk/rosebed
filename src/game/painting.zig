@@ -43,6 +43,14 @@ pub const Art = enum {
         title: []const u8,
     };
 
+    pub fn byTitle(title: []const u8) ?Art {
+        inline for (@typeInfo(Art).@"enum".fields) |field| {
+            const art: Art = @enumFromInt(field.value);
+            if (std.mem.eql(u8, art.info().title, title)) return art;
+        }
+        return null;
+    }
+
     pub fn info(self: Art) Info {
         return switch (self) {
             .kebab => .{ .size_x = 16, .size_y = 16, .offset_x = 0, .offset_y = 0, .title = "Kebab" },

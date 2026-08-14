@@ -83,6 +83,8 @@ pub fn tick(
     if (!on_ground and self.animal.base.motion.y < 0.0) self.animal.base.motion.y *= flutter_drag;
     self.wing_rotation += self.wing_speed * wing_beat;
 
+    if (self.animal.base.remote != null) return;
+
     const timer = (self.egg_timer orelse nextEggTimer(rand)) - 1;
     if (timer <= 0) {
         self.pending_eggs += 1;

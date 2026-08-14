@@ -8,7 +8,9 @@ pub const Id = enum(u8) {
     handshake = 2,
     chat = 3,
     update_time = 4,
+    player_inventory = 5,
     spawn_position = 6,
+    use_entity = 7,
     update_health = 8,
     respawn = 9,
     flying = 10,
@@ -18,20 +20,45 @@ pub const Id = enum(u8) {
     block_dig = 14,
     place = 15,
     block_item_switch = 16,
+    sleep = 17,
     animation = 18,
+    entity_action = 19,
     named_entity_spawn = 20,
+    pickup_spawn = 21,
+    collect = 22,
+    vehicle_spawn = 23,
     mob_spawn = 24,
+    entity_painting = 25,
+    stance_update = 27,
+    entity_velocity = 28,
     destroy_entity = 29,
     entity = 30,
     rel_entity_move = 31,
     entity_look = 32,
     rel_entity_move_look = 33,
     entity_teleport = 34,
+    entity_status = 38,
+    attach_entity = 39,
     entity_metadata = 40,
     pre_chunk = 50,
     map_chunk = 51,
     multi_block_change = 52,
     block_change = 53,
+    play_note_block = 54,
+    explosion = 60,
+    door_change = 61,
+    bed = 70,
+    weather = 71,
+    open_window = 100,
+    close_window = 101,
+    window_click = 102,
+    set_slot = 103,
+    window_items = 104,
+    update_progressbar = 105,
+    transaction = 106,
+    update_sign = 130,
+    map_data = 131,
+    statistic = 200,
     kick_disconnect = 255,
 };
 
@@ -47,7 +74,9 @@ pub fn direction(id: Id) Direction {
         .handshake => .{ .to_client = true, .to_server = true },
         .chat => .{ .to_client = true, .to_server = true },
         .update_time => .{ .to_client = true, .to_server = false },
+        .player_inventory => .{ .to_client = true, .to_server = false },
         .spawn_position => .{ .to_client = true, .to_server = false },
+        .use_entity => .{ .to_client = false, .to_server = true },
         .update_health => .{ .to_client = true, .to_server = false },
         .respawn => .{ .to_client = true, .to_server = true },
         .flying => .{ .to_client = true, .to_server = true },
@@ -57,28 +86,62 @@ pub fn direction(id: Id) Direction {
         .block_dig => .{ .to_client = false, .to_server = true },
         .place => .{ .to_client = false, .to_server = true },
         .block_item_switch => .{ .to_client = false, .to_server = true },
+        .sleep => .{ .to_client = true, .to_server = false },
         .animation => .{ .to_client = true, .to_server = true },
+        .entity_action => .{ .to_client = false, .to_server = true },
         .named_entity_spawn => .{ .to_client = true, .to_server = false },
+        .pickup_spawn => .{ .to_client = true, .to_server = false },
+        .collect => .{ .to_client = true, .to_server = false },
+        .vehicle_spawn => .{ .to_client = true, .to_server = false },
         .mob_spawn => .{ .to_client = true, .to_server = false },
+        .entity_painting => .{ .to_client = true, .to_server = false },
+        .stance_update => .{ .to_client = false, .to_server = true },
+        .entity_velocity => .{ .to_client = true, .to_server = false },
         .destroy_entity => .{ .to_client = true, .to_server = false },
         .entity => .{ .to_client = true, .to_server = false },
         .rel_entity_move => .{ .to_client = true, .to_server = false },
         .entity_look => .{ .to_client = true, .to_server = false },
         .rel_entity_move_look => .{ .to_client = true, .to_server = false },
         .entity_teleport => .{ .to_client = true, .to_server = false },
+        .entity_status => .{ .to_client = true, .to_server = false },
+        .attach_entity => .{ .to_client = true, .to_server = false },
         .entity_metadata => .{ .to_client = true, .to_server = false },
         .pre_chunk => .{ .to_client = true, .to_server = false },
         .map_chunk => .{ .to_client = true, .to_server = false },
         .multi_block_change => .{ .to_client = true, .to_server = false },
         .block_change => .{ .to_client = true, .to_server = false },
+        .play_note_block => .{ .to_client = true, .to_server = false },
+        .explosion => .{ .to_client = true, .to_server = false },
+        .door_change => .{ .to_client = true, .to_server = false },
+        .bed => .{ .to_client = true, .to_server = false },
+        .weather => .{ .to_client = true, .to_server = false },
+        .open_window => .{ .to_client = true, .to_server = false },
+        .close_window => .{ .to_client = true, .to_server = true },
+        .window_click => .{ .to_client = false, .to_server = true },
+        .set_slot => .{ .to_client = true, .to_server = false },
+        .window_items => .{ .to_client = true, .to_server = false },
+        .update_progressbar => .{ .to_client = true, .to_server = false },
+        .transaction => .{ .to_client = true, .to_server = true },
+        .update_sign => .{ .to_client = true, .to_server = true },
+        .map_data => .{ .to_client = true, .to_server = false },
+        .statistic => .{ .to_client = true, .to_server = false },
         .kick_disconnect => .{ .to_client = true, .to_server = true },
     };
 }
+
+pub const swing_animation: i8 = 1;
 
 pub const max_username = 16;
 pub const max_handshake_name = 32;
 pub const max_chat = 119;
 pub const max_kick_reason = 100;
+pub const max_art_title = 13;
+pub const max_window_title = 64;
+pub const max_sign_line = 15;
+pub const sign_lines = 4;
+pub const max_window_slots = 256;
+pub const max_explosion_blocks = 1 << 20;
+pub const max_map_bytes = 255;
 
 pub const Stack = struct {
     id: i16,
@@ -166,7 +229,9 @@ pub const Packet = union(Id) {
     handshake: struct { username: []const u8 },
     chat: struct { message: []const u8 },
     update_time: struct { time: i64 },
+    player_inventory: struct { entity_id: i32, slot: i16, item_id: i16, damage: i16 },
     spawn_position: struct { x: i32, y: i32, z: i32 },
+    use_entity: struct { player_id: i32, target_id: i32, left_click: i8 },
     update_health: struct { health: i16 },
     respawn: struct { dimension: i8 },
     flying: struct { on_ground: bool },
@@ -190,7 +255,9 @@ pub const Packet = union(Id) {
     block_dig: struct { status: u8, x: i32, y: u8, z: i32, face: u8 },
     place: struct { x: i32, y: u8, z: i32, face: u8, held: ?Stack },
     block_item_switch: struct { slot: i16 },
+    sleep: struct { entity_id: i32, unused: i8, x: i32, y: i8, z: i32 },
     animation: struct { entity_id: i32, animate: i8 },
+    entity_action: struct { entity_id: i32, state: i8 },
     named_entity_spawn: struct {
         entity_id: i32,
         name: []const u8,
@@ -200,6 +267,30 @@ pub const Packet = union(Id) {
         rotation: i8,
         pitch: i8,
         current_item: i16,
+    },
+    pickup_spawn: struct {
+        entity_id: i32,
+        item_id: i16,
+        count: i8,
+        damage: i16,
+        x: i32,
+        y: i32,
+        z: i32,
+        rotation: i8,
+        pitch: i8,
+        roll: i8,
+    },
+    collect: struct { collected_id: i32, collector_id: i32 },
+    vehicle_spawn: struct {
+        entity_id: i32,
+        kind: u8,
+        x: i32,
+        y: i32,
+        z: i32,
+        thrower_id: i32 = 0,
+        speed_x: i16 = 0,
+        speed_y: i16 = 0,
+        speed_z: i16 = 0,
     },
     mob_spawn: struct {
         entity_id: i32,
@@ -211,6 +302,23 @@ pub const Packet = union(Id) {
         pitch: i8,
         metadata: Metadata,
     },
+    entity_painting: struct {
+        entity_id: i32,
+        title: []const u8,
+        x: i32,
+        y: i32,
+        z: i32,
+        direction: i32,
+    },
+    stance_update: struct {
+        stride: f32,
+        yaw: f32,
+        pitch: f32,
+        lift: f32,
+        on_ground: bool,
+        sneaking: bool,
+    },
+    entity_velocity: struct { entity_id: i32, motion_x: i16, motion_y: i16, motion_z: i16 },
     destroy_entity: struct { entity_id: i32 },
     entity: struct { entity_id: i32 },
     rel_entity_move: struct { entity_id: i32, dx: i8, dy: i8, dz: i8 },
@@ -231,6 +339,8 @@ pub const Packet = union(Id) {
         yaw: i8,
         pitch: i8,
     },
+    entity_status: struct { entity_id: i32, status: i8 },
+    attach_entity: struct { entity_id: i32, vehicle_id: i32 },
     entity_metadata: struct { entity_id: i32, metadata: Metadata },
     pre_chunk: struct { x: i32, z: i32, load: bool },
     map_chunk: struct {
@@ -250,6 +360,34 @@ pub const Packet = union(Id) {
         metadata: []const u8,
     },
     block_change: struct { x: i32, y: u8, z: i32, block: u8, metadata: u8 },
+    play_note_block: struct { x: i32, y: i16, z: i32, instrument: u8, pitch: u8 },
+    explosion: struct {
+        x: f64,
+        y: f64,
+        z: f64,
+        radius: f32,
+        broken: []const [3]i8,
+    },
+    door_change: struct { x: i32, y: i32, state: i8, z: i32, extra: i32 },
+    bed: struct { state: i8 },
+    weather: struct { entity_id: i32, lightning: i8, x: i32, y: i32, z: i32 },
+    open_window: struct { window_id: i8, kind: i8, title: []const u8, slots: i8 },
+    close_window: struct { window_id: i8 },
+    window_click: struct {
+        window_id: i8,
+        slot: i16,
+        right_click: i8,
+        action: i16,
+        shift: bool,
+        held: ?Stack,
+    },
+    set_slot: struct { window_id: i8, slot: i16, stack: ?Stack },
+    window_items: struct { window_id: i8, stacks: []const ?Stack },
+    update_progressbar: struct { window_id: i8, bar: i16, value: i16 },
+    transaction: struct { window_id: i8, action: i16, accepted: bool },
+    update_sign: struct { x: i32, y: i16, z: i32, lines: [sign_lines][]const u8 },
+    map_data: struct { kind: i16, map_id: i16, data: []const u8 },
+    statistic: struct { stat_id: i32, amount: i8 },
     kick_disconnect: struct { reason: []const u8 },
 
     pub fn id(self: Packet) Id {
@@ -262,6 +400,12 @@ pub const Packet = union(Id) {
             .handshake => |body| gpa.free(body.username),
             .chat => |body| gpa.free(body.message),
             .named_entity_spawn => |body| gpa.free(body.name),
+            .entity_painting => |body| gpa.free(body.title),
+            .open_window => |body| gpa.free(body.title),
+            .explosion => |body| gpa.free(body.broken),
+            .window_items => |body| gpa.free(body.stacks),
+            .map_data => |body| gpa.free(body.data),
+            .update_sign => |body| for (body.lines) |line| gpa.free(line),
             .mob_spawn => |body| freeMetadata(gpa, body.metadata),
             .entity_metadata => |body| freeMetadata(gpa, body.metadata),
             .kick_disconnect => |body| gpa.free(body.reason),
@@ -282,6 +426,7 @@ pub const ReadError = error{
     StringTooLong,
     NegativeLength,
     InvalidUtf16,
+    InvalidUtf8Text,
     UnknownMetadataType,
 } || std.mem.Allocator.Error || std.Io.Reader.Error || error{EndOfStream};
 
@@ -317,6 +462,23 @@ fn writeString(w: *std.Io.Writer, text: []const u8, limit: u16) !void {
 
     try w.writeInt(i16, @intCast(written), .big);
     for (buffer[0..written]) |unit| try w.writeInt(u16, unit, .big);
+}
+
+fn readUtf8(gpa: std.mem.Allocator, r: *std.Io.Reader, limit: u16) ![]u8 {
+    const length = try r.takeInt(u16, .big);
+    if (length > limit) return error.StringTooLong;
+
+    const text = try gpa.alloc(u8, length);
+    errdefer gpa.free(text);
+    try r.readSliceAll(text);
+    if (!std.unicode.utf8ValidateSlice(text)) return error.InvalidUtf8Text;
+    return text;
+}
+
+fn writeUtf8(w: *std.Io.Writer, text: []const u8, limit: u16) !void {
+    if (text.len > limit) return error.StringTooLong;
+    try w.writeInt(u16, @intCast(text.len), .big);
+    try w.writeAll(text);
 }
 
 fn readStack(r: *std.Io.Reader) !?Stack {
@@ -625,6 +787,206 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .block = try r.takeInt(u8, .big),
             .metadata = try r.takeInt(u8, .big),
         } },
+        .player_inventory => return .{ .player_inventory = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .slot = try r.takeInt(i16, .big),
+            .item_id = try r.takeInt(i16, .big),
+            .damage = try r.takeInt(i16, .big),
+        } },
+        .use_entity => return .{ .use_entity = .{
+            .player_id = try r.takeInt(i32, .big),
+            .target_id = try r.takeInt(i32, .big),
+            .left_click = try r.takeInt(i8, .big),
+        } },
+        .sleep => return .{ .sleep = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .unused = try r.takeInt(i8, .big),
+            .x = try r.takeInt(i32, .big),
+            .y = try r.takeInt(i8, .big),
+            .z = try r.takeInt(i32, .big),
+        } },
+        .entity_action => return .{ .entity_action = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .state = try r.takeInt(i8, .big),
+        } },
+        .pickup_spawn => return .{ .pickup_spawn = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .item_id = try r.takeInt(i16, .big),
+            .count = try r.takeInt(i8, .big),
+            .damage = try r.takeInt(i16, .big),
+            .x = try r.takeInt(i32, .big),
+            .y = try r.takeInt(i32, .big),
+            .z = try r.takeInt(i32, .big),
+            .rotation = try r.takeInt(i8, .big),
+            .pitch = try r.takeInt(i8, .big),
+            .roll = try r.takeInt(i8, .big),
+        } },
+        .collect => return .{ .collect = .{
+            .collected_id = try r.takeInt(i32, .big),
+            .collector_id = try r.takeInt(i32, .big),
+        } },
+        .vehicle_spawn => {
+            var body: @FieldType(Packet, "vehicle_spawn") = .{
+                .entity_id = try r.takeInt(i32, .big),
+                .kind = try r.takeInt(u8, .big),
+                .x = try r.takeInt(i32, .big),
+                .y = try r.takeInt(i32, .big),
+                .z = try r.takeInt(i32, .big),
+                .thrower_id = try r.takeInt(i32, .big),
+            };
+            if (body.thrower_id > 0) {
+                body.speed_x = try r.takeInt(i16, .big);
+                body.speed_y = try r.takeInt(i16, .big);
+                body.speed_z = try r.takeInt(i16, .big);
+            }
+            return .{ .vehicle_spawn = body };
+        },
+        .entity_painting => {
+            const entity_id = try r.takeInt(i32, .big);
+            const title = try readString(gpa, r, max_art_title);
+            errdefer gpa.free(title);
+            return .{ .entity_painting = .{
+                .entity_id = entity_id,
+                .title = title,
+                .x = try r.takeInt(i32, .big),
+                .y = try r.takeInt(i32, .big),
+                .z = try r.takeInt(i32, .big),
+                .direction = try r.takeInt(i32, .big),
+            } };
+        },
+        .stance_update => return .{ .stance_update = .{
+            .stride = @bitCast(try r.takeInt(u32, .big)),
+            .yaw = @bitCast(try r.takeInt(u32, .big)),
+            .pitch = @bitCast(try r.takeInt(u32, .big)),
+            .lift = @bitCast(try r.takeInt(u32, .big)),
+            .on_ground = try r.takeInt(u8, .big) != 0,
+            .sneaking = try r.takeInt(u8, .big) != 0,
+        } },
+        .entity_velocity => return .{ .entity_velocity = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .motion_x = try r.takeInt(i16, .big),
+            .motion_y = try r.takeInt(i16, .big),
+            .motion_z = try r.takeInt(i16, .big),
+        } },
+        .entity_status => return .{ .entity_status = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .status = try r.takeInt(i8, .big),
+        } },
+        .attach_entity => return .{ .attach_entity = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .vehicle_id = try r.takeInt(i32, .big),
+        } },
+        .play_note_block => return .{ .play_note_block = .{
+            .x = try r.takeInt(i32, .big),
+            .y = try r.takeInt(i16, .big),
+            .z = try r.takeInt(i32, .big),
+            .instrument = try r.takeInt(u8, .big),
+            .pitch = try r.takeInt(u8, .big),
+        } },
+        .explosion => {
+            const x: f64 = @bitCast(try r.takeInt(u64, .big));
+            const y: f64 = @bitCast(try r.takeInt(u64, .big));
+            const z: f64 = @bitCast(try r.takeInt(u64, .big));
+            const radius: f32 = @bitCast(try r.takeInt(u32, .big));
+            const count = try r.takeInt(i32, .big);
+            if (count < 0) return error.NegativeLength;
+            if (count > max_explosion_blocks) return error.StringTooLong;
+
+            const broken = try gpa.alloc([3]i8, @intCast(count));
+            errdefer gpa.free(broken);
+            for (broken) |*offset| {
+                offset[0] = try r.takeInt(i8, .big);
+                offset[1] = try r.takeInt(i8, .big);
+                offset[2] = try r.takeInt(i8, .big);
+            }
+            return .{ .explosion = .{ .x = x, .y = y, .z = z, .radius = radius, .broken = broken } };
+        },
+        .door_change => return .{ .door_change = .{
+            .x = try r.takeInt(i32, .big),
+            .y = try r.takeInt(i32, .big),
+            .state = try r.takeInt(i8, .big),
+            .z = try r.takeInt(i32, .big),
+            .extra = try r.takeInt(i32, .big),
+        } },
+        .bed => return .{ .bed = .{ .state = try r.takeInt(i8, .big) } },
+        .weather => return .{ .weather = .{
+            .entity_id = try r.takeInt(i32, .big),
+            .lightning = try r.takeInt(i8, .big),
+            .x = try r.takeInt(i32, .big),
+            .y = try r.takeInt(i32, .big),
+            .z = try r.takeInt(i32, .big),
+        } },
+        .open_window => {
+            const window_id = try r.takeInt(i8, .big);
+            const kind = try r.takeInt(i8, .big);
+            const title = try readUtf8(gpa, r, max_window_title);
+            errdefer gpa.free(title);
+            return .{ .open_window = .{
+                .window_id = window_id,
+                .kind = kind,
+                .title = title,
+                .slots = try r.takeInt(i8, .big),
+            } };
+        },
+        .close_window => return .{ .close_window = .{ .window_id = try r.takeInt(i8, .big) } },
+        .window_click => return .{ .window_click = .{
+            .window_id = try r.takeInt(i8, .big),
+            .slot = try r.takeInt(i16, .big),
+            .right_click = try r.takeInt(i8, .big),
+            .action = try r.takeInt(i16, .big),
+            .shift = try r.takeInt(u8, .big) != 0,
+            .held = try readStack(r),
+        } },
+        .set_slot => return .{ .set_slot = .{
+            .window_id = try r.takeInt(i8, .big),
+            .slot = try r.takeInt(i16, .big),
+            .stack = try readStack(r),
+        } },
+        .window_items => {
+            const window_id = try r.takeInt(i8, .big);
+            const count = try r.takeInt(i16, .big);
+            if (count < 0) return error.NegativeLength;
+            if (count > max_window_slots) return error.StringTooLong;
+
+            const stacks = try gpa.alloc(?Stack, @intCast(count));
+            errdefer gpa.free(stacks);
+            for (stacks) |*slot| slot.* = try readStack(r);
+            return .{ .window_items = .{ .window_id = window_id, .stacks = stacks } };
+        },
+        .update_progressbar => return .{ .update_progressbar = .{
+            .window_id = try r.takeInt(i8, .big),
+            .bar = try r.takeInt(i16, .big),
+            .value = try r.takeInt(i16, .big),
+        } },
+        .transaction => return .{ .transaction = .{
+            .window_id = try r.takeInt(i8, .big),
+            .action = try r.takeInt(i16, .big),
+            .accepted = try r.takeInt(u8, .big) != 0,
+        } },
+        .update_sign => {
+            const x = try r.takeInt(i32, .big);
+            const y = try r.takeInt(i16, .big);
+            const z = try r.takeInt(i32, .big);
+
+            var lines: [sign_lines][]const u8 = undefined;
+            var filled: usize = 0;
+            errdefer for (lines[0..filled]) |line| gpa.free(line);
+            while (filled < sign_lines) : (filled += 1) {
+                lines[filled] = try readString(gpa, r, max_sign_line);
+            }
+            return .{ .update_sign = .{ .x = x, .y = y, .z = z, .lines = lines } };
+        },
+        .map_data => {
+            const kind = try r.takeInt(i16, .big);
+            const map_id = try r.takeInt(i16, .big);
+            const length = try r.takeInt(u8, .big);
+            const data = try takeBytes(gpa, r, length);
+            return .{ .map_data = .{ .kind = kind, .map_id = map_id, .data = data } };
+        },
+        .statistic => return .{ .statistic = .{
+            .stat_id = try r.takeInt(i32, .big),
+            .amount = try r.takeInt(i8, .big),
+        } },
         .kick_disconnect => return .{ .kick_disconnect = .{ .reason = try readString(gpa, r, max_kick_reason) } },
     }
 }
@@ -772,6 +1134,172 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i32, body.z, .big);
             try w.writeInt(u8, body.block, .big);
             try w.writeInt(u8, body.metadata, .big);
+        },
+        .player_inventory => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i16, body.slot, .big);
+            try w.writeInt(i16, body.item_id, .big);
+            try w.writeInt(i16, body.damage, .big);
+        },
+        .use_entity => |body| {
+            try w.writeInt(i32, body.player_id, .big);
+            try w.writeInt(i32, body.target_id, .big);
+            try w.writeInt(i8, body.left_click, .big);
+        },
+        .sleep => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i8, body.unused, .big);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i8, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+        },
+        .entity_action => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i8, body.state, .big);
+        },
+        .pickup_spawn => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i16, body.item_id, .big);
+            try w.writeInt(i8, body.count, .big);
+            try w.writeInt(i16, body.damage, .big);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(i8, body.rotation, .big);
+            try w.writeInt(i8, body.pitch, .big);
+            try w.writeInt(i8, body.roll, .big);
+        },
+        .collect => |body| {
+            try w.writeInt(i32, body.collected_id, .big);
+            try w.writeInt(i32, body.collector_id, .big);
+        },
+        .vehicle_spawn => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(u8, body.kind, .big);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(i32, body.thrower_id, .big);
+            if (body.thrower_id > 0) {
+                try w.writeInt(i16, body.speed_x, .big);
+                try w.writeInt(i16, body.speed_y, .big);
+                try w.writeInt(i16, body.speed_z, .big);
+            }
+        },
+        .entity_painting => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try writeString(w, body.title, max_art_title);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(i32, body.direction, .big);
+        },
+        .stance_update => |body| {
+            try w.writeInt(u32, @bitCast(body.stride), .big);
+            try w.writeInt(u32, @bitCast(body.yaw), .big);
+            try w.writeInt(u32, @bitCast(body.pitch), .big);
+            try w.writeInt(u32, @bitCast(body.lift), .big);
+            try w.writeInt(u8, @intFromBool(body.on_ground), .big);
+            try w.writeInt(u8, @intFromBool(body.sneaking), .big);
+        },
+        .entity_velocity => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i16, body.motion_x, .big);
+            try w.writeInt(i16, body.motion_y, .big);
+            try w.writeInt(i16, body.motion_z, .big);
+        },
+        .entity_status => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i8, body.status, .big);
+        },
+        .attach_entity => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i32, body.vehicle_id, .big);
+        },
+        .play_note_block => |body| {
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i16, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(u8, body.instrument, .big);
+            try w.writeInt(u8, body.pitch, .big);
+        },
+        .explosion => |body| {
+            try w.writeInt(u64, @bitCast(body.x), .big);
+            try w.writeInt(u64, @bitCast(body.y), .big);
+            try w.writeInt(u64, @bitCast(body.z), .big);
+            try w.writeInt(u32, @bitCast(body.radius), .big);
+            try w.writeInt(i32, @intCast(body.broken.len), .big);
+            for (body.broken) |offset| {
+                try w.writeInt(i8, offset[0], .big);
+                try w.writeInt(i8, offset[1], .big);
+                try w.writeInt(i8, offset[2], .big);
+            }
+        },
+        .door_change => |body| {
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i8, body.state, .big);
+            try w.writeInt(i32, body.z, .big);
+            try w.writeInt(i32, body.extra, .big);
+        },
+        .bed => |body| try w.writeInt(i8, body.state, .big),
+        .weather => |body| {
+            try w.writeInt(i32, body.entity_id, .big);
+            try w.writeInt(i8, body.lightning, .big);
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i32, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+        },
+        .open_window => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i8, body.kind, .big);
+            try writeUtf8(w, body.title, max_window_title);
+            try w.writeInt(i8, body.slots, .big);
+        },
+        .close_window => |body| try w.writeInt(i8, body.window_id, .big),
+        .window_click => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i16, body.slot, .big);
+            try w.writeInt(i8, body.right_click, .big);
+            try w.writeInt(i16, body.action, .big);
+            try w.writeInt(u8, @intFromBool(body.shift), .big);
+            try writeStack(w, body.held);
+        },
+        .set_slot => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i16, body.slot, .big);
+            try writeStack(w, body.stack);
+        },
+        .window_items => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i16, @intCast(body.stacks.len), .big);
+            for (body.stacks) |slot| try writeStack(w, slot);
+        },
+        .update_progressbar => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i16, body.bar, .big);
+            try w.writeInt(i16, body.value, .big);
+        },
+        .transaction => |body| {
+            try w.writeInt(i8, body.window_id, .big);
+            try w.writeInt(i16, body.action, .big);
+            try w.writeInt(u8, @intFromBool(body.accepted), .big);
+        },
+        .update_sign => |body| {
+            try w.writeInt(i32, body.x, .big);
+            try w.writeInt(i16, body.y, .big);
+            try w.writeInt(i32, body.z, .big);
+            for (body.lines) |line| try writeString(w, line, max_sign_line);
+        },
+        .map_data => |body| {
+            try w.writeInt(i16, body.kind, .big);
+            try w.writeInt(i16, body.map_id, .big);
+            try w.writeInt(u8, @intCast(body.data.len), .big);
+            try w.writeAll(body.data);
+        },
+        .statistic => |body| {
+            try w.writeInt(i32, body.stat_id, .big);
+            try w.writeInt(i8, body.amount, .big);
         },
         .kick_disconnect => |body| try writeString(w, body.reason, max_kick_reason),
     }
@@ -987,6 +1515,182 @@ const golden = [_]Golden{
         .block = 56,
         .metadata = 9,
     } } },
+    .{ .hex = "0500001092000101160007", .packet = .{ .player_inventory = .{
+        .entity_id = 4242,
+        .slot = 1,
+        .item_id = 278,
+        .damage = 7,
+    } } },
+    .{ .hex = "0700000009fffffffd01", .packet = .{ .use_entity = .{
+        .player_id = 9,
+        .target_id = -3,
+        .left_click = 1,
+    } } },
+    .{ .hex = "110000000c00ffffffd8460000012c", .packet = .{ .sleep = .{
+        .entity_id = 12,
+        .unused = 0,
+        .x = -40,
+        .y = 70,
+        .z = 300,
+    } } },
+    .{ .hex = "130000005802", .packet = .{ .entity_action = .{ .entity_id = 88, .state = 2 } } },
+    .{ .hex = "150000004d01080c000300000400000008c0fffffe000aec1e", .packet = .{ .pickup_spawn = .{
+        .entity_id = 77,
+        .item_id = 264,
+        .count = 12,
+        .damage = 3,
+        .x = 1024,
+        .y = 2240,
+        .z = -512,
+        .rotation = 10,
+        .pitch = -20,
+        .roll = 30,
+    } } },
+    .{ .hex = "160000000500000006", .packet = .{ .collect = .{
+        .collected_id = 5,
+        .collector_id = 6,
+    } } },
+    .{ .hex = "170000001f0a00000064000000c80000012c00000000", .packet = .{ .vehicle_spawn = .{
+        .entity_id = 31,
+        .kind = 10,
+        .x = 100,
+        .y = 200,
+        .z = 300,
+    } } },
+    .{ .hex = "170000001f3c00000064000000c80000012c0000000903e8f8300bb8", .packet = .{ .vehicle_spawn = .{
+        .entity_id = 31,
+        .kind = 60,
+        .x = 100,
+        .y = 200,
+        .z = 300,
+        .thrower_id = 9,
+        .speed_x = 1000,
+        .speed_y = -2000,
+        .speed_z = 3000,
+    } } },
+    .{
+        .hex = "19000000290005004b00650062006100620000000300000041fffffff700000002",
+        .packet = .{ .entity_painting = .{
+            .entity_id = 41,
+            .title = "Kebab",
+            .x = 3,
+            .y = 65,
+            .z = -9,
+            .direction = 2,
+        } },
+    },
+    .{ .hex = "1b3fc00000c0100000407000003f0000000100", .packet = .{ .stance_update = .{
+        .stride = 1.5,
+        .yaw = -2.25,
+        .pitch = 3.75,
+        .lift = 0.5,
+        .on_ground = true,
+        .sneaking = false,
+    } } },
+    .{ .hex = "1c0000000f0320f9c00020", .packet = .{ .entity_velocity = .{
+        .entity_id = 15,
+        .motion_x = 800,
+        .motion_y = -1600,
+        .motion_z = 32,
+    } } },
+    .{ .hex = "260000001502", .packet = .{ .entity_status = .{ .entity_id = 21, .status = 2 } } },
+    .{ .hex = "2700000003ffffffff", .packet = .{ .attach_entity = .{
+        .entity_id = 3,
+        .vehicle_id = -1,
+    } } },
+    .{ .hex = "36000000080040fffffff8010c", .packet = .{ .play_note_block = .{
+        .x = 8,
+        .y = 64,
+        .z = -8,
+        .instrument = 1,
+        .pitch = 12,
+    } } },
+    .{
+        .hex = "3c40250000000000004050400000000000c00a000000000000408000000000000101fe03",
+        .packet = .{ .explosion = .{
+            .x = 10.5,
+            .y = 65.0,
+            .z = -3.25,
+            .radius = 4.0,
+            .broken = &.{.{ 1, -2, 3 }},
+        } },
+    },
+    .{ .hex = "3d000000050000004201fffffff900000009", .packet = .{ .door_change = .{
+        .x = 5,
+        .y = 66,
+        .state = 1,
+        .z = -7,
+        .extra = 9,
+    } } },
+    .{ .hex = "4602", .packet = .{ .bed = .{ .state = 2 } } },
+    .{ .hex = "47000000630100000140000008c0fffffd80", .packet = .{ .weather = .{
+        .entity_id = 99,
+        .lightning = 1,
+        .x = 320,
+        .y = 2240,
+        .z = -640,
+    } } },
+    .{ .hex = "640300000543686573741b", .packet = .{ .open_window = .{
+        .window_id = 3,
+        .kind = 0,
+        .title = "Chest",
+        .slots = 27,
+    } } },
+    .{ .hex = "6503", .packet = .{ .close_window = .{ .window_id = 3 } } },
+    .{ .hex = "6603001101002a010118050000", .packet = .{ .window_click = .{
+        .window_id = 3,
+        .slot = 17,
+        .right_click = 1,
+        .action = 42,
+        .shift = true,
+        .held = .{ .id = 280, .count = 5, .damage = 0 },
+    } } },
+    .{ .hex = "6600fc1900000100ffff", .packet = .{ .window_click = .{
+        .window_id = 0,
+        .slot = -999,
+        .right_click = 0,
+        .action = 1,
+        .shift = false,
+        .held = null,
+    } } },
+    .{ .hex = "67ff00090001400000", .packet = .{ .set_slot = .{
+        .window_id = -1,
+        .slot = 9,
+        .stack = .{ .id = 1, .count = 64, .damage = 0 },
+    } } },
+    .{ .hex = "680000030003020001ffff0165010000", .packet = .{ .window_items = .{
+        .window_id = 0,
+        .stacks = &.{
+            .{ .id = 3, .count = 2, .damage = 1 },
+            null,
+            .{ .id = 357, .count = 1, .damage = 0 },
+        },
+    } } },
+    .{ .hex = "690400020096", .packet = .{ .update_progressbar = .{
+        .window_id = 4,
+        .bar = 2,
+        .value = 150,
+    } } },
+    .{ .hex = "6a03004d01", .packet = .{ .transaction = .{
+        .window_id = 3,
+        .action = 77,
+        .accepted = true,
+    } } },
+    .{
+        .hex = "82fffffffc0046000000100003006f006e0065000000050074006800720065006500040066006f00750072",
+        .packet = .{ .update_sign = .{
+            .x = -4,
+            .y = 70,
+            .z = 16,
+            .lines = .{ "one", "", "three", "four" },
+        } },
+    },
+    .{ .hex = "830166000104000102ff", .packet = .{ .map_data = .{
+        .kind = 358,
+        .map_id = 1,
+        .data = &.{ 0, 1, 2, 0xff },
+    } } },
+    .{ .hex = "c8000003e805", .packet = .{ .statistic = .{ .stat_id = 1000, .amount = 5 } } },
     .{
         .hex = "ff0010004f007500740064006100740065006400200063006c00690065006e00740021",
         .packet = .{ .kick_disconnect = .{ .reason = "Outdated client!" } },
@@ -1041,6 +1745,23 @@ test "every packet decodes back out of the bytes vanilla wrote" {
     }
 }
 
+test "every packet the protocol defines has a byte vector taken from vanilla" {
+    var seen: [@typeInfo(Id).@"enum".fields.len]bool = @splat(false);
+
+    for (golden) |entry| {
+        inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
+            if (entry.packet.id() == @as(Id, @enumFromInt(field.value))) seen[index] = true;
+        }
+    }
+
+    inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
+        if (!seen[index]) {
+            std.debug.print("no golden vector for {s}\n", .{field.name});
+            return error.TestExpectedEqual;
+        }
+    }
+}
+
 test "each packet is allowed in exactly the directions vanilla registers it for" {
     const registered = [_]struct { id: Id, to_client: bool, to_server: bool }{
         .{ .id = .keep_alive, .to_client = true, .to_server = true },
@@ -1048,7 +1769,9 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .handshake, .to_client = true, .to_server = true },
         .{ .id = .chat, .to_client = true, .to_server = true },
         .{ .id = .update_time, .to_client = true, .to_server = false },
+        .{ .id = .player_inventory, .to_client = true, .to_server = false },
         .{ .id = .spawn_position, .to_client = true, .to_server = false },
+        .{ .id = .use_entity, .to_client = false, .to_server = true },
         .{ .id = .update_health, .to_client = true, .to_server = false },
         .{ .id = .respawn, .to_client = true, .to_server = true },
         .{ .id = .flying, .to_client = true, .to_server = true },
@@ -1058,20 +1781,45 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .block_dig, .to_client = false, .to_server = true },
         .{ .id = .place, .to_client = false, .to_server = true },
         .{ .id = .block_item_switch, .to_client = false, .to_server = true },
+        .{ .id = .sleep, .to_client = true, .to_server = false },
         .{ .id = .animation, .to_client = true, .to_server = true },
+        .{ .id = .entity_action, .to_client = false, .to_server = true },
         .{ .id = .named_entity_spawn, .to_client = true, .to_server = false },
+        .{ .id = .pickup_spawn, .to_client = true, .to_server = false },
+        .{ .id = .collect, .to_client = true, .to_server = false },
+        .{ .id = .vehicle_spawn, .to_client = true, .to_server = false },
         .{ .id = .mob_spawn, .to_client = true, .to_server = false },
+        .{ .id = .entity_painting, .to_client = true, .to_server = false },
+        .{ .id = .stance_update, .to_client = false, .to_server = true },
+        .{ .id = .entity_velocity, .to_client = true, .to_server = false },
         .{ .id = .destroy_entity, .to_client = true, .to_server = false },
         .{ .id = .entity, .to_client = true, .to_server = false },
         .{ .id = .rel_entity_move, .to_client = true, .to_server = false },
         .{ .id = .entity_look, .to_client = true, .to_server = false },
         .{ .id = .rel_entity_move_look, .to_client = true, .to_server = false },
         .{ .id = .entity_teleport, .to_client = true, .to_server = false },
+        .{ .id = .entity_status, .to_client = true, .to_server = false },
+        .{ .id = .attach_entity, .to_client = true, .to_server = false },
         .{ .id = .entity_metadata, .to_client = true, .to_server = false },
         .{ .id = .pre_chunk, .to_client = true, .to_server = false },
         .{ .id = .map_chunk, .to_client = true, .to_server = false },
         .{ .id = .multi_block_change, .to_client = true, .to_server = false },
         .{ .id = .block_change, .to_client = true, .to_server = false },
+        .{ .id = .play_note_block, .to_client = true, .to_server = false },
+        .{ .id = .explosion, .to_client = true, .to_server = false },
+        .{ .id = .door_change, .to_client = true, .to_server = false },
+        .{ .id = .bed, .to_client = true, .to_server = false },
+        .{ .id = .weather, .to_client = true, .to_server = false },
+        .{ .id = .open_window, .to_client = true, .to_server = false },
+        .{ .id = .close_window, .to_client = true, .to_server = true },
+        .{ .id = .window_click, .to_client = false, .to_server = true },
+        .{ .id = .set_slot, .to_client = true, .to_server = false },
+        .{ .id = .window_items, .to_client = true, .to_server = false },
+        .{ .id = .update_progressbar, .to_client = true, .to_server = false },
+        .{ .id = .transaction, .to_client = true, .to_server = true },
+        .{ .id = .update_sign, .to_client = true, .to_server = true },
+        .{ .id = .map_data, .to_client = true, .to_server = false },
+        .{ .id = .statistic, .to_client = true, .to_server = false },
         .{ .id = .kick_disconnect, .to_client = true, .to_server = true },
     };
 

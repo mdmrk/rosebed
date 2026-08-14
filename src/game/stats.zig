@@ -586,7 +586,6 @@ test "only damageable items register a depleted count, as StatList's filter does
     try std.testing.expect(!registered(.{ .depleted = .{ .block = .stone } }));
 }
 
-
 test "an achievement only counts once its parent is unlocked" {
     const gpa = std.testing.allocator;
     var tally: Stats = .{};

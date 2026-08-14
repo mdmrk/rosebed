@@ -487,6 +487,13 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
     if (damage <= 0) return;
     if (app_state.player.base.motion.y < 0.0) damage += 1;
 
+    if (app_state.link) |link| {
+        const id = switch (target) {
+            inline else => |entity_id| entity_id,
+        };
+        return link.connection.reportUse(app_state.gpa, id, true);
+    }
+
     if (target == .painting) return breakPainting(app_state, target.painting);
 
     _ = app_state.level.entities.hurtTarget(target, damage, .{
@@ -498,7 +505,7 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
 
 fn clickLeft(app_state: *AppState) !void {
     if (app_state.missed_click_cooldown > 0) return;
-    app_state.player.swingItem();
+    swingArm(app_state);
     if (pickedEntity(app_state)) |target| {
         try attackEntity(app_state, target);
         return;
@@ -813,7 +820,7 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     );
     const remaining = held.count - drop_count;
     app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
-    try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
+    if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
 
 const SlotRules = struct {
@@ -869,7 +876,7 @@ fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size
         app_state.held_stack = result;
     }
     game.crafting.consume(grid);
-    try app_state.stats.craft(app_state.gpa, result.id, result.count);
+    if (app_state.link == null) try app_state.stats.craft(app_state.gpa, result.id, result.count);
     if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
 }
 
@@ -948,7 +955,7 @@ fn quickMove(
             game.Inventory.mergeStack(targets[0..count], &moving);
             if (moving.count == result.count) return;
             game.crafting.consume(grid);
-            try app_state.stats.craft(app_state.gpa, result.id, result.count - moving.count);
+            if (app_state.link == null) try app_state.stats.craft(app_state.gpa, result.id, result.count - moving.count);
             if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
         },
         .furnace_output => {
@@ -998,26 +1005,78 @@ fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
     const shift = shiftHeld();
     if (app_state.furnace_open != null) {
         const layout = render.furnace_screen.slots();
-        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
+        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
         var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
         const layout = render.chest_screen.slots(rows, &buffer, .chest);
-        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
+        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
     } else if (openedDispenser(app_state) != null) {
         const layout = render.dispenser_screen.slots();
-        try containerClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
+        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
     } else if (openedMinecart(app_state) != null) {
         var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
         const layout = render.chest_screen.slots(game.Minecart.chest_rows, &buffer, .minecart);
-        try containerClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(game.Minecart.chest_rows), shift);
+        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(game.Minecart.chest_rows), shift);
     } else if (app_state.workbench_open) {
         const layout = render.crafting_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
+        try windowClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
     } else {
         const layout = render.inventory_screen.slots();
-        try containerClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height, shift);
+        try windowClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height, shift);
     }
+}
+
+fn windowClickAt(
+    app_state: *AppState,
+    slots: []const render.container_screen.Slot,
+    grid: []?game.Inventory.ItemStack,
+    size: u8,
+    click_type: ClickType,
+    box_height: f32,
+    shift: bool,
+) !void {
+    const aimed = aimedWindowSlot(app_state, slots, box_height);
+    try containerClickAt(app_state, slots, grid, size, click_type, box_height, shift);
+    try reportWindowClick(app_state, aimed, click_type, shift);
+}
+
+fn aimedWindowSlot(
+    app_state: *AppState,
+    slots: []const render.container_screen.Slot,
+    box_height: f32,
+) i16 {
+    const gui = guiSize(app_state);
+    if (render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height)) |index| {
+        return @intCast(index);
+    }
+    if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
+        return remote.Connection.outside_slot;
+    }
+    return no_window_slot;
+}
+
+const no_window_slot: i16 = std.math.minInt(i16);
+
+fn reportWindowClick(app_state: *AppState, slot: i16, click_type: ClickType, shift: bool) !void {
+    if (slot == no_window_slot) return;
+    const link = app_state.link orelse return;
+    try link.connection.reportWindowClick(
+        app_state.gpa,
+        slot,
+        click_type == .right,
+        shift,
+        app_state.held_stack,
+    );
+    link.connection.carried = app_state.held_stack;
+    link.connection.crafting = app_state.crafting_grid;
+    link.connection.workbench = app_state.workbench_grid;
+}
+
+fn adoptServerWindow(app_state: *AppState, link: *Link) void {
+    app_state.held_stack = link.connection.carried;
+    app_state.crafting_grid = link.connection.crafting;
+    app_state.workbench_grid = link.connection.workbench;
 }
 
 fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
@@ -1048,6 +1107,13 @@ fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
 }
 
 fn closeSignEditor(app_state: *AppState) !void {
+    if (app_state.link) |link| {
+        if (app_state.sign_edit) |open| {
+            if (app_state.level.world_map.signAt(open.x, open.y, open.z)) |post| {
+                link.connection.reportSign(app_state.gpa, open.x, open.y, open.z, post) catch {};
+            }
+        }
+    }
     app_state.sign_edit = null;
     try sdl3.keyboard.stopTextInput(app_state.window);
     try updateMouseMode(app_state);
@@ -1067,6 +1133,17 @@ fn updateMouseMode(app_state: *AppState) !void {
 }
 
 fn closeContainer(app_state: *AppState) !void {
+    if (app_state.link) |link| {
+        link.connection.reportCloseWindow(app_state.gpa) catch {};
+        app_state.inventory_open = false;
+        app_state.workbench_open = false;
+        app_state.furnace_open = null;
+        app_state.chest_open = null;
+        app_state.dispenser_open = null;
+        app_state.minecart_open = game.Entity.no_id;
+        return updateMouseMode(app_state);
+    }
+
     app_state.inventory_open = false;
     app_state.workbench_open = false;
     app_state.furnace_open = null;
@@ -1187,12 +1264,15 @@ fn killPlayer(app_state: *AppState) !void {
     app_state.dead = true;
     app_state.level.setOccupantActive(false);
     if (containerOpen(app_state)) try closeContainer(app_state);
-    try dropInventoryOnDeath(app_state);
     app_state.keys = .{};
     app_state.mouse_left_down = false;
     app_state.digging = null;
-    try app_state.stats.add(app_state.gpa, .{ .general = .deaths }, 1);
     try updateMouseMode(app_state);
+
+    // The server empties the pockets and keeps the tally in multiplayer.
+    if (app_state.link != null) return;
+    try dropInventoryOnDeath(app_state);
+    try app_state.stats.add(app_state.gpa, .{ .general = .deaths }, 1);
 }
 
 fn dropInventoryOnDeath(app_state: *AppState) !void {
@@ -1212,6 +1292,14 @@ fn scatterSlotOnDeath(app_state: *AppState, slot: *?game.Inventory.ItemStack) !v
 }
 
 fn respawnPlayer(app_state: *AppState) !void {
+    if (app_state.link) |link| {
+        try link.connection.reportRespawn(app_state.gpa);
+        app_state.dead = false;
+        app_state.level.setOccupantActive(true);
+        try updateMouseMode(app_state);
+        return;
+    }
+
     if (app_state.player.spawn_point) |bed| {
         if (world.block_update.bedRespawnSpot(&app_state.level.world_map, bed[0], bed[1], bed[2])) |spot| {
             app_state.player.respawn(spawnPlacement(&app_state.level.world_map, spot));
@@ -2144,6 +2232,7 @@ fn consumeSelectedStack(app_state: *AppState) void {
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
     if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
+    if (app_state.link) |link| return useBlockRemote(app_state, link);
     if (game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
         switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
             .workbench => {
@@ -2327,6 +2416,14 @@ fn eatHeldFood(app_state: *AppState, held: world.Item, heal_amount: u8) void {
 }
 
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
+    if (app_state.link) |link| {
+        const id = switch (target) {
+            inline else => |entity_id| entity_id,
+        };
+        if (target == .minecart) link.connection.aimAtMinecart(id);
+        try link.connection.reportUse(app_state.gpa, id, false);
+        return true;
+    }
     if (target == .boat) {
         const boat = app_state.level.entities.boatById(target.boat) orelse return false;
         app_state.player.riding = boat.base.id;
@@ -2613,7 +2710,7 @@ fn useFishingRod(app_state: *AppState) !bool {
     if (caught) |what| {
         if (what == .fish) try app_state.stats.add(app_state.gpa, .{ .general = .fish_caught }, 1);
         try damageHeldItem(app_state, @intFromEnum(what));
-        app_state.player.swingItem();
+        swingArm(app_state);
         return true;
     }
 
@@ -2622,7 +2719,7 @@ fn useFishingRod(app_state: *AppState) !bool {
         &app_state.player,
         &app_state.level.world_map.rand,
     );
-    app_state.player.swingItem();
+    swingArm(app_state);
     return true;
 }
 
@@ -2667,6 +2764,97 @@ fn placeMinecartAtTarget(app_state: *AppState, kind: game.Minecart.Kind) !bool {
     try app_state.stats.use(app_state.gpa, app_state.player.inventory.selectedStack().?.id);
     consumeSelectedStack(app_state);
     return true;
+}
+
+fn useBlockRemote(app_state: *AppState, link: *Link) !bool {
+    const held: ?net.packet.Stack = if (app_state.player.inventory.selectedStack()) |stack| .{
+        .id = stack.id.numeric(),
+        .count = @intCast(stack.count),
+        .damage = @bitCast(@as(u16, stack.meta)),
+    } else null;
+
+    const hit = game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    ) orelse {
+        try link.connection.reportUseInAir(app_state.gpa, held);
+        return true;
+    };
+
+    try link.connection.reportPlace(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face), held);
+    try openRemoteSignEditor(app_state, hit);
+    return true;
+}
+
+fn enterServerDimension(app_state: *AppState, target: world.Dimension) !void {
+    app_state.level.closeWorld(app_state.gpa);
+    app_state.chunks.deinit(app_state.gpa);
+    app_state.chunks = .{};
+
+    try app_state.level.reseed(app_state.gpa, target, app_state.level.generator.worldSeed());
+    app_state.dimension = target;
+    app_state.level.world_map.access = worldAccess(app_state);
+    app_state.level.world_map.sound_sink = soundSink(app_state);
+    app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
+
+    try app_state.level.enter(app_state.gpa, &app_state.player);
+    app_state.held_stack = null;
+    try closeContainer(app_state);
+}
+
+fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
+    const open = link.connection.opened orelse {
+        if (!containerOpen(app_state)) return;
+        if (app_state.sign_edit != null) return;
+        app_state.inventory_open = false;
+        app_state.workbench_open = false;
+        app_state.furnace_open = null;
+        app_state.chest_open = null;
+        app_state.dispenser_open = null;
+        app_state.minecart_open = game.Entity.no_id;
+        try updateMouseMode(app_state);
+        return;
+    };
+
+    switch (open.kind) {
+        remote.Connection.window_workbench => {
+            if (app_state.workbench_open) return;
+            app_state.workbench_open = true;
+        },
+        remote.Connection.window_furnace => {
+            if (app_state.furnace_open != null) return;
+            app_state.furnace_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
+        },
+        remote.Connection.window_dispenser => {
+            if (app_state.dispenser_open != null) return;
+            app_state.dispenser_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
+        },
+        remote.Connection.window_chest => {
+            if (open.cart != game.Entity.no_id) {
+                if (app_state.minecart_open == open.cart) return;
+                app_state.minecart_open = open.cart;
+            } else {
+                if (app_state.chest_open != null) return;
+                app_state.chest_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
+            }
+        },
+        else => return,
+    }
+    app_state.inventory_open = false;
+    try updateMouseMode(app_state);
+}
+
+fn openRemoteSignEditor(app_state: *AppState, hit: game.raycast.Hit) !void {
+    const stack = app_state.player.inventory.selectedStack() orelse return;
+    if (stack.id != .item or stack.id.item != .sign) return;
+    if (hit.face == .down) return;
+
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
+    if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+    _ = try app_state.level.world_map.addSign(target.x, target.y, target.z);
+    openSignEditor(app_state, target.x, target.y, target.z);
 }
 
 fn placeBlockAtTarget(app_state: *AppState) !bool {
@@ -2869,6 +3057,12 @@ fn recordFlyingPig(app_state: *AppState) !void {
 
 const pig_flight_drop: f32 = 5.0;
 
+fn swingArm(app_state: *AppState) void {
+    app_state.player.swingItem();
+    const link = app_state.link orelse return;
+    link.connection.reportSwing(app_state.gpa) catch {};
+}
+
 fn tickRemote(app_state: *AppState, link: *Link) !void {
     try link.pump(&app_state.level);
 
@@ -2876,8 +3070,23 @@ fn tickRemote(app_state: *AppState, link: *Link) !void {
     defer app_state.gpa.free(lines);
     for (lines) |line| app_state.chat.addMessage(app_state.font, line.text());
 
-    app_state.level.tick_count += 1;
+    const awards = try link.connection.takeAwards(app_state.gpa);
+    defer app_state.gpa.free(awards);
+    for (awards) |given| try app_state.stats.add(app_state.gpa, given.stat, given.amount);
 
+    if (link.connection.takeDimensionChange()) |target| {
+        try enterServerDimension(app_state, target);
+        return;
+    }
+
+    adoptServerWindow(app_state, link);
+    try adoptServerScreen(app_state, link);
+    app_state.level.tick_count += 1;
+    try link.connection.tickBodies(app_state.gpa, &app_state.level);
+    try app_state.level.applyBlockChanges(app_state.gpa, app_state.frame);
+
+    try link.connection.reportSneak(app_state.gpa, app_state.player.base.sneaking);
+    try link.connection.reportHeldSlot(app_state.gpa, app_state.player.inventory.selected);
     if (link.connection.placed) try link.connection.reportPosition(app_state.gpa, &app_state.player);
     try link.flush();
 
@@ -2944,6 +3153,8 @@ fn tick(app_state: *AppState) !void {
 
     if (app_state.link) |link| {
         app_state.player.health = link.connection.health;
+        app_state.level.standInPortals();
+        _ = app_state.player.tickPortal();
         try tickRemote(app_state, link);
     } else {
         try app_state.level.tick(app_state.gpa, app_state.frame);
@@ -4359,8 +4570,8 @@ pub fn event(
                 try openContainerClickAt(app_state, .right);
             } else {
                 if (try useBlockOrPlace(app_state)) {
-                    app_state.player.swingItem();
-                } else {
+                    swingArm(app_state);
+                } else if (app_state.link == null) {
                     try useHeldItem(app_state);
                 }
             },

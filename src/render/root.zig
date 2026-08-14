@@ -1,5 +1,5 @@
-pub const achievements_screen = @import("achievements_screen.zig");
 pub const achievement_toast = @import("achievement_toast.zig");
+pub const achievements_screen = @import("achievements_screen.zig");
 pub const Atlas = @import("atlas.zig");
 pub const button = @import("button.zig");
 pub const chat = @import("chat.zig");
@@ -40,8 +40,8 @@ pub const sky = @import("sky.zig");
 pub const SkyRenderer = @import("sky_renderer.zig");
 pub const stats_screen = @import("stats_screen.zig");
 pub const terrain_shader = @import("terrain_shader.zig");
-pub const text_wrap = @import("text_wrap.zig");
 pub const text_field = @import("text_field.zig");
+pub const text_wrap = @import("text_wrap.zig");
 pub const texture_pack = @import("texture_pack.zig");
 pub const texture_packs_screen = @import("texture_packs_screen.zig");
 pub const TextureFx = @import("texture_fx.zig");

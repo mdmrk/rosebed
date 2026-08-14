@@ -1,4 +1,5 @@
 const std = @import("std");
+const float_pi: f32 = std.math.pi;
 
 const math = @import("math");
 const world = @import("world");
@@ -29,7 +30,6 @@ pub const height: f64 = 0.95;
 
 pub const water_reach: f64 = -0.6;
 
-const float_pi: f32 = std.math.pi;
 const stroke_span: f32 = 0.75;
 const stroke_decay: f32 = 0.8;
 const glide_decay: f32 = 0.9;

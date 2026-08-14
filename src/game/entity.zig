@@ -22,6 +22,78 @@ width: f64,
 height: f64,
 step_height: f64 = 0,
 y_size: f64 = 0,
+remote: ?Remote = null,
+
+pub const Remote = struct {
+    server_x: i32 = 0,
+    server_y: i32 = 0,
+    server_z: i32 = 0,
+    position: math.Vec3 = math.Vec3.init(0, 0, 0),
+    yaw: f64 = 0,
+    pitch: f64 = 0,
+    increments: i32 = 0,
+
+    pub const scale: f64 = 32.0;
+    pub const increments_per_update: i32 = 3;
+    pub const boat_extra_increments: i32 = 4;
+    pub const minecart_extra_increments: i32 = 2;
+    pub const teleport_lift: f64 = 1.0 / 64.0;
+
+    pub fn decode(value: i32) f64 {
+        return @as(f64, @floatFromInt(value)) / scale;
+    }
+
+    pub fn at(x: i32, y: i32, z: i32) Remote {
+        return .{
+            .server_x = x,
+            .server_y = y,
+            .server_z = z,
+            .position = .{ .x = decode(x), .y = decode(y), .z = decode(z) },
+        };
+    }
+
+    pub fn teleportTo(self: *Remote, x: i32, y: i32, z: i32, yaw: f32, pitch: f32, lift: bool) void {
+        self.server_x = x;
+        self.server_y = y;
+        self.server_z = z;
+        self.aimAt(decode(x), decode(y) + if (lift) teleport_lift else 0, decode(z), yaw, pitch);
+    }
+
+    pub fn shiftBy(self: *Remote, dx: i8, dy: i8, dz: i8, yaw: f32, pitch: f32) void {
+        self.server_x += dx;
+        self.server_y += dy;
+        self.server_z += dz;
+        self.aimAt(decode(self.server_x), decode(self.server_y), decode(self.server_z), yaw, pitch);
+    }
+
+    fn aimAt(self: *Remote, x: f64, y: f64, z: f64, yaw: f32, pitch: f32) void {
+        self.position = .{ .x = x, .y = y, .z = z };
+        self.yaw = yaw;
+        self.pitch = pitch;
+        self.increments = increments_per_update;
+    }
+};
+
+pub fn stepRemote(body: anytype) void {
+    const target = if (body.base.remote) |*it| it else return;
+    if (target.increments <= 0) return;
+
+    const steps: f64 = @floatFromInt(target.increments);
+    const x = body.base.position.x + (target.position.x - body.base.position.x) / steps;
+    const y = body.base.position.y + (target.position.y - body.base.position.y) / steps;
+    const z = body.base.position.z + (target.position.z - body.base.position.z) / steps;
+
+    if (@hasField(@TypeOf(body.*), "yaw")) {
+        var turn = target.yaw - @as(f64, body.yaw);
+        while (turn < -180.0) turn += 360.0;
+        while (turn >= 180.0) turn -= 360.0;
+
+        body.yaw = @floatCast(@as(f64, body.yaw) + turn / steps);
+        body.pitch = @floatCast(@as(f64, body.pitch) + (target.pitch - @as(f64, body.pitch)) / steps);
+    }
+    target.increments -= 1;
+    body.base.position = .{ .x = x, .y = y, .z = z };
+}
 
 pub const Moved = struct {
     dx: f64,

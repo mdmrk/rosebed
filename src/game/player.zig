@@ -266,6 +266,29 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     self.updateRenderYaw();
 }
 
+pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) void {
+    self.drowned = false;
+    self.base.in_water = game_physics.isBoxInMaterial(world_map, self.base.boundingBox().expand(0, -0.4, 0), .water);
+    self.updateFire(world_map);
+    self.updateAir(world_map);
+    self.updateFallState(dy);
+    if (self.hurt_time > 0) self.hurt_time -= 1;
+    if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
+}
+
+pub fn tickRemote(self: *Player) void {
+    self.base.beginTick();
+    self.prev_yaw = self.yaw;
+    self.prev_pitch = self.pitch;
+    self.prev_render_yaw = self.render_yaw;
+
+    Entity.stepRemote(self);
+
+    self.updateRenderYaw();
+    self.updateLimbSwing();
+    self.tickSwing();
+}
+
 fn wrapDegrees(value: f32) f32 {
     var wrapped = value;
     while (wrapped < -180.0) wrapped += 360.0;

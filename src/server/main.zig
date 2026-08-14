@@ -69,10 +69,19 @@ const Connection = struct {
     }
 };
 
+pub const nether_id_base: game.Entity.Id = 1 << 24;
+
+const Dim = struct {
+    server: *Server = undefined,
+    dimension: world.Dimension,
+    level: game.Level,
+    handle: world.save.Save,
+};
+
 const Server = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
-    level: game.Level,
+    dims: [2]Dim,
     connections: std.ArrayList(*Connection) = .empty,
     retired: std.ArrayList(*Connection) = .empty,
     mutex: std.Io.Mutex = .init,
@@ -93,25 +102,41 @@ const Server = struct {
         defer self.unlock();
         try self.connections.append(self.gpa, connection);
     }
+
+    fn dimOf(self: *Server, which: world.Dimension) *Dim {
+        for (&self.dims) |*dim| {
+            if (dim.dimension == which) return dim;
+        }
+        return &self.dims[0];
+    }
+
+    fn overworld(self: *Server) *game.Level {
+        return &self.dimOf(.overworld).level;
+    }
+
+    fn levelFor(self: *Server, connection: *Connection) *game.Level {
+        return &self.dimOf(connection.session.dimension).level;
+    }
 };
 
-fn worldAccess(server: *Server) world.World.Access {
+fn worldAccess(dim: *Dim) world.World.Access {
     return .{
-        .context = server,
+        .context = dim,
         .markBlockNeedsUpdate = markBlockNeedsUpdate,
         .updateAllRenderers = updateAllRenderers,
     };
 }
 
 fn markBlockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const server: *Server = @ptrCast(@alignCast(context));
+    const dim: *Dim = @ptrCast(@alignCast(context));
     if (y < 0 or y >= world.constants.chunk_height) return;
 
-    const block = server.level.world_map.getBlock(x, y, z);
-    const metadata = server.level.world_map.getBlockMetadata(x, y, z);
+    const block = dim.level.world_map.getBlock(x, y, z);
+    const metadata = dim.level.world_map.getBlockMetadata(x, y, z);
 
-    for (server.connections.items) |connection| {
-        connection.session.sendBlockChange(server.gpa, x, y, z, block, metadata) catch |err| switch (err) {
+    for (dim.server.connections.items) |connection| {
+        if (connection.session.dimension != dim.dimension) continue;
+        connection.session.sendBlockChange(dim.server.gpa, x, y, z, block, metadata) catch |err| switch (err) {
             error.OutOfMemory, error.WriteFailed => return error.OutOfMemory,
             error.StringTooLong, error.InvalidUtf8 => unreachable,
         };
@@ -201,7 +226,7 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
 fn drainPending(server: *Server, connection: *Connection) !void {
     for (connection.pending.items) |message| {
         defer message.deinit(server.gpa);
-        try connection.session.handle(server.gpa, &server.level, message);
+        try connection.session.handle(server.gpa, server.levelFor(connection), message);
     }
     connection.pending.clearRetainingCapacity();
 }
@@ -224,19 +249,22 @@ fn findSpawn(level: *game.Level) ![3]i32 {
     return .{ 8, 64, 8 };
 }
 
-fn saveWorld(server: *Server, handle: *world.save.Save, name: []const u8) !void {
+fn saveWorld(server: *Server, name: []const u8) !void {
+    const home = server.dimOf(.overworld);
     const info: world.save.LevelInfo = .{
-        .seed = server.level.generator.worldSeed(),
-        .spawn = server.level.spawn,
-        .time = server.level.world_map.time,
+        .seed = home.level.generator.worldSeed(),
+        .spawn = home.level.spawn,
+        .time = home.level.world_map.time,
         .last_played = world.RegionFile.unixMilliseconds(server.io),
-        .size_on_disk = @intCast(handle.diskSize(server.io)),
+        .size_on_disk = @intCast(home.handle.diskSize(server.io)),
         .name = @constCast(name),
     };
-    try handle.writeLevel(server.gpa, server.io, info);
+    try home.handle.writeLevel(server.gpa, server.io, info);
 
-    try server.level.world_map.beginSaveRound();
-    while (try server.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0) {}
+    for (&server.dims) |*dim| {
+        try dim.level.world_map.beginSaveRound();
+        while (try dim.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0) {}
+    }
 }
 
 fn broadcastChat(server: *Server, line: []const u8) void {
@@ -246,15 +274,53 @@ fn broadcastChat(server: *Server, line: []const u8) void {
     }
 }
 
+fn broadcastSwing(server: *Server, from: *Connection) void {
+    const player = from.session.player orelse return;
+    for (server.connections.items) |connection| {
+        if (connection == from) continue;
+        if (connection.session.dimension != from.session.dimension) continue;
+        connection.session.sendSwing(server.gpa, player.base.id) catch {};
+    }
+}
+
+fn broadcastSign(server: *Server, which: world.Dimension, at: world.World.BlockPos) void {
+    const dim = server.dimOf(which);
+    const post = dim.level.world_map.signAt(at.x, at.y, at.z) orelse return;
+    for (server.connections.items) |connection| {
+        if (connection.session.dimension != which) continue;
+        if (!connection.session.seesChunkAt(at.x, at.z)) continue;
+        connection.session.sendSign(server.gpa, at.x, at.y, at.z, post) catch {};
+    }
+}
+
+fn broadcastEquipment(server: *Server, from: *Connection) void {
+    const player = from.session.player orelse return;
+
+    var changed: [Session.equipment_slots]bool = undefined;
+    if (!from.session.refreshEquipment(&changed)) return;
+
+    for (changed, 0..) |dirty, slot| {
+        if (!dirty) continue;
+        const worn = Session.equipmentAt(player, slot);
+        for (server.connections.items) |connection| {
+            if (connection == from) continue;
+            if (connection.session.dimension != from.session.dimension) continue;
+            connection.session.sendEquipment(server.gpa, player.base.id, slot, worn) catch {};
+        }
+    }
+}
+
 fn announceAll(server: *Server, who: []const u8, joined: bool) void {
     for (server.connections.items) |connection| {
         connection.session.announce(server.gpa, who, joined) catch {};
     }
 }
 
-fn collectPeers(server: *Server, out: *std.ArrayList(Session.Peer)) !void {
+fn collectPeers(server: *Server, dim: *Dim, out: *std.ArrayList(Session.Peer)) !void {
+    out.clearRetainingCapacity();
     for (server.connections.items) |connection| {
         if (connection.session.state != .playing) continue;
+        if (connection.session.dimension != dim.dimension) continue;
         const player = connection.session.player orelse continue;
         try out.append(server.gpa, .{
             .id = player.base.id,
@@ -262,9 +328,7 @@ fn collectPeers(server: *Server, out: *std.ArrayList(Session.Peer)) !void {
         });
     }
 
-    for (server.level.entities.mobs.items) |entry| {
-        try out.append(server.gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
-    }
+    try Session.collectWorldPeers(server.gpa, &dim.level, out);
 }
 
 fn tick(server: *Server) !void {
@@ -283,8 +347,10 @@ fn tick(server: *Server) !void {
             announceAll(server, connection.session.name.text(), true);
         }
         if (connection.session.takeChat()) |line| broadcastChat(server, line.text());
+        if (connection.session.takeSwing()) broadcastSwing(server, connection);
+        if (connection.session.takeSign()) |at| broadcastSign(server, connection.session.dimension, at);
         if (connection.outgoing.items.len < outgoing_high_water) {
-            _ = connection.session.streamChunks(server.gpa, &server.level, Session.chunks_per_tick) catch 0;
+            _ = connection.session.streamChunks(server.gpa, server.levelFor(connection), Session.chunks_per_tick) catch 0;
         }
 
         if (!connection.open or connection.session.state == .closed) {
@@ -293,7 +359,7 @@ fn tick(server: *Server) !void {
             }
             queueOutbox(server, connection) catch {};
             connection.open = false;
-            connection.session.leave(server.gpa, &server.level);
+            connection.session.leave(server.gpa, server.levelFor(connection));
             connection.stream.shutdown(server.io, .both) catch {};
             try server.retired.append(server.gpa, connection);
             _ = server.connections.orderedRemove(index);
@@ -304,19 +370,72 @@ fn tick(server: *Server) !void {
 
     var arena: std.heap.ArenaAllocator = .init(server.gpa);
     defer arena.deinit();
-    try server.level.tick(server.gpa, arena.allocator());
+    for (&server.dims) |*dim| try dim.level.tick(server.gpa, arena.allocator());
+
+    for (server.connections.items) |connection| {
+        const travelling = connection.session.tickPlayer(server.gpa, server.levelFor(connection)) catch false;
+        if (travelling) sendThroughPortal(server, connection) catch {};
+    }
 
     var peers: std.ArrayList(Session.Peer) = .empty;
     defer peers.deinit(server.gpa);
-    try collectPeers(server, &peers);
+
+    for (&server.dims) |*dim| {
+        try collectPeers(server, dim, &peers);
+        for (server.connections.items) |connection| {
+            if (connection.session.dimension != dim.dimension) continue;
+            connection.session.trackPeers(server.gpa, peers.items) catch {};
+        }
+
+        for (dim.level.entities.blasts.items) |blast| {
+            const broken = dim.level.entities.blast_blocks.items[blast.first..][0..blast.count];
+            for (server.connections.items) |connection| {
+                if (connection.session.dimension != dim.dimension) continue;
+                connection.session.sendBlast(server.gpa, blast, broken) catch {};
+            }
+        }
+        dim.level.entities.clearBlasts();
+
+        for (dim.level.entities.collected.items) |taken| {
+            for (server.connections.items) |connection| {
+                if (connection.session.dimension != dim.dimension) continue;
+                connection.session.sendCollect(server.gpa, taken.item, taken.by) catch {};
+            }
+        }
+        dim.level.entities.collected.clearRetainingCapacity();
+    }
 
     for (server.connections.items) |connection| {
-        connection.session.trackPeers(server.gpa, peers.items) catch {};
         connection.session.reportHealth(server.gpa) catch {};
+        broadcastEquipment(server, connection);
+        connection.session.sendRiding(server.gpa) catch {};
+        connection.session.syncWindow(server.gpa, server.levelFor(connection)) catch {};
+        connection.session.pingIfQuiet(server.gpa) catch {};
         queueOutbox(server, connection) catch {};
     }
 
     server.ticks_since_save += 1;
+}
+
+fn sendThroughPortal(server: *Server, connection: *Connection) !void {
+    const from = connection.session.dimension;
+    const target = from.other();
+    const scale = world.Dimension.nether.coordinateScale();
+
+    const player = connection.session.player orelse return;
+    const at = player.base.position;
+    const x = if (target == .nether) at.x / scale else at.x * scale;
+    const z = if (target == .nether) at.z / scale else at.z * scale;
+
+    try connection.session.travel(
+        server.gpa,
+        &server.dimOf(from).level,
+        &server.dimOf(target).level,
+        target,
+        x,
+        at.y,
+        z,
+    );
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -329,10 +448,14 @@ pub fn main(init: std.process.Init) !void {
     var saves_dir = try world.save.openSavesDir(io, .cwd());
     defer saves_dir.close(io);
 
-    var handle = try world.save.open(io, saves_dir, options.folder);
-    defer handle.close(gpa, io);
+    var overworld_handle = try world.save.open(io, saves_dir, options.folder);
+    defer overworld_handle.close(gpa, io);
 
-    var stored = handle.readLevel(gpa, io) catch null;
+    var nether_handle = try world.save.open(io, saves_dir, options.folder);
+    defer nether_handle.close(gpa, io);
+    try nether_handle.useDimension(gpa, io, .nether);
+
+    var stored = overworld_handle.readLevel(gpa, io) catch null;
     defer if (stored) |*info| info.deinit(gpa);
 
     var seed_source: world.JavaRandom = .init(world.RegionFile.unixMilliseconds(io));
@@ -341,19 +464,38 @@ pub fn main(init: std.process.Init) !void {
     var server: Server = .{
         .gpa = gpa,
         .io = io,
-        .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, seed)),
+        .dims = .{
+            .{
+                .dimension = .overworld,
+                .level = game.Level.init(gpa, try world.Generator.init(gpa, .overworld, seed)),
+                .handle = overworld_handle,
+            },
+            .{
+                .dimension = .nether,
+                .level = game.Level.init(gpa, try world.Generator.init(gpa, .nether, seed)),
+                .handle = nether_handle,
+            },
+        },
     };
-    defer server.level.deinit(gpa);
-    server.level.attach();
-    server.level.world_map.persistence = .{ .handle = &handle, .io = io };
-    server.level.world_map.access = worldAccess(&server);
+    defer for (&server.dims) |*dim| dim.level.deinit(gpa);
 
-    if (stored) |info| {
-        server.level.spawn = info.spawn;
-        server.level.world_map.time = info.time;
-    } else {
-        server.level.spawn = try findSpawn(&server.level);
+    for (&server.dims) |*dim| {
+        dim.server = &server;
+        dim.level.attach();
+        dim.level.world_map.persistence = .{ .handle = &dim.handle, .io = io };
+        dim.level.world_map.access = worldAccess(dim);
+        dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
     }
+    server.dimOf(.nether).level.entities.next_entity_id = nether_id_base;
+
+    const home = server.overworld();
+    if (stored) |info| {
+        home.spawn = info.spawn;
+        home.world_map.time = info.time;
+    } else {
+        home.spawn = try findSpawn(home);
+    }
+    server.dimOf(.nether).level.spawn = home.spawn;
 
     var address: std.Io.net.IpAddress = .{ .ip4 = .unspecified(options.port) };
     var listener = try address.listen(io, .{ .reuse_address = true });
@@ -362,9 +504,9 @@ pub fn main(init: std.process.Init) !void {
         options.port,
         options.folder,
         seed,
-        server.level.spawn[0],
-        server.level.spawn[1],
-        server.level.spawn[2],
+        home.spawn[0],
+        home.spawn[1],
+        home.spawn[2],
         if (stored == null) " (new)" else "",
     });
 
@@ -377,7 +519,7 @@ pub fn main(init: std.process.Init) !void {
 
         if (server.ticks_since_save >= autosave_interval_ticks) {
             server.ticks_since_save = 0;
-            saveWorld(&server, &handle, options.folder) catch |err| {
+            saveWorld(&server, options.folder) catch |err| {
                 std.log.err("autosave failed: {s}", .{@errorName(err)});
             };
         }
@@ -396,7 +538,7 @@ pub fn main(init: std.process.Init) !void {
     server.lock();
     for (server.connections.items) |connection| {
         connection.open = false;
-        connection.session.leave(gpa, &server.level);
+        connection.session.leave(gpa, server.levelFor(connection));
         connection.stream.shutdown(io, .both) catch {};
         try server.retired.append(gpa, connection);
     }
@@ -413,7 +555,7 @@ pub fn main(init: std.process.Init) !void {
     server.retired.deinit(gpa);
     server.connections.deinit(gpa);
 
-    saveWorld(&server, &handle, options.folder) catch |err| {
+    saveWorld(&server, options.folder) catch |err| {
         std.log.err("could not save the world: {s}", .{@errorName(err)});
     };
 

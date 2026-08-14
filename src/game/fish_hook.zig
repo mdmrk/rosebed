@@ -2,6 +2,12 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const testing_world = world.testing;
+
+const Entity = @import("entity.zig");
+const physics = @import("physics.zig");
+const Player = @import("player.zig");
+
 pub const line_segments: usize = 16;
 pub const line_lift: f64 = 0.25;
 
@@ -72,12 +78,6 @@ pub fn linePoint(self: FishHook, tip: math.Vec3, step: usize, partial_ticks: f32
         at.z + run.z * t,
     );
 }
-
-const testing_world = world.testing;
-
-const Entity = @import("entity.zig");
-const physics = @import("physics.zig");
-const Player = @import("player.zig");
 
 const FishHook = @This();
 

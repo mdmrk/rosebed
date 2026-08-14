@@ -46,7 +46,61 @@ paintings: std.ArrayList(Painting) = .empty,
 boats: std.ArrayList(Boat) = .empty,
 minecarts: std.ArrayList(Minecart) = .empty,
 hooks: std.ArrayList(FishHook) = .empty,
+collected: std.ArrayList(Collected) = .empty,
+blasts: std.ArrayList(Blast) = .empty,
+blast_blocks: std.ArrayList([3]i8) = .empty,
 next_entity_id: Entity.Id = 1,
+
+pub const Collected = struct {
+    item: Entity.Id,
+    by: Entity.Id,
+};
+
+pub const Blast = struct {
+    at: math.Vec3,
+    size: f32,
+    first: usize,
+    count: usize,
+};
+
+pub fn recordBlast(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    at: math.Vec3,
+    size: f32,
+    broken: []const world.World.BlockPos,
+) !void {
+    const origin: [3]i32 = .{
+        @intFromFloat(at.x),
+        @intFromFloat(at.y),
+        @intFromFloat(at.z),
+    };
+    const start = self.blast_blocks.items.len;
+
+    for (broken) |pos| {
+        const dx = pos.x - origin[0];
+        const dy = pos.y - origin[1];
+        const dz = pos.z - origin[2];
+        if (dx < -128 or dx > 127 or dy < -128 or dy > 127 or dz < -128 or dz > 127) continue;
+        try self.blast_blocks.append(gpa, .{
+            @intCast(dx),
+            @intCast(dy),
+            @intCast(dz),
+        });
+    }
+
+    try self.blasts.append(gpa, .{
+        .at = at,
+        .size = size,
+        .first = start,
+        .count = self.blast_blocks.items.len - start,
+    });
+}
+
+pub fn clearBlasts(self: *Entities) void {
+    self.blasts.clearRetainingCapacity();
+    self.blast_blocks.clearRetainingCapacity();
+}
 
 pub const Mob = struct {
     type_id: mob.Id,
@@ -86,6 +140,17 @@ pub fn takeId(self: *Entities) Entity.Id {
     const id = self.next_entity_id;
     self.next_entity_id += 1;
     return id;
+}
+
+pub fn stampIds(self: *Entities) void {
+    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "boats", "minecarts", "hooks" }) |name| {
+        for (@field(self, name).items) |*entity| {
+            if (entity.base.id == Entity.no_id) entity.base.id = self.takeId();
+        }
+    }
+    for (self.paintings.items) |*hung| {
+        if (hung.id == Entity.no_id) hung.id = self.takeId();
+    }
 }
 
 pub fn mobById(self: *const Entities, id: Entity.Id) ?Mob {
@@ -134,7 +199,9 @@ pub fn tickHooks(
         const hook = &self.hooks.items[index];
         const angler = playerById(roster, hook.angler);
 
-        if (angler == null or angler.?.health <= 0 or hook.outOfRange(angler.?.base.position)) {
+        if (hook.base.remote == null and
+            (angler == null or angler.?.health <= 0 or hook.outOfRange(angler.?.base.position)))
+        {
             _ = self.hooks.swapRemove(index);
             continue;
         }
@@ -266,6 +333,25 @@ pub fn removeMob(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
         if (entry.animal.base.id != id) continue;
         _ = self.mobs.orderedRemove(index);
         mob.get(entry.type_id).destroy(entry.animal, gpa);
+        return true;
+    }
+    return false;
+}
+
+pub fn removeById(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
+    if (self.removeMob(gpa, id)) return true;
+
+    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "boats", "minecarts", "hooks" }) |name| {
+        const list = &@field(self, name);
+        for (list.items, 0..) |entity, index| {
+            if (entity.base.id != id) continue;
+            _ = list.orderedRemove(index);
+            return true;
+        }
+    }
+    for (self.paintings.items, 0..) |hung, index| {
+        if (hung.id != id) continue;
+        _ = self.paintings.orderedRemove(index);
         return true;
     }
     return false;
@@ -434,6 +520,9 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.boats.deinit(gpa);
     self.minecarts.deinit(gpa);
     self.hooks.deinit(gpa);
+    self.collected.deinit(gpa);
+    self.blasts.deinit(gpa);
+    self.blast_blocks.deinit(gpa);
     for (self.mobs.items) |entry| mob.get(entry.type_id).destroy(entry.animal, gpa);
     self.mobs.deinit(gpa);
 }
@@ -1351,12 +1440,13 @@ pub fn tickArrows(
     var i: usize = 0;
     while (i < self.arrows.items.len) {
         const arrow = &self.arrows.items[i];
+        const owned_here = arrow.base.remote == null;
 
         if (!arrow.settle(world_map, rand)) {
             const block_hit = arrow.blockImpact(world_map);
             const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
 
-            if (self.arrowStrike(arrow.*, roster, limit)) |strike| {
+            if (if (owned_here) self.arrowStrike(arrow.*, roster, limit) else null) |strike| {
                 const source = self.arrowShooter(arrow.*, roster);
                 const landed = switch (strike) {
                     .mob => |target| self.hurtTarget(target, Arrow.damage, source, rand),
@@ -1466,9 +1556,10 @@ pub fn tickFireballs(
         var ball = self.fireballs.items[index];
         ball.settle(world_map);
 
-        const block_hit = ball.blockImpact(world_map);
+        const owned_here = ball.base.remote == null;
+        const block_hit = if (owned_here) ball.blockImpact(world_map) else null;
         const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
-        const strike = self.fireballStrike(ball, roster, limit);
+        const strike = if (owned_here) self.fireballStrike(ball, roster, limit) else null;
 
         if (strike != null or block_hit != null) {
             // The direct hit lands for nothing; every point of damage comes from the blast.
@@ -1630,7 +1721,7 @@ fn tickItemsFor(
         item.tick(world_map);
 
         var picked_up = false;
-        if (player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {
+        if (item.base.remote == null and player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {
             const collected = item.stack.id;
             const leftover = player.inventory.addStack(item.stack);
             if (leftover < item.stack.count) {
@@ -1639,10 +1730,13 @@ fn tickItemsFor(
                 item.stack.count = leftover;
                 try self.pickups.append(gpa, PickupFx.spawn(item.*));
                 picked_up = leftover == 0;
+                if (picked_up) {
+                    try self.collected.append(gpa, .{ .item = item.base.id, .by = player.base.id });
+                }
             }
         }
 
-        if (picked_up or item.isExpired()) {
+        if (picked_up or (item.base.remote == null and item.isExpired())) {
             _ = self.items.swapRemove(i);
         } else {
             i += 1;

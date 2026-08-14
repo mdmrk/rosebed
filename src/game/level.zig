@@ -288,7 +288,7 @@ fn touchesPortal(world_map: *const world.World, box: math.AABB) bool {
     return false;
 }
 
-fn standInPortals(self: *Level) void {
+pub fn standInPortals(self: *Level) void {
     for (self.occupants.items) |occupant| {
         if (!occupant.active) continue;
         if (touchesPortal(&self.world_map, occupant.player.base.boundingBox())) occupant.player.setInPortal();
@@ -366,6 +366,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     );
 
     try self.entities.tickPaintings(gpa, &self.world_map, rand);
+    self.entities.stampIds();
     try self.advanceTime();
 }
 

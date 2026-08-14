@@ -316,6 +316,7 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
 }
 
 pub fn hurt(self: *Animal, amount: i32, source: ?Attacker, rand: *world.JavaRandom) bool {
+    if (self.base.remote != null) return false;
     self.entity_age = 0;
     if (self.health <= 0) return false;
 
@@ -744,13 +745,15 @@ pub fn tick(
     self.prev_yaw = self.yaw;
     self.prev_pitch = self.pitch;
 
+    Entity.stepRemote(self);
+
     if (self.health <= 0) {
         self.is_jumping = false;
         self.move_strafing = 0;
         self.move_forward = 0;
         self.random_yaw_velocity = 0;
         self.clearPath(gpa);
-    } else {
+    } else if (self.base.remote == null) {
         try self.action_state(self, gpa, world_map, players, rand);
     }
 

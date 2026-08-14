@@ -43,15 +43,18 @@ pub const Peer = struct {
     player: game.Player,
 };
 
-fn decodePosition(value: i32) f64 {
-    return @as(f64, @floatFromInt(value)) / 32.0;
-}
+pub const Awarded = struct {
+    stat: game.stats.Key,
+    amount: i8,
+};
 
 fn decodeRotation(value: i8) f32 {
     return @as(f32, @floatFromInt(value)) * 360.0 / 256.0;
 }
 
 state: State = .greeting,
+dimension: world.Dimension = .overworld,
+pending_dimension: ?world.Dimension = null,
 entity_id: game.Entity.Id = game.Entity.no_id,
 map_seed: i64 = 0,
 spawn: [3]i32 = .{ 0, 64, 0 },
@@ -62,10 +65,21 @@ loaded_chunks: usize = 0,
 health: i32 = 20,
 peers: std.ArrayList(Peer) = .empty,
 chat: std.ArrayList(ChatLine) = .empty,
+awarded: std.ArrayList(Awarded) = .empty,
+sneaking: bool = false,
+held_slot: u4 = 0,
+window_action: i16 = 0,
+crafting: [crafting_grid]?world.Stack = @splat(null),
+workbench: [workbench_grid]?world.Stack = @splat(null),
+carried: ?world.Stack = null,
+opened: ?Opened = null,
+aiming_at: [3]i32 = .{ 0, 0, 0 },
+aiming_cart: game.Entity.Id = game.Entity.no_id,
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
     self.peers.deinit(gpa);
     self.chat.deinit(gpa);
+    self.awarded.deinit(gpa);
     self.outbox.deinit(gpa);
     if (self.disconnect) |reason| {
         if (reason.owned) gpa.free(reason.reason);
@@ -128,6 +142,7 @@ pub fn handle(
             .login => |body| {
                 self.entity_id = @bitCast(body.protocol_version);
                 self.map_seed = body.map_seed;
+                self.dimension = @enumFromInt(body.dimension);
                 self.state = .playing;
             },
             else => self.fail(gpa, "Server spoke out of turn", false),
@@ -143,12 +158,28 @@ fn handlePlaying(
     message: net.packet.Packet,
 ) !void {
     switch (message) {
-        .keep_alive => try self.send(gpa, .keep_alive),
+        .keep_alive => {},
         .spawn_position => |body| self.spawn = .{ body.x, body.y, body.z },
         .update_time => |body| level.world_map.time = body.time,
         .update_health => |body| {
             self.health = body.health;
             if (level.occupants.items.len > 0) level.occupants.items[0].player.health = body.health;
+        },
+        .respawn => |body| {
+            const target: world.Dimension = @enumFromInt(body.dimension);
+            if (target != self.dimension) {
+                self.dimension = target;
+                self.pending_dimension = target;
+                self.placed = false;
+                self.peers.clearRetainingCapacity();
+                self.opened = null;
+                return;
+            }
+            if (level.occupants.items.len > 0) {
+                const player = level.occupants.items[0].player;
+                player.respawn(player.base.position);
+                self.health = player.health;
+            }
         },
         .chat => |body| {
             var line: ChatLine = .{};
@@ -158,48 +189,137 @@ fn handlePlaying(
         },
         .named_entity_spawn => |body| try self.spawnPeer(gpa, body),
         .mob_spawn => |body| try spawnMob(gpa, level, body),
+        .pickup_spawn => |body| try spawnItem(gpa, level, body),
+        .vehicle_spawn => |body| try spawnVehicle(gpa, level, body),
+        .entity_painting => |body| try spawnPainting(gpa, level, body),
         .entity_metadata => |body| adoptWatched(level, @bitCast(body.entity_id), body.metadata),
+        .player_inventory => |body| self.outfitPeer(body),
+        .entity_velocity => |body| {
+            if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
+                moved.base().motion = .{
+                    .x = decodeVelocity(body.motion_x),
+                    .y = decodeVelocity(body.motion_y),
+                    .z = decodeVelocity(body.motion_z),
+                };
+            }
+        },
+        .entity_status => |body| self.entityStatus(level, @bitCast(body.entity_id), body.status),
+        .attach_entity => |body| self.attachEntity(level, @bitCast(body.entity_id), @bitCast(body.vehicle_id)),
+        .collect => |body| try self.collectItem(gpa, level, @bitCast(body.collected_id), @bitCast(body.collector_id)),
+        .animation => |body| {
+            if (body.animate != net.packet.swing_animation) return;
+            const peer = self.peerById(@bitCast(body.entity_id)) orelse return;
+            peer.player.swingItem();
+        },
         .destroy_entity => |body| {
             const id: game.Entity.Id = @bitCast(body.entity_id);
             self.removePeer(id);
-            _ = level.entities.removeMob(gpa, id);
+            _ = level.entities.removeById(gpa, id);
         },
         .entity_teleport => |body| {
             if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
-                moved.begin();
-                moved.placeAt(
-                    decodePosition(body.x),
-                    decodePosition(body.y),
-                    decodePosition(body.z),
+                moved.warp(
+                    body.x,
+                    body.y,
+                    body.z,
+                    decodeRotation(body.yaw),
+                    decodeRotation(body.pitch),
                 );
-                moved.turn(body.yaw, body.pitch);
             }
         },
         .rel_entity_move => |body| {
             if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
-                moved.begin();
-                moved.shift(body.dx, body.dy, body.dz);
+                moved.steer(true, body.dx, body.dy, body.dz, moved.yaw(), moved.pitch());
             }
         },
         .entity_look => |body| {
             if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
-                moved.begin();
-                moved.turn(body.yaw, body.pitch);
+                moved.steer(false, 0, 0, 0, decodeRotation(body.yaw), decodeRotation(body.pitch));
             }
         },
         .rel_entity_move_look => |body| {
             if (self.bodyById(level, @bitCast(body.entity_id))) |moved| {
-                moved.begin();
-                moved.shift(body.dx, body.dy, body.dz);
-                moved.turn(body.yaw, body.pitch);
+                moved.steer(
+                    true,
+                    body.dx,
+                    body.dy,
+                    body.dz,
+                    decodeRotation(body.yaw),
+                    decodeRotation(body.pitch),
+                );
             }
         },
         .player_look_move => |body| try self.placePlayer(level, body.x, body.stance, body.z, body.yaw, body.pitch),
         .pre_chunk => |body| try self.preChunk(gpa, level, body.x, body.z, body.load),
         .map_chunk => |body| try self.mapChunk(gpa, level, body),
-        .block_change => |body| self.blockChange(level, body.x, body.y, body.z, body.block, body.metadata),
-        .multi_block_change => |body| self.multiBlockChange(level, body),
+        .statistic => |body| {
+            const stat = game.stats.keyFromStatId(@bitCast(body.stat_id)) orelse return;
+            try self.awarded.append(gpa, .{ .stat = stat, .amount = body.amount });
+        },
+        .explosion => |body| try self.showBlast(gpa, level, body),
+        .bed => |body| {
+            if (body.state != bed_not_valid) return;
+            var line: ChatLine = .{};
+            line.len = @min(bed_not_valid_line.len, line.bytes.len);
+            @memcpy(line.bytes[0..line.len], bed_not_valid_line[0..line.len]);
+            try self.chat.append(gpa, line);
+        },
+        .update_sign => |body| {
+            const y: i32 = body.y;
+            const post = try level.world_map.addSign(body.x, y, body.z);
+            for (body.lines, 0..) |text, index| post.setLine(index, text);
+        },
+        .open_window => |body| try self.openWindow(level, body),
+        .close_window => self.closeOpenWindow(),
+        .set_slot => |body| self.setSlot(level, body.window_id, body.slot, body.stack),
+        .window_items => |body| self.setWindowContents(level, body),
+        .update_progressbar => |body| self.setProgress(level, body),
+        .block_change => |body| try self.blockChange(level, body.x, body.y, body.z, body.block, body.metadata),
+        .multi_block_change => |body| try self.multiBlockChange(level, body),
         else => {},
+    }
+}
+
+pub fn tickBodies(self: *Connection, gpa: std.mem.Allocator, level: *game.Level) !void {
+    const rand = &level.world_map.rand;
+
+    for (self.peers.items) |*peer| peer.player.tickRemote();
+
+    for (level.entities.mobs.items) |entry| {
+        try game.mob.get(entry.type_id).tick(
+            entry.animal,
+            gpa,
+            &level.world_map,
+            level.players(),
+            rand,
+        );
+    }
+
+    inline for (.{ "boats", "minecarts" }) |name| {
+        for (@field(level.entities, name).items) |*vehicle| {
+            vehicle.base.beginTick();
+            vehicle.prev_yaw = vehicle.yaw;
+            vehicle.prev_pitch = vehicle.pitch;
+            game.Entity.stepRemote(vehicle);
+        }
+    }
+
+    try level.entities.tickItems(gpa, &level.world_map, level.roster.items);
+    try level.entities.tickArrows(gpa, &level.world_map, level.roster.items, rand);
+    try level.entities.tickFireballs(gpa, &level.world_map, level.roster.items, rand);
+    try level.entities.tickHooks(gpa, &level.world_map, level.roster.items, rand);
+    tickRemoteFallingBlocks(level);
+}
+
+fn tickRemoteFallingBlocks(level: *game.Level) void {
+    var index: usize = 0;
+    while (index < level.entities.falling_blocks.items.len) {
+        const falling = &level.entities.falling_blocks.items[index];
+        if (falling.tick(&level.world_map) != .falling) {
+            _ = level.entities.falling_blocks.swapRemove(index);
+            continue;
+        }
+        index += 1;
     }
 }
 
@@ -213,49 +333,130 @@ pub fn peerById(self: *Connection, id: game.Entity.Id) ?*Peer {
 const Body = union(enum) {
     player: *game.Player,
     animal: *game.Animal,
+    item: *game.ItemEntity,
+    arrow: *game.Arrow,
+    fireball: *game.Fireball,
+    falling_block: *game.FallingBlock,
+    boat: *game.Boat,
+    minecart: *game.Minecart,
+    hook: *game.FishHook,
 
-    fn begin(self: Body) void {
+    fn target(self: Body) *game.Entity.Remote {
+        return switch (self) {
+            inline else => |it| &it.base.remote.?,
+        };
+    }
+
+    fn base(self: Body) *game.Entity {
+        return switch (self) {
+            inline else => |it| &it.base,
+        };
+    }
+
+    fn yaw(self: Body) f32 {
+        return switch (self) {
+            inline else => |it| if (@hasField(@TypeOf(it.*), "yaw")) it.yaw else 0,
+        };
+    }
+
+    fn pitch(self: Body) f32 {
+        return switch (self) {
+            inline else => |it| if (@hasField(@TypeOf(it.*), "pitch")) it.pitch else 0,
+        };
+    }
+
+    fn increments(self: Body) i32 {
+        const base_steps = game.Entity.Remote.increments_per_update;
+        return switch (self) {
+            .player, .animal => base_steps,
+            .boat => base_steps + game.Entity.Remote.boat_extra_increments,
+            .minecart => base_steps + game.Entity.Remote.minecart_extra_increments,
+            else => 0,
+        };
+    }
+
+    fn eases(self: Body) bool {
+        return self.increments() > 0;
+    }
+
+    fn steer(self: Body, moved: bool, dx: i8, dy: i8, dz: i8, facing: f32, tilt: f32) void {
+        const aim = self.target();
+        if (moved) {
+            aim.shiftBy(dx, dy, dz, facing, tilt);
+        } else {
+            aim.yaw = facing;
+            aim.pitch = tilt;
+        }
+        aim.increments = self.increments();
+        if (!self.eases()) self.snapToTarget();
+    }
+
+    fn warp(self: Body, x: i32, y: i32, z: i32, facing: f32, tilt: f32) void {
+        self.target().teleportTo(x, y, z, facing, tilt, self.eases());
+        self.target().increments = self.increments();
+        if (!self.eases()) self.snapToTarget();
+    }
+
+    fn snapToTarget(self: Body) void {
+        const aim = self.target();
+        aim.increments = 0;
         switch (self) {
             inline else => |it| {
+                it.base.position = aim.position;
+                if (@hasField(@TypeOf(it.*), "yaw")) {
+                    it.yaw = @floatCast(aim.yaw);
+                    it.pitch = @floatCast(aim.pitch);
+                }
+            },
+        }
+    }
+
+    fn place(self: Body, x: i32, y: i32, z: i32, facing: f32, tilt: f32) void {
+        switch (self) {
+            inline else => |it| {
+                const Held = @TypeOf(it.*);
+                it.base.remote = .at(x, y, z);
+                it.base.position = it.base.remote.?.position;
                 it.base.prev_position = it.base.position;
-                it.prev_yaw = it.yaw;
-                it.prev_pitch = it.pitch;
-                it.prev_render_yaw = it.render_yaw;
-            },
-        }
-    }
-
-    fn placeAt(self: Body, x: f64, y: f64, z: f64) void {
-        switch (self) {
-            inline else => |it| it.base.position = .{ .x = x, .y = y, .z = z },
-        }
-    }
-
-    fn shift(self: Body, dx: i8, dy: i8, dz: i8) void {
-        switch (self) {
-            inline else => |it| {
-                it.base.position.x += decodePosition(dx);
-                it.base.position.y += decodePosition(dy);
-                it.base.position.z += decodePosition(dz);
-            },
-        }
-    }
-
-    fn turn(self: Body, yaw: i8, pitch: i8) void {
-        switch (self) {
-            inline else => |it| {
-                it.yaw = decodeRotation(yaw);
-                it.pitch = decodeRotation(pitch);
-                it.render_yaw = it.yaw;
+                if (@hasField(Held, "yaw")) {
+                    it.yaw = facing;
+                    it.prev_yaw = facing;
+                    it.pitch = tilt;
+                    it.prev_pitch = tilt;
+                }
+                if (@hasField(Held, "render_yaw")) {
+                    it.render_yaw = facing;
+                    it.prev_render_yaw = facing;
+                }
             },
         }
     }
 };
 
 fn bodyById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?Body {
-    if (self.peerById(id)) |peer| return .{ .player = &peer.player };
-    const entry = level.entities.mobById(id) orelse return null;
-    return .{ .animal = entry.animal };
+    if (self.peerById(id)) |peer| {
+        if (peer.player.base.remote == null) return null;
+        return .{ .player = &peer.player };
+    }
+    if (level.entities.mobById(id)) |entry| {
+        if (entry.animal.base.remote == null) return null;
+        return .{ .animal = entry.animal };
+    }
+    inline for (.{
+        .{ "items", "item" },
+        .{ "arrows", "arrow" },
+        .{ "fireballs", "fireball" },
+        .{ "falling_blocks", "falling_block" },
+        .{ "boats", "boat" },
+        .{ "minecarts", "minecart" },
+        .{ "hooks", "hook" },
+    }) |pair| {
+        for (@field(level.entities, pair[0]).items) |*entity| {
+            if (entity.base.id != id or entity.base.remote == null) continue;
+            return @unionInit(Body, pair[1], entity);
+        }
+    }
+    return null;
 }
 
 fn adoptWatched(level: *game.Level, id: game.Entity.Id, metadata: net.packet.Metadata) void {
@@ -269,18 +470,13 @@ fn spawnPeer(self: *Connection, gpa: std.mem.Allocator, body: anytype) !void {
 
     var peer: Peer = .{
         .id = id,
-        .player = game.Player.spawn(.{
-            .x = decodePosition(body.x),
-            .y = decodePosition(body.y),
-            .z = decodePosition(body.z),
-        }),
+        .player = game.Player.spawn(math.Vec3.init(0, 0, 0)),
     };
     peer.name.set(body.name);
     peer.player.base.id = id;
 
     const placed: Body = .{ .player = &peer.player };
-    placed.turn(body.rotation, body.pitch);
-    placed.begin();
+    placed.place(body.x, body.y, body.z, decodeRotation(body.rotation), decodeRotation(body.pitch));
 
     try self.peers.append(gpa, peer);
 }
@@ -291,20 +487,230 @@ fn spawnMob(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
     _ = level.entities.removeMob(gpa, id);
 
     const kind = game.mob.get(type_id);
-    const animal = try kind.spawn(gpa, .{
-        .x = decodePosition(body.x),
-        .y = decodePosition(body.y),
-        .z = decodePosition(body.z),
-    }, &level.world_map.rand);
+    const animal = try kind.spawn(gpa, math.Vec3.init(0, 0, 0), &level.world_map.rand);
     errdefer kind.destroy(animal, gpa);
 
     game.mob.adopt(type_id, animal, body.metadata);
 
     const placed: Body = .{ .animal = animal };
-    placed.turn(body.yaw, body.pitch);
-    placed.begin();
+    placed.place(body.x, body.y, body.z, decodeRotation(body.yaw), decodeRotation(body.pitch));
 
     try level.entities.adoptMobAs(gpa, type_id, animal, id);
+}
+
+pub const status_hurt: i8 = 2;
+pub const status_death: i8 = 3;
+pub const status_wolf_smoke: i8 = 6;
+pub const status_wolf_hearts: i8 = 7;
+pub const status_wolf_shake: i8 = 8;
+pub const hurt_flash_ticks: i32 = 10;
+
+fn outfitPeer(self: *Connection, body: anytype) void {
+    const peer = self.peerById(@bitCast(body.entity_id)) orelse return;
+    const worn: ?world.Stack = if (body.item_id < 0) null else .{
+        .id = world.Id.fromNumeric(body.item_id),
+        .count = 1,
+        .meta = @bitCast(body.damage),
+    };
+
+    if (body.slot == 0) {
+        peer.player.inventory.slots[peer.player.inventory.selected] = worn;
+        return;
+    }
+    const armour = body.slot - 1;
+    if (armour < 0 or armour >= game.Inventory.armor_size) return;
+    peer.player.inventory.armor[@intCast(armour)] = worn;
+}
+
+fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, status: i8) void {
+    if (self.peerById(id)) |peer| {
+        switch (status) {
+            status_hurt => {
+                peer.player.hurt_time = hurt_flash_ticks;
+                peer.player.limb_swing_amount = 1.5;
+            },
+            status_death => {
+                peer.player.health = 0;
+                peer.player.death_time = 1;
+            },
+            else => {},
+        }
+        return;
+    }
+
+    const entry = level.entities.mobById(id) orelse return;
+    switch (status) {
+        status_hurt => {
+            entry.animal.hurt_time = hurt_flash_ticks;
+            entry.animal.limb_swing_amount = 1.5;
+        },
+        status_death => {
+            entry.animal.health = 0;
+            entry.animal.death_time = 1;
+        },
+        status_wolf_shake => {
+            if (entry.type_id == game.mob.wolf) {
+                const dog: *game.Wolf = @fieldParentPtr("animal", entry.animal);
+                dog.shaking = true;
+                dog.shake_running = false;
+                dog.shake_time = 0;
+                dog.prev_shake_time = 0;
+            }
+        },
+        else => {},
+    }
+}
+
+fn attachEntity(self: *Connection, level: *game.Level, id: game.Entity.Id, vehicle: game.Entity.Id) void {
+    if (id == self.entity_id) {
+        if (level.occupants.items.len > 0) level.occupants.items[0].player.riding = vehicle;
+        return;
+    }
+    const peer = self.peerById(id) orelse return;
+    peer.player.riding = vehicle;
+}
+
+fn collectItem(
+    self: *Connection,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    collected: game.Entity.Id,
+    collector: game.Entity.Id,
+) !void {
+    _ = collector;
+    for (level.entities.items.items, 0..) |dropped, index| {
+        if (dropped.base.id != collected) continue;
+        try level.entities.pickups.append(gpa, game.PickupFx.spawn(dropped));
+        _ = level.entities.items.orderedRemove(index);
+        level.world_map.playSoundEffect(
+            dropped.base.position.x,
+            dropped.base.position.y,
+            dropped.base.position.z,
+            "random.pop",
+            0.2,
+            pickup_pitch,
+        );
+        return;
+    }
+    _ = self;
+}
+
+const pickup_pitch: f32 = 2.0;
+
+pub const vehicle_boat: u8 = 1;
+pub const vehicle_minecart: u8 = 10;
+pub const vehicle_arrow: u8 = 60;
+pub const vehicle_fireball: u8 = 63;
+pub const vehicle_falling_sand: u8 = 70;
+pub const vehicle_falling_gravel: u8 = 71;
+pub const vehicle_fish_hook: u8 = 90;
+pub const fireball_speed_scale: f64 = 8000.0;
+pub const item_motion_scale: f64 = 128.0;
+pub const velocity_scale: f64 = 8000.0;
+
+fn decodeMotion(value: i8) f64 {
+    return @as(f64, @floatFromInt(value)) / item_motion_scale;
+}
+
+fn decodeVelocity(value: i16) f64 {
+    return @as(f64, @floatFromInt(value)) / velocity_scale;
+}
+
+fn spawnItem(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
+    const id: game.Entity.Id = @bitCast(body.entity_id);
+    _ = level.entities.removeById(gpa, id);
+
+    var dropped: game.ItemEntity = .{
+        .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.ItemEntity.width, game.ItemEntity.height),
+        .stack = .{
+            .id = world.Id.fromNumeric(body.item_id),
+            .count = @intCast(@max(body.count, 0)),
+            .meta = @bitCast(body.damage),
+        },
+    };
+    dropped.base.id = id;
+
+    const placed: Body = .{ .item = &dropped };
+    placed.place(body.x, body.y, body.z, 0, 0);
+    dropped.base.motion = .{
+        .x = decodeMotion(body.rotation),
+        .y = decodeMotion(body.pitch),
+        .z = decodeMotion(body.roll),
+    };
+
+    try level.entities.items.append(gpa, dropped);
+}
+
+fn spawnPainting(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
+    const id: game.Entity.Id = @bitCast(body.entity_id);
+    _ = level.entities.removeById(gpa, id);
+
+    const art = game.Painting.Art.byTitle(body.title) orelse return;
+    const facing: u2 = @truncate(@as(u32, @bitCast(body.direction)));
+
+    var hung = game.Painting.place(.{ body.x, body.y, body.z }, facing, art);
+    hung.id = id;
+    try level.entities.paintings.append(gpa, hung);
+}
+
+fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
+    const id: game.Entity.Id = @bitCast(body.entity_id);
+    _ = level.entities.removeById(gpa, id);
+
+    switch (body.kind) {
+        vehicle_boat => {
+            var boat = game.Boat.spawn(0, 0, 0);
+            boat.base.id = id;
+            (Body{ .boat = &boat }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.boats.append(gpa, boat);
+        },
+        vehicle_minecart, vehicle_minecart + 1, vehicle_minecart + 2 => {
+            var cart = game.Minecart.spawn(0, 0, 0, @enumFromInt(body.kind - vehicle_minecart));
+            cart.base.id = id;
+            (Body{ .minecart = &cart }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.minecarts.append(gpa, cart);
+        },
+        vehicle_arrow => {
+            var shot: game.Arrow = .{
+                .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Arrow.size, game.Arrow.size),
+                .owner = @bitCast(body.thrower_id),
+            };
+            shot.base.id = id;
+            (Body{ .arrow = &shot }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.arrows.append(gpa, shot);
+        },
+        vehicle_fireball => {
+            var shot: game.Fireball = .{
+                .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Fireball.size, game.Fireball.size),
+                .shooter = @bitCast(body.thrower_id),
+                .acceleration = math.Vec3.init(
+                    @as(f64, @floatFromInt(body.speed_x)) / fireball_speed_scale,
+                    @as(f64, @floatFromInt(body.speed_y)) / fireball_speed_scale,
+                    @as(f64, @floatFromInt(body.speed_z)) / fireball_speed_scale,
+                ),
+            };
+            shot.base.id = id;
+            (Body{ .fireball = &shot }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.fireballs.append(gpa, shot);
+        },
+        vehicle_falling_sand, vehicle_falling_gravel => {
+            const block: world.Block = if (body.kind == vehicle_falling_sand) .sand else .gravel;
+            var falling = game.FallingBlock.spawn(math.Vec3.init(0, 0, 0), block);
+            falling.base.id = id;
+            (Body{ .falling_block = &falling }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.falling_blocks.append(gpa, falling);
+        },
+        vehicle_fish_hook => {
+            var hook: game.FishHook = .{
+                .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.FishHook.size, game.FishHook.size),
+                .angler = @bitCast(body.thrower_id),
+            };
+            hook.base.id = id;
+            (Body{ .hook = &hook }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.hooks.append(gpa, hook);
+        },
+        else => {},
+    }
 }
 
 fn removePeer(self: *Connection, id: game.Entity.Id) void {
@@ -373,19 +779,20 @@ fn mapChunk(
     self.loaded_chunks += 1;
 }
 
-fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block: u8, metadata: u8) void {
+fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block: u8, metadata: u8) !void {
     level.world_map.setBlock(x, @intCast(y), z, @enumFromInt(block));
     level.world_map.setBlockMetadata(x, @intCast(y), z, @truncate(metadata));
+    try level.world_map.markChanged(x, @intCast(y), z);
 }
 
-fn multiBlockChange(self: *Connection, level: *game.Level, body: anytype) void {
+fn multiBlockChange(self: *Connection, level: *game.Level, body: anytype) !void {
     const width = world.constants.chunk_width;
     for (body.coordinates, body.types, body.metadata) |packed_xz, block, meta| {
         const raw: u16 = @bitCast(packed_xz);
         const local_x: i32 = @intCast((raw >> 12) & 0x0f);
         const local_z: i32 = @intCast((raw >> 8) & 0x0f);
         const y: i32 = @intCast(raw & 0xff);
-        self.blockChange(
+        try self.blockChange(
             level,
             body.chunk_x * width + local_x,
             @intCast(y),
@@ -413,9 +820,331 @@ pub fn takeChat(self: *Connection, gpa: std.mem.Allocator) ![]ChatLine {
     return self.chat.toOwnedSlice(gpa);
 }
 
+pub fn takeAwards(self: *Connection, gpa: std.mem.Allocator) ![]Awarded {
+    return self.awarded.toOwnedSlice(gpa);
+}
+
+pub fn takeDimensionChange(self: *Connection) ?world.Dimension {
+    const target = self.pending_dimension orelse return null;
+    self.pending_dimension = null;
+    return target;
+}
+
 pub fn say(self: *Connection, gpa: std.mem.Allocator, message: []const u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .chat = .{ .message = message } });
+}
+
+pub fn reportSwing(self: *Connection, gpa: std.mem.Allocator) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .animation = .{
+        .entity_id = @bitCast(self.entity_id),
+        .animate = net.packet.swing_animation,
+    } });
+}
+
+pub const use_interact: i8 = 0;
+pub const use_attack: i8 = 1;
+pub const action_start_sneaking: i8 = 1;
+pub const action_stop_sneaking: i8 = 2;
+pub const player_window: i8 = 0;
+pub const carried_window: i8 = -1;
+pub const carried_slot: i16 = -1;
+pub const outside_slot: i16 = -999;
+pub const crafting_grid: usize = 4;
+pub const workbench_grid: usize = 9;
+pub const player_window_slots: usize = 45;
+pub const craft_result_slot: usize = 0;
+pub const craft_input_start: usize = 1;
+pub const armor_start: usize = 5;
+pub const main_start: usize = 9;
+pub const hotbar_start: usize = 36;
+
+pub const window_chest: i8 = 0;
+pub const window_workbench: i8 = 1;
+pub const window_furnace: i8 = 2;
+pub const window_dispenser: i8 = 3;
+
+pub const Opened = struct {
+    id: i8,
+    kind: i8,
+    store: usize,
+    at: [3]i32,
+    cart: game.Entity.Id = game.Entity.no_id,
+};
+
+pub fn openWindowId(self: *const Connection) i8 {
+    const open = self.opened orelse return player_window;
+    return open.id;
+}
+
+pub fn reportWindowClick(
+    self: *Connection,
+    gpa: std.mem.Allocator,
+    slot: i16,
+    right_click: bool,
+    shift: bool,
+    carried: ?world.Stack,
+) !void {
+    if (self.state != .playing) return;
+    self.window_action +%= 1;
+    try self.send(gpa, .{ .window_click = .{
+        .window_id = self.openWindowId(),
+        .slot = slot,
+        .right_click = if (right_click) 1 else 0,
+        .action = self.window_action,
+        .shift = shift,
+        .held = wireStack(carried),
+    } });
+}
+
+pub fn reportSign(
+    self: *Connection,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    post: *const world.sign.Sign,
+) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .update_sign = .{
+        .x = x,
+        .y = @intCast(y),
+        .z = z,
+        .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
+    } });
+}
+
+pub fn reportCloseWindow(self: *Connection, gpa: std.mem.Allocator) !void {
+    if (self.state != .playing) return;
+    const id = self.openWindowId();
+    self.closeOpenWindow();
+    try self.send(gpa, .{ .close_window = .{ .window_id = id } });
+}
+
+fn wireStack(stack: ?world.Stack) ?net.packet.Stack {
+    const held = stack orelse return null;
+    return .{
+        .id = held.id.numeric(),
+        .count = @intCast(held.count),
+        .damage = @bitCast(held.meta),
+    };
+}
+
+fn fromWire(stack: ?net.packet.Stack) ?world.Stack {
+    const held = stack orelse return null;
+    if (held.count <= 0) return null;
+    return .{
+        .id = world.Id.fromNumeric(held.id),
+        .count = @intCast(held.count),
+        .meta = @bitCast(held.damage),
+    };
+}
+
+fn playerSlot(level: *game.Level, slot: usize, store: usize) ?*?world.Stack {
+    if (level.occupants.items.len == 0) return null;
+    const player = level.occupants.items[0].player;
+
+    const offset = slot - store;
+    const main_rows = game.Inventory.size - game.Inventory.hotbar_size;
+    if (offset < main_rows) return &player.inventory.slots[game.Inventory.hotbar_size + offset];
+    if (offset < game.Inventory.size) return &player.inventory.slots[offset - main_rows];
+    return null;
+}
+
+fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?*?world.Stack {
+    switch (open.kind) {
+        window_workbench => {
+            if (slot == craft_result_slot) return null;
+            return &self.workbench[slot - craft_input_start];
+        },
+        window_furnace => {
+            const fire = level.world_map.furnaceAt(open.at[0], open.at[1], open.at[2]) orelse return null;
+            return switch (slot) {
+                0 => &fire.input,
+                1 => &fire.fuel,
+                2 => &fire.output,
+                else => null,
+            };
+        },
+        window_dispenser => {
+            const trap = level.world_map.dispenserAt(open.at[0], open.at[1], open.at[2]) orelse return null;
+            return trap.slot(slot);
+        },
+        window_chest => {
+            if (open.cart != game.Entity.no_id) {
+                const cart = level.entities.minecartById(open.cart) orelse return null;
+                return cart.slot(slot);
+            }
+            const pair = level.world_map.chestPairAt(open.at[0], open.at[1], open.at[2]);
+            const half = if (slot < world.chest.slot_count) pair.upper else (pair.lower orelse return null);
+            const box = level.world_map.chestAt(half.x, half.y, half.z) orelse return null;
+            return box.slot(slot % world.chest.slot_count);
+        },
+        else => return null,
+    }
+}
+
+fn windowSlot(self: *Connection, level: *game.Level, slot: usize) ?*?world.Stack {
+    if (self.opened) |open| {
+        if (slot < open.store) return self.storeSlot(level, open, slot);
+        return playerSlot(level, slot, open.store);
+    }
+
+    if (slot == craft_result_slot) return null;
+    if (slot < armor_start) return &self.crafting[slot - craft_input_start];
+
+    if (level.occupants.items.len == 0) return null;
+    const player = level.occupants.items[0].player;
+
+    if (slot < main_start) return &player.inventory.armor[slot - armor_start];
+    if (slot < hotbar_start) return &player.inventory.slots[slot];
+    if (slot < player_window_slots) return &player.inventory.slots[slot - hotbar_start];
+    return null;
+}
+
+fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
+    const store: usize = @intCast(@max(body.slots, 0));
+    var open: Opened = .{
+        .id = body.window_id,
+        .kind = body.kind,
+        .store = store,
+        .at = self.aiming_at,
+        .cart = self.aiming_cart,
+    };
+    if (body.kind == window_workbench) {
+        open.store = workbench_grid + 1;
+        self.workbench = @splat(null);
+    }
+
+    switch (body.kind) {
+        window_furnace => _ = try level.world_map.addFurnace(open.at[0], open.at[1], open.at[2]),
+        window_dispenser => _ = try level.world_map.addDispenser(open.at[0], open.at[1], open.at[2]),
+        window_chest => {
+            if (open.cart == game.Entity.no_id) {
+                const pair = level.world_map.chestPairAt(open.at[0], open.at[1], open.at[2]);
+                _ = try level.world_map.addChest(pair.upper.x, pair.upper.y, pair.upper.z);
+                if (pair.lower) |at| _ = try level.world_map.addChest(at.x, at.y, at.z);
+            }
+        },
+        else => {},
+    }
+
+    self.opened = open;
+    self.window_action = 0;
+}
+
+pub fn aimAtBlock(self: *Connection, x: i32, y: i32, z: i32) void {
+    self.aiming_at = .{ x, y, z };
+    self.aiming_cart = game.Entity.no_id;
+}
+
+pub fn aimAtMinecart(self: *Connection, id: game.Entity.Id) void {
+    self.aiming_cart = id;
+}
+
+pub fn closeOpenWindow(self: *Connection) void {
+    self.opened = null;
+    self.window_action = 0;
+}
+
+fn setSlot(self: *Connection, level: *game.Level, window_id: i8, slot: i16, stack: ?net.packet.Stack) void {
+    if (window_id == carried_window and slot == carried_slot) {
+        self.carried = fromWire(stack);
+        return;
+    }
+    if (window_id != self.openWindowId() or slot < 0) return;
+    const target = self.windowSlot(level, @intCast(slot)) orelse return;
+    target.* = fromWire(stack);
+}
+
+fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
+    _ = self;
+    const at = math.Vec3.init(body.x, body.y, body.z);
+    const rand = &level.world_map.rand;
+    level.world_map.playSoundEffect(at.x, at.y, at.z, "random.explode", 4.0, blast_pitch(rand));
+
+    const origin: [3]i32 = .{
+        @intFromFloat(body.x),
+        @intFromFloat(body.y),
+        @intFromFloat(body.z),
+    };
+
+    for (body.broken) |offset| {
+        const cell = math.Vec3.init(
+            @as(f64, @floatFromInt(origin[0] + offset[0])) + rand.nextDouble(),
+            @as(f64, @floatFromInt(origin[1] + offset[1])) + rand.nextDouble(),
+            @as(f64, @floatFromInt(origin[2] + offset[2])) + rand.nextDouble(),
+        );
+        const away = cell.sub(at);
+        const reach = @sqrt(away.x * away.x + away.y * away.y + away.z * away.z);
+        if (reach <= 0.0) continue;
+
+        var speed = blast_drift / (reach / @as(f64, body.radius) + blast_falloff);
+        speed *= @as(f64, rand.nextFloat() * rand.nextFloat() + 0.3);
+        const drift = math.Vec3.init(
+            away.x / reach * speed,
+            away.y / reach * speed,
+            away.z / reach * speed,
+        );
+        try level.entities.particles.append(gpa, game.Particle.spawnExplode(cell, drift, rand));
+        try level.entities.particles.append(gpa, game.Particle.spawnSmoke(cell, drift, rand));
+    }
+}
+
+const blast_drift: f64 = 0.5;
+const blast_falloff: f64 = 0.1;
+
+fn blast_pitch(rand: *world.JavaRandom) f32 {
+    return 1.0 / (rand.nextFloat() * 0.4 + 0.7);
+}
+
+fn setProgress(self: *Connection, level: *game.Level, body: anytype) void {
+    const open = self.opened orelse return;
+    if (body.window_id != open.id or open.kind != window_furnace) return;
+
+    const fire = level.world_map.furnaceAt(open.at[0], open.at[1], open.at[2]) orelse return;
+    switch (body.bar) {
+        0 => fire.cook_time = body.value,
+        1 => fire.burn_time = body.value,
+        2 => fire.item_burn_time = body.value,
+        else => {},
+    }
+}
+
+fn setWindowContents(self: *Connection, level: *game.Level, body: anytype) void {
+    for (body.stacks, 0..) |stack, slot| {
+        self.setSlot(level, body.window_id, @intCast(slot), stack);
+    }
+}
+
+pub fn reportUse(self: *Connection, gpa: std.mem.Allocator, target: game.Entity.Id, attack: bool) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .use_entity = .{
+        .player_id = @bitCast(self.entity_id),
+        .target_id = @bitCast(target),
+        .left_click = if (attack) use_attack else use_interact,
+    } });
+}
+
+pub fn reportSneak(self: *Connection, gpa: std.mem.Allocator, sneaking: bool) !void {
+    if (self.state != .playing or sneaking == self.sneaking) return;
+    self.sneaking = sneaking;
+    try self.send(gpa, .{ .entity_action = .{
+        .entity_id = @bitCast(self.entity_id),
+        .state = if (sneaking) action_start_sneaking else action_stop_sneaking,
+    } });
+}
+
+pub fn reportHeldSlot(self: *Connection, gpa: std.mem.Allocator, slot: u4) !void {
+    if (self.state != .playing or slot == self.held_slot) return;
+    self.held_slot = slot;
+    try self.send(gpa, .{ .block_item_switch = .{ .slot = slot } });
+}
+
+pub fn reportRespawn(self: *Connection, gpa: std.mem.Allocator) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .respawn = .{ .dimension = 0 } });
 }
 
 pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
@@ -429,6 +1158,21 @@ pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i
     } });
 }
 
+pub const bed_not_valid: i8 = 0;
+pub const bed_not_valid_line = "Your home bed was missing or obstructed";
+pub const in_air_face: u8 = 255;
+
+pub fn reportUseInAir(self: *Connection, gpa: std.mem.Allocator, held: ?net.packet.Stack) !void {
+    if (self.state != .playing) return;
+    try self.send(gpa, .{ .place = .{
+        .x = -1,
+        .y = in_air_face,
+        .z = -1,
+        .face = in_air_face,
+        .held = held,
+    } });
+}
+
 pub fn reportPlace(
     self: *Connection,
     gpa: std.mem.Allocator,
@@ -439,6 +1183,7 @@ pub fn reportPlace(
     held: ?net.packet.Stack,
 ) !void {
     if (self.state != .playing) return;
+    self.aimAtBlock(x, y, z);
     try self.send(gpa, .{ .place = .{
         .x = x,
         .y = @intCast(y),

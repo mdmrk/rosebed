@@ -39,6 +39,7 @@ pub fn detonate(
     throwEntities(entities, world_map, roster, at, size, rand);
     if (flaming) try lightFires(world_map, destroyed.items, rand);
     try scatterRubble(gpa, entities, world_map, at, size, destroyed.items, rand);
+    try entities.recordBlast(gpa, at, size, destroyed.items);
 }
 
 fn carveBlocks(
