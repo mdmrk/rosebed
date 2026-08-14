@@ -14,6 +14,7 @@ base: Entity,
 max_health: i32,
 movement: Movement = .walking,
 immune_to_fire: bool = false,
+breathes_underwater: bool = false,
 takes_fall_damage: bool = true,
 move_speed: f32 = default_move_speed,
 eye_fraction: f64 = eye_height_fraction,
@@ -61,8 +62,9 @@ action_state: *const fn (
     Players,
     *world.JavaRandom,
 ) anyerror!void = updateActionState,
+after_move: *const fn (*Animal, *const world.World, *world.JavaRandom) void = settleNothing,
 
-pub const Movement = enum { walking, flying };
+pub const Movement = enum { walking, flying, drifting };
 
 pub const Spec = struct {
     width: f64,
@@ -71,6 +73,7 @@ pub const Spec = struct {
     step_height: f64 = default_step_height,
     movement: Movement = .walking,
     immune_to_fire: bool = false,
+    breathes_underwater: bool = false,
     takes_fall_damage: bool = true,
     move_speed: f32 = default_move_speed,
     eye_fraction: f64 = eye_height_fraction,
@@ -184,6 +187,8 @@ pub const Players = struct {
 
 fn leaveNothing(_: *Animal, _: *world.JavaRandom) void {}
 
+fn settleNothing(_: *Animal, _: *const world.World, _: *world.JavaRandom) void {}
+
 pub fn spawn(position: math.Vec3, spec: Spec) Animal {
     var base = Entity.init(position, spec.width, spec.height);
     base.step_height = spec.step_height;
@@ -193,6 +198,7 @@ pub fn spawn(position: math.Vec3, spec: Spec) Animal {
         .health = spec.max_health,
         .movement = spec.movement,
         .immune_to_fire = spec.immune_to_fire,
+        .breathes_underwater = spec.breathes_underwater,
         .takes_fall_damage = spec.takes_fall_damage,
         .move_speed = spec.move_speed,
         .eye_fraction = spec.eye_fraction,
@@ -415,7 +421,14 @@ fn flyWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, for
     self.base.motion.z *= drag;
 }
 
+fn driftWithHeading(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+    const moved = self.base.move(world_map);
+    self.updateFallState(moved.dy, rand);
+}
+
 fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, forward: f32, rand: *world.JavaRandom) void {
+    if (self.movement == .drifting) return self.driftWithHeading(world_map, rand);
+
     const was_on_ground = self.base.on_ground;
     const before_y = self.base.position.y;
 
@@ -662,7 +675,7 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
 
 fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
     const eye = self.eyePosition();
-    if (self.isAlive() and physics.isInsideWater(world_map, eye.x, eye.y, eye.z)) {
+    if (self.isAlive() and physics.isInsideWater(world_map, eye.x, eye.y, eye.z) and !self.breathes_underwater) {
         self.air -= 1;
         if (self.air == -20) {
             self.air = 0;
@@ -750,6 +763,7 @@ pub fn tick(
     self.move_forward *= 0.98;
     self.random_yaw_velocity *= 0.9;
     self.moveWithHeading(world_map, self.move_strafing, self.move_forward, rand);
+    self.after_move(self, world_map, rand);
 
     self.updateRenderYaw();
 }

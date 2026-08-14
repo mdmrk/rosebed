@@ -16,12 +16,14 @@ const Sheep = @import("sheep.zig");
 const Skeleton = @import("skeleton.zig");
 const Slime = @import("slime.zig");
 const Spider = @import("spider.zig");
+const Squid = @import("squid.zig");
 const Wolf = @import("wolf.zig");
 const Zombie = @import("zombie.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;
 pub const max_monsters: i32 = 70;
+pub const max_water_creatures: i32 = 5;
 pub const chunks_per_cap: i32 = 256;
 pub const max_per_chunk: u32 = 4;
 pub const player_clearance: f64 = 24.0;
@@ -34,11 +36,20 @@ const pack_spread: i32 = 6;
 pub const Category = enum {
     monster,
     creature,
+    water_creature,
 
     pub fn allowancePerChunk(self: Category) i32 {
         return switch (self) {
             .monster => max_monsters,
             .creature => max_creatures,
+            .water_creature => max_water_creatures,
+        };
+    }
+
+    pub fn material(self: Category) world.Material {
+        return switch (self) {
+            .monster, .creature => .air,
+            .water_creature => .water,
         };
     }
 };
@@ -75,9 +86,18 @@ pub const Monster = enum {
     }
 };
 
+pub const Swimmer = enum {
+    squid,
+
+    pub fn maxPerChunk(_: Swimmer) u32 {
+        return max_per_chunk;
+    }
+};
+
 const Creature = struct { weight: i32, kind: Kind };
 const Horror = struct { weight: i32, monster: Monster };
-const Chosen = union(Category) { monster: Monster, creature: Kind };
+const Shoal = struct { weight: i32, swimmer: Swimmer };
+const Chosen = union(Category) { monster: Monster, creature: Kind, water_creature: Swimmer };
 
 const base_creatures = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
@@ -96,6 +116,10 @@ const overworld_monsters = [_]Horror{
     .{ .weight = 10, .monster = .skeleton },
     .{ .weight = 10, .monster = .spider },
     .{ .weight = 10, .monster = .slime },
+};
+
+const water_creatures = [_]Shoal{
+    .{ .weight = 10, .swimmer = .squid },
 };
 
 const nether_monsters = [_]Horror{
@@ -144,10 +168,15 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
             entities.countOf(mob.spider) + entities.countOf(mob.zombie) +
             entities.countOf(mob.pig_zombie)),
         .creature => @intCast(entities.animalCount()),
+        .water_creature => @intCast(entities.countOf(mob.squid)),
     };
 }
 
-fn canSpawnAtLocation(world_map: *const world.World, x: i32, y: i32, z: i32) bool {
+fn canSpawnAtLocation(category: Category, world_map: *const world.World, x: i32, y: i32, z: i32) bool {
+    if (category.material() == .water) {
+        return world_map.getBlock(x, y, z).material().isLiquid() and
+            !world_map.getBlock(x, y + 1, z).isOpaqueCube();
+    }
     return world_map.getBlock(x, y - 1, z).isOpaqueCube() and
         !world_map.getBlock(x, y, z).isOpaqueCube() and
         !world_map.getBlock(x, y, z).material().isLiquid() and
@@ -247,6 +276,7 @@ fn spawnInChunk(
             rand,
         ).kind },
         .monster => .{ .monster = pickWeighted(Horror, monsterList(dimension), rand).monster },
+        .water_creature => .{ .water_creature = pickWeighted(Shoal, &water_creatures, rand).swimmer },
     };
 
     const origin_x = chunk_x * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
@@ -254,7 +284,7 @@ fn spawnInChunk(
     const origin_z = chunk_z * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
 
     if (world_map.getBlock(origin_x, origin_y, origin_z).isOpaqueCube()) return 0;
-    if (world_map.getBlock(origin_x, origin_y, origin_z).material() != .air) return 0;
+    if (world_map.getBlock(origin_x, origin_y, origin_z).material() != category.material()) return 0;
 
     var spawned: u32 = 0;
     for (0..pack_attempts) |_| {
@@ -266,7 +296,7 @@ fn spawnInChunk(
             x += rand.nextIntBound(pack_spread) - rand.nextIntBound(pack_spread);
             y += rand.nextIntBound(1) - rand.nextIntBound(1);
             z += rand.nextIntBound(pack_spread) - rand.nextIntBound(pack_spread);
-            if (!canSpawnAtLocation(world_map, x, y, z)) continue;
+            if (!canSpawnAtLocation(category, world_map, x, y, z)) continue;
 
             const at_x: f64 = @as(f64, @floatFromInt(x)) + 0.5;
             const at_y: f64 = @floatFromInt(y);
@@ -369,6 +399,19 @@ fn spawnInChunk(
                     spawned += 1;
                     if (spawned >= kind.maxPerChunk()) return spawned;
                 },
+                .water_creature => |swimmer| {
+                    switch (swimmer) {
+                        .squid => {
+                            var squid = Squid.spawn(position, rand);
+                            squid.animal.faceYaw(rand.nextFloat() * 360.0);
+                            if (!squid.canSpawnHere(world_map)) continue;
+                            try entities.adopt(gpa, mob.squid, squid);
+                        },
+                    }
+
+                    spawned += 1;
+                    if (spawned >= swimmer.maxPerChunk()) return spawned;
+                },
             }
         }
     }
@@ -410,6 +453,26 @@ fn stoneCavern(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, caver
                 while (y <= cavern_y + 4) : (y += 1) {
                     const solid = y < cavern_y or y > cavern_y + 1;
                     if (solid) chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
+                }
+            }
+        }
+    }
+    return w;
+}
+
+fn openSea(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, sea_level: u32) !world.World {
+    var w = world.World.init(gpa);
+    errdefer w.deinit();
+
+    var chunk_x = from_chunk_x;
+    while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
+        const chunk = try w.createChunk(chunk_x, 0);
+        for (0..world.constants.chunk_width) |x| {
+            for (0..world.constants.chunk_width) |z| {
+                chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+                var y: u32 = 1;
+                while (y <= sea_level) : (y += 1) {
+                    chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
                 }
             }
         }
@@ -631,6 +694,56 @@ test "spawning stops once the population cap is reached" {
     try std.testing.expectEqual(before, entities.countOf(mob.pig));
 }
 
+test "squid spawn into water, and only into water" {
+    const gpa = std.testing.allocator;
+    var w = try openSea(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+
+    for (0..4000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+        if (entities.countOf(mob.squid) > 0) break;
+    }
+
+    try std.testing.expect(entities.countOf(mob.squid) > 0);
+    var shoal = entities.of(Squid, mob.squid);
+    while (shoal.next()) |squid| {
+        const at = squid.animal.base.position;
+        try std.testing.expectEqual(.stationary_water, w.getBlock(
+            math.util.floorDouble(at.x),
+            math.util.floorDouble(at.y),
+            math.util.floorDouble(at.z),
+        ));
+    }
+}
+
+test "the water creature cap is its own, not the land animals'" {
+    const gpa = std.testing.allocator;
+    var w = try openSea(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    for (0..@intCast(populationCap(.water_creature, chunksAroundOnePlayer()) + 1)) |_| {
+        try entities.spawnSquid(gpa, math.Vec3.init(64, surface, 8), &rand);
+    }
+
+    const before = entities.countOf(mob.squid);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..200) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+    }
+
+    try std.testing.expectEqual(before, entities.countOf(mob.squid));
+}
+
 test "slimes spawn in caverns down in the bottom sixteen layers" {
     const gpa = std.testing.allocator;
     var w = try stoneCavern(gpa, 2, 5, cavern);
@@ -642,9 +755,14 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, cavern, 0);
 
+    // The other monsters are swept between rounds: left in place they reach the
+    // population cap first and the monster pass stops rolling for slimes at all.
     for (0..8000) |_| {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
         if (entities.countOf(mob.slime) > 0) break;
+        while (entities.mobs.items.len > 0) {
+            _ = entities.removeMob(gpa, entities.mobs.items[0].animal.base.id);
+        }
     }
 
     try std.testing.expect(entities.countOf(mob.slime) > 0);

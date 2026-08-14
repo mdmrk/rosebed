@@ -38,7 +38,7 @@ pub const Verb = enum {
     }
 };
 
-pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie };
+pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
 
 pub const Give = struct {
     user: []const u8,
@@ -286,12 +286,12 @@ test "spawn names a mob and defaults to one" {
     try std.testing.expectEqual(Mob.pig, result.spawn.mob);
     try std.testing.expectEqual(@as(u8, 1), result.spawn.count);
 
+    try std.testing.expectEqual(Mob.squid, parse("/spawn squid", local_user).spawn.mob);
     try std.testing.expectEqual(Mob.chicken, parse("/spawn chicken 3", local_user).spawn.mob);
     try std.testing.expectEqual(@as(u8, 3), parse("/spawn chicken 3", local_user).spawn.count);
 }
 
 test "spawn rejects a mob it cannot build" {
-    try std.testing.expectEqualStrings("squid", parse("/spawn squid", local_user).missing_mob);
     try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20, local_user).missing_mob);
     try std.testing.expectEqual(Result.nothing, parse("/spawn", local_user));
 }

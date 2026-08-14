@@ -13,6 +13,7 @@ pub const FallingBlock = @import("falling_block.zig");
 pub const Fireball = @import("fireball.zig");
 pub const FishHook = @import("fish_hook.zig");
 pub const Ghast = @import("ghast.zig");
+pub const Squid = @import("squid.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
 pub const Level = @import("level.zig");
@@ -71,6 +72,7 @@ test {
     _ = explosion;
     _ = Fireball;
     _ = Ghast;
+    _ = Squid;
     _ = mob;
     _ = spawner;
     _ = crafting;

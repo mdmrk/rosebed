@@ -29,6 +29,9 @@ pub const Pose = struct {
     position: [3]f32,
     yaw: f32,
     roll: f32 = 0,
+    pitch: f32 = 0,
+    spin: f32 = 0,
+    lift: f32 = 0,
     scale: [3]f32 = .{ 1, 1, 1 },
 };
 
@@ -439,6 +442,49 @@ pub const slime_shell: Model = .{
     .texture_height = 32,
 };
 
+const squid_tentacles: usize = 8;
+const squid_body_lift: f32 = 24 - 16 - 24;
+const squid_tentacle_lift: f32 = 31 - 16 - 24;
+const squid_tentacle_reach: f32 = 5;
+
+const squid_parts = buildSquidParts();
+
+fn buildSquidParts() [1 + squid_tentacles]Part {
+    @setEvalBranchQuota(10_000);
+    var parts: [1 + squid_tentacles]Part = undefined;
+    parts[0] = .{
+        .box = .{ .origin = .{ -6, -8, -6 }, .size = .{ 12, 16, 12 }, .tex_u = 0, .tex_v = 0 },
+        .pivot = .{ 0, squid_body_lift, 0 },
+    };
+
+    for (1..parts.len) |index| {
+        const around: f64 = @as(f64, @floatFromInt(index - 1)) * std.math.pi * 2.0 / @as(f64, squid_tentacles);
+        parts[index] = .{
+            .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, 18, 2 }, .tex_u = 48, .tex_v = 0 },
+            .pivot = .{
+                @as(f32, @floatCast(@cos(around))) * squid_tentacle_reach,
+                squid_tentacle_lift,
+                @as(f32, @floatCast(@sin(around))) * squid_tentacle_reach,
+            },
+            .rotate_y = @floatCast(-around + std.math.pi * 0.5),
+        };
+    }
+    return parts;
+}
+
+pub const squid: Model = .{
+    .parts = &squid_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub fn squidPosed(tentacle_angle: f32) [squid_parts.len]Part {
+    var parts = squid_parts;
+    for (parts[1..]) |*part| part.rotate_x = tentacle_angle;
+    return parts;
+}
+
 const biped_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },
@@ -749,13 +795,14 @@ pub fn appendPart(
         for (face.corners, 0..) |c, i| {
             var p = rotateZAxis(rotateY(rotateX(c, part.rotate_x), part.rotate_y), part.rotate_z);
             p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
-            const world_scale = .{
+            const world_scale: [3]f32 = .{
                 p[0] * pixel_scale * pose.scale[0],
-                -p[1] * pixel_scale * pose.scale[1],
+                -p[1] * pixel_scale * pose.scale[1] + pose.lift,
                 p[2] * pixel_scale * pose.scale[2],
             };
-            const rolled = rotateZ(world_scale[0], world_scale[1], pose.roll);
-            const xz = rotateYaw(rolled[0], world_scale[2], pose.yaw);
+            const swum = rotateX(rotateY(world_scale, -pose.spin), pose.pitch);
+            const rolled = rotateZ(swum[0], swum[1], pose.roll);
+            const xz = rotateYaw(rolled[0], swum[2], pose.yaw);
             positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
         }
         var uvs = [4][2]f32{

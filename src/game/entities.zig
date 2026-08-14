@@ -1537,6 +1537,10 @@ pub fn spawnGhast(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) 
     _ = try self.spawnMob(gpa, mob.ghast, position, &unused);
 }
 
+pub fn spawnSquid(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) !void {
+    _ = try self.spawnMob(gpa, mob.squid, position, rand);
+}
+
 pub fn spawnSpider(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !void {
     var unused = world.JavaRandom.init(0);
     _ = try self.spawnMob(gpa, mob.spider, position, &unused);

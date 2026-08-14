@@ -9,6 +9,7 @@ pub const sheep_id = "Sheep";
 pub const cow_id = "Cow";
 pub const chicken_id = "Chicken";
 pub const slime_id = "Slime";
+pub const squid_id = "Squid";
 pub const ghast_id = "Ghast";
 pub const creeper_id = "Creeper";
 pub const skeleton_id = "Skeleton";
@@ -61,6 +62,10 @@ pub const Chicken = struct {
 pub const Slime = struct {
     living: Living,
     size: i32 = 0,
+};
+
+pub const Squid = struct {
+    living: Living,
 };
 
 pub const Ghast = struct {
@@ -264,6 +269,18 @@ pub fn storeSlime(gpa: std.mem.Allocator, slime: Slime) !nbt.Tag {
 
     try storeLiving(gpa, &compound, slime_id, slime.living);
     try put(gpa, &compound, "Size", .{ .int = slime.size });
+
+    return .{ .compound = compound };
+}
+
+pub fn storeSquid(gpa: std.mem.Allocator, squid: Squid) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, squid_id, squid.living);
 
     return .{ .compound = compound };
 }
@@ -613,6 +630,10 @@ pub fn isSlime(compound: nbt.Compound) bool {
     return hasId(compound, slime_id);
 }
 
+pub fn isSquid(compound: nbt.Compound) bool {
+    return hasId(compound, squid_id);
+}
+
 pub fn isGhast(compound: nbt.Compound) bool {
     return hasId(compound, ghast_id);
 }
@@ -826,6 +847,12 @@ pub fn loadSheep(compound: nbt.Compound) ?Sheep {
         .sheared = boolField(compound, "Sheared"),
         .color = nibbleField(compound, "Color"),
     };
+}
+
+pub fn loadSquid(compound: nbt.Compound) ?Squid {
+    if (!isSquid(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{ .living = living };
 }
 
 pub fn loadGhast(compound: nbt.Compound) ?Ghast {
@@ -1097,7 +1124,7 @@ test "an entity of a kind we do not know is read as nothing at all" {
 
     const id = tag.compound.getPtr("id").?;
     gpa.free(id.string);
-    id.string = try gpa.dupe(u8, "Squid");
+    id.string = try gpa.dupe(u8, "Rosebug");
 
     try std.testing.expect(!isPig(tag.compound));
     try std.testing.expect(loadPig(tag.compound) == null);

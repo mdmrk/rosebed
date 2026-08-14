@@ -439,6 +439,37 @@ pub fn appendSlimeShell(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *
     });
 }
 
+pub const squid_rise: f32 = 0.5;
+pub const squid_lift: f32 = -1.2;
+
+pub fn appendSquid(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    squid: game.Squid,
+    partial_ticks: f32,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const pos = squid.animal.base.renderPosition(partial_ticks);
+    const parts = mob_model.squidPosed(squid.renderTentacleAngle(partial_ticks));
+
+    const pose: mob_model.Pose = .{
+        .position = .{ @floatCast(pos.x), @as(f32, @floatCast(pos.y)) + squid_rise, @floatCast(pos.z) },
+        .yaw = squid.animal.renderYaw(partial_ticks) * to_radians,
+        .pitch = squid.renderTilt(partial_ticks) * to_radians,
+        .spin = squid.renderSpin(partial_ticks) * to_radians,
+        .lift = squid_lift,
+    };
+
+    for (parts) |part| {
+        try mob_model.appendPart(mesh, gpa, part, mob_model.squid.texture_width, mob_model.squid.texture_height, pose);
+    }
+
+    const brightness = brightnessOf(world_map, squid.animal.base);
+    mesh.scaleColors(first_vertex, brightness);
+    if (squid.animal.hurt_time > 0 or squid.animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
+}
+
 fn spiderPoseOf(spider: game.Spider, partial_ticks: f32) [mob_model.spider.parts.len]mob_model.Part {
     return mob_model.spiderPosed(.{
         .limb_swing = spider.animal.limbSwingPhase(partial_ticks),

@@ -205,7 +205,7 @@ pub fn fluidSurface(world_map: *const world.World, x: i32, y: i32, z: i32) f64 {
 }
 
 pub fn handleWaterMovement(world_map: *const world.World, box: math.AABB) ?math.Vec3 {
-    const query = box.expand(0, -0.4, 0).contract(0.001, 0.001, 0.001);
+    const query = box.contract(0.001, 0.001, 0.001);
     const min_x = math.util.floorDouble(query.min_x);
     const max_x = math.util.floorDouble(query.max_x + 1.0);
     const min_y = math.util.floorDouble(query.min_y);
@@ -480,14 +480,14 @@ test "water has no collision box, so an entity sinks straight through it" {
 test "a box inside still water reports contact but no push" {
     var w = try waterWorld();
     defer w.deinit();
-    const push = handleWaterMovement(&w, math.AABB.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3)).?;
+    const push = handleWaterMovement(&w, math.AABB.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3).expand(0, -0.4, 0)).?;
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), push.length(), 1.0e-9);
 }
 
 test "a box in open air is not in water at all" {
     var w = try waterWorld();
     defer w.deinit();
-    try std.testing.expect(handleWaterMovement(&w, math.AABB.init(7.7, 20.0, 7.7, 8.3, 21.8, 8.3)) == null);
+    try std.testing.expect(handleWaterMovement(&w, math.AABB.init(7.7, 20.0, 7.7, 8.3, 21.8, 8.3).expand(0, -0.4, 0)) == null);
 }
 
 test "a source block counts as submerged right up to the top of its block" {

@@ -1333,6 +1333,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 .spider => try app_state.level.entities.spawnSpider(app_state.gpa, position),
                 .zombie => try app_state.level.entities.spawnZombie(app_state.gpa, position),
                 .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
+                .squid => try app_state.level.entities.spawnSquid(app_state.gpa, position, &app_state.level.world_map.rand),
             };
             reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
         },
@@ -3256,6 +3257,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
         try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
     }
+    var squid_mesh: render.MeshBuilder = .{};
+    defer squid_mesh.deinit(app_state.frame);
+    var shoal = app_state.level.entities.of(game.Squid, game.mob.squid);
+    while (shoal.next()) |squid| {
+        try render.entity_render.appendSquid(&squid_mesh, app_state.frame, &app_state.level.world_map, squid.*, partial);
+    }
     var wolf_mesh: render.MeshBuilder = .{};
     defer wolf_mesh.deinit(app_state.frame);
     var wolf_tame_mesh: render.MeshBuilder = .{};
@@ -3439,6 +3446,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             drawEntityMesh(coat[0]);
             app_state.textures.terrain.bind();
         }
+    }
+
+    if (squid_mesh.vertices.items.len > 0) {
+        app_state.textures.squid.bind();
+        drawEntityMesh(&squid_mesh);
+        app_state.textures.terrain.bind();
     }
 
     if (spider_mesh.vertices.items.len > 0) {

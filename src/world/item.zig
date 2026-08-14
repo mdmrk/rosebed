@@ -8,6 +8,7 @@ const shears_max_damage: u16 = 238;
 const flint_and_steel_max_damage: u16 = 64;
 const fishing_rod_max_damage: u16 = 64;
 
+pub const dye_meta_ink: u16 = 0;
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
 pub const coal_meta_charcoal: u16 = 1;

@@ -70,7 +70,7 @@ pub fn beginTick(self: *Entity) void {
 }
 
 pub fn updateWaterState(self: *Entity, world_map: *const world.World) void {
-    const push = physics.handleWaterMovement(world_map, self.boundingBox()) orelse {
+    const push = physics.handleWaterMovement(world_map, self.boundingBox().expand(0, -0.4, 0)) orelse {
         self.in_water = false;
         return;
     };
