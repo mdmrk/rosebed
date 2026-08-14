@@ -1409,3 +1409,28 @@ test "an animal every player has left behind despawns" {
 
     try std.testing.expect(animal.dead);
 }
+
+test "a landing records how far it fell, and only for the tick it lands on" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var animal = testAnimal(math.Vec3.init(8.5, 20, 8.5));
+    defer animal.deinit(gpa);
+
+    var landed: f32 = 0;
+    for (0..200) |_| {
+        try animal.tick(gpa, &w, .{}, &rand);
+        if (animal.last_fall > 0) {
+            landed = animal.last_fall;
+            break;
+        }
+    }
+
+    try std.testing.expect(landed > 3.0);
+    try std.testing.expect(animal.base.on_ground);
+
+    try animal.tick(gpa, &w, .{}, &rand);
+    try std.testing.expectEqual(@as(f32, 0), animal.last_fall);
+}

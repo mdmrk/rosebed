@@ -138,6 +138,21 @@ pub fn draw(ui: gui.Ui, state: State, now_ms: f64, inventory_key: []const u8) !v
     gl.Enable(gl.DEPTH_TEST);
 }
 
+fn argb(value: i32) [4]u8 {
+    const bits: u32 = @bitCast(value);
+    return .{
+        @truncate(bits >> 16),
+        @truncate(bits >> 8),
+        @truncate(bits),
+        @truncate(bits >> 24),
+    };
+}
+
+test "the two lines are lettered the colours GuiAchievement draws them with" {
+    try std.testing.expectEqual(argb(-256), banner_color);
+    try std.testing.expectEqual(argb(-1), title_color);
+}
+
 test "a taken toast shows for three seconds and then stops" {
     var state: State = .{};
     state.announce(.mine_wood, 1000);

@@ -30,15 +30,16 @@ const settle_squared: f64 = 4.0;
 const title_color: [4]u8 = .{ 64, 64, 64, 255 };
 const tooltip_background: [4]u8 = .{ 0, 0, 0, 192 };
 const description_color: [4]u8 = .{ 160, 160, 160, 255 };
-const requires_color: [4]u8 = .{ 111, 111, 144, 255 };
-const taken_color: [4]u8 = .{ 144, 200, 191, 255 };
+const requires_color: [4]u8 = .{ 112, 80, 80, 255 };
+const taken_color: [4]u8 = .{ 144, 144, 255, 255 };
 const name_open: [4]u8 = .{ 255, 255, 255, 255 };
-const name_open_special: [4]u8 = .{ 255, 255, 255, 128 };
+const name_open_special: [4]u8 = .{ 255, 255, 128, 255 };
 const name_locked: [4]u8 = .{ 128, 128, 128, 255 };
-const name_locked_special: [4]u8 = .{ 128, 0, 0, 255 };
-const link_unlocked: [4]u8 = .{ 111, 111, 176, 255 };
+const name_locked_special: [4]u8 = .{ 128, 128, 64, 255 };
+const link_unlocked: [4]u8 = .{ 112, 112, 112, 255 };
 const link_locked: [4]u8 = .{ 0, 0, 0, 255 };
 const link_open: [3]u8 = .{ 0, 255, 0 };
+const locked_icon_shade: f32 = 0.1;
 
 pub const title = "Achievements";
 pub const done_label = "Done";
@@ -75,7 +76,6 @@ pub const State = struct {
     pan: [2]f64 = startPan(),
     prev: [2]f64 = startPan(),
     target: [2]f64 = startPan(),
-    dragging: bool = false,
     grabbed: bool = false,
     last_mouse: [2]f32 = .{ 0, 0 },
 
@@ -102,14 +102,13 @@ pub const State = struct {
 
     pub fn drag(self: *State, mouse_x: f32, mouse_y: f32, res: gui.Scaled, pressed: bool) void {
         if (!pressed) {
-            self.dragging = false;
             self.grabbed = false;
             return;
         }
 
         const gx = mouse_x / res.factor;
         const gy = mouse_y / res.factor;
-        if (!self.dragging and insideMap(gx, gy, res)) {
+        if (insideMap(gx, gy, res)) {
             if (!self.grabbed) {
                 self.grabbed = true;
             } else {
@@ -353,6 +352,8 @@ pub fn draw(
             ui.res,
         );
 
+        const blocks_at = blocks.vertices.items.len;
+        const items_at = items.vertices.items.len;
         try gui.appendStackIcon(
             &blocks,
             &items,
@@ -365,6 +366,10 @@ pub fn draw(
             plate_y + icon_inset,
             ui.res,
         );
+        if (!source.canUnlock(id)) {
+            blocks.scaleColors(blocks_at, locked_icon_shade);
+            items.scaleColors(items_at, locked_icon_shade);
+        }
     }
     try gui.drawTexturedMesh(&plates, ui.shader, ui.textures.achievement);
     try gui.drawTexturedMesh(&blocks, ui.shader, ui.textures.terrain);
@@ -432,7 +437,7 @@ fn drawTooltip(
         try gui.appendTextNoShadow(&text, ui.gpa, ui.font, wrapped.line(index), x, line_y, body_color, ui.res);
     }
     if (reachable and unlocked) {
-        try gui.appendTextColor(&text, ui.gpa, ui.font, achievements.taken_banner, x, y + wrapped.height() + 4, taken_color, ui.res);
+        try gui.appendTextColor(&text, ui.gpa, ui.font, achievements.taken_banner, x, y + body_height + 4, taken_color, ui.res);
     }
     try gui.appendTextColor(&text, ui.gpa, ui.font, entry.title, x, y, nameColor(reachable, entry.special), ui.res);
 
@@ -556,4 +561,46 @@ test "a plate is brightest when taken, dimmest when its parent is still locked" 
     try std.testing.expectEqual(@as(u8, 255), plateShade(true, true, false));
     try std.testing.expectEqual(@as(u8, 76), plateShade(false, false, true));
     try std.testing.expect(plateShade(false, true, true) > plateShade(false, true, false));
+}
+
+fn argb(value: i32) [4]u8 {
+    const bits: u32 = @bitCast(value);
+    return .{
+        @truncate(bits >> 16),
+        @truncate(bits >> 8),
+        @truncate(bits),
+        @truncate(bits >> 24),
+    };
+}
+
+test "the tooltip and link colours are the ints GuiAchievements draws with" {
+    try std.testing.expectEqual(argb(-6250336), description_color);
+    try std.testing.expectEqual(argb(-9416624), requires_color);
+    try std.testing.expectEqual(argb(-7302913), taken_color);
+    try std.testing.expectEqual(argb(-1), name_open);
+    try std.testing.expectEqual(argb(-128), name_open_special);
+    try std.testing.expectEqual(argb(-8355712), name_locked);
+    try std.testing.expectEqual(argb(-8355776), name_locked_special);
+    try std.testing.expectEqual(argb(-9408400), link_unlocked);
+    try std.testing.expectEqual(argb(-16777216), link_locked);
+    try std.testing.expectEqual(argb(-1073741824), tooltip_background);
+    try std.testing.expectEqual(@as([3]u8, .{ 0, 255, 0 }), link_open);
+}
+
+test "a name is lettered by whether it is reachable and whether it is special" {
+    try std.testing.expectEqual(name_open, nameColor(true, false));
+    try std.testing.expectEqual(name_open_special, nameColor(true, true));
+    try std.testing.expectEqual(name_locked, nameColor(false, false));
+    try std.testing.expectEqual(name_locked_special, nameColor(false, true));
+}
+
+test "a link is grey once taken, green while it blinks, and black while out of reach" {
+    try std.testing.expectEqual(link_unlocked, linkColor(true, true, 0));
+    try std.testing.expectEqual(link_locked, linkColor(false, false, 0));
+
+    const bright = linkColor(false, true, 150);
+    const dim = linkColor(false, true, 450);
+    try std.testing.expectEqual(@as(u8, 255), bright[3]);
+    try std.testing.expectEqual(@as(u8, 130), dim[3]);
+    try std.testing.expectEqual(@as(u8, 255), bright[1]);
 }

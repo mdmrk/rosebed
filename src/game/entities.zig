@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const achievements = @import("achievements.zig");
 const Animal = @import("animal.zig");
 const Arrow = @import("arrow.zig");
 const Boat = @import("boat.zig");
@@ -2193,6 +2194,47 @@ test "walking over a dropped stack picks it up" {
     try std.testing.expectEqual(@as(u8, 3), player.inventory.slots[0].?.count);
 }
 
+test "picking up wood or leather earns the achievement that hangs off it" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    const cases = [_]struct { stack: world.Stack, earns: achievements.Id }{
+        .{ .stack = .{ .id = .{ .block = .log }, .count = 1 }, .earns = .mine_wood },
+        .{ .stack = .{ .id = .{ .item = .leather }, .count = 1 }, .earns = .kill_cow },
+    };
+
+    for (cases) |case| {
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+
+        var player = Player.spawn(math.Vec3.init(8, 1, 8));
+        try entities.dropStack(gpa, 8, 1, 8, case.stack, &w.rand);
+        entities.items.items[0].pickup_delay = 0;
+        entities.items.items[0].base.position = player.base.position;
+
+        try entities.tickItems(gpa, &w, &[_]*Player{&player});
+        try std.testing.expect(player.earned.contains(case.earns));
+    }
+}
+
+test "picking up anything else earns nothing" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .planks }, .count = 1 }, &w.rand);
+    entities.items.items[0].pickup_delay = 0;
+    entities.items.items[0].base.position = player.base.position;
+
+    try entities.tickItems(gpa, &w, &[_]*Player{&player});
+    try std.testing.expectEqual(@as(usize, 0), player.earned.count());
+}
+
 test "a stack that does not fit keeps whatever is left over on the ground" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -3222,6 +3264,53 @@ fn soloTick(
     const roster = [_]*Player{player};
     const views = [_]Animal.PlayerView{viewOf(player)};
     try entities.tickMobs(gpa, world_map, &roster, .of(&views), rand);
+}
+
+test "killing a monster earns Monster Hunter, killing an animal does not" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    const cases = [_]struct { type_id: mob.Id, earns: bool }{
+        .{ .type_id = mob.zombie, .earns = true },
+        .{ .type_id = mob.cow, .earns = false },
+    };
+
+    for (cases) |case| {
+        var entities: Entities = .{};
+        defer entities.deinit(gpa);
+
+        var rand = world.JavaRandom.init(3);
+        var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+        player.base.id = 7;
+
+        const animal = try entities.spawnMob(gpa, case.type_id, math.Vec3.init(10.5, 1, 8.5), &rand);
+        _ = animal.hurt(animal.max_health, .{ .position = player.base.position, .player = player.base.id }, &rand);
+        animal.dead = true;
+
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        try std.testing.expectEqual(case.earns, player.earned.contains(.kill_enemy));
+    }
+}
+
+test "a monster that dies with nobody to blame earns nothing" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    player.base.id = 7;
+
+    const animal = try entities.spawnMob(gpa, mob.zombie, math.Vec3.init(10.5, 1, 8.5), &rand);
+    _ = animal.hurt(animal.max_health, null, &rand);
+    animal.dead = true;
+
+    try soloTick(&entities, gpa, &w, &player, &rand);
+    try std.testing.expect(!player.earned.contains(.kill_enemy));
 }
 
 test "an untamed wolf that rolls a hunt takes a nearby sheep as its target" {

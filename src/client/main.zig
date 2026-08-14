@@ -3920,50 +3920,9 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     gl.Disable(gl.BLEND);
 }
 
-var capture_frame: u32 = 0;
-
-fn captureFrame(app_state: *AppState) !void {
-    const px = drawableSize(app_state);
-    const width: usize = @intCast(px.w);
-    const height: usize = @intCast(px.h);
-    const pixels = try app_state.gpa.alloc(u8, width * height * 3);
-    defer app_state.gpa.free(pixels);
-
-    gl.PixelStorei(gl.PACK_ALIGNMENT, 1);
-    gl.ReadPixels(0, 0, px.w, px.h, gl.RGB, gl.UNSIGNED_BYTE, pixels.ptr);
-
-    var file = try std.Io.Dir.cwd().createFile(app_state.io, "frame.ppm", .{});
-    defer file.close(app_state.io);
-
-    var header: [64]u8 = undefined;
-    const text = try std.fmt.bufPrint(&header, "P6\n{d} {d}\n255\n", .{ width, height });
-    try file.writeStreamingAll(app_state.io, text);
-
-    var row: usize = height;
-    while (row > 0) {
-        row -= 1;
-        try file.writeStreamingAll(app_state.io, pixels[row * width * 3 ..][0 .. width * 3]);
-    }
-}
-
 pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
-    capture_frame += 1;
-    if (capture_frame == 2) {
-        var seeded: game.stats.Stats = .{};
-        _ = seeded.award(app_state.gpa, .open_inventory) catch {};
-        _ = seeded.award(app_state.gpa, .mine_wood) catch {};
-        _ = seeded.award(app_state.gpa, .build_work_bench) catch {};
-        _ = seeded.award(app_state.gpa, .build_pickaxe) catch {};
-        app_state.stats.deinit(app_state.gpa);
-        app_state.stats = seeded;
-        app_state.screen = .playing;
-        app_state.paused = true;
-        app_state.achievements_open = true;
-        app_state.mouse_x = 0;
-        app_state.mouse_y = 0;
-    }
     gl.makeProcTableCurrent(&app_state.gl_procs);
     _ = frame_arena.reset(.retain_capacity);
     const px = drawableSize(app_state);
@@ -4162,11 +4121,6 @@ pub fn iterate(
     }
 
     try sdl3.video.gl.swapWindow(app_state.window);
-
-    if (capture_frame >= 40) {
-        try captureFrame(app_state);
-        return .success;
-    }
 
     return .run;
 }
