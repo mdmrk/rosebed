@@ -8,7 +8,7 @@ pub const Source = union(enum) {
 };
 
 entries: std.ArrayList(Source) = .empty,
-groups: std.StringArrayHashMapUnmanaged(std.ArrayList(u32)) = .empty,
+groups: std.array_hash_map.String(std.ArrayList(u32)) = .empty,
 strip_digits: bool = true,
 
 pub fn deinit(self: *Pool, gpa: std.mem.Allocator) void {

@@ -14,7 +14,7 @@ pub const TagId = enum(u8) {
     compound = 10,
 };
 
-pub const Compound = std.StringArrayHashMapUnmanaged(Tag);
+pub const Compound = std.array_hash_map.String(Tag);
 
 pub const List = struct {
     element_type: TagId,
