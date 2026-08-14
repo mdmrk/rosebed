@@ -16,19 +16,19 @@ pub const Verb = enum {
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
             .help => "",
-            .give => "<player> <id|name> [num]",
+            .give => "<id|name> [num]",
             .kill => "",
             .spawn => "<mob> [num]",
             .seed => "<|copy>",
             .time => "<add|set> <amount>",
-            .tp => "<player> <x> <y> <z>",
+            .tp => "<x> <y> <z>",
         };
     }
 
     pub fn description(self: Verb) []const u8 {
         return switch (self) {
             .help => "shows this message",
-            .give => "gives a player a resource",
+            .give => "gives the player a resource",
             .kill => "kills the player",
             .spawn => "spawns a mob where you look",
             .seed => "shows world seed",
@@ -41,7 +41,6 @@ pub const Verb = enum {
 pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
 
 pub const Give = struct {
-    user: []const u8,
     id: world.Id,
     raw_id: u32,
     count: u8,
@@ -64,7 +63,6 @@ pub const Time = struct {
 };
 
 pub const Tp = struct {
-    user: []const u8,
     x: f64,
     y: f64,
     z: f64,
@@ -80,7 +78,6 @@ pub const Result = union(enum) {
     time: Time,
     tp: Tp,
     missing_item: u32,
-    missing_user: []const u8,
     missing_mob: []const u8,
     unparsed: []const u8,
     unparsed_item: []const u8,
@@ -150,7 +147,7 @@ pub fn numericId(id: world.Id) u32 {
     };
 }
 
-pub fn parse(line: []const u8, username: []const u8) Result {
+pub fn parse(line: []const u8) Result {
     if (!std.mem.startsWith(u8, line, "/")) return .nothing;
 
     var words = std.mem.tokenizeScalar(u8, line[1..], ' ');
@@ -159,7 +156,7 @@ pub fn parse(line: []const u8, username: []const u8) Result {
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
         .kill => if (words.next() == null) .kill else .nothing,
-        .give => parseGive(&words, username),
+        .give => parseGive(&words),
         .spawn => parseSpawn(&words),
         .seed => parseSeed(&words),
         .time => parseTime(&words),
@@ -169,13 +166,10 @@ pub fn parse(line: []const u8, username: []const u8) Result {
 
 const Words = std.mem.TokenIterator(u8, .scalar);
 
-fn parseGive(words: *Words, username: []const u8) Result {
-    const user = words.next() orelse return .nothing;
+fn parseGive(words: *Words) Result {
     const id_text = words.next() orelse return .nothing;
     const count_text = words.next();
     if (words.next() != null) return .nothing;
-
-    if (!std.mem.eql(u8, user, username)) return .{ .missing_user = user };
 
     const id = if (std.fmt.parseInt(u32, id_text, 10)) |raw|
         resolveId(raw) orelse return .{ .missing_item = raw }
@@ -183,7 +177,6 @@ fn parseGive(words: *Words, username: []const u8) Result {
         resolveName(id_text) orelse return .{ .unparsed_item = id_text };
 
     return .{ .give = .{
-        .user = user,
         .id = id,
         .raw_id = numericId(id),
         .count = tryParse(count_text, 1),
@@ -217,7 +210,6 @@ fn parseTime(words: *Words) Result {
 }
 
 fn parseTp(words: *Words) Result {
-    const user = words.next() orelse return .nothing;
     const x_text = words.next() orelse return .nothing;
     const y_text = words.next() orelse return .nothing;
     const z_text = words.next() orelse return .nothing;
@@ -226,145 +218,134 @@ fn parseTp(words: *Words) Result {
     const x = std.fmt.parseFloat(f64, x_text) catch return .{ .unparsed = x_text };
     const y = std.fmt.parseFloat(f64, y_text) catch return .{ .unparsed = y_text };
     const z = std.fmt.parseFloat(f64, z_text) catch return .{ .unparsed = z_text };
-    return .{ .tp = .{ .user = user, .x = x, .y = y, .z = z } };
+    return .{ .tp = .{ .x = x, .y = y, .z = z } };
 }
 
-const local_user = "Player";
-
 test "a line without a leading slash is not a command" {
-    try std.testing.expectEqual(Result.nothing, parse("hello world", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("hello world"));
+    try std.testing.expectEqual(Result.nothing, parse(""));
 }
 
 test "help answers to its own name and to a question mark" {
-    try std.testing.expectEqual(Result.help, parse("/help", local_user));
-    try std.testing.expectEqual(Result.help, parse("/?", local_user));
+    try std.testing.expectEqual(Result.help, parse("/help"));
+    try std.testing.expectEqual(Result.help, parse("/?"));
 }
 
 test "give hands over a block id and defaults to one" {
-    const result = parse("/give Player 1", local_user);
+    const result = parse("/give 1");
     try std.testing.expectEqual(world.Block.stone, result.give.id.block);
     try std.testing.expectEqual(@as(u32, 1), result.give.raw_id);
     try std.testing.expectEqual(@as(u8, 1), result.give.count);
-    try std.testing.expectEqualStrings("Player", result.give.user);
 }
 
 test "give reads ids above 255 out of the item table" {
-    const result = parse("/give Player 264 5", local_user);
+    const result = parse("/give 264 5");
     try std.testing.expectEqual(world.Item.diamond, result.give.id.item);
     try std.testing.expectEqual(@as(u8, 5), result.give.count);
 }
 
 test "give clamps the count into a single stack" {
-    try std.testing.expectEqual(@as(u8, 64), parse("/give Player 1 100", local_user).give.count);
-    try std.testing.expectEqual(@as(u8, 1), parse("/give Player 1 0", local_user).give.count);
-    try std.testing.expectEqual(@as(u8, 1), parse("/give Player 1 nine", local_user).give.count);
+    try std.testing.expectEqual(@as(u8, 64), parse("/give 1 100").give.count);
+    try std.testing.expectEqual(@as(u8, 1), parse("/give 1 0").give.count);
+    try std.testing.expectEqual(@as(u8, 1), parse("/give 1 nine").give.count);
 }
 
 test "give rejects ids that name nothing, and air" {
-    try std.testing.expectEqual(@as(u32, 0), parse("/give Player 0", local_user).missing_item);
-    try std.testing.expectEqual(@as(u32, 250), parse("/give Player 250", local_user).missing_item);
-    try std.testing.expectEqual(@as(u32, 400), parse("/give Player 400", local_user).missing_item);
-    try std.testing.expectEqual(@as(u32, 4000), parse("/give Player 4000", local_user).missing_item);
-    try std.testing.expectEqualStrings("turnip", parse("/give Player turnip", local_user).unparsed_item);
-}
-
-test "give only knows the one local player, spelled exactly" {
-    try std.testing.expectEqual(world.Block.stone, parse("/give Player 1", local_user).give.id.block);
-    try std.testing.expectEqualStrings("Notch", parse("/give Notch 1", local_user).missing_user);
-    try std.testing.expectEqualStrings("player", parse("/give player 1", local_user).missing_user);
+    try std.testing.expectEqual(@as(u32, 0), parse("/give 0").missing_item);
+    try std.testing.expectEqual(@as(u32, 250), parse("/give 250").missing_item);
+    try std.testing.expectEqual(@as(u32, 400), parse("/give 400").missing_item);
+    try std.testing.expectEqual(@as(u32, 4000), parse("/give 4000").missing_item);
+    try std.testing.expectEqualStrings("turnip", parse("/give turnip").unparsed_item);
 }
 
 test "give stays silent when the argument count is wrong" {
-    try std.testing.expectEqual(Result.nothing, parse("/give", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/give Player", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/give Player 1 2 3", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/give"));
+    try std.testing.expectEqual(Result.nothing, parse("/give 1 2 3"));
 }
 
 test "spawn names a mob and defaults to one" {
-    const result = parse("/spawn pig", local_user);
+    const result = parse("/spawn pig");
     try std.testing.expectEqual(Mob.pig, result.spawn.mob);
     try std.testing.expectEqual(@as(u8, 1), result.spawn.count);
 
-    try std.testing.expectEqual(Mob.squid, parse("/spawn squid", local_user).spawn.mob);
-    try std.testing.expectEqual(Mob.chicken, parse("/spawn chicken 3", local_user).spawn.mob);
-    try std.testing.expectEqual(@as(u8, 3), parse("/spawn chicken 3", local_user).spawn.count);
+    try std.testing.expectEqual(Mob.squid, parse("/spawn squid").spawn.mob);
+    try std.testing.expectEqual(Mob.chicken, parse("/spawn chicken 3").spawn.mob);
+    try std.testing.expectEqual(@as(u8, 3), parse("/spawn chicken 3").spawn.count);
 }
 
 test "spawn rejects a mob it cannot build" {
-    try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20, local_user).missing_mob);
-    try std.testing.expectEqual(Result.nothing, parse("/spawn", local_user));
+    try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20).missing_mob);
+    try std.testing.expectEqual(Result.nothing, parse("/spawn"));
 }
 
 test "time adds to or sets the clock" {
-    const added = parse("/time add 1000", local_user).time;
+    const added = parse("/time add 1000").time;
     try std.testing.expectEqual(Time.Method.add, added.method);
     try std.testing.expectEqual(@as(i32, 1000), added.amount);
 
-    const set = parse("/time set 18000", local_user).time;
+    const set = parse("/time set 18000").time;
     try std.testing.expectEqual(Time.Method.set, set.method);
     try std.testing.expectEqual(@as(i32, 18000), set.amount);
 
-    try std.testing.expectEqual(@as(i32, -500), parse("/time add -500", local_user).time.amount);
+    try std.testing.expectEqual(@as(i32, -500), parse("/time add -500").time.amount);
 }
 
 test "time reads its amount before it judges the method" {
-    try std.testing.expectEqualStrings("noon", parse("/time set noon", local_user).unparsed);
-    try std.testing.expectEqualStrings("noon", parse("/time skip noon", local_user).unparsed);
-    try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999", local_user).unparsed);
-    try std.testing.expect(parse("/time skip 1000", local_user) == .unknown_method);
-    try std.testing.expect(parse("/time Set 1000", local_user) == .unknown_method);
+    try std.testing.expectEqualStrings("noon", parse("/time set noon").unparsed);
+    try std.testing.expectEqualStrings("noon", parse("/time skip noon").unparsed);
+    try std.testing.expectEqualStrings("99999999999", parse("/time set 99999999999").unparsed);
+    try std.testing.expect(parse("/time skip 1000") == .unknown_method);
+    try std.testing.expect(parse("/time Set 1000") == .unknown_method);
 }
 
 test "time stays silent when the argument count is wrong" {
-    try std.testing.expectEqual(Result.nothing, parse("/time", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/time set", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/time set 0 0", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/time"));
+    try std.testing.expectEqual(Result.nothing, parse("/time set"));
+    try std.testing.expectEqual(Result.nothing, parse("/time set 0 0"));
 }
 
 test "kill takes no arguments at all" {
-    try std.testing.expectEqual(Result.kill, parse("/kill", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/kill Player", local_user));
-    try std.testing.expectEqualStrings("Kill", parse("/Kill", local_user).unknown);
+    try std.testing.expectEqual(Result.kill, parse("/kill"));
+    try std.testing.expectEqual(Result.nothing, parse("/kill Player"));
+    try std.testing.expectEqualStrings("Kill", parse("/Kill").unknown);
 }
 
-test "tp reads a player and three coordinates" {
-    const jump = parse("/tp Player 12.5 64 -3.25", local_user).tp;
-    try std.testing.expectEqualStrings("Player", jump.user);
+test "tp reads three coordinates" {
+    const jump = parse("/tp 12.5 64 -3.25").tp;
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), jump.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 64.0), jump.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, -3.25), jump.z, 1.0e-9);
 }
 
 test "tp reports whichever coordinate it could not read" {
-    try std.testing.expectEqualStrings("here", parse("/tp Player here 64 0", local_user).unparsed);
-    try std.testing.expectEqualStrings("up", parse("/tp Player 0 up 0", local_user).unparsed);
-    try std.testing.expectEqualStrings("yonder", parse("/tp Player 0 64 yonder", local_user).unparsed);
+    try std.testing.expectEqualStrings("here", parse("/tp here 64 0").unparsed);
+    try std.testing.expectEqualStrings("up", parse("/tp 0 up 0").unparsed);
+    try std.testing.expectEqualStrings("yonder", parse("/tp 0 64 yonder").unparsed);
 }
 
 test "tp stays silent when the argument count is wrong" {
-    try std.testing.expectEqual(Result.nothing, parse("/tp", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/tp Player", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/tp Player Notch", local_user));
-    try std.testing.expectEqual(Result.nothing, parse("/tp Player 0 64 0 0", local_user));
+    try std.testing.expectEqual(Result.nothing, parse("/tp"));
+    try std.testing.expectEqual(Result.nothing, parse("/tp 0"));
+    try std.testing.expectEqual(Result.nothing, parse("/tp 0 64"));
+    try std.testing.expectEqual(Result.nothing, parse("/tp 0 64 0 0"));
 }
 
 test "an unrecognised verb reports itself" {
-    try std.testing.expectEqualStrings("fly", parse("/fly", local_user).unknown);
-    try std.testing.expectEqualStrings("warp", parse("/warp Player Notch", local_user).unknown);
-    try std.testing.expectEqual(Result.nothing, parse("/", local_user));
+    try std.testing.expectEqualStrings("fly", parse("/fly").unknown);
+    try std.testing.expectEqualStrings("warp", parse("/warp Player Notch").unknown);
+    try std.testing.expectEqual(Result.nothing, parse("/"));
 }
 
 test "help is built from the verbs, one line each under a heading" {
     try std.testing.expectEqual(std.enums.values(Verb).len + 1, help_lines.len);
     try std.testing.expectEqualStrings("Commands:", help_lines[0]);
-    try std.testing.expectEqualStrings("   help                           shows this message", help_lines[1]);
-    try std.testing.expectEqualStrings("   give <player> <id|name> [num]  gives a player a resource", help_lines[2]);
-    try std.testing.expectEqualStrings("   kill                           kills the player", help_lines[3]);
-    try std.testing.expectEqualStrings("   spawn <mob> [num]              spawns a mob where you look", help_lines[4]);
-    try std.testing.expectEqualStrings("   seed <|copy>                   shows world seed", help_lines[5]);
-    try std.testing.expectEqualStrings("   time <add|set> <amount>        adds to or sets the world time (0-24000)", help_lines[6]);
-    try std.testing.expectEqualStrings("   tp <player> <x> <y> <z>        teleports player to position in world", help_lines[7]);
+    try std.testing.expectEqualStrings("   help                     shows this message", help_lines[1]);
+    try std.testing.expectEqualStrings("   give <id|name> [num]     gives the player a resource", help_lines[2]);
+    try std.testing.expectEqualStrings("   kill                     kills the player", help_lines[3]);
+    try std.testing.expectEqualStrings("   spawn <mob> [num]        spawns a mob where you look", help_lines[4]);
+    try std.testing.expectEqualStrings("   seed <|copy>             shows world seed", help_lines[5]);
+    try std.testing.expectEqualStrings("   time <add|set> <amount>  adds to or sets the world time (0-24000)", help_lines[6]);
+    try std.testing.expectEqualStrings("   tp <x> <y> <z>           teleports player to position in world", help_lines[7]);
 }
 
 test "every verb names itself in help and answers to that name" {
@@ -388,12 +369,11 @@ test "help lines all break for their description in the same column" {
     try std.testing.expectEqual(@as(usize, help_gap), tightest);
 }
 
-test "verbs, mobs and player names are all matched exactly" {
-    try std.testing.expectEqualStrings("HELP", parse("/HELP", local_user).unknown);
-    try std.testing.expectEqualStrings("Give", parse("/Give Player 1", local_user).unknown);
-    try std.testing.expectEqualStrings("spawner", parse("/spawner pig", local_user).unknown);
-    try std.testing.expectEqualStrings("Pig", parse("/spawn Pig", local_user).missing_mob);
-    try std.testing.expectEqualStrings("player", parse("/give player 1", local_user).missing_user);
+test "verbs and mob names are all matched exactly" {
+    try std.testing.expectEqualStrings("HELP", parse("/HELP").unknown);
+    try std.testing.expectEqualStrings("Give", parse("/Give 1").unknown);
+    try std.testing.expectEqualStrings("spawner", parse("/spawner pig").unknown);
+    try std.testing.expectEqualStrings("Pig", parse("/spawn Pig").missing_mob);
 }
 
 test "resolveId spans both halves of the id space" {
@@ -404,39 +384,39 @@ test "resolveId spans both halves of the id space" {
 }
 
 test "give takes a block or item by its own name" {
-    try std.testing.expectEqual(world.Block.stone, parse("/give Player stone", local_user).give.id.block);
-    try std.testing.expectEqual(world.Item.diamond, parse("/give Player diamond", local_user).give.id.item);
-    try std.testing.expectEqual(world.Block.jack_o_lantern, parse("/give Player jack_o_lantern", local_user).give.id.block);
+    try std.testing.expectEqual(world.Block.stone, parse("/give stone").give.id.block);
+    try std.testing.expectEqual(world.Item.diamond, parse("/give diamond").give.id.item);
+    try std.testing.expectEqual(world.Block.jack_o_lantern, parse("/give jack_o_lantern").give.id.block);
 }
 
 test "a name that is both a block and an item hands over the item" {
     for ([_][]const u8{ "cake", "reed", "brick", "door_wood", "door_iron" }) |name| {
         var line: [64]u8 = undefined;
-        const typed = std.fmt.bufPrint(&line, "/give Player {s}", .{name}) catch unreachable;
-        const given = parse(typed, local_user).give;
+        const typed = std.fmt.bufPrint(&line, "/give {s}", .{name}) catch unreachable;
+        const given = parse(typed).give;
         try std.testing.expect(given.id == .item);
         try std.testing.expectEqualStrings(name, @tagName(given.id.item));
     }
 }
 
 test "a numeric id still reaches the block half of a shared name" {
-    try std.testing.expectEqual(world.Block.cake, parse("/give Player 92", local_user).give.id.block);
-    try std.testing.expectEqual(world.Item.cake, parse("/give Player 354", local_user).give.id.item);
+    try std.testing.expectEqual(world.Block.cake, parse("/give 92").give.id.block);
+    try std.testing.expectEqual(world.Item.cake, parse("/give 354").give.id.item);
 }
 
 test "a name is matched exactly, like every other command word" {
-    try std.testing.expectEqualStrings("Stone", parse("/give Player Stone", local_user).unparsed_item);
-    try std.testing.expectEqualStrings("banana", parse("/give Player banana", local_user).unparsed_item);
+    try std.testing.expectEqualStrings("Stone", parse("/give Stone").unparsed_item);
+    try std.testing.expectEqualStrings("banana", parse("/give banana").unparsed_item);
 }
 
 test "the count still follows a name the way it follows an id" {
-    const given = parse("/give Player cobblestone 32", local_user).give;
+    const given = parse("/give cobblestone 32").give;
     try std.testing.expectEqual(world.Block.cobblestone, given.id.block);
     try std.testing.expectEqual(@as(u8, 32), given.count);
 }
 
 test "a name reports the id it resolved to, so the reply reads the same either way" {
-    try std.testing.expectEqual(@as(u32, 264), parse("/give Player diamond", local_user).give.raw_id);
-    try std.testing.expectEqual(@as(u32, 264), parse("/give Player 264", local_user).give.raw_id);
-    try std.testing.expectEqual(@as(u32, 1), parse("/give Player 001", local_user).give.raw_id);
+    try std.testing.expectEqual(@as(u32, 264), parse("/give diamond").give.raw_id);
+    try std.testing.expectEqual(@as(u32, 264), parse("/give 264").give.raw_id);
+    try std.testing.expectEqual(@as(u32, 1), parse("/give 001").give.raw_id);
 }

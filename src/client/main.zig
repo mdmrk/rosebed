@@ -1421,7 +1421,7 @@ fn lookedAtPosition(app_state: *AppState) math.Vec3 {
 }
 
 fn runCommand(app_state: *AppState, line: []const u8) !void {
-    switch (game.commands.parse(line, game.stats_file.default_username)) {
+    switch (game.commands.parse(line)) {
         .nothing => {},
         .help => for (game.commands.help_lines) |help_line| {
             app_state.chat.addMessage(app_state.font, help_line);
@@ -1453,7 +1453,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                     &app_state.level.world_map.rand,
                 );
             }
-            reply(app_state, "Giving {s} some {d}", .{ give.user, give.raw_id });
+            reply(app_state, "Giving you some {d}", .{give.raw_id});
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
@@ -1492,7 +1492,6 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
-        .missing_user => |name| reply(app_state, "Can't find user {s}", .{name}),
         .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
         .unparsed => |text| reply(app_state, "Unable to parse value, {s}", .{text}),
         .unknown_method => |text| reply(app_state, "Unknown method, use {s}", .{text}),
