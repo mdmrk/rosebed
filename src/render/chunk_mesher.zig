@@ -263,6 +263,197 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     }, mirrored, color);
 }
 
+const fire_height: f32 = 1.4;
+const fire_lean: f32 = 0.2;
+const fire_wall_inset: f32 = 0.2;
+const fire_wall_lift: f32 = 1.0 / 16.0;
+const fire_ceiling_drop: f32 = 0.2;
+
+fn fireUvs(uv: Atlas.Uv) [4][2]f32 {
+    return .{ .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 }, .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 } };
+}
+
+fn fireUvsFlipped(uv: Atlas.Uv) [4][2]f32 {
+    return .{ .{ uv.u0, uv.v0 }, .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 } };
+}
+
+fn swappedU(uv: Atlas.Uv) Atlas.Uv {
+    return .{ .u0 = uv.u1, .v0 = uv.v0, .u1 = uv.u0, .v1 = uv.v1 };
+}
+
+fn fireQuadBothSides(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    positions: [4][3]f32,
+    uvs: [4][2]f32,
+    color: [4]u8,
+) !void {
+    try mesh.quad(gpa, positions, uvs, color);
+    try mesh.quad(
+        gpa,
+        .{ positions[3], positions[2], positions[1], positions[0] },
+        .{ uvs[3], uvs[2], uvs[1], uvs[0] },
+        color,
+    );
+}
+
+fn buildFireStanding(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    near: Atlas.Uv,
+    far: Atlas.Uv,
+    color: [4]u8,
+    bx: f32,
+    by: f32,
+    bz: f32,
+) !void {
+    const top = by + fire_height;
+
+    var foot_high = bx + 0.5 + fire_lean;
+    var foot_low = bx + 0.5 - fire_lean;
+    var tip_low = bx + 0.5 - 0.3;
+    var tip_high = bx + 0.5 + 0.3;
+    var foot_far = bz + 0.5 + fire_lean;
+    var foot_near = bz + 0.5 - fire_lean;
+    var tip_near = bz + 0.5 - 0.3;
+    var tip_far = bz + 0.5 + 0.3;
+
+    try mesh.quad(gpa, .{
+        .{ tip_low, top, bz + 1 }, .{ foot_high, by, bz + 1 },
+        .{ foot_high, by, bz },    .{ tip_low, top, bz },
+    }, fireUvs(near), color);
+    try mesh.quad(gpa, .{
+        .{ tip_high, top, bz },   .{ foot_low, by, bz },
+        .{ foot_low, by, bz + 1 }, .{ tip_high, top, bz + 1 },
+    }, fireUvs(near), color);
+    try mesh.quad(gpa, .{
+        .{ bx + 1, top, tip_far }, .{ bx + 1, by, foot_near },
+        .{ bx, by, foot_near },    .{ bx, top, tip_far },
+    }, fireUvs(far), color);
+    try mesh.quad(gpa, .{
+        .{ bx, top, tip_near },    .{ bx, by, foot_far },
+        .{ bx + 1, by, foot_far }, .{ bx + 1, top, tip_near },
+    }, fireUvs(far), color);
+
+    foot_high = bx;
+    foot_low = bx + 1;
+    tip_low = bx + 0.1;
+    tip_high = bx + 0.9;
+    foot_far = bz;
+    foot_near = bz + 1;
+    tip_near = bz + 0.1;
+    tip_far = bz + 0.9;
+
+    try mesh.quad(gpa, .{
+        .{ tip_low, top, bz },     .{ foot_high, by, bz },
+        .{ foot_high, by, bz + 1 }, .{ tip_low, top, bz + 1 },
+    }, fireUvsFlipped(far), color);
+    try mesh.quad(gpa, .{
+        .{ tip_high, top, bz + 1 }, .{ foot_low, by, bz + 1 },
+        .{ foot_low, by, bz },      .{ tip_high, top, bz },
+    }, fireUvsFlipped(far), color);
+    try mesh.quad(gpa, .{
+        .{ bx, top, tip_far },     .{ bx, by, foot_near },
+        .{ bx + 1, by, foot_near }, .{ bx + 1, top, tip_far },
+    }, fireUvsFlipped(near), color);
+    try mesh.quad(gpa, .{
+        .{ bx + 1, top, tip_near }, .{ bx + 1, by, foot_far },
+        .{ bx, by, foot_far },      .{ bx, top, tip_near },
+    }, fireUvsFlipped(near), color);
+}
+
+fn buildFireOnNeighbours(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    near: Atlas.Uv,
+    far: Atlas.Uv,
+    color: [4]u8,
+    x: i32,
+    y: i32,
+    z: i32,
+    bx: f32,
+    by: f32,
+    bz: f32,
+) !void {
+    const row = if ((x +% y +% z) & 1 == 1) far else near;
+    const uv = if ((@divTrunc(x, 2) +% @divTrunc(y, 2) +% @divTrunc(z, 2)) & 1 == 1) swappedU(row) else row;
+
+    const foot = by + fire_wall_lift;
+    const top = by + fire_height + fire_wall_lift;
+
+    if (world_map.getBlock(x - 1, y, z).isFlammable()) {
+        try fireQuadBothSides(mesh, gpa, .{
+            .{ bx + fire_wall_inset, top, bz + 1 }, .{ bx, foot, bz + 1 },
+            .{ bx, foot, bz },                      .{ bx + fire_wall_inset, top, bz },
+        }, fireUvs(uv), color);
+    }
+    if (world_map.getBlock(x + 1, y, z).isFlammable()) {
+        try fireQuadBothSides(mesh, gpa, .{
+            .{ bx + 1 - fire_wall_inset, top, bz }, .{ bx + 1, foot, bz },
+            .{ bx + 1, foot, bz + 1 },              .{ bx + 1 - fire_wall_inset, top, bz + 1 },
+        }, fireUvsFlipped(uv), color);
+    }
+    if (world_map.getBlock(x, y, z - 1).isFlammable()) {
+        try fireQuadBothSides(mesh, gpa, .{
+            .{ bx, top, bz + fire_wall_inset }, .{ bx, foot, bz },
+            .{ bx + 1, foot, bz },              .{ bx + 1, top, bz + fire_wall_inset },
+        }, fireUvs(uv), color);
+    }
+    if (world_map.getBlock(x, y, z + 1).isFlammable()) {
+        try fireQuadBothSides(mesh, gpa, .{
+            .{ bx + 1, top, bz + 1 - fire_wall_inset }, .{ bx + 1, foot, bz + 1 },
+            .{ bx, foot, bz + 1 },                      .{ bx, top, bz + 1 - fire_wall_inset },
+        }, fireUvsFlipped(uv), color);
+    }
+    if (!world_map.getBlock(x, y + 1, z).isFlammable()) return;
+
+    const ceiling = by + 1;
+    const tip = ceiling - fire_ceiling_drop;
+    if ((x +% (y + 1) +% z) & 1 == 0) {
+        try mesh.quad(gpa, .{
+            .{ bx, tip, bz },         .{ bx + 1, ceiling, bz },
+            .{ bx + 1, ceiling, bz + 1 }, .{ bx, tip, bz + 1 },
+        }, fireUvs(near), color);
+        try mesh.quad(gpa, .{
+            .{ bx + 1, tip, bz + 1 }, .{ bx, ceiling, bz + 1 },
+            .{ bx, ceiling, bz },     .{ bx + 1, tip, bz },
+        }, fireUvs(far), color);
+    } else {
+        try mesh.quad(gpa, .{
+            .{ bx, tip, bz + 1 },         .{ bx, ceiling, bz },
+            .{ bx + 1, ceiling, bz },     .{ bx + 1, tip, bz + 1 },
+        }, fireUvs(near), color);
+        try mesh.quad(gpa, .{
+            .{ bx + 1, tip, bz },         .{ bx + 1, ceiling, bz + 1 },
+            .{ bx, ceiling, bz + 1 },     .{ bx, tip, bz },
+        }, fireUvs(far), color);
+    }
+}
+
+fn buildFire(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    tile: u8,
+    brightness: f32,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+) !void {
+    const color = shadeColor(brightness, Colorizer.white);
+    const near = Atlas.tileUv(tile);
+    const far = Atlas.tileUv(tile +% Atlas.tiles_per_row);
+
+    const below = world_map.getBlock(x, y - 1, z);
+    if (!below.isNormalCube() and !below.isFlammable()) {
+        try buildFireOnNeighbours(mesh, gpa, world_map, near, far, color, x, y, z, origin[0], origin[1], origin[2]);
+        return;
+    }
+    try buildFireStanding(mesh, gpa, near, far, color, origin[0], origin[1], origin[2]);
+}
+
 const torch_lean: f32 = 0.4;
 const torch_half: f32 = 1.0 / 16.0;
 const torch_tip: f32 = 0.625;
@@ -1336,6 +1527,11 @@ pub fn buildBlockAt(
         return;
     }
 
+    if (id.shape() == .fire) {
+        try buildFire(target, gpa, world_map, tileFor(options, id.faceTextures().get(.down)), own_brightness, x, y, z, origin);
+        return;
+    }
+
     if (id.shape() == .torch) {
         try buildTorch(target, gpa, tileFor(options, id.faceTextures().get(.down)), metadata, bx, by, bz, shadeColor(1.0, Colorizer.white));
         return;
@@ -2092,6 +2288,14 @@ fn torchMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4) !Mes
     const chunk = world_map.getChunk(0, 0).?;
     chunk.setBlock(8, 1, 8, .torch);
     chunk.setBlockMetadata(8, 1, 8, metadata);
+    try world.light.relightChunk(gpa, world_map, 0, 0);
+    return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+}
+
+fn fireMesh(gpa: std.mem.Allocator, world_map: *world.World, ground: world.Block) !Mesh {
+    const chunk = world_map.getChunk(0, 0).?;
+    chunk.setBlock(8, 1, 8, ground);
+    chunk.setBlock(8, 2, 8, .fire);
     try world.light.relightChunk(gpa, world_map, 0, 0);
     return build(gpa, world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
 }
@@ -3392,4 +3596,86 @@ test "the bed's top texture turns a quarter for every step of its facing" {
             try std.testing.expect(!std.mem.eql(u8, std.mem.asBytes(&seen[first]), std.mem.asBytes(&seen[second])));
         }
     }
+}
+
+
+test "fire standing on solid ground is eight leaning quads, not a crossed sprite" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try fireMesh(gpa, &world_map, .stone);
+    defer mesh.deinit(gpa);
+
+    const ground_quads = 6;
+    const fire_quads = 8;
+    try std.testing.expectEqual(@as(usize, (fire_quads + ground_quads) * 4), mesh.solid.vertices.items.len);
+}
+
+test "fire reaches the original's one and two fifths blocks above its floor" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try fireMesh(gpa, &world_map, .stone);
+    defer mesh.deinit(gpa);
+
+    const upright = spanOf(mesh, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0) + fire_height, upright[1], 1.0e-5);
+}
+
+test "fire alternates between its tile and the row beneath it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+
+    var mesh = try fireMesh(gpa, &world_map, .stone);
+    defer mesh.deinit(gpa);
+
+    const near = Atlas.tileUv(world.Block.fire.faceTextures().get(.down));
+    const far = Atlas.tileUv(world.Block.fire.faceTextures().get(.down) + Atlas.tiles_per_row);
+
+    var near_rows: usize = 0;
+    var far_rows: usize = 0;
+    for (mesh.solid.vertices.items) |v| {
+        if (v.y < 2.0) continue;
+        if (@abs(v.v - near.v0) < 1.0e-5) near_rows += 1;
+        if (@abs(v.v - far.v0) < 1.0e-5) far_rows += 1;
+    }
+    try std.testing.expect(near_rows > 0);
+    try std.testing.expect(far_rows > 0);
+}
+
+test "fire with nothing to stand on clings to the flammable blocks beside it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+
+    chunk.setBlock(8, 2, 8, .fire);
+    chunk.setBlock(7, 2, 8, .planks);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    const planks_quads = 6;
+    const wall_quads = 2;
+    try std.testing.expectEqual(@as(usize, (planks_quads + wall_quads) * 4), mesh.solid.vertices.items.len);
+}
+
+test "fire floating with no flammable neighbour draws nothing at all" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+
+    chunk.setBlock(8, 2, 8, .fire);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 0), mesh.solid.vertices.items.len);
 }

@@ -877,6 +877,83 @@ pub fn spawnTorchParticles(
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
 }
 
+pub const fire_standing_particles = 3;
+pub const fire_edge_particles = 2;
+const fire_edge_inset: f64 = 0.1;
+
+pub fn spawnFireParticles(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    x: i32,
+    y: i32,
+    z: i32,
+    rand: *world.JavaRandom,
+) !void {
+    const fx: f64 = @floatFromInt(x);
+    const fy: f64 = @floatFromInt(y);
+    const fz: f64 = @floatFromInt(z);
+    const still = math.Vec3.init(0, 0, 0);
+
+    const below = world_map.getBlock(x, y - 1, z);
+    if (!below.isNormalCube() and !below.isFlammable()) {
+        if (world_map.getBlock(x - 1, y, z).isFlammable()) {
+            for (0..fire_edge_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+                    fx + @as(f64, rand.nextFloat()) * fire_edge_inset,
+                    fy + @as(f64, rand.nextFloat()),
+                    fz + @as(f64, rand.nextFloat()),
+                ), still, rand));
+            }
+        }
+        if (world_map.getBlock(x + 1, y, z).isFlammable()) {
+            for (0..fire_edge_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+                    fx + 1.0 - @as(f64, rand.nextFloat()) * fire_edge_inset,
+                    fy + @as(f64, rand.nextFloat()),
+                    fz + @as(f64, rand.nextFloat()),
+                ), still, rand));
+            }
+        }
+        if (world_map.getBlock(x, y, z - 1).isFlammable()) {
+            for (0..fire_edge_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+                    fx + @as(f64, rand.nextFloat()),
+                    fy + @as(f64, rand.nextFloat()),
+                    fz + @as(f64, rand.nextFloat()) * fire_edge_inset,
+                ), still, rand));
+            }
+        }
+        if (world_map.getBlock(x, y, z + 1).isFlammable()) {
+            for (0..fire_edge_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+                    fx + @as(f64, rand.nextFloat()),
+                    fy + @as(f64, rand.nextFloat()),
+                    fz + 1.0 - @as(f64, rand.nextFloat()) * fire_edge_inset,
+                ), still, rand));
+            }
+        }
+        if (world_map.getBlock(x, y + 1, z).isFlammable()) {
+            for (0..fire_edge_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+                    fx + @as(f64, rand.nextFloat()),
+                    fy + 1.0 - @as(f64, rand.nextFloat()) * fire_edge_inset,
+                    fz + @as(f64, rand.nextFloat()),
+                ), still, rand));
+            }
+        }
+        return;
+    }
+
+    for (0..fire_standing_particles) |_| {
+        try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
+            fx + @as(f64, rand.nextFloat()),
+            fy + @as(f64, rand.nextFloat()) * 0.5 + 0.5,
+            fz + @as(f64, rand.nextFloat()),
+        ), still, rand));
+    }
+}
+
 pub const portal_particles_per_tick = 4;
 const portal_drift_spread: f64 = 0.5;
 const portal_mouth_inset: f64 = 0.25;
@@ -4449,4 +4526,60 @@ test "a spider comes back from its chunk still able to climb" {
     try std.testing.expectEqual(@as(i32, 6), spider.animal.health);
     try std.testing.expect(spider.animal.climbs_walls);
     try std.testing.expectApproxEqAbs(@as(f64, 1.4), spider.animal.base.width, 1.0e-9);
+}
+
+
+test "fire standing on the ground smokes from its upper half" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+    world_map.setBlock(8, 64, 8, .fire);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(7);
+
+    try entities.spawnFireParticles(gpa, &world_map, 8, 64, 8, &rand);
+
+    try std.testing.expectEqual(@as(usize, fire_standing_particles), entities.particles.items.len);
+    for (entities.particles.items) |particle| {
+        try std.testing.expect(particle.base.position.y >= 64.5);
+        try std.testing.expect(particle.base.position.y <= 65.0);
+    }
+}
+
+test "fire clinging to a wall smokes along that wall only" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 65, 8, .fire);
+    chunk.setBlock(7, 65, 8, .planks);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(7);
+
+    try entities.spawnFireParticles(gpa, &world_map, 8, 65, 8, &rand);
+
+    try std.testing.expectEqual(@as(usize, fire_edge_particles), entities.particles.items.len);
+    for (entities.particles.items) |particle| {
+        try std.testing.expect(particle.base.position.x <= 8.1);
+    }
+}
+
+test "fire with nothing to burn beside it makes no smoke" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const chunk = try world_map.createChunk(0, 0);
+    chunk.setBlock(8, 65, 8, .fire);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(7);
+
+    try entities.spawnFireParticles(gpa, &world_map, 8, 65, 8, &rand);
+
+    try std.testing.expectEqual(@as(usize, 0), entities.particles.items.len);
 }

@@ -134,6 +134,7 @@ pub const MapColor = enum(u4) {
 pub const Shape = union(enum) {
     cube,
     cross,
+    fire,
     portal,
     torch,
     door,
@@ -225,6 +226,7 @@ pub const Def = struct {
     translucent: bool = false,
     falling: bool = false,
     piston_base: bool = false,
+    flammable: bool = false,
     replaceable: bool = false,
     drop: ?*const fn (Block, u4, *JavaRandom) ?Stack = null,
     selection_bounds: ?*const fn (Block, u4) Bounds = null,
@@ -268,6 +270,7 @@ fn vanillaDefs() [256]Def {
             .translucent = self.vanillaTranslucent(),
             .falling = self.vanillaFalling(),
             .piston_base = self.vanillaPistonBase(),
+            .flammable = self.vanillaFlammable(),
             .replaceable = self.vanillaReplaceable(),
         };
     }
@@ -692,7 +695,7 @@ pub const Block = enum(u8) {
     fn vanillaShape(self: Block) Shape {
         return switch (self) {
             .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
-            .fire => .cross,
+            .fire => .fire,
             .portal => .portal,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
             .redstone_wire => .wire,
@@ -862,6 +865,17 @@ pub const Block = enum(u8) {
         return self == .sand or self == .gravel;
     }
 
+    pub fn isFlammable(self: Block) bool {
+        return self.def().flammable;
+    }
+
+    fn vanillaFlammable(self: Block) bool {
+        return switch (self) {
+            .planks, .stairs_wood, .log, .leaves, .bookshelf, .tnt, .tall_grass, .wool => true,
+            else => false,
+        };
+    }
+
     pub fn canFallInto(self: Block) bool {
         return self == .air or self.isLiquid();
     }
@@ -981,6 +995,7 @@ pub const Block = enum(u8) {
             .bookshelf => topAndSide(4, 4, 35),
             .obsidian => uniform(37),
             .torch => uniform(80),
+            .fire => uniform(31),
             .ore_redstone_glowing => uniform(51),
             .redstone_wire => uniform(wire_cross_tile),
             .rail => uniform(rail_straight_tile),
@@ -1055,7 +1070,6 @@ pub const Block = enum(u8) {
             .mushroom_brown => 29,
             .mushroom_red => 28,
             .reed => 73,
-            .fire => 31,
             else => 0,
         };
     }
@@ -1063,7 +1077,7 @@ pub const Block = enum(u8) {
     pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
-            .torch, .wire, .lever, .repeater, .rail => self.faceTextures().get(.down),
+            .torch, .fire, .wire, .lever, .repeater, .rail => self.faceTextures().get(.down),
             else => null,
         };
     }
@@ -2828,7 +2842,8 @@ test "fire stands in the world without filling it, and leaves nothing behind" {
     try std.testing.expectEqual(@as(f32, 0.0), Block.fire.hardness());
     try std.testing.expectEqual(Mobility.fragile, Block.fire.mobility());
     try std.testing.expect(Block.fire.drop(0, &rand) == null);
-    try std.testing.expectEqual(@as(u8, 31), Block.fire.crossTile(0));
+    try std.testing.expectEqual(Shape.fire, Block.fire.shape());
+    try std.testing.expectEqual(@as(u8, 31), Block.fire.faceTextures().get(.down));
     try std.testing.expectEqualStrings("Fire", Block.fire.displayName(0));
 }
 

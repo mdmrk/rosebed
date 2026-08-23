@@ -3454,6 +3454,8 @@ fn spawnRainParticles(app_state: *AppState) !void {
     );
 }
 
+const fire_sound_chance = 24;
+
 fn spawnDisplayParticles(app_state: *AppState) !void {
     const rand = &app_state.level.world_map.rand;
     const px = math.util.floorDouble(app_state.player.base.position.x);
@@ -3482,6 +3484,26 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 world.portal.spansX(&app_state.level.world_map, x, y, z),
                 rand,
             ),
+            .fire => {
+                if (rand.nextIntBound(fire_sound_chance) == 0) {
+                    app_state.level.world_map.playSoundEffect(
+                        @as(f64, @floatFromInt(x)) + 0.5,
+                        @as(f64, @floatFromInt(y)) + 0.5,
+                        @as(f64, @floatFromInt(z)) + 0.5,
+                        "fire.fire",
+                        1.0 + rand.nextFloat(),
+                        rand.nextFloat() * 0.7 + 0.3,
+                    );
+                }
+                try app_state.level.entities.spawnFireParticles(
+                    app_state.gpa,
+                    &app_state.level.world_map,
+                    x,
+                    y,
+                    z,
+                    rand,
+                );
+            },
             .torch => try app_state.level.entities.spawnTorchParticles(
                 app_state.gpa,
                 x,
