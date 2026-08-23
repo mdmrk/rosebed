@@ -4235,12 +4235,12 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     const equipped = app_state.equip.interpolated(partial);
     const pitch = app_state.player.prev_pitch + (app_state.player.pitch - app_state.player.prev_pitch) * partial;
 
-    const feet = app_state.player.base.position;
+    const eye = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
         &app_state.level.world_map,
-        math.util.floorDouble(feet.x),
-        math.util.floorDouble(feet.y),
-        math.util.floorDouble(feet.z),
+        math.util.floorDouble(eye.x),
+        math.util.floorDouble(eye.y + game.Player.eye_height),
+        math.util.floorDouble(eye.z),
         0,
     );
 
@@ -4301,12 +4301,12 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
 }
 
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
-    const feet = app_state.player.base.position;
+    const eye = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
         &app_state.level.world_map,
-        math.util.floorDouble(feet.x),
-        math.util.floorDouble(feet.y),
-        math.util.floorDouble(feet.z),
+        math.util.floorDouble(eye.x),
+        math.util.floorDouble(eye.y + game.Player.eye_height),
+        math.util.floorDouble(eye.z),
         0,
     );
 
