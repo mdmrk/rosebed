@@ -207,9 +207,23 @@ fn handlePlaying(
         .attach_entity => |body| self.attachEntity(level, @bitCast(body.entity_id), @bitCast(body.vehicle_id)),
         .collect => |body| try self.collectItem(gpa, level, @bitCast(body.collected_id), @bitCast(body.collector_id)),
         .animation => |body| {
-            if (body.animate != net.packet.swing_animation) return;
-            const peer = self.peerById(@bitCast(body.entity_id)) orelse return;
-            peer.player.swingItem();
+            const id: game.Entity.Id = @bitCast(body.entity_id);
+            switch (body.animate) {
+                net.packet.swing_animation => {
+                    const peer = self.peerById(id) orelse return;
+                    peer.player.swingItem();
+                },
+                net.packet.wake_up_animation => {
+                    const player = self.playerById(level, id) orelse return;
+                    try player.wakeUp(&level.world_map, false, false);
+                },
+                else => {},
+            }
+        },
+        .sleep => |body| {
+            if (body.state != net.packet.enter_bed_state) return;
+            const player = self.playerById(level, @bitCast(body.entity_id)) orelse return;
+            player.layInBed(&level.world_map, body.x, body.y, body.z);
         },
         .destroy_entity => |body| {
             const id: game.Entity.Id = @bitCast(body.entity_id);
@@ -284,6 +298,11 @@ fn handlePlaying(
             @memcpy(line.bytes[0..line.len], bed_not_valid_line[0..line.len]);
             try self.chat.append(gpa, line);
         },
+        .map_data => |body| {
+            if (body.kind != @as(i16, @intFromEnum(world.Item.map))) return;
+            const data = try level.world_map.mapData(body.map_id);
+            try data.applyPayload(gpa, body.data);
+        },
         .update_sign => |body| {
             const y: i32 = body.y;
             const post = try level.world_map.addSign(body.x, y, body.z);
@@ -344,6 +363,15 @@ fn tickRemoteFallingBlocks(level: *game.Level) void {
         }
         index += 1;
     }
+}
+
+fn playerById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?*game.Player {
+    if (id == self.entity_id) {
+        if (level.occupants.items.len == 0) return null;
+        return level.occupants.items[0].player;
+    }
+    const peer = self.peerById(id) orelse return null;
+    return &peer.player;
 }
 
 pub fn peerById(self: *Connection, id: game.Entity.Id) ?*Peer {

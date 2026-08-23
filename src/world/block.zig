@@ -20,6 +20,7 @@ pub const Material = enum {
     portal,
     rock,
     iron,
+    grass,
     ground,
     sand,
     wood,
@@ -71,6 +72,61 @@ pub const Material = enum {
         return switch (self) {
             .rock, .iron, .snow, .built_snow => false,
             else => true,
+        };
+    }
+
+    pub fn mapColor(self: Material) MapColor {
+        return switch (self) {
+            .air, .fire, .circuits, .glass, .portal, .cake => .air,
+            .grass => .grass,
+            .ground => .dirt,
+            .wood => .wood,
+            .rock, .piston => .stone,
+            .iron => .iron,
+            .water => .water,
+            .lava, .tnt => .tnt,
+            .leaves, .plants, .cactus, .pumpkin => .foliage,
+            .sponge, .cloth => .cloth,
+            .sand => .sand,
+            .ice => .ice,
+            .snow, .built_snow => .snow,
+            .clay => .clay,
+        };
+    }
+};
+
+pub const MapColor = enum(u4) {
+    air = 0,
+    grass = 1,
+    sand = 2,
+    cloth = 3,
+    tnt = 4,
+    ice = 5,
+    iron = 6,
+    foliage = 7,
+    snow = 8,
+    clay = 9,
+    dirt = 10,
+    stone = 11,
+    water = 12,
+    wood = 13,
+
+    pub fn rgb(self: MapColor) u32 {
+        return switch (self) {
+            .air => 0,
+            .grass => 8368696,
+            .sand => 16247203,
+            .cloth => 10987431,
+            .tnt => 16711680,
+            .ice => 10526975,
+            .iron => 10987431,
+            .foliage => 31744,
+            .snow => 16777215,
+            .clay => 10791096,
+            .dirt => 12020271,
+            .stone => 7368816,
+            .water => 4210943,
+            .wood => 6837042,
         };
     }
 };
@@ -598,7 +654,8 @@ pub const Block = enum(u8) {
             .slab, .slab_double => .rock,
             .furnace, .burning_furnace, .dispenser => .rock,
             .block_gold, .block_iron, .block_diamond, .door_iron => .iron,
-            .grass, .dirt => .ground,
+            .grass => .grass,
+            .dirt => .ground,
             .sand, .gravel, .soul_sand => .sand,
             .planks, .log, .note_block, .bookshelf, .workbench, .jukebox, .chest, .door_wood, .trapdoor, .stairs_wood, .sign_post, .wall_sign => .wood,
             .pressure_plate_planks => .wood,

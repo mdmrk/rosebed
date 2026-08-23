@@ -288,6 +288,21 @@ fn touchesPortal(world_map: *const world.World, box: math.AABB) bool {
     return false;
 }
 
+pub fn allPlayersFullyAsleep(self: *const Level) bool {
+    if (self.occupants.items.len == 0) return false;
+    for (self.occupants.items) |occupant| {
+        if (!occupant.player.isFullyAsleep()) return false;
+    }
+    return true;
+}
+
+pub fn wakeUpAllPlayers(self: *Level) !void {
+    for (self.occupants.items) |occupant| {
+        if (occupant.player.sleeping) try occupant.player.wakeUp(&self.world_map, false, true);
+    }
+    self.world_map.weather.clear();
+}
+
 pub fn standInPortals(self: *Level) void {
     for (self.occupants.items) |occupant| {
         if (!occupant.active) continue;
@@ -364,6 +379,13 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.applyBlockChanges(gpa, scratch);
     self.refreshViews();
     try self.entities.tickMobs(gpa, &self.world_map, self.roster.items, self.players(), rand);
+
+    if (self.allPlayersFullyAsleep()) {
+        if (!try spawner.performSleepSpawning(gpa, &self.entities, &self.world_map, self.roster.items, rand)) {
+            self.world_map.skipToDawn();
+            try self.wakeUpAllPlayers();
+        }
+    }
 
     _ = try spawner.performSpawning(
         gpa,

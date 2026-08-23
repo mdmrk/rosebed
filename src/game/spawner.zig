@@ -12,6 +12,7 @@ const Ghast = @import("ghast.zig");
 const mob = @import("mob.zig");
 const Pig = @import("pig.zig");
 const PigZombie = @import("pig_zombie.zig");
+const Player = @import("player.zig");
 const Sheep = @import("sheep.zig");
 const Skeleton = @import("skeleton.zig");
 const Slime = @import("slime.zig");
@@ -1035,4 +1036,137 @@ test "nothing spawns near any player, not merely the first" {
     try std.testing.expect(anyPlayerWithin(&near_second, 505, 64, 500, player_clearance));
     try std.testing.expect(anyPlayerWithin(&near_second, 5, 64, 0, player_clearance));
     try std.testing.expect(!anyPlayerWithin(&near_second, 250, 64, 250, player_clearance));
+}
+
+pub const night_spawn_attempts: usize = 20;
+pub const night_spawn_spread: i32 = 32;
+pub const night_spawn_lift: i32 = 16;
+pub const night_spawn_ceiling: i32 = 128;
+pub const night_spawn_path_reach: f32 = 32.0;
+const night_bedside_reach: f64 = 1.5;
+
+const NightSpawn = enum { spider, zombie, skeleton };
+
+fn reachesSleeper(
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    animal: Animal,
+    sleeper: math.Vec3,
+) !bool {
+    var path = try world.pathfinder.toPosition(
+        gpa,
+        world_map,
+        animal.pathMob(),
+        sleeper.x,
+        sleeper.y,
+        sleeper.z,
+        night_spawn_path_reach,
+    ) orelse return false;
+    defer path.deinit(gpa);
+
+    if (path.points.len <= 1) return false;
+    const last = path.destination() orelse return false;
+    return @abs(@as(f64, @floatFromInt(last.x)) - sleeper.x) < night_bedside_reach and
+        @abs(@as(f64, @floatFromInt(last.z)) - sleeper.z) < night_bedside_reach and
+        @abs(@as(f64, @floatFromInt(last.y)) - sleeper.y) < night_bedside_reach;
+}
+
+fn placeNightSpawn(
+    gpa: std.mem.Allocator,
+    entities: *Entities,
+    world_map: *const world.World,
+    rand: *world.JavaRandom,
+    kind: NightSpawn,
+    at: math.Vec3,
+    bedside: [3]i32,
+    sleeper: math.Vec3,
+) !bool {
+    const yaw = rand.nextFloat() * 360.0;
+    const landing = math.Vec3.init(
+        @as(f64, @as(f32, @floatFromInt(bedside[0])) + 0.5),
+        @floatFromInt(bedside[1]),
+        @as(f64, @as(f32, @floatFromInt(bedside[2])) + 0.5),
+    );
+
+    switch (kind) {
+        inline else => |tag| {
+            const Horde = switch (tag) {
+                .spider => Spider,
+                .zombie => Zombie,
+                .skeleton => Skeleton,
+            };
+            const type_id = switch (tag) {
+                .spider => mob.spider,
+                .zombie => mob.zombie,
+                .skeleton => mob.skeleton,
+            };
+            var spawned = Horde.spawn(at);
+            spawned.animal.faceYaw(yaw);
+            if (!spawned.canSpawnHere(world_map, rand)) return false;
+            if (!try reachesSleeper(gpa, world_map, spawned.animal, sleeper)) return false;
+            spawned.animal.faceYaw(0);
+            spawned.animal.base.position = landing;
+            spawned.animal.base.prev_position = landing;
+            try entities.adopt(gpa, type_id, spawned);
+        },
+    }
+    return true;
+}
+
+pub fn performSleepSpawning(
+    gpa: std.mem.Allocator,
+    entities: *Entities,
+    world_map: *world.World,
+    sleepers: []const *Player,
+    rand: *world.JavaRandom,
+) !bool {
+    const kinds = std.enums.values(NightSpawn);
+    var spawned_any = false;
+
+    for (sleepers) |player| {
+        var placed = false;
+        var attempt: usize = 0;
+        while (attempt < night_spawn_attempts and !placed) : (attempt += 1) {
+            const anchor = math.Vec3.init(player.base.position.x, player.anchorY(), player.base.position.z);
+            const x = math.util.floorDouble(anchor.x) + rand.nextIntBound(night_spawn_spread) - rand.nextIntBound(night_spawn_spread);
+            const z = math.util.floorDouble(anchor.z) + rand.nextIntBound(night_spawn_spread) - rand.nextIntBound(night_spawn_spread);
+            var start_y = math.util.floorDouble(anchor.y) + rand.nextIntBound(night_spawn_lift) - rand.nextIntBound(night_spawn_lift);
+            if (start_y < 1) {
+                start_y = 1;
+            } else if (start_y > night_spawn_ceiling) {
+                start_y = night_spawn_ceiling;
+            }
+
+            const kind = kinds[@intCast(rand.nextIntBound(@intCast(kinds.len)))];
+
+            var y = start_y;
+            while (y > 2 and !world_map.getBlock(x, y - 1, z).isOpaqueCube()) y -= 1;
+            while (!canSpawnAtLocation(.monster, world_map, x, y, z) and
+                y < start_y + night_spawn_lift and
+                y < night_spawn_ceiling) : (y += 1)
+            {}
+            if (y >= start_y + night_spawn_lift or y >= night_spawn_ceiling) continue;
+
+            const at = math.Vec3.init(
+                @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
+                @floatFromInt(y),
+                @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
+            );
+            const bedside = world.block_update.bedRespawnSpot(
+                world_map,
+                math.util.floorDouble(anchor.x),
+                math.util.floorDouble(anchor.y),
+                math.util.floorDouble(anchor.z),
+                1,
+            ) orelse [3]i32{ x, y + 1, z };
+
+            if (!try placeNightSpawn(gpa, entities, world_map, rand, kind, at, bedside, anchor)) continue;
+
+            try player.wakeUp(world_map, true, false);
+            placed = true;
+            spawned_any = true;
+        }
+    }
+
+    return spawned_any;
 }

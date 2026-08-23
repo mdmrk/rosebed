@@ -25,6 +25,7 @@ count: usize = 0,
 grid: []?world.Stack = &.{},
 grid_side: u8 = 0,
 store_count: usize = 0,
+minted_map: ?u16 = null,
 
 pub fn add(self: *Window, slot: Slot) void {
     if (self.count >= max_slots) return;
@@ -174,8 +175,15 @@ fn plainClick(self: *Window, at: usize, button: Click, carried: *?world.Stack) v
     carried.* = if (held.count == 0) null else held.*;
 }
 
+fn stampMinted(self: *Window, result: *world.Stack) void {
+    const meta = self.minted_map orelse return;
+    if (!result.id.eql(.{ .item = .map })) return;
+    result.meta = meta;
+}
+
 fn takeResult(self: *Window, carried: *?world.Stack) ?world.Stack {
-    const result = game.crafting.findMatch(self.grid, self.grid_side) orelse return null;
+    var result = game.crafting.findMatch(self.grid, self.grid_side) orelse return null;
+    self.stampMinted(&result);
     if (carried.*) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return null;
         if (@as(u16, held.count) + result.count > result.id.maxStackSize()) return null;
@@ -219,7 +227,8 @@ fn quickMove(self: *Window, from: usize) Outcome {
     }
 
     if (self.slots[from].kind == .craft_result) {
-        const result = game.crafting.findMatch(self.grid, self.grid_side) orelse return .{};
+        var result = game.crafting.findMatch(self.grid, self.grid_side) orelse return .{};
+        self.stampMinted(&result);
         var moving = result;
         game.Inventory.mergeStack(targets[0..count], &moving);
         if (moving.count == result.count) return .{};

@@ -31,6 +31,7 @@ pub const jukebox = @import("jukebox.zig");
 pub const lakes = @import("lakes.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const light = @import("light.zig");
+pub const map = @import("map.zig");
 pub const nbt = @import("nbt.zig");
 pub const NetherGenerator = @import("nether_gen.zig");
 pub const NibbleArray = @import("nibble_array.zig");
@@ -95,6 +96,7 @@ test {
     _ = nbt;
     _ = deflate;
     _ = RegionFile;
+    _ = map;
     _ = save;
     _ = testing;
 }

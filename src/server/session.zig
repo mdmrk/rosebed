@@ -26,6 +26,7 @@ outbox: std.ArrayList(u8) = .empty,
 sent_chunks: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{},
 tracked: std.AutoHashMapUnmanaged(game.Entity.Id, Tracked) = .{},
 sent_health: i16 = std.math.maxInt(i16),
+sent_bed: ?[3]i32 = null,
 pending_chat: ?ChatLine = null,
 pending_swing: bool = false,
 equipment: [equipment_slots]?world.Stack = @splat(null),
@@ -604,6 +605,8 @@ pub fn tickPlayer(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !b
     const dy = player.base.position.y - self.last_height;
     self.last_height = player.base.position.y;
     player.tickEnvironment(&level.world_map, dy);
+    try self.tickSleep(gpa, level);
+    try self.tickCarriedMaps(gpa, level);
 
     if (player.health > 0) {
         self.emptied_on_death = false;
@@ -613,6 +616,80 @@ pub fn tickPlayer(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !b
     self.emptied_on_death = true;
     try self.spillOnDeath(gpa, level);
     return false;
+}
+
+pub const map_item_id: i16 = @intFromEnum(world.Item.map);
+
+fn holdsMap(player: *const game.Player, stack: world.Stack) bool {
+    for (player.inventory.slots) |carried| {
+        const held = carried orelse continue;
+        if (held.id.eql(stack.id) and held.meta == stack.meta) return true;
+    }
+    return false;
+}
+
+fn tickCarriedMaps(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !void {
+    const player = self.player orelse return;
+
+    var states: std.ArrayList(world.map.ViewerState) = .empty;
+    defer states.deinit(gpa);
+    var payload: std.ArrayList(u8) = .empty;
+    defer payload.deinit(gpa);
+
+    for (player.inventory.slots, 0..) |carried, slot| {
+        const stack = carried orelse continue;
+        if (!stack.id.eql(.{ .item = .map })) continue;
+
+        const data = try level.world_map.mapData(@bitCast(stack.meta));
+
+        states.clearRetainingCapacity();
+        for (level.occupants.items) |occupant| {
+            try states.append(gpa, .{
+                .id = occupant.player.base.id,
+                .x = occupant.player.base.position.x,
+                .z = occupant.player.base.position.z,
+                .dimension = @intFromEnum(self.dimension),
+                .alive = !occupant.player.isDead(),
+                .holding = holdsMap(occupant.player, stack),
+            });
+        }
+        try data.updateMarkers(gpa, player.yaw, states.items);
+
+        if (slot == player.inventory.selected) {
+            data.updateColors(
+                &level.world_map,
+                @intFromEnum(self.dimension),
+                self.dimension.hasSky(),
+                player.base.position.x,
+                player.base.position.z,
+            );
+        }
+
+        if (!try data.buildPayload(gpa, player.base.id, &payload)) continue;
+        try self.send(gpa, .{ .map_data = .{
+            .kind = map_item_id,
+            .map_id = @bitCast(stack.meta),
+            .data = payload.items,
+        } });
+    }
+}
+
+fn tickSleep(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !void {
+    const player = self.player orelse return;
+    player.tickSleep();
+    if (!player.sleeping) return;
+
+    if (player.wake_pending) {
+        player.wake_pending = false;
+        try player.wakeUp(&level.world_map, true, false);
+    } else if (!player.isInBed(&level.world_map)) {
+        try player.wakeUp(&level.world_map, true, false);
+    } else if (level.world_map.isDaytime()) {
+        try player.wakeUp(&level.world_map, false, true);
+    } else return;
+
+    self.last_height = player.base.position.y;
+    try self.sendPosition(gpa);
 }
 
 pub fn travel(
@@ -877,7 +954,7 @@ fn handlePlaying(
         },
         .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z),
         .place => |body| try self.placeBlock(gpa, level, body.x, body.y, body.z, body.face),
-        .chat => |body| try self.handleChat(gpa, body.message),
+        .chat => |body| try self.handleChat(gpa, level, body.message),
         .respawn => try self.respawnPlayer(gpa, level),
         .window_click => |body| try self.windowClick(gpa, level, body),
         .update_sign => |body| try self.updateSign(level, body),
@@ -1058,7 +1135,7 @@ fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: gam
     if (landed) try self.award(gpa, .{ .general = .damage_dealt }, damage);
 }
 
-fn handleChat(self: *Session, gpa: std.mem.Allocator, message: []const u8) !void {
+fn handleChat(self: *Session, gpa: std.mem.Allocator, level: *game.Level, message: []const u8) !void {
     if (message.len > max_chat_in) return self.kick(gpa, "Chat message too long");
 
     const trimmed = std.mem.trim(u8, message, " ");
@@ -1066,12 +1143,27 @@ fn handleChat(self: *Session, gpa: std.mem.Allocator, message: []const u8) !void
         if (!chatAllowed(c)) return self.kick(gpa, "Illegal characters in chat");
     }
     if (trimmed.len == 0) return;
-    if (trimmed[0] == '/') return;
+    if (trimmed[0] == '/') return self.runCommand(gpa, level, trimmed);
 
     var line: ChatLine = .{};
     const written = std.fmt.bufPrint(&line.bytes, "<{s}> {s}", .{ self.name.text(), trimmed }) catch return;
     line.len = written.len;
     self.pending_chat = line;
+}
+
+fn runCommand(self: *Session, gpa: std.mem.Allocator, level: *game.Level, line: []const u8) !void {
+    switch (game.commands.parse(line)) {
+        .weather => |asked| {
+            if (!self.dimension.hasSky()) return self.sendChat(gpa, game.commands.no_sky_line);
+
+            game.commands.applyWeather(&level.world_map.weather, asked);
+
+            var buffer: [net.packet.max_chat]u8 = undefined;
+            const said = std.fmt.bufPrint(&buffer, game.commands.set_weather_line, .{@tagName(asked.sky)}) catch return;
+            try self.sendChat(gpa, said);
+        },
+        else => {},
+    }
 }
 
 pub const equipment_slots: usize = 5;
@@ -1257,12 +1349,31 @@ fn openContainer(self: *Session, gpa: std.mem.Allocator, level: *game.Level, ope
     try self.sendWindowContents(gpa, level);
 }
 
+fn mintCraftedMap(self: *Session, level: *game.Level, window: *Window) !void {
+    const player = self.player orelse return;
+    if (window.grid.len == 0) return;
+
+    const result = game.crafting.findMatch(window.grid, window.grid_side) orelse return;
+    if (!result.id.eql(.{ .item = .map })) return;
+
+    const id = try level.world_map.nextMapId();
+    window.minted_map = @bitCast(id);
+
+    const data = try level.world_map.mapData(id);
+    data.center_x = math.util.floorDouble(player.base.position.x);
+    data.center_z = math.util.floorDouble(player.base.position.z);
+    data.scale = world.map.default_scale;
+    data.dimension = @intFromEnum(self.dimension);
+    data.markDirty();
+}
+
 fn windowClick(self: *Session, gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
     const player = self.player orelse return;
     if (body.window_id != self.window_id) return;
 
     var window = self.currentWindow(level);
     if (window.count == 0) return;
+    try self.mintCraftedMap(level, &window);
 
     const outcome = window.click(
         body.slot,
@@ -1820,25 +1931,109 @@ fn sleepInBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: i32
     const player = self.player orelse return;
 
     var pillow: [3]i32 = .{ x, y, z };
-    if (!world.block.bedIsPillow(level.world_map.getBlockMetadata(x, y, z))) {
+    var metadata = level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
+    if (!world.block.bedIsPillow(metadata)) {
         pillow = world.block_update.bedPartner(&level.world_map, x, y, z) orelse return;
+        metadata = level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
     }
-    if (level.world_map.isDaytime()) return self.sendChat(gpa, "You can only sleep at night");
 
-    const at = player.base.position;
-    if (@abs(at.x - @as(f64, @floatFromInt(pillow[0]))) > bed_reach_x) return;
-    if (@abs(at.y - @as(f64, @floatFromInt(pillow[1]))) > bed_reach_y) return;
-    if (@abs(at.z - @as(f64, @floatFromInt(pillow[2]))) > bed_reach_x) return;
+    if (self.dimension == .nether) return self.blowUpBed(gpa, level, pillow, metadata);
 
-    level.world_map.skipToDawn();
-    player.spawn_point = pillow;
+    if (world.block.bedIsOccupied(metadata)) {
+        if (anySleeperIn(level, pillow)) return self.sendChat(gpa, bed_occupied_line);
+        try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], false);
+    }
+
+    switch (player.sleepInBedAt(&level.world_map, self.dimension, pillow[0], pillow[1], pillow[2])) {
+        .ok => try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], true),
+        .not_possible_now => try self.sendChat(gpa, bed_no_sleep_line),
+        else => {},
+    }
+}
+
+const bed_occupied_line = "This bed is occupied";
+const bed_no_sleep_line = "You can only sleep at night";
+const bed_blast_size: f32 = 5.0;
+const bed_blast_is_flaming = true;
+
+fn anySleeperIn(level: *game.Level, pillow: [3]i32) bool {
+    for (level.occupants.items) |occupant| {
+        if (occupant.player.sleeping and std.meta.eql(occupant.player.bed, pillow)) return true;
+    }
+    return false;
+}
+
+fn blowUpBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pillow: [3]i32, metadata: u4) !void {
+    _ = self;
+    var x = pillow[0];
+    var z = pillow[2];
+    try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+
+    const step = world.block.bedStep(world.block.bedFacing(metadata));
+    x += step[0];
+    z += step[1];
+    if (level.world_map.getBlock(x, pillow[1], z) == .bed) {
+        try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+    }
+
+    try game.explosion.detonate(
+        gpa,
+        &level.entities,
+        &level.world_map,
+        level.roster.items,
+        .{
+            .x = @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
+            .y = @as(f64, @as(f32, @floatFromInt(pillow[1])) + 0.5),
+            .z = @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
+        },
+        bed_blast_size,
+        bed_blast_is_flaming,
+        &level.world_map.rand,
+    );
+}
+
+pub fn sendSleep(self: *Session, gpa: std.mem.Allocator, id: game.Entity.Id, bed: [3]i32) !void {
+    if (self.state != .playing) return;
+    if (id != self.playerId() and !self.tracked.contains(id)) return;
+    try self.send(gpa, .{ .sleep = .{
+        .entity_id = @bitCast(id),
+        .state = net.packet.enter_bed_state,
+        .x = bed[0],
+        .y = @intCast(bed[1]),
+        .z = bed[2],
+    } });
+}
+
+pub fn sendWakeUp(self: *Session, gpa: std.mem.Allocator, id: game.Entity.Id) !void {
+    if (self.state != .playing) return;
+    if (id != self.playerId() and !self.tracked.contains(id)) return;
+    try self.send(gpa, .{ .animation = .{
+        .entity_id = @bitCast(id),
+        .animate = net.packet.wake_up_animation,
+    } });
+}
+
+fn playerId(self: *const Session) game.Entity.Id {
+    const player = self.player orelse return game.Entity.no_id;
+    return player.base.id;
+}
+
+pub const SleepChange = union(enum) { lay_down: [3]i32, wake_up };
+
+pub fn takeSleepChange(self: *Session) ?SleepChange {
+    const player = self.player orelse return null;
+    const bed = if (player.sleeping) player.bed else null;
+    if (std.meta.eql(bed, self.sent_bed)) return null;
+    self.sent_bed = bed;
+    if (bed) |spot| return .{ .lay_down = spot };
+    return .wake_up;
 }
 
 fn respawnPlacement(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !math.Vec3 {
     const player = self.player orelse return spawnPlacement(level);
 
     if (player.spawn_point) |bed| {
-        if (world.block_update.bedRespawnSpot(&level.world_map, bed[0], bed[1], bed[2])) |spot| {
+        if (world.block_update.bedRespawnSpot(&level.world_map, bed[0], bed[1], bed[2], 0)) |spot| {
             return .{
                 .x = @as(f64, @floatFromInt(spot[0])) + 0.5,
                 .y = @floatFromInt(spot[1]),

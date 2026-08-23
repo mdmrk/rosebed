@@ -234,6 +234,16 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         i(.ingot_iron), i(.ingot_iron), i(.ingot_iron),
     }, .{ .item = .minecart }, 1),
     shaped(3, 3, &.{
+        null,           i(.ingot_iron), null,
+        i(.ingot_iron), i(.redstone),   i(.ingot_iron),
+        null,           i(.ingot_iron), null,
+    }, .{ .item = .compass }, 1),
+    shaped(3, 3, &.{
+        i(.paper), i(.paper),   i(.paper),
+        i(.paper), i(.compass), i(.paper),
+        i(.paper), i(.paper),   i(.paper),
+    }, .{ .item = .map }, 1),
+    shaped(3, 3, &.{
         b(.block_gold), b(.block_gold), b(.block_gold),
         b(.block_gold), i(.apple),      b(.block_gold),
         b(.block_gold), b(.block_gold), b(.block_gold),

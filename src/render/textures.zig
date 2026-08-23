@@ -62,6 +62,8 @@ clouds: Atlas,
 rain: Atlas,
 snow: Atlas,
 water: Atlas,
+map_background: Atlas,
+map_icons: Atlas,
 
 const Wrap = enum { clamp, repeat };
 
@@ -135,6 +137,8 @@ fn resourceFor(comptime field: []const u8) Resource {
         .rain => repeated(assets.environment.rain_png),
         .snow => repeated(assets.environment.snow_png),
         .water => repeated(assets.misc.water_png),
+        .map_background => clamped(assets.misc.mapbg_png),
+        .map_icons => clamped(assets.misc.mapicons_png),
     };
 }
 

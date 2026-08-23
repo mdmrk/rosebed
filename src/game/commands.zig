@@ -126,6 +126,16 @@ pub const kill_line = "Ouch. That look like it hurt.";
 
 pub const no_sky_line = "There is no sky here to change.";
 
+pub const set_weather_line = "Set the weather to {s}";
+
+pub fn applyWeather(sky: *world.Weather, asked: Weather) void {
+    sky.raining = asked.sky != .clear;
+    sky.thundering = asked.sky == .thunder;
+
+    sky.rain_time = asked.duration orelse 0;
+    sky.thunder_time = asked.duration orelse 0;
+}
+
 fn tryParse(text: ?[]const u8, fallback: u8) u8 {
     const raw = std.fmt.parseInt(u32, text orelse return fallback, 10) catch return fallback;
     return @intCast(std.math.clamp(raw, 1, max_count));

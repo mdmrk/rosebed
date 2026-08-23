@@ -130,6 +130,10 @@ pub fn direction(id: Id) Direction {
 }
 
 pub const swing_animation: i8 = 1;
+pub const hurt_animation: i8 = 2;
+pub const wake_up_animation: i8 = 3;
+
+pub const enter_bed_state: i8 = 0;
 
 pub const max_username = 16;
 pub const max_handshake_name = 32;
@@ -255,7 +259,7 @@ pub const Packet = union(Id) {
     block_dig: struct { status: u8, x: i32, y: u8, z: i32, face: u8 },
     place: struct { x: i32, y: u8, z: i32, face: u8, held: ?Stack },
     block_item_switch: struct { slot: i16 },
-    sleep: struct { entity_id: i32, unused: i8, x: i32, y: i8, z: i32 },
+    sleep: struct { entity_id: i32, state: i8, x: i32, y: i8, z: i32 },
     animation: struct { entity_id: i32, animate: i8 },
     entity_action: struct { entity_id: i32, state: i8 },
     named_entity_spawn: struct {
@@ -800,7 +804,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .sleep => return .{ .sleep = .{
             .entity_id = try r.takeInt(i32, .big),
-            .unused = try r.takeInt(i8, .big),
+            .state = try r.takeInt(i8, .big),
             .x = try r.takeInt(i32, .big),
             .y = try r.takeInt(i8, .big),
             .z = try r.takeInt(i32, .big),
@@ -1148,7 +1152,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .sleep => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, body.unused, .big);
+            try w.writeInt(i8, body.state, .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(i8, body.y, .big);
             try w.writeInt(i32, body.z, .big);
@@ -1528,7 +1532,7 @@ const golden = [_]Golden{
     } } },
     .{ .hex = "110000000c00ffffffd8460000012c", .packet = .{ .sleep = .{
         .entity_id = 12,
-        .unused = 0,
+        .state = 0,
         .x = -40,
         .y = 70,
         .z = 300,

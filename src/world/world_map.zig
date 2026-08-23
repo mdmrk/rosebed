@@ -16,6 +16,7 @@ const JavaRandom = @import("java_random.zig");
 const jukebox = @import("jukebox.zig");
 const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
+const map = @import("map.zig");
 const nbt = @import("nbt.zig");
 const note = @import("note.zig");
 const piston = @import("piston.zig");
@@ -120,6 +121,8 @@ save_queue: std.ArrayList(ChunkCoord) = .empty,
 furnaces: std.AutoHashMapUnmanaged(BlockPos, furnace.Furnace) = .{},
 chests: std.AutoHashMapUnmanaged(BlockPos, chest.Chest) = .{},
 signs: std.AutoHashMapUnmanaged(BlockPos, sign.Sign) = .{},
+maps: std.AutoHashMapUnmanaged(i16, *map.MapData) = .{},
+next_map_id: ?i16 = null,
 jukeboxes: std.AutoHashMapUnmanaged(BlockPos, jukebox.Jukebox) = .{},
 notes: std.AutoHashMapUnmanaged(BlockPos, note.Note) = .{},
 dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
@@ -215,6 +218,12 @@ pub fn deinit(self: *World) void {
     self.furnaces.deinit(self.allocator);
     self.chests.deinit(self.allocator);
     self.signs.deinit(self.allocator);
+    var open_maps = self.maps.valueIterator();
+    while (open_maps.next()) |data| {
+        data.*.deinit(self.allocator);
+        self.allocator.destroy(data.*);
+    }
+    self.maps.deinit(self.allocator);
     self.jukeboxes.deinit(self.allocator);
     self.notes.deinit(self.allocator);
     self.strikes.deinit(self.allocator);
@@ -345,6 +354,94 @@ pub fn saveLoadedChunks(self: *World) !void {
     var it = self.chunks.keyIterator();
     while (it.next()) |coord| _ = try self.writeChunkAt(coord.*);
     self.save_queue.clearRetainingCapacity();
+}
+
+const map_data_prefix = "map_";
+
+fn mapFileName(buffer: []u8, id: i16) ![]const u8 {
+    return std.fmt.bufPrint(buffer, map_data_prefix ++ "{d}", .{id});
+}
+
+pub fn mapData(self: *World, id: i16) !*map.MapData {
+    if (self.maps.get(id)) |existing| return existing;
+
+    const data = try self.allocator.create(map.MapData);
+    errdefer self.allocator.destroy(data);
+    data.* = .{ .id = id };
+
+    if (self.persistence) |store| {
+        var name: [32]u8 = undefined;
+        if (save.readDataTag(self.allocator, store.io, store.handle.dir, try mapFileName(&name, id), true)) |root| {
+            var owned = root;
+            defer nbt.deinit(self.allocator, &owned);
+            if (owned == .compound) {
+                if (owned.compound.get("data")) |stored| {
+                    if (stored == .compound) map.readFromNbt(data, stored.compound);
+                }
+            }
+        } else |_| {}
+    }
+
+    try self.maps.put(self.allocator, id, data);
+    return data;
+}
+
+pub fn nextMapId(self: *World) !i16 {
+    if (self.next_map_id == null) {
+        self.next_map_id = 0;
+        if (self.persistence) |store| {
+            if (save.readDataTag(self.allocator, store.io, store.handle.dir, "idcounts", false)) |root| {
+                var owned = root;
+                defer nbt.deinit(self.allocator, &owned);
+                if (owned == .compound) {
+                    if (owned.compound.get("map")) |stored| {
+                        if (stored == .short) self.next_map_id = stored.short + 1;
+                    }
+                }
+            } else |_| {}
+        }
+    }
+
+    const claimed = self.next_map_id.?;
+    self.next_map_id = claimed + 1;
+
+    if (self.persistence) |store| {
+        var counts: nbt.Compound = .empty;
+        defer counts.deinit(self.allocator);
+        try nbt.putDuped(self.allocator, &counts, "map", .{ .short = claimed });
+        save.writeDataTag(self.allocator, store.io, store.handle.dir, "idcounts", .{ .compound = counts }, false) catch {};
+    }
+
+    return claimed;
+}
+
+pub fn saveDirtyMaps(self: *World) !void {
+    const store = self.persistence orelse return;
+
+    var it = self.maps.valueIterator();
+    while (it.next()) |entry| {
+        const data = entry.*;
+        if (!data.dirty) continue;
+
+        var body: nbt.Compound = .empty;
+        defer body.deinit(self.allocator);
+        try map.writeToNbt(data, self.allocator, &body);
+
+        var root: nbt.Compound = .empty;
+        defer root.deinit(self.allocator);
+        try nbt.putDuped(self.allocator, &root, "data", .{ .compound = body });
+
+        var name: [32]u8 = undefined;
+        save.writeDataTag(
+            self.allocator,
+            store.io,
+            store.handle.dir,
+            try mapFileName(&name, data.id),
+            .{ .compound = root },
+            true,
+        ) catch continue;
+        data.dirty = false;
+    }
 }
 
 pub fn beginSaveRound(self: *World) !void {

@@ -27,6 +27,7 @@ pub const hud = @import("hud.zig");
 pub const inventory_screen = @import("inventory_screen.zig");
 pub const lightning = @import("lightning.zig");
 pub const loading_screen = @import("loading_screen.zig");
+pub const map_render = @import("map_render.zig");
 pub const menu = @import("menu.zig");
 pub const MeshBuilder = @import("mesh_builder.zig");
 pub const mob_model = @import("mob_model.zig");

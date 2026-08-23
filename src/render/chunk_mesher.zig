@@ -838,6 +838,97 @@ pub fn buildBoxCube(
     }
 }
 
+const bed_seam_side = [4]world.Side{ .south, .west, .north, .east };
+const bed_opposite_direction = [4]u2{ 2, 3, 0, 1 };
+const bed_flipped_side = [4]world.Side{ .east, .south, .west, .north };
+
+const bed_top_uvs = [4][4][2]f32{
+    .{ .{ 1, 1 }, .{ 0, 1 }, .{ 0, 0 }, .{ 1, 0 } },
+    .{ .{ 0, 1 }, .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 } },
+    .{ .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 } },
+    .{ .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 }, .{ 0, 0 } },
+};
+
+const bed_bottom_uvs = [4][2]f32{ .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 }, .{ 0, 0 } };
+
+fn tileUvs(tile: u8, fractions: [4][2]f32) [4][2]f32 {
+    const uv = Atlas.tileUv(tile);
+    var uvs: [4][2]f32 = undefined;
+    for (fractions, 0..) |fraction, i| {
+        uvs[i] = .{
+            uv.u0 + fraction[0] * (uv.u1 - uv.u0),
+            uv.v0 + fraction[1] * (uv.v1 - uv.v0),
+        };
+    }
+    return uvs;
+}
+
+fn buildBed(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    id: world.Block,
+    metadata: u4,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const bounds = world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, world.block.bed_height, 1 } };
+    const textures = texturesFor(options, world.block.bedTextures(metadata));
+    const facing = world.block.bedFacing(metadata);
+    const seam = if (world.block.bedIsPillow(metadata))
+        bed_seam_side[bed_opposite_direction[facing]]
+    else
+        bed_seam_side[facing];
+
+    const emitted = world.light.emission(id);
+    const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
+
+    for (faces) |face| {
+        const tile = textures.get(face.side);
+
+        if (face.side == .down) {
+            var legs = bounds;
+            legs.min[1] = world.block.bed_leg_height;
+            const quad = boxFaceQuad(legs, origin, face, tile, .{});
+            try mesh.quad(gpa, quad.positions, tileUvs(tile, bed_bottom_uvs), shadeColor(face.shade * own_brightness, Colorizer.white));
+            continue;
+        }
+
+        if (face.side == .up) {
+            const quad = boxFaceQuad(bounds, origin, face, tile, .{});
+            const brightness = world.light.brightnessAt(world_map, x, y + 1, z, emitted);
+            try mesh.quad(gpa, quad.positions, tileUvs(tile, bed_top_uvs[facing]), shadeColor(face.shade * brightness, Colorizer.white));
+            continue;
+        }
+
+        if (face.side == seam) continue;
+
+        const nx = x + face.normal[0];
+        const ny = y + face.normal[1];
+        const nz = z + face.normal[2];
+        if (!showsFace(options, world_map, id, nx, ny, nz, face.side)) continue;
+
+        const turn = world.block.TileTurn{ .mirrored = face.side == bed_flipped_side[facing] };
+        const quad = boxFaceQuad(bounds, origin, face, tile, turn);
+
+        if (options.smooth) {
+            const corner_brightness = smoothBrightness(world_map, face, x, y, z, emitted);
+            var colors: [4][4]u8 = undefined;
+            for (corner_brightness, 0..) |brightness, i| {
+                colors[i] = shadeColor(face.shade * brightness, Colorizer.white);
+            }
+            try mesh.quadShaded(gpa, quad.positions, quad.uvs, colors);
+            continue;
+        }
+
+        const brightness = world.light.brightnessAt(world_map, nx, ny, nz, emitted);
+        try mesh.quad(gpa, quad.positions, quad.uvs, shadeColor(face.shade * brightness, Colorizer.white));
+    }
+}
+
 fn buildDoor(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -1332,12 +1423,7 @@ pub fn buildBlockAt(
     }
 
     if (id.shape() == .bed) {
-        const bounds = world.block.Bounds{
-            .min = .{ 0, world.block.bed_leg_height, 0 },
-            .max = .{ 1, world.block.bed_height, 1 },
-        };
-        const textures = world.block.bedTextures(metadata);
-        try buildBoundedBox(target, gpa, world_map, id, bounds, textures, x, y, z, origin, options);
+        try buildBed(target, gpa, world_map, id, metadata, x, y, z, origin, options);
         return;
     }
 
@@ -3227,4 +3313,83 @@ test "a lit portal meshes as one seamless sheet, not a stack of boxes" {
     const portal_blocks = 6;
     const faces_per_block = 2;
     try std.testing.expectEqual(@as(usize, portal_blocks * faces_per_block * 4), portal_quads);
+}
+
+fn bedMesh(gpa: std.mem.Allocator, facing: u2, pillow: bool) !MeshBuilder {
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+
+    const metadata: u4 = @as(u4, facing) | (if (pillow) world.block.bed_pillow_bit else 0);
+    const step = world.block.bedStep(facing);
+    world_map.setBlock(8, 64, 8, .bed);
+    world_map.setBlockMetadata(8, 64, 8, metadata);
+    world_map.setBlock(8 + step[0], 64, 8 + step[1], .bed);
+    world_map.setBlockMetadata(8 + step[0], 64, 8 + step[1], @as(u4, facing) | world.block.bed_pillow_bit);
+    try world.light.relightChunk(gpa, &world_map, 0, 0);
+
+    var mesh: MeshBuilder = .{};
+    errdefer mesh.deinit(gpa);
+    try buildBed(&mesh, gpa, &world_map, .bed, metadata, 8, 64, 8, .{ 8, 64, 8 }, .{});
+    return mesh;
+}
+
+test "the bed skips the face it shares with its other half" {
+    const gpa = std.testing.allocator;
+
+    for ([4]u2{ 0, 1, 2, 3 }) |facing| {
+        var head = try bedMesh(gpa, facing, false);
+        defer head.deinit(gpa);
+        try std.testing.expectEqual(@as(usize, 5 * 4), head.vertices.items.len);
+
+        var foot = try bedMesh(gpa, facing, true);
+        defer foot.deinit(gpa);
+        try std.testing.expectEqual(@as(usize, 5 * 4), foot.vertices.items.len);
+    }
+}
+
+test "the bed's sides run the full block height and only its underside sits on the legs" {
+    const gpa = std.testing.allocator;
+    var mesh = try bedMesh(gpa, 0, false);
+    defer mesh.deinit(gpa);
+
+    var lowest: f32 = 1.0;
+    var highest: f32 = 0.0;
+    var underside: usize = 0;
+    for (mesh.vertices.items) |vertex| {
+        const height = vertex.y - 64.0;
+        lowest = @min(lowest, height);
+        highest = @max(highest, height);
+        if (@abs(height - world.block.bed_leg_height) < 1.0e-5) underside += 1;
+    }
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lowest, 1.0e-5);
+    try std.testing.expectApproxEqAbs(world.block.bed_height, highest, 1.0e-5);
+    try std.testing.expectEqual(@as(usize, 4), underside);
+}
+
+test "the bed's top texture turns a quarter for every step of its facing" {
+    const gpa = std.testing.allocator;
+
+    var seen: [4][4][2]f32 = undefined;
+    for ([4]u2{ 0, 1, 2, 3 }, 0..) |facing, index| {
+        var mesh = try bedMesh(gpa, facing, false);
+        defer mesh.deinit(gpa);
+
+        var found = false;
+        for (mesh.vertices.items, 0..) |vertex, at| {
+            if (@abs(vertex.y - 64.0 - world.block.bed_height) > 1.0e-5) continue;
+            for (0..4) |corner| {
+                seen[index][corner] = .{ mesh.vertices.items[at + corner].u, mesh.vertices.items[at + corner].v };
+            }
+            found = true;
+            break;
+        }
+        try std.testing.expect(found);
+    }
+
+    for (0..4) |first| {
+        for (first + 1..4) |second| {
+            try std.testing.expect(!std.mem.eql(u8, std.mem.asBytes(&seen[first]), std.mem.asBytes(&seen[second])));
+        }
+    }
 }

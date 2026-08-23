@@ -357,6 +357,7 @@ pub fn appendSheepFur(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *co
 }
 
 pub const player_scale: f32 = 15.0 / 16.0;
+const sleep_corpse_rotation: f32 = std.math.pi / 2.0;
 
 const all_biped_parts_shown: [mob_model.biped.parts.len]bool = @splat(true);
 
@@ -406,9 +407,19 @@ fn appendBiped(
         .sneaking = player.base.sneaking,
     });
 
+    const asleep = player.sleeping and !player.isDead();
     const pose: mob_model.Pose = .{
-        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
-        .yaw = player.renderYaw(partial_ticks) * to_radians,
+        .position = .{
+            @as(f32, @floatCast(pos.x)) + if (asleep) player.bed_offset[0] else 0,
+            @floatCast(pos.y),
+            @as(f32, @floatCast(pos.z)) + if (asleep) player.bed_offset[1] else 0,
+        },
+        .yaw = if (asleep)
+            -player.bedOrientationDegrees(world_map) * to_radians
+        else
+            player.renderYaw(partial_ticks) * to_radians,
+        .roll = if (asleep) sleep_corpse_rotation else 0,
+        .spin = if (asleep) sleep_corpse_rotation else 0,
         .scale = @splat(player_scale),
     };
 
@@ -2856,5 +2867,61 @@ pub fn appendFishLine(
             line_color,
         );
         previous = next;
+    }
+}
+
+fn sleepingHeadOffset(world_map: *const world.World, gpa: std.mem.Allocator, player: game.Player) ![3]f32 {
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendPlayer(&mesh, gpa, world_map, player, false, 0.0);
+
+    var far: [3]f32 = .{ 0, 0, 0 };
+    var reach: f32 = -1.0;
+    const at = player.base.renderPosition(0.0);
+    for (mesh.vertices.items) |vertex| {
+        const dx = vertex.x - @as(f32, @floatCast(at.x)) - player.bed_offset[0];
+        const dy = vertex.y - @as(f32, @floatCast(at.y));
+        const dz = vertex.z - @as(f32, @floatCast(at.z)) - player.bed_offset[1];
+        const span = dx * dx + dy * dy + dz * dz;
+        if (span > reach) {
+            reach = span;
+            far = .{ dx, dy, dz };
+        }
+    }
+    return far;
+}
+
+test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
+    const gpa = std.testing.allocator;
+
+    // BlockBed.headBlockToFootBlockMap, and the world axis the body should run down.
+    const lying = [4][3]f32{
+        .{ 0, 0, 1 },
+        .{ -1, 0, 0 },
+        .{ 0, 0, -1 },
+        .{ 1, 0, 0 },
+    };
+
+    for ([4]u2{ 0, 1, 2, 3 }, lying) |facing, along| {
+        var world_map = try world.testing.flatWorld(gpa, 64);
+        defer world_map.deinit();
+
+        const step = world.block.bedStep(facing);
+        world_map.setBlock(8, 64, 8, .bed);
+        world_map.setBlockMetadata(8, 64, 8, @as(u4, facing) | world.block.bed_pillow_bit);
+        world_map.setBlock(8 - step[0], 64, 8 - step[1], .bed);
+        world_map.setBlockMetadata(8 - step[0], 64, 8 - step[1], facing);
+
+        var player = game.Player.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 });
+        player.layInBed(&world_map, 8, 64, 8);
+        player.base.prev_position = player.base.position;
+
+        const reach = try sleepingHeadOffset(&world_map, gpa, player);
+        const length = @sqrt(reach[0] * reach[0] + reach[1] * reach[1] + reach[2] * reach[2]);
+        try std.testing.expect(length > 0.5);
+
+        // The body must run flat along the bed, not stand up out of it.
+        try std.testing.expect(@abs(reach[1]) < 0.5);
+        try std.testing.expect(reach[0] / length * along[0] + reach[2] / length * along[2] > 0.8);
     }
 }

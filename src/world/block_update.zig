@@ -319,10 +319,16 @@ pub fn bedPartner(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
     return if (world_map.getBlock(other[0], other[1], other[2]) == .bed) other else null;
 }
 
-pub fn bedRespawnSpot(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
+pub fn setBedOccupied(world_map: *World, x: i32, y: i32, z: i32, occupied: bool) !void {
+    const metadata = world_map.getBlockMetadata(x, y, z);
+    try world_map.setBlockMetadataWithNotify(x, y, z, block.bedOccupied(metadata, occupied));
+}
+
+pub fn bedRespawnSpot(world_map: *const World, x: i32, y: i32, z: i32, skip: i32) ?[3]i32 {
     if (world_map.getBlock(x, y, z) != .bed) return null;
 
     const step = block.bedStep(block.bedFacing(world_map.getBlockMetadata(x, y, z)));
+    var remaining = skip;
 
     var ring: i32 = 0;
     while (ring <= 1) : (ring += 1) {
@@ -337,7 +343,8 @@ pub fn bedRespawnSpot(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
                     world_map.getBlock(sx, y, sz) == .air and
                     world_map.getBlock(sx, y + 1, sz) == .air)
                 {
-                    return .{ sx, y, sz };
+                    if (remaining <= 0) return .{ sx, y, sz };
+                    remaining -= 1;
                 }
             }
         }
@@ -1150,7 +1157,7 @@ test "a respawn spot is found beside the bed, on solid ground with headroom" {
     try w.setBlockMetadataWithNotify(8, 2, 8, block.bed_pillow_bit);
     try w.setBlockWithNotify(8, 2, 7, .bed);
 
-    const spot = bedRespawnSpot(&w, 8, 2, 8).?;
+    const spot = bedRespawnSpot(&w, 8, 2, 8, 0).?;
     try std.testing.expectEqual(@as(i32, 2), spot[1]);
     try std.testing.expect(@abs(spot[0] - 8) <= 1);
     try std.testing.expect(w.getBlock(spot[0], spot[1], spot[2]) == .air);
@@ -1161,7 +1168,7 @@ test "a bed that is gone offers no respawn spot" {
     var w = try testing_world.flatWorld(std.testing.allocator, 2);
     defer w.deinit();
 
-    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8));
+    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8, 0));
 }
 
 test "a bed walled in on every side offers no respawn spot" {
@@ -1181,7 +1188,7 @@ test "a bed walled in on every side offers no respawn spot" {
         }
     }
 
-    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8));
+    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, 8, 2, 8, 0));
 }
 
 test "a sign post falls when the ground under it goes" {

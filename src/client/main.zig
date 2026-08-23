@@ -72,6 +72,7 @@ const AppState = struct {
     gl_context: sdl3.video.gl.Context,
     gl_procs: gl.ProcTable,
     textures: render.Textures,
+    map_surface: render.map_render.Surface,
     texture_fx: render.TextureFx,
     sound: ?audio.Manager = null,
     colorizer: render.Colorizer,
@@ -406,6 +407,7 @@ pub fn init(
         .gl_context = gl_context,
         .gl_procs = undefined,
         .textures = undefined,
+        .map_surface = undefined,
         .texture_fx = .init(@bitCast(sdl3.timer.getNanosecondsSinceInit())),
         .colorizer = undefined,
         .sky = undefined,
@@ -431,6 +433,7 @@ pub fn init(
     app_state.splash = pickSplash(&app_state.level.world_map.rand);
 
     app_state.textures = try render.Textures.load(gpa, null);
+    app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
 
     app_state.colorizer = try render.Colorizer.load(gpa);
@@ -906,8 +909,24 @@ fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type:
     }
 }
 
+fn stampCraftedMap(app_state: *AppState, stack: *game.Inventory.ItemStack) !void {
+    if (app_state.link != null) return;
+    if (!stack.id.eql(.{ .item = .map })) return;
+
+    const id = try app_state.level.world_map.nextMapId();
+    stack.meta = @bitCast(id);
+
+    const data = try app_state.level.world_map.mapData(id);
+    data.center_x = math.util.floorDouble(app_state.player.base.position.x);
+    data.center_z = math.util.floorDouble(app_state.player.base.position.z);
+    data.scale = world.map.default_scale;
+    data.dimension = @intFromEnum(app_state.dimension);
+    data.markDirty();
+}
+
 fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size: u8) !void {
-    const result = game.crafting.findMatch(grid, size) orelse return;
+    var result = game.crafting.findMatch(grid, size) orelse return;
+    try stampCraftedMap(app_state, &result);
     if (app_state.held_stack) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return;
         if (@as(u16, held.count) + result.count > result.id.maxStackSize()) return;
@@ -990,7 +1009,8 @@ fn quickMove(
 
     switch (slots[from].kind) {
         .craft_result => {
-            const result = game.crafting.findMatch(grid, size) orelse return;
+            var result = game.crafting.findMatch(grid, size) orelse return;
+            try stampCraftedMap(app_state, &result);
             var moving = result;
             game.Inventory.mergeStack(targets[0..count], &moving);
             if (moving.count == result.count) return;
@@ -1341,7 +1361,7 @@ fn respawnPlayer(app_state: *AppState) !void {
     }
 
     if (app_state.player.spawn_point) |bed| {
-        if (world.block_update.bedRespawnSpot(&app_state.level.world_map, bed[0], bed[1], bed[2])) |spot| {
+        if (world.block_update.bedRespawnSpot(&app_state.level.world_map, bed[0], bed[1], bed[2], 0)) |spot| {
             app_state.player.respawn(spawnPlacement(&app_state.level.world_map, spot));
             app_state.dead = false;
             app_state.level.setOccupantActive(true);
@@ -1420,14 +1440,6 @@ fn lookedAtPosition(app_state: *AppState) math.Vec3 {
     );
 }
 
-fn setWeather(sky: *world.Weather, asked: game.commands.Weather) void {
-    sky.raining = asked.sky != .clear;
-    sky.thundering = asked.sky == .thunder;
-
-    sky.rain_time = asked.duration orelse 0;
-    sky.thunder_time = asked.duration orelse 0;
-}
-
 fn runCommand(app_state: *AppState, line: []const u8) !void {
     switch (game.commands.parse(line)) {
         .nothing => {},
@@ -1499,12 +1511,13 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             player.tp(.{ .x = tp.x, .y = tp.y, .z = tp.z });
         },
         .weather => |asked| {
+            if (app_state.link) |link| return link.connection.say(app_state.gpa, line);
             if (!app_state.dimension.hasSky()) {
                 reply(app_state, "{s}", .{game.commands.no_sky_line});
                 return;
             }
-            setWeather(&app_state.level.world_map.weather, asked);
-            reply(app_state, "Set the weather to {s}", .{@tagName(asked.sky)});
+            game.commands.applyWeather(&app_state.level.world_map.weather, asked);
+            reply(app_state, game.commands.set_weather_line, .{@tagName(asked.sky)});
         },
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
@@ -1723,6 +1736,8 @@ fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.Inventor
         .hurt_time = @intCast(app_state.player.hurt_time),
         .death_time = @intCast(app_state.player.death_time),
         .spawn = app_state.player.spawn_point,
+        .sleeping = app_state.player.sleeping,
+        .sleep_timer = @intCast(app_state.player.sleep_timer),
         .inventory = entries.items,
     };
 }
@@ -1754,12 +1769,23 @@ fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
     app_state.player.hurt_time = state.hurt_time;
     app_state.player.death_time = state.death_time;
     app_state.player.spawn_point = state.spawn;
+    app_state.player.sleep_timer = state.sleep_timer;
+    if (state.sleeping) {
+        app_state.player.sleeping = true;
+        app_state.player.wake_pending = true;
+        app_state.player.bed = .{
+            math.util.floorDouble(app_state.player.base.position.x),
+            math.util.floorDouble(app_state.player.anchorY()),
+            math.util.floorDouble(app_state.player.base.position.z),
+        };
+    }
 
     app_state.player.inventory.loadSaveEntries(state.inventory);
 }
 
 fn saveWorld(app_state: *AppState) !void {
     if (app_state.save_handle == null) return;
+    try app_state.level.world_map.saveDirtyMaps();
     try app_state.level.world_map.saveLoadedChunks();
     try saveLevel(app_state);
     persist();
@@ -2445,27 +2471,66 @@ fn hangPaintingAtTarget(app_state: *AppState) !bool {
 }
 
 const bed_not_valid_line = "Your home bed was missing or obstructed";
-const bed_reach_x: f64 = 3.0;
-const bed_reach_y: f64 = 2.0;
+const bed_occupied_line = "This bed is occupied";
+const bed_no_sleep_line = "You can only sleep at night";
+const bed_blast_size: f32 = 5.0;
+const bed_blast_is_flaming = true;
 
 fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     var pillow: [3]i32 = .{ x, y, z };
-    if (!world.block.bedIsPillow(app_state.level.world_map.getBlockMetadata(x, y, z))) {
+    var metadata = app_state.level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
+    if (!world.block.bedIsPillow(metadata)) {
         pillow = world.block_update.bedPartner(&app_state.level.world_map, x, y, z) orelse return;
+        metadata = app_state.level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
     }
 
-    if (app_state.level.world_map.isDaytime()) {
-        app_state.chat.addMessage(app_state.font, "You can only sleep at night");
-        return;
+    if (app_state.dimension == .nether) return blowUpBed(app_state, pillow, metadata);
+
+    if (world.block.bedIsOccupied(metadata)) {
+        if (app_state.player.sleeping and std.meta.eql(app_state.player.bed, pillow)) {
+            app_state.chat.addMessage(app_state.font, bed_occupied_line);
+            return;
+        }
+        try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], false);
     }
 
-    const position = app_state.player.base.position;
-    if (@abs(position.x - @as(f64, @floatFromInt(pillow[0]))) > bed_reach_x) return;
-    if (@abs(position.y - @as(f64, @floatFromInt(pillow[1]))) > bed_reach_y) return;
-    if (@abs(position.z - @as(f64, @floatFromInt(pillow[2]))) > bed_reach_x) return;
+    switch (app_state.player.sleepInBedAt(&app_state.level.world_map, app_state.dimension, pillow[0], pillow[1], pillow[2])) {
+        .ok => {
+            try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], true);
+            try applyBlockChanges(app_state);
+        },
+        .not_possible_now => app_state.chat.addMessage(app_state.font, bed_no_sleep_line),
+        else => {},
+    }
+}
 
-    app_state.level.world_map.skipToDawn();
-    app_state.player.spawn_point = pillow;
+fn blowUpBed(app_state: *AppState, pillow: [3]i32, metadata: u4) !void {
+    var x = pillow[0];
+    var z = pillow[2];
+    try app_state.level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+
+    const step = world.block.bedStep(world.block.bedFacing(metadata));
+    x += step[0];
+    z += step[1];
+    if (app_state.level.world_map.getBlock(x, pillow[1], z) == .bed) {
+        try app_state.level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+    }
+
+    try game.explosion.detonate(
+        app_state.gpa,
+        &app_state.level.entities,
+        &app_state.level.world_map,
+        app_state.level.roster.items,
+        .{
+            .x = @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
+            .y = @as(f64, @as(f32, @floatFromInt(pillow[1])) + 0.5),
+            .z = @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
+        },
+        bed_blast_size,
+        bed_blast_is_flaming,
+        &app_state.level.world_map.rand,
+    );
+    try applyBlockChanges(app_state);
 }
 
 fn useHeldItem(app_state: *AppState) !void {
@@ -3184,13 +3249,63 @@ fn leaveServer(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn tickSleep(app_state: *AppState) !void {
+    app_state.player.tickSleep();
+    if (app_state.link != null) return;
+    if (!app_state.player.sleeping) return;
+
+    if (app_state.player.wake_pending) {
+        app_state.player.wake_pending = false;
+        try app_state.player.wakeUp(&app_state.level.world_map, true, false);
+    } else if (!app_state.player.isInBed(&app_state.level.world_map)) {
+        try app_state.player.wakeUp(&app_state.level.world_map, true, false);
+    } else if (app_state.level.world_map.isDaytime()) {
+        try app_state.player.wakeUp(&app_state.level.world_map, false, true);
+    } else return;
+
+    try applyBlockChanges(app_state);
+}
+
+fn heldMapData(app_state: *AppState, stack: game.Inventory.ItemStack) !?*world.map.MapData {
+    if (!stack.id.eql(.{ .item = .map })) return null;
+    return try app_state.level.world_map.mapData(@bitCast(stack.meta));
+}
+
+fn tickCarriedMaps(app_state: *AppState) !void {
+    if (app_state.link != null) return;
+
+    const viewers = [_]world.map.ViewerState{.{
+        .id = app_state.player.base.id,
+        .x = app_state.player.base.position.x,
+        .z = app_state.player.base.position.z,
+        .dimension = @intFromEnum(app_state.dimension),
+        .alive = !app_state.player.isDead(),
+        .holding = true,
+    }};
+
+    for (app_state.player.inventory.slots, 0..) |carried, slot| {
+        const stack = carried orelse continue;
+        const data = try heldMapData(app_state, stack) orelse continue;
+        try data.updateMarkers(app_state.gpa, app_state.player.yaw, &viewers);
+        if (slot != app_state.player.inventory.selected) continue;
+        data.updateColors(
+            &app_state.level.world_map,
+            @intFromEnum(app_state.dimension),
+            app_state.dimension.hasSky(),
+            app_state.player.base.position.x,
+            app_state.player.base.position.z,
+        );
+    }
+}
+
 fn tick(app_state: *AppState) !void {
     stepFogBrightness(app_state);
     if (app_state.sound) |*sound| sound.playRandomMusicIfReady() catch {};
     app_state.chat.tick();
     if (app_state.sign_edit) |*open| open.tick();
 
-    const moving_allowed = !containerOpen(app_state) and !app_state.dead;
+    try tickSleep(app_state);
+    const moving_allowed = !containerOpen(app_state) and !app_state.dead and !app_state.player.isMovementBlocked();
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
@@ -3226,6 +3341,7 @@ fn tick(app_state: *AppState) !void {
         app_state.last_held_swing_tick = app_state.level.tick_count;
     }
     app_state.player.tickSwing();
+    try tickCarriedMaps(app_state);
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
 
@@ -3255,6 +3371,7 @@ fn tick(app_state: *AppState) !void {
     app_state.ticks_since_save += 1;
     if (app_state.ticks_since_save >= autosave_interval_ticks) {
         app_state.ticks_since_save = 0;
+        try app_state.level.world_map.saveDirtyMaps();
         try saveLevel(app_state);
         try app_state.level.world_map.beginSaveRound();
         _ = try app_state.level.world_map.saveQueuedChunks(save_chunks_per_pass);
@@ -3580,7 +3697,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const proj = math.Mat4.perspective(fov, aspect, near_plane, far_plane);
     const partial = app_state.timer.render_partial_ticks;
     const eye_view = app_state.player.viewMatrix(partial);
-    const camera = if (app_state.third_person) pulled: {
+    const camera = if (app_state.player.sleeping)
+        app_state.player.sleepViewMatrix(&app_state.level.world_map, partial)
+    else if (app_state.third_person) pulled: {
         const distance = app_state.player.thirdPersonDistance(&app_state.level.world_map, partial);
         break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
     } else eye_view;
@@ -3966,7 +4085,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
 
     try drawPeers(app_state, partial);
-    if (app_state.third_person) try drawPlayer(app_state, partial);
+    if (app_state.third_person or app_state.player.sleeping) try drawPlayer(app_state, partial);
     try drawFishLines(app_state, partial);
 
     try drawSelectionOutline(app_state);
@@ -3983,7 +4102,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     try drawLightning(app_state, view_proj);
     try drawWeather(app_state, view_proj, partial);
     try drawClouds(app_state, proj, partial);
-    if (!app_state.third_person) {
+    if (!app_state.third_person and !app_state.player.sleeping) {
         try drawHeldItem(app_state, proj, partial);
         if (app_state.player.fire > 0) try drawFireOverlay(app_state, proj);
     }
@@ -4068,6 +4187,90 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
     app_state.textures.terrain.bind();
 }
 
+fn drawMapPass(mesh: *render.MeshBuilder, texture: anytype) void {
+    if (mesh.vertices.items.len == 0) return;
+    texture.bind();
+    var gpu = render.GpuMesh.upload(mesh);
+    defer gpu.deinit();
+    gpu.draw();
+}
+
+fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.Inventory.ItemStack) !void {
+    const data = try app_state.level.world_map.mapData(@bitCast(stack.meta));
+
+    const bob = if (app_state.settings.view_bobbing)
+        app_state.player.bobMatrix(partial)
+    else
+        math.Mat4.identity;
+    const swing = app_state.player.swingProgress(partial);
+    const equipped = app_state.equip.interpolated(partial);
+    const pitch = app_state.player.prev_pitch + (app_state.player.pitch - app_state.player.prev_pitch) * partial;
+
+    const feet = app_state.player.base.position;
+    const brightness = world.light.brightnessAt(
+        &app_state.level.world_map,
+        math.util.floorDouble(feet.x),
+        math.util.floorDouble(feet.y),
+        math.util.floorDouble(feet.z),
+        0,
+    );
+
+    const base = proj
+        .mul(app_state.player.hurtMatrix(partial))
+        .mul(bob)
+        .mul(render.map_render.baseMatrix(swing, equipped, pitch));
+
+    gl.Clear(gl.DEPTH_BUFFER_BIT);
+    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
+    app_state.shader.setInt("u_fog_enabled", 0);
+    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setVec4("u_tint", .{ brightness, brightness, brightness, 1 });
+    gl.ActiveTexture(gl.TEXTURE0);
+    app_state.shader.setInt("u_atlas", 0);
+
+    for (render.map_render.arm_sides) |side| {
+        var arm: render.MeshBuilder = .{};
+        defer arm.deinit(app_state.frame);
+        try render.held_item.appendArm(&arm, app_state.frame, 1.0);
+        app_state.shader.setMat4("u_view_proj", base.mul(render.map_render.armMatrix(side)).m);
+        drawMapPass(&arm, app_state.textures.char);
+    }
+
+    const transform = base.mul(render.map_render.boardMatrix(swing));
+    app_state.shader.setMat4("u_view_proj", transform.m);
+    gl.Disable(gl.CULL_FACE);
+
+    var background: render.MeshBuilder = .{};
+    defer background.deinit(app_state.frame);
+    try render.map_render.appendBackground(&background, app_state.frame);
+    drawMapPass(&background, app_state.textures.map_background);
+
+    app_state.map_surface.upload(&data.colors);
+    var face: render.MeshBuilder = .{};
+    defer face.deinit(app_state.frame);
+    try render.map_render.appendFace(&face, app_state.frame);
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    app_state.shader.setInt("u_alpha_test", 0);
+    drawMapPass(&face, app_state.map_surface);
+    app_state.shader.setInt("u_alpha_test", 1);
+    gl.Disable(gl.BLEND);
+
+    var markers: render.MeshBuilder = .{};
+    defer markers.deinit(app_state.frame);
+    try render.map_render.appendMarkers(&markers, app_state.frame, data.markers.items);
+    drawMapPass(&markers, app_state.textures.map_icons);
+
+    var label: render.MeshBuilder = .{};
+    defer label.deinit(app_state.frame);
+    var name: [16]u8 = undefined;
+    try render.map_render.appendLabel(&label, app_state.frame, app_state.font, render.map_render.labelText(&name, data.id));
+    drawMapPass(&label, app_state.font);
+
+    app_state.textures.terrain.bind();
+}
+
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const feet = app_state.player.base.position;
     const brightness = world.light.brightnessAt(
@@ -4087,6 +4290,9 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         math.Mat4.identity;
     const swing = app_state.player.swingProgress(partial);
     const equipped = app_state.equip.interpolated(partial);
+    if (app_state.equip.shown) |shown| {
+        if (shown.id.eql(.{ .item = .map })) return drawHeldMap(app_state, proj, partial, shown);
+    }
     const shape = render.held_item.heldShape(app_state.equip.shown);
 
     var transform = proj.mul(app_state.player.hurtMatrix(partial)).mul(bob);
@@ -4217,9 +4423,9 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
     const rotation = if (app_state.settings.view_bobbing)
-        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
-        hurt.mul(warp).mul(app_state.player.viewRotation());
+        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map));
 
     const ticks: f64 = @floatFromInt(app_state.cloud_offset);
     try render.SkyRenderer.drawClouds(.{
@@ -4262,9 +4468,9 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
     const rotation = if (app_state.settings.view_bobbing)
-        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.viewRotation())
+        hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
-        hurt.mul(warp).mul(app_state.player.viewRotation());
+        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map));
 
     try app_state.sky.draw(.{
         .shader = app_state.shader,
@@ -4460,7 +4666,7 @@ pub fn iterate(
     const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
 
     if (app_state.screen == .playing) {
-        if (cameraSubmerged(app_state)) {
+        if (cameraSubmerged(app_state) and !app_state.player.sleeping) {
             const sample = app_state.player.base.lightSamplePosition();
             try render.underwater.draw(
                 app_state.frame,

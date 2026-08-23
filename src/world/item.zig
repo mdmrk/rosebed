@@ -361,6 +361,7 @@ pub const Item = enum(u16) {
     cake = 354,
     bed = 355,
     repeater = 356,
+    map = 358,
     shears = 359,
     record_13 = 2256,
     record_cat = 2257,
@@ -487,6 +488,7 @@ pub const Item = enum(u16) {
 
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
+        if (self == .map) return 1;
         if (self == .boat or self == .saddle) return 1;
         if (self.vanillaMinecartKind() != null) return 1;
         if (self.vanillaBucketFill() != null) return 1;
@@ -707,6 +709,7 @@ pub const Item = enum(u16) {
             .sugar => 13,
             .cake => 1 * 16 + 13,
             .bed => 2 * 16 + 13,
+            .map => 3 * 16 + 12,
             .shears => 5 * 16 + 13,
             .record_13 => 15 * 16 + 0,
             .record_cat => 15 * 16 + 1,
@@ -824,6 +827,7 @@ pub const Item = enum(u16) {
             .sugar => "Sugar",
             .cake => "Cake",
             .bed => "Bed",
+            .map => "Map",
             .shears => "Shears",
             .record_13, .record_cat => "Music Disc",
             .flint_and_steel => "Flint and Steel",

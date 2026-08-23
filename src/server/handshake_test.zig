@@ -712,6 +712,37 @@ test "a slash command is kept off the wire's broadcast" {
     try std.testing.expectEqual(@as(usize, 0), heard.len);
 }
 
+test "the weather command turns the sky the server keeps" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    for ([_]*Trio.Side{ &trio.a, &trio.b }) |side| {
+        const drained = try side.connection.takeChat(gpa);
+        gpa.free(drained);
+    }
+
+    try trio.a.connection.say(gpa, "/weather thunder");
+    try trio.settle(2);
+
+    try std.testing.expect(trio.level.world_map.weather.raining);
+    try std.testing.expect(trio.level.world_map.weather.thundering);
+
+    for ([_]*Trio.Side{ &trio.a, &trio.b }) |side| {
+        try side.session.sendRainState(gpa, trio.level.world_map.weather.raining);
+    }
+    try trio.settle(1);
+
+    try std.testing.expect(trio.b.level.world_map.weather.raining);
+
+    const heard = try trio.a.connection.takeChat(gpa);
+    defer gpa.free(heard);
+    try std.testing.expectEqual(@as(usize, 1), heard.len);
+    try std.testing.expectEqualStrings("Set the weather to thunder", heard[0].text());
+}
+
 test "chat that breaks the rules disconnects the talker" {
     const gpa = std.testing.allocator;
     var trio = try Trio.init(gpa);

@@ -285,6 +285,7 @@ fn saveWorld(server: *Server, name: []const u8) !void {
     try home.handle.writeLevel(server.gpa, server.io, info);
 
     for (&server.dims) |*dim| {
+        try dim.level.world_map.saveDirtyMaps();
         try dim.level.world_map.beginSaveRound();
         while (try dim.level.world_map.saveQueuedChunks(save_chunks_per_pass) > 0) {}
     }
@@ -304,6 +305,18 @@ fn broadcastSwing(server: *Server, from: *Connection) void {
         if (connection.session.dimension != from.session.dimension) continue;
         connection.session.sendSwing(server.gpa, player.base.id) catch {};
     }
+}
+
+fn broadcastSleep(server: *Server, from: *Connection, change: Session.SleepChange) void {
+    const player = from.session.player orelse return;
+    for (server.connections.items) |connection| {
+        if (connection.session.dimension != from.session.dimension) continue;
+        switch (change) {
+            .lay_down => |bed| connection.session.sendSleep(server.gpa, player.base.id, bed) catch {},
+            .wake_up => connection.session.sendWakeUp(server.gpa, player.base.id) catch {},
+        }
+    }
+    if (change == .wake_up) from.session.sendPosition(server.gpa) catch {};
 }
 
 fn broadcastSign(server: *Server, which: world.Dimension, at: world.World.BlockPos) void {
@@ -434,6 +447,10 @@ fn tick(server: *Server) !void {
             }
         }
         dim.level.entities.collected.clearRetainingCapacity();
+    }
+
+    for (server.connections.items) |connection| {
+        if (connection.session.takeSleepChange()) |change| broadcastSleep(server, connection, change);
     }
 
     for (server.connections.items) |connection| {

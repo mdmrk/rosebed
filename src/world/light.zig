@@ -14,10 +14,9 @@ pub fn opacity(id: Block) u8 {
     return switch (id) {
         .flowing_water, .stationary_water, .ice => 3,
         .leaves => 1,
-        .door_wood, .door_iron, .trapdoor, .cake, .sign_post, .wall_sign => 0,
-        .pressure_plate_stone, .pressure_plate_planks => 0,
-        .piston, .piston_sticky, .piston_head, .piston_moving => 0,
-        else => if (id.isOpaque()) 255 else 0,
+        .flowing_lava, .stationary_lava => 255,
+        .stairs_wood, .stairs_cobblestone, .slab => 255,
+        else => if (id.isOpaqueCube()) 255 else 0,
     };
 }
 
@@ -244,6 +243,28 @@ fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, chunk_x: i32, c
             }
         }
     }
+}
+
+test "light opacity follows isOpaqueCube, not the material" {
+    try std.testing.expectEqual(@as(u8, 0), opacity(.bed));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.glass));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.cactus));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.door_wood));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.cake));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.pressure_plate_stone));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_moving));
+}
+
+test "the blocks vanilla gives an explicit opacity keep it" {
+    try std.testing.expectEqual(@as(u8, 3), opacity(.stationary_water));
+    try std.testing.expectEqual(@as(u8, 3), opacity(.ice));
+    try std.testing.expectEqual(@as(u8, 1), opacity(.leaves));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.stationary_lava));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.slab));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.stairs_wood));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.stone));
+    try std.testing.expectEqual(@as(u8, 255), opacity(.slab_double));
 }
 
 test "an open column is fully sky lit down to the ground" {

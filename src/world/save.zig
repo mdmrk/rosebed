@@ -44,6 +44,8 @@ pub const PlayerState = struct {
     death_time: i16 = 0,
     attack_time: i16 = 0,
     spawn: ?[3]i32 = null,
+    sleeping: bool = false,
+    sleep_timer: i16 = 0,
     dimension: generator.Dimension = .overworld,
     inventory: []InventoryEntry = &.{},
 
@@ -411,6 +413,62 @@ pub const Save = struct {
     }
 };
 
+pub const data_dir_name = "data";
+pub const id_counts_file = "idcounts.dat";
+const max_data_bytes = 1 << 20;
+
+fn dataFileName(buffer: []u8, name: []const u8) ![]const u8 {
+    return std.fmt.bufPrint(buffer, "{s}/{s}.dat", .{ data_dir_name, name });
+}
+
+pub fn readDataTag(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, compressed: bool) !nbt.Tag {
+    var path: [64]u8 = undefined;
+    const file = try dir.openFile(io, try dataFileName(&path, name), .{});
+    defer file.close(io);
+
+    const size = try file.length(io);
+    if (size > max_data_bytes) return error.StreamTooLong;
+
+    const raw = try gpa.alloc(u8, @intCast(size));
+    defer gpa.free(raw);
+    if (try file.readPositionalAll(io, raw, 0) != raw.len) return error.EndOfStream;
+
+    const plain = if (compressed) try deflate.decompressAlloc(gpa, .gzip, raw, max_data_bytes) else raw;
+    defer if (compressed) gpa.free(plain);
+
+    var reader = std.Io.Reader.fixed(plain);
+    const named = try nbt.readNamed(gpa, &reader);
+    gpa.free(named.name);
+    return named.tag;
+}
+
+pub fn writeDataTag(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    dir: std.Io.Dir,
+    name: []const u8,
+    tag: nbt.Tag,
+    compressed: bool,
+) !void {
+    var data_dir = try dir.createDirPathOpen(io, data_dir_name, .{});
+    data_dir.close(io);
+
+    var allocating: std.Io.Writer.Allocating = .init(gpa);
+    defer allocating.deinit();
+    try nbt.writeNamed(&allocating.writer, "", tag);
+
+    const bytes = if (compressed)
+        try deflate.compressAlloc(gpa, .gzip, allocating.written())
+    else
+        allocating.written();
+    defer if (compressed) gpa.free(bytes);
+
+    var path: [64]u8 = undefined;
+    const file = try dir.createFile(io, try dataFileName(&path, name), .{});
+    defer file.close(io);
+    try file.writeStreamingAll(io, bytes);
+}
+
 pub fn open(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) !Save {
     var dir = try saves_dir.createDirPathOpen(io, folder, .{});
     errdefer dir.close(io);
@@ -459,8 +517,8 @@ fn playerToTag(gpa: std.mem.Allocator, player: PlayerState) !nbt.Tag {
     try put(gpa, &compound, "DeathTime", .{ .short = player.death_time });
     try put(gpa, &compound, "AttackTime", .{ .short = player.attack_time });
     try put(gpa, &compound, "Dimension", .{ .int = @intFromEnum(player.dimension) });
-    try put(gpa, &compound, "Sleeping", .{ .byte = 0 });
-    try put(gpa, &compound, "SleepTimer", .{ .short = 0 });
+    try put(gpa, &compound, "Sleeping", .{ .byte = @intFromBool(player.sleeping) });
+    try put(gpa, &compound, "SleepTimer", .{ .short = player.sleep_timer });
     if (player.spawn) |spawn| {
         try put(gpa, &compound, "SpawnX", .{ .int = spawn[0] });
         try put(gpa, &compound, "SpawnY", .{ .int = spawn[1] });
@@ -618,6 +676,8 @@ fn playerFromTag(gpa: std.mem.Allocator, compound: nbt.Compound) !PlayerState {
     player.hurt_time = shortField(compound, "HurtTime", 0);
     player.death_time = shortField(compound, "DeathTime", 0);
     player.attack_time = shortField(compound, "AttackTime", 0);
+    player.sleeping = byteField(compound, "Sleeping", 0) != 0;
+    player.sleep_timer = shortField(compound, "SleepTimer", 0);
 
     if (compound.get("SpawnX") != null and compound.get("SpawnY") != null and compound.get("SpawnZ") != null) {
         player.spawn = .{

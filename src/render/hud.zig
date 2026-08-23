@@ -25,6 +25,9 @@ const heart_half_u: f32 = 61;
 const heart_flash_full_u: f32 = 70;
 const heart_flash_half_u: f32 = 79;
 
+const sleep_veil_color = [3]u8{ 16, 16, 32 };
+const sleep_veil_alpha: f32 = 220.0;
+
 const blink_period: i32 = 3;
 const blink_hold_ticks: i32 = 10;
 const low_health: i32 = 4;
@@ -159,6 +162,15 @@ pub fn draw(
     try gui.drawTexturedMesh(&item_icons, ui.shader, ui.textures.items);
     try gui.drawColorMesh(&bars, ui.shader);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
+
+    const fade = player.sleepFade();
+    if (fade > 0) {
+        var veil: MeshBuilder = .{};
+        defer veil.deinit(ui.gpa);
+        const alpha: u8 = @intFromFloat(sleep_veil_alpha * fade);
+        try gui.appendRectColor(&veil, ui.gpa, 0, 0, ui.res.width, ui.res.height, gui.opaque_texel, sleep_veil_color ++ [1]u8{alpha}, ui.res);
+        try gui.drawTexturedMesh(&veil, ui.shader, ui.textures.gui);
+    }
 
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
