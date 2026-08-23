@@ -27,7 +27,7 @@ pub fn canProvidePower(id: Block) bool {
     };
 }
 
-fn isPowerProviderOrWire(world_map: *const World, x: i32, y: i32, z: i32, code: ?u2) bool {
+fn isPowerProviderOrWire(world_map: anytype, x: i32, y: i32, z: i32, code: ?u2) bool {
     const id = world_map.getBlock(x, y, z);
     if (id == .redstone_wire) return true;
     if (id == .air) return false;
@@ -39,7 +39,7 @@ fn isPowerProviderOrWire(world_map: *const World, x: i32, y: i32, z: i32, code: 
 
 pub const WireConnections = struct { west: bool, east: bool, north: bool, south: bool };
 
-pub fn wireConnections(world_map: *const World, x: i32, y: i32, z: i32) WireConnections {
+pub fn wireConnections(world_map: anytype, x: i32, y: i32, z: i32) WireConnections {
     var links: WireConnections = .{
         .west = isPowerProviderOrWire(world_map, x - 1, y, z, 1) or
             (!world_map.getBlock(x - 1, y, z).isNormalCube() and isPowerProviderOrWire(world_map, x - 1, y - 1, z, null)),

@@ -2146,8 +2146,6 @@ pub fn tickMobs(
     }
 }
 
-const slime_collide_reach: f64 = 1.0;
-
 pub fn spawnSlimeLandingParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -4527,7 +4525,6 @@ test "a spider comes back from its chunk still able to climb" {
     try std.testing.expect(spider.animal.climbs_walls);
     try std.testing.expectApproxEqAbs(@as(f64, 1.4), spider.animal.base.width, 1.0e-9);
 }
-
 
 test "fire standing on the ground smokes from its upper half" {
     const gpa = std.testing.allocator;

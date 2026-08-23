@@ -78,13 +78,6 @@ pub fn isSign(compound: nbt.Compound) bool {
     };
 }
 
-fn intField(compound: nbt.Compound, key: []const u8) ?i32 {
-    return switch (compound.get(key) orelse return null) {
-        .int => |value| value,
-        else => null,
-    };
-}
-
 fn stringField(compound: nbt.Compound, key: []const u8) []const u8 {
     return switch (compound.get(key) orelse return "") {
         .string => |value| value,
@@ -101,9 +94,9 @@ pub fn load(compound: nbt.Compound) ?Placed {
     }
 
     return .{
-        .x = intField(compound, "x") orelse return null,
-        .y = intField(compound, "y") orelse return null,
-        .z = intField(compound, "z") orelse return null,
+        .x = nbt.intField(compound, "x") orelse return null,
+        .y = nbt.intField(compound, "y") orelse return null,
+        .z = nbt.intField(compound, "z") orelse return null,
         .state = state,
     };
 }

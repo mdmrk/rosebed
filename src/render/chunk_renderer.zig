@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const gl = @import("gl");
+const query_target = gl.ANY_SAMPLES_PASSED;
 const math = @import("math");
 const sdl3 = @import("sdl3");
 const world = @import("world");
@@ -174,8 +175,6 @@ const first_query_batch = 16;
 const query_box_margin = 6.0;
 const query_stagger_distance = 128.0;
 const indices_per_query_box = 36;
-const query_target = gl.ANY_SAMPLES_PASSED;
-
 const query_box_faces = [6][4][3]u1{
     .{ .{ 1, 0, 0 }, .{ 1, 0, 1 }, .{ 0, 0, 1 }, .{ 0, 0, 0 } },
     .{ .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 0, 1, 0 }, .{ 0, 1, 1 } },
@@ -246,8 +245,8 @@ fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted,
 
     gl.ColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.FALSE);
     gl.DepthMask(gl.FALSE);
-    shader.setInt("u_textured", 0);
-    shader.setInt("u_alpha_test", 0);
+    shader.setInt(.u_textured, 0);
+    shader.setInt(.u_alpha_test, 0);
     for (queried.items, 0..) |meshes, box| {
         if (meshes.query == 0) gl.GenQueries(1, @ptrCast(&meshes.query));
         gl.BeginQuery(query_target, meshes.query);
@@ -255,8 +254,8 @@ fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted,
         gl.EndQuery(query_target);
         meshes.waiting = true;
     }
-    shader.setInt("u_alpha_test", 1);
-    shader.setInt("u_textured", 1);
+    shader.setInt(.u_alpha_test, 1);
+    shader.setInt(.u_textured, 1);
     gl.DepthMask(gl.TRUE);
     gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
 }

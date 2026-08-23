@@ -489,7 +489,6 @@ test "a name reports the id it resolved to, so the reply reads the same either w
     try std.testing.expectEqual(@as(u32, 1), parse("/give 001").give.raw_id);
 }
 
-
 test "freecam takes no arguments at all" {
     try std.testing.expectEqual(Result.freecam, parse("/freecam"));
     try std.testing.expectEqual(Result.nothing, parse("/freecam on"));

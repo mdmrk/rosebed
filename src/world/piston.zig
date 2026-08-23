@@ -98,13 +98,6 @@ pub fn isPiston(compound: nbt.Compound) bool {
     };
 }
 
-fn intField(compound: nbt.Compound, key: []const u8) ?i32 {
-    return switch (compound.get(key) orelse return null) {
-        .int => |value| value,
-        else => null,
-    };
-}
-
 fn floatField(compound: nbt.Compound, key: []const u8) f32 {
     return switch (compound.get(key) orelse return 0) {
         .float => |value| value,
@@ -122,7 +115,7 @@ fn boolField(compound: nbt.Compound, key: []const u8) bool {
 pub fn load(compound: nbt.Compound) ?Placed {
     if (!isPiston(compound)) return null;
 
-    const raw_id = intField(compound, "blockId") orelse 0;
+    const raw_id = nbt.intField(compound, "blockId") orelse 0;
     const stored: Block = if (raw_id >= 0 and raw_id <= 255 and
         std.enums.tagName(Block, @as(Block, @enumFromInt(@as(u8, @intCast(raw_id))))) != null)
         @enumFromInt(@as(u8, @intCast(raw_id)))
@@ -132,8 +125,8 @@ pub fn load(compound: nbt.Compound) ?Placed {
     const progress = floatField(compound, "progress");
     const state: Moving = .{
         .stored = stored,
-        .stored_metadata = @intCast(@as(u32, @bitCast(intField(compound, "blockData") orelse 0)) & 15),
-        .facing = block.pistonFacing(@intCast(@as(u32, @bitCast(intField(compound, "facing") orelse 0)) & 15)),
+        .stored_metadata = @intCast(@as(u32, @bitCast(nbt.intField(compound, "blockData") orelse 0)) & 15),
+        .facing = block.pistonFacing(@intCast(@as(u32, @bitCast(nbt.intField(compound, "facing") orelse 0)) & 15)),
         .extending = boolField(compound, "extending"),
         .source = stored.isPistonBase(),
         .progress = progress,
@@ -141,9 +134,9 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 
     return .{
-        .x = intField(compound, "x") orelse return null,
-        .y = intField(compound, "y") orelse return null,
-        .z = intField(compound, "z") orelse return null,
+        .x = nbt.intField(compound, "x") orelse return null,
+        .y = nbt.intField(compound, "y") orelse return null,
+        .z = nbt.intField(compound, "z") orelse return null,
         .state = state,
     };
 }

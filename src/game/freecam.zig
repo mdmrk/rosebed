@@ -67,12 +67,7 @@ pub fn move(self: *Freecam, strafe: f32, forward: f32, up: f32) void {
 }
 
 pub fn renderPosition(self: Freecam, partial_ticks: f32) math.Vec3 {
-    const t: f64 = partial_ticks;
-    return .{
-        .x = self.prev_position.x + (self.position.x - self.prev_position.x) * t,
-        .y = self.prev_position.y + (self.position.y - self.prev_position.y) * t,
-        .z = self.prev_position.z + (self.position.z - self.prev_position.z) * t,
-    };
+    return self.prev_position.lerp(self.position, partial_ticks);
 }
 
 pub fn viewMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
@@ -83,10 +78,10 @@ pub fn viewMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
     return math.Mat4.rotationX(pitch * degrees)
         .mul(math.Mat4.rotationY((yaw + 180.0) * degrees))
         .mul(math.Mat4.translation(
-            @floatCast(-eye.x),
-            @floatCast(-eye.y),
-            @floatCast(-eye.z),
-        ));
+        @floatCast(-eye.x),
+        @floatCast(-eye.y),
+        @floatCast(-eye.z),
+    ));
 }
 
 test "entering adopts the eye it was handed and starts still" {
@@ -97,7 +92,7 @@ test "entering adopts the eye it was handed and starts still" {
     try std.testing.expectEqual(math.Vec3.init(1, 2, 3), camera.position);
     try std.testing.expectEqual(math.Vec3.init(1, 2, 3), camera.prev_position);
     try std.testing.expectEqual(@as(f32, 45), camera.yaw);
-    try std.testing.expectEqual(@as(f32, -10), camera.prev_yaw);
+    try std.testing.expectEqual(@as(f32, -10), camera.prev_pitch);
 }
 
 test "walking forward at zero yaw travels one speed along positive z" {

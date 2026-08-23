@@ -96,24 +96,24 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
 
     gl.DepthMask(gl.FALSE);
     frame.shader.use();
-    frame.shader.setMat4("u_view_proj", view_proj.m);
-    frame.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
-    frame.shader.setInt("u_textured", 0);
-    frame.shader.setInt("u_alpha_test", 0);
+    frame.shader.setMat4(.u_view_proj, view_proj.m);
+    frame.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    frame.shader.setInt(.u_textured, 0);
+    frame.shader.setInt(.u_alpha_test, 0);
 
-    frame.shader.setInt("u_fog_enabled", 1);
-    frame.shader.setVec3("u_fog_color", frame.fog_color);
+    frame.shader.setInt(.u_fog_enabled, 1);
+    frame.shader.setVec3(.u_fog_color, frame.fog_color);
     if (frame.fog_density) |density| {
-        frame.shader.setInt("u_fog_exponential", 1);
-        frame.shader.setFloat("u_fog_density", density);
+        frame.shader.setInt(.u_fog_exponential, 1);
+        frame.shader.setFloat(.u_fog_density, density);
     } else {
-        frame.shader.setInt("u_fog_exponential", 0);
-        frame.shader.setFloat("u_fog_start", 0.0);
-        frame.shader.setFloat("u_fog_end", frame.far_plane_distance * 0.8);
+        frame.shader.setInt(.u_fog_exponential, 0);
+        frame.shader.setFloat(.u_fog_start, 0.0);
+        frame.shader.setFloat(.u_fog_end, frame.far_plane_distance * 0.8);
     }
-    frame.shader.setVec4("u_tint", .{ frame.sky_color[0], frame.sky_color[1], frame.sky_color[2], 1.0 });
+    frame.shader.setVec4(.u_tint, .{ frame.sky_color[0], frame.sky_color[1], frame.sky_color[2], 1.0 });
     self.dome.draw();
-    frame.shader.setInt("u_fog_enabled", 0);
+    frame.shader.setInt(.u_fog_enabled, 0);
 
     if (sky.sunriseColors(frame.celestial_angle)) |sunrise| {
         gl.Enable(gl.BLEND);
@@ -127,8 +127,8 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
         const oriented = view_proj
             .mul(math.Mat4.rotationX(90.0 * degrees))
             .mul(math.Mat4.rotationZ(flip * degrees));
-        frame.shader.setMat4("u_view_proj", oriented.m);
-        frame.shader.setVec4("u_tint", opaque_white);
+        frame.shader.setMat4(.u_view_proj, oriented.m);
+        frame.shader.setVec4(.u_tint, opaque_white);
 
         var gpu = GpuMesh.upload(&glow);
         defer gpu.deinit();
@@ -139,34 +139,34 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE);
 
     const spun = view_proj.mul(math.Mat4.rotationX(frame.celestial_angle * 360.0 * degrees));
-    frame.shader.setMat4("u_view_proj", spun.m);
-    frame.shader.setVec4("u_tint", opaque_white);
-    frame.shader.setInt("u_textured", 1);
+    frame.shader.setMat4(.u_view_proj, spun.m);
+    frame.shader.setVec4(.u_tint, opaque_white);
+    frame.shader.setInt(.u_textured, 1);
     gl.ActiveTexture(gl.TEXTURE0);
-    frame.shader.setInt("u_atlas", 0);
+    frame.shader.setInt(.u_atlas, 0);
     frame.textures.sun.bind();
     self.sun.draw();
     frame.textures.moon.bind();
     self.moon.draw();
-    frame.shader.setInt("u_textured", 0);
+    frame.shader.setInt(.u_textured, 0);
 
     const brightness = sky.starBrightness(frame.celestial_angle);
     if (brightness > 0.0) {
-        frame.shader.setVec4("u_tint", .{ brightness, brightness, brightness, brightness });
+        frame.shader.setVec4(.u_tint, .{ brightness, brightness, brightness, brightness });
         self.stars.draw();
     }
 
     gl.Disable(gl.BLEND);
 
-    frame.shader.setMat4("u_view_proj", view_proj.m);
-    frame.shader.setInt("u_fog_enabled", 1);
-    frame.shader.setVec4("u_tint", voidPlaneColor(frame.sky_color));
+    frame.shader.setMat4(.u_view_proj, view_proj.m);
+    frame.shader.setInt(.u_fog_enabled, 1);
+    frame.shader.setVec4(.u_tint, voidPlaneColor(frame.sky_color));
     self.void_plane.draw();
 
-    frame.shader.setInt("u_fog_enabled", 0);
-    frame.shader.setInt("u_alpha_test", 1);
-    frame.shader.setInt("u_textured", 1);
-    frame.shader.setVec4("u_tint", opaque_white);
+    frame.shader.setInt(.u_fog_enabled, 0);
+    frame.shader.setInt(.u_alpha_test, 1);
+    frame.shader.setInt(.u_textured, 1);
+    frame.shader.setVec4(.u_tint, opaque_white);
     frame.textures.terrain.bind();
     gl.DepthMask(gl.TRUE);
 }
@@ -193,13 +193,13 @@ pub fn drawClouds(frame: Clouds, fancy: bool) !void {
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    frame.shader.setMat4("u_view_proj", frame.view_proj.m);
-    frame.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
-    frame.shader.setInt("u_alpha_test", 1);
-    frame.shader.setInt("u_textured", 1);
-    frame.shader.setVec4("u_tint", opaque_white);
+    frame.shader.setMat4(.u_view_proj, frame.view_proj.m);
+    frame.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    frame.shader.setInt(.u_alpha_test, 1);
+    frame.shader.setInt(.u_textured, 1);
+    frame.shader.setVec4(.u_tint, opaque_white);
     gl.ActiveTexture(gl.TEXTURE0);
-    frame.shader.setInt("u_atlas", 0);
+    frame.shader.setInt(.u_atlas, 0);
     frame.textures.clouds.bind();
 
     var gpu = GpuMesh.upload(&mesh);

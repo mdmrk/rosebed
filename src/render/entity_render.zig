@@ -216,12 +216,13 @@ pub fn appendMovingPiston(
     };
     const carried: [3]f32 = .{ cell[0] + shift[0], cell[1] + shift[1], cell[2] + shift[2] };
     const options: chunk_mesher.Options = .{ .all_faces = true };
+    const view = world.ChunkView.at(world_map, pos.x, pos.z);
 
     if (state.stored == .piston_head and progress < 0.5) {
         try chunk_mesher.buildPistonHead(
             mesh,
             gpa,
-            world_map,
+            &view,
             state.stored,
             state.stored_metadata,
             pos.x,
@@ -239,7 +240,7 @@ pub fn appendMovingPiston(
         try chunk_mesher.buildPistonHead(
             mesh,
             gpa,
-            world_map,
+            &view,
             .piston_head,
             world.block.pistonFacingValue(state.facing) | sticky,
             pos.x,
@@ -253,7 +254,7 @@ pub fn appendMovingPiston(
         try chunk_mesher.buildBlockAt(
             mesh,
             gpa,
-            world_map,
+            &view,
             state.stored,
             state.stored_metadata | world.block.piston_flag,
             pos.x,
@@ -261,7 +262,7 @@ pub fn appendMovingPiston(
             pos.z,
             cell,
             colorizer,
-            chunk_mesher.climateAt(world_map, pos.x, pos.z),
+            chunk_mesher.climateAt(&view, pos.x, pos.z),
             options,
         );
         return;
@@ -270,7 +271,7 @@ pub fn appendMovingPiston(
     try chunk_mesher.buildBlockAt(
         mesh,
         gpa,
-        world_map,
+        &view,
         state.stored,
         state.stored_metadata,
         pos.x,
@@ -278,7 +279,7 @@ pub fn appendMovingPiston(
         pos.z,
         carried,
         colorizer,
-        chunk_mesher.climateAt(world_map, pos.x, pos.z),
+        chunk_mesher.climateAt(&view, pos.x, pos.z),
         options,
     );
 }

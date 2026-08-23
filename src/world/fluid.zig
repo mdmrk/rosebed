@@ -43,7 +43,7 @@ const Fluid = enum {
         };
     }
 
-    fn at(world_map: *const World, x: i32, y: i32, z: i32) ?Fluid {
+    fn at(world_map: anytype, x: i32, y: i32, z: i32) ?Fluid {
         return Fluid.of(world_map.getBlock(x, y, z).material());
     }
 
@@ -79,12 +79,12 @@ const Fluid = enum {
         return id.material() == self.material();
     }
 
-    fn flowDecay(self: Fluid, world_map: *const World, x: i32, y: i32, z: i32) i32 {
+    fn flowDecay(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) i32 {
         if (!self.holds(world_map.getBlock(x, y, z))) return -1;
         return world_map.getBlockMetadata(x, y, z);
     }
 
-    fn effectiveFlowDecay(self: Fluid, world_map: *const World, x: i32, y: i32, z: i32) i32 {
+    fn effectiveFlowDecay(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) i32 {
         const decay = self.flowDecay(world_map, x, y, z);
         if (decay >= max_decay) return 0;
         return decay;
@@ -101,7 +101,7 @@ const Fluid = enum {
         return !blocksFlow(world_map, x, y, z);
     }
 
-    fn isBlockSolid(self: Fluid, world_map: *const World, x: i32, y: i32, z: i32) bool {
+    fn isBlockSolid(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) bool {
         const target = world_map.getBlock(x, y, z).material();
         if (target == self.material()) return false;
         if (target == .ice) return false;
@@ -312,7 +312,7 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32) !void {
     }
 }
 
-pub fn flowVector(world_map: *const World, x: i32, y: i32, z: i32) math.Vec3 {
+pub fn flowVector(world_map: anytype, x: i32, y: i32, z: i32) math.Vec3 {
     var vector = math.Vec3.init(0, 0, 0);
     const fluid = Fluid.at(world_map, x, y, z) orelse return vector;
     const decay = fluid.effectiveFlowDecay(world_map, x, y, z);
@@ -357,7 +357,7 @@ pub fn flowVector(world_map: *const World, x: i32, y: i32, z: i32) math.Vec3 {
     return vector.normalize();
 }
 
-pub fn flowAngle(world_map: *const World, x: i32, y: i32, z: i32) ?f32 {
+pub fn flowAngle(world_map: anytype, x: i32, y: i32, z: i32) ?f32 {
     const vector = flowVector(world_map, x, y, z);
     if (vector.x == 0.0 and vector.z == 0.0) return null;
     return @floatCast(std.math.atan2(vector.z, vector.x) - std.math.pi * 0.5);

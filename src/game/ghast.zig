@@ -4,7 +4,6 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("animal.zig");
-const Fireball = @import("fireball.zig");
 const Mob = @import("mob.zig");
 const physics = @import("physics.zig");
 const raycast = @import("raycast.zig");

@@ -203,12 +203,7 @@ pub fn move(self: *Entity, world_map: *const world.World) Moved {
 }
 
 pub fn renderPosition(self: Entity, partial_ticks: f32) math.Vec3 {
-    const t: f64 = partial_ticks;
-    return .{
-        .x = self.prev_position.x + (self.position.x - self.prev_position.x) * t,
-        .y = self.prev_position.y + (self.position.y - self.prev_position.y) * t,
-        .z = self.prev_position.z + (self.position.z - self.prev_position.z) * t,
-    };
+    return self.prev_position.lerp(self.position, partial_ticks);
 }
 
 test "boundingBox is centered on x/z and rests on the feet position" {

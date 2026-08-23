@@ -53,7 +53,7 @@ pub fn brightnessTable(ambient: f32) [16]f32 {
 
 pub const brightness_table: [16]f32 = brightnessTable(0.05);
 
-fn storedLevelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
+fn storedLevelAt(world_map: anytype, x: i32, y: i32, z: i32) u4 {
     const sky = world_map.getSkyLight(x, y, z) -| world_map.skylight_subtracted;
     return @max(sky, world_map.getBlockLight(x, y, z));
 }
@@ -65,7 +65,7 @@ fn borrowsNeighborLight(id: Block) bool {
     };
 }
 
-pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
+pub fn levelAt(world_map: anytype, x: i32, y: i32, z: i32) u4 {
     if (!borrowsNeighborLight(world_map.getBlock(x, y, z))) {
         return storedLevelAt(world_map, x, y, z);
     }
@@ -77,7 +77,7 @@ pub fn levelAt(world_map: *const World, x: i32, y: i32, z: i32) u4 {
     return level;
 }
 
-pub fn brightnessAt(world_map: *const World, x: i32, y: i32, z: i32, minimum: u4) f32 {
+pub fn brightnessAt(world_map: anytype, x: i32, y: i32, z: i32, minimum: u4) f32 {
     return world_map.brightness[@max(levelAt(world_map, x, y, z), minimum)];
 }
 

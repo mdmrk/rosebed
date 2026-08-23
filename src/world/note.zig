@@ -110,13 +110,6 @@ pub fn isNote(compound: nbt.Compound) bool {
     };
 }
 
-fn intField(compound: nbt.Compound, key: []const u8) ?i32 {
-    return switch (compound.get(key) orelse return null) {
-        .int => |value| value,
-        else => null,
-    };
-}
-
 fn byteField(compound: nbt.Compound, key: []const u8) ?i8 {
     return switch (compound.get(key) orelse return null) {
         .byte => |value| value,
@@ -131,9 +124,9 @@ pub fn load(compound: nbt.Compound) ?Placed {
     const note: u8 = if (raw < 0) 0 else @min(@as(u8, @intCast(raw)), pitch_count - 1);
 
     return .{
-        .x = intField(compound, "x") orelse return null,
-        .y = intField(compound, "y") orelse return null,
-        .z = intField(compound, "z") orelse return null,
+        .x = nbt.intField(compound, "x") orelse return null,
+        .y = nbt.intField(compound, "y") orelse return null,
+        .z = nbt.intField(compound, "z") orelse return null,
         .state = .{ .note = note },
     };
 }

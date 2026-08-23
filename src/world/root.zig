@@ -12,6 +12,7 @@ pub const chest = @import("chest.zig");
 pub const Chunk = @import("chunk.zig");
 pub const chunk_nbt = @import("chunk_nbt.zig");
 pub const chunk_payload = @import("chunk_payload.zig");
+pub const ChunkView = @import("chunk_view.zig");
 pub const Climate = @import("climate.zig");
 pub const constants = @import("constants.zig");
 pub const decorate = @import("decorate.zig");
@@ -72,6 +73,7 @@ test {
     _ = Climate;
     _ = light;
     _ = chunk_nbt;
+    _ = ChunkView;
     _ = chunk_payload;
     _ = entity_nbt;
     _ = furnace;

@@ -58,11 +58,12 @@ pub fn appendCrack(
 ) !void {
     const first_vertex = mesh.vertices.items.len;
     const origin = [3]f32{ @floatFromInt(x), @floatFromInt(y), @floatFromInt(z) };
+    const view = world.ChunkView.at(world_map, x, z);
 
     try chunk_mesher.buildBlockAt(
         mesh,
         gpa,
-        world_map,
+        &view,
         id,
         meta,
         x,
@@ -70,7 +71,7 @@ pub fn appendCrack(
         z,
         origin,
         colorizer,
-        chunk_mesher.climateAt(world_map, x, z),
+        chunk_mesher.climateAt(&view, x, z),
         .{ .override_tile = crackTile(progress) },
     );
 

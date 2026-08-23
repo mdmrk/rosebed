@@ -476,9 +476,18 @@ pub fn init(
 
 const missed_click_ticks = 10;
 
+fn pickedBlock(app_state: *const AppState) ?game.raycast.Hit {
+    return game.raycast.cast(
+        &app_state.level.world_map,
+        app_state.player.eyePosition(),
+        app_state.player.lookVector(),
+        reach_distance,
+    );
+}
+
 fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
     var reach: f64 = reach_distance;
-    if (game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+    if (pickedBlock(app_state)) |hit| {
         reach = hit.distance;
     }
     reach = @min(reach, game.Entities.entity_reach);
@@ -520,7 +529,7 @@ fn clickLeft(app_state: *AppState) !void {
         try attackEntity(app_state, target);
         return;
     }
-    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+    const hit = pickedBlock(app_state) orelse {
         app_state.missed_click_cooldown = missed_click_ticks;
         return;
     };
@@ -551,7 +560,7 @@ fn digStep(app_state: *AppState) !void {
     }
     if (app_state.missed_click_cooldown > 0) return;
 
-    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse {
+    const hit = pickedBlock(app_state) orelse {
         app_state.digging = null;
         return;
     };
@@ -1431,12 +1440,7 @@ fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void 
 }
 
 fn lookedAtPosition(app_state: *AppState) math.Vec3 {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return app_state.player.base.position;
+    const hit = pickedBlock(app_state) orelse return app_state.player.base.position;
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     return math.Vec3.init(
@@ -2349,7 +2353,7 @@ fn consumeSelectedStack(app_state: *AppState) void {
 fn useBlockOrPlace(app_state: *AppState) !bool {
     if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
     if (app_state.link) |link| return useBlockRemote(app_state, link);
-    if (game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance)) |hit| {
+    if (pickedBlock(app_state)) |hit| {
         switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
             .workbench => {
                 try openWorkbench(app_state);
@@ -2467,12 +2471,7 @@ fn breakPainting(app_state: *AppState, id: game.Entity.Id) !void {
 }
 
 fn hangPaintingAtTarget(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
 
     const direction = game.Painting.directionFromFace(hit.face) orelse return false;
     const hung = game.Painting.pickArt(
@@ -2696,12 +2695,7 @@ fn holdStack(app_state: *AppState, held: world.Item) void {
 }
 
 fn strikeFlintAtTarget(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
     if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
@@ -2762,7 +2756,7 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
         .door_iron => .door_iron,
         else => return false,
     };
-    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
     if (hit.face != .up) return false;
     if (!try world.block_update.placeDoor(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, placed, app_state.player.yaw)) return false;
 
@@ -2773,12 +2767,7 @@ fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
 }
 
 fn placeSignAtTarget(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
     if (hit.face == .down) return false;
     if (!app_state.level.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
 
@@ -2808,12 +2797,7 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
 }
 
 fn placeBedAtTarget(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
     if (hit.face != .up) return false;
     if (!try world.block_update.placeBed(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, app_state.player.yaw)) return false;
 
@@ -2824,12 +2808,7 @@ fn placeBedAtTarget(app_state: *AppState) !bool {
 }
 
 fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
     if (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) != .jukebox) return false;
     if (app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z) != 0) return false;
 
@@ -2906,12 +2885,7 @@ fn placeBoatAtTarget(app_state: *AppState) !bool {
 }
 
 fn placeMinecartAtTarget(app_state: *AppState, kind: game.Minecart.Kind) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
     if (!world.block.isRail(app_state.level.world_map.getBlock(hit.x, hit.y, hit.z))) return false;
 
     _ = try app_state.level.entities.spawnMinecart(
@@ -2933,12 +2907,7 @@ fn useBlockRemote(app_state: *AppState, link: *Link) !bool {
         .damage = @bitCast(@as(u16, stack.meta)),
     } else null;
 
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse {
+    const hit = pickedBlock(app_state) orelse {
         try link.connection.reportUseInAir(app_state.gpa, held);
         return true;
     };
@@ -3035,12 +3004,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held.minecartKind()) |kind| return placeMinecartAtTarget(app_state, kind);
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
-                    if (game.raycast.cast(
-                        &app_state.level.world_map,
-                        app_state.player.eyePosition(),
-                        app_state.player.lookVector(),
-                        reach_distance,
-                    )) |hit| {
+                    if (pickedBlock(app_state)) |hit| {
                         if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face, held, stack.meta)) {
                             try applyBlockChanges(app_state);
                             return true;
@@ -3051,7 +3015,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             };
         },
     };
-    const hit = game.raycast.cast(&app_state.level.world_map, app_state.player.eyePosition(), app_state.player.lookVector(), reach_distance) orelse return false;
+    const hit = pickedBlock(app_state) orelse return false;
 
     if (app_state.link) |link| {
         try link.connection.reportPlace(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face), .{
@@ -3715,19 +3679,19 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
 }
 
 fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
-    app_state.shader.setInt("u_fog_enabled", 1);
-    app_state.shader.setVec3("u_fog_color", horizon);
+    app_state.shader.setInt(.u_fog_enabled, 1);
+    app_state.shader.setVec3(.u_fog_color, horizon);
 
     if (cameraFogDensity(app_state)) |density| {
-        app_state.shader.setInt("u_fog_exponential", 1);
-        app_state.shader.setFloat("u_fog_density", density);
+        app_state.shader.setInt(.u_fog_exponential, 1);
+        app_state.shader.setFloat(.u_fog_density, density);
         return;
     }
 
     const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
-    app_state.shader.setInt("u_fog_exponential", 0);
-    app_state.shader.setFloat("u_fog_start", far * 0.25);
-    app_state.shader.setFloat("u_fog_end", far);
+    app_state.shader.setInt(.u_fog_exponential, 0);
+    app_state.shader.setFloat(.u_fog_start, far * 0.25);
+    app_state.shader.setFloat(.u_fog_end, far);
 }
 
 fn updateListener(app_state: *AppState) void {
@@ -3788,8 +3752,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.use();
     try drawSky(app_state, proj, partial, horizon);
 
-    app_state.shader.setMat4("u_view_proj", view_proj.m);
-    app_state.shader.setVec3("u_camera_pos", .{
+    app_state.shader.setMat4(.u_view_proj, view_proj.m);
+    app_state.shader.setVec3(.u_camera_pos, .{
         @floatCast(camera_eye.x),
         @floatCast(camera_eye.y),
         @floatCast(camera_eye.z),
@@ -3797,10 +3761,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     setupFog(app_state, horizon);
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.textures.terrain.bind();
-    app_state.shader.setInt("u_atlas", 0);
-    app_state.shader.setInt("u_alpha_test", 1);
-    app_state.shader.setInt("u_textured", 1);
-    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    app_state.shader.setInt(.u_atlas, 0);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
     const frustum = math.Frustum.fromViewProjection(view_proj);
     gl.Enable(gl.CULL_FACE);
     app_state.chunks_drawn = try app_state.chunks.drawSolid(
@@ -4174,9 +4138,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.Disable(gl.CULL_FACE);
-    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
     try app_state.chunks.drawTranslucent(app_state.frame, frustum, eye.x, eye.z);
-    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
     gl.Disable(gl.BLEND);
 
     try drawLightning(app_state, view_proj);
@@ -4191,13 +4155,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    app_state.shader.setInt("u_fog_enabled", 0);
-    app_state.shader.setInt("u_alpha_test", 0);
-    app_state.shader.setInt("u_textured", 1);
-    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
-    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
+    app_state.shader.setInt(.u_fog_enabled, 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
+    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
     gl.ActiveTexture(gl.TEXTURE0);
-    app_state.shader.setInt("u_atlas", 0);
+    app_state.shader.setInt(.u_atlas, 0);
     app_state.textures.terrain.bind();
 
     for (0..render.held_item.fire_quads) |quad| {
@@ -4206,14 +4170,14 @@ fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
 
         const tile: u8 = render.TextureFx.fire_tile + @as(u8, @intCast(quad)) * render.Atlas.tiles_per_row;
         try render.held_item.appendFire(&mesh, app_state.frame, tile);
-        app_state.shader.setMat4("u_view_proj", proj.mul(render.held_item.fireMatrix(quad)).m);
+        app_state.shader.setMat4(.u_view_proj, proj.mul(render.held_item.fireMatrix(quad)).m);
 
         var gpu = render.GpuMesh.upload(&mesh);
         defer gpu.deinit();
         gpu.draw();
     }
 
-    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
     gl.Disable(gl.BLEND);
 }
 
@@ -4275,6 +4239,17 @@ fn drawMapPass(mesh: *render.MeshBuilder, texture: anytype) void {
     gpu.draw();
 }
 
+fn handBrightness(app_state: *const AppState) f32 {
+    const eye = app_state.player.base.position;
+    return world.light.brightnessAt(
+        &app_state.level.world_map,
+        math.util.floorDouble(eye.x),
+        math.util.floorDouble(eye.y + game.Player.eye_height),
+        math.util.floorDouble(eye.z),
+        0,
+    );
+}
+
 fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.Inventory.ItemStack) !void {
     const data = try app_state.level.world_map.mapData(@bitCast(stack.meta));
 
@@ -4286,14 +4261,7 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     const equipped = app_state.equip.interpolated(partial);
     const pitch = app_state.player.prev_pitch + (app_state.player.pitch - app_state.player.prev_pitch) * partial;
 
-    const eye = app_state.player.base.position;
-    const brightness = world.light.brightnessAt(
-        &app_state.level.world_map,
-        math.util.floorDouble(eye.x),
-        math.util.floorDouble(eye.y + game.Player.eye_height),
-        math.util.floorDouble(eye.z),
-        0,
-    );
+    const brightness = handBrightness(app_state);
 
     const base = proj
         .mul(app_state.player.hurtMatrix(partial))
@@ -4301,24 +4269,24 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
         .mul(render.map_render.baseMatrix(swing, equipped, pitch));
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
-    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
-    app_state.shader.setInt("u_fog_enabled", 0);
-    app_state.shader.setInt("u_alpha_test", 1);
-    app_state.shader.setInt("u_textured", 1);
-    app_state.shader.setVec4("u_tint", .{ brightness, brightness, brightness, 1 });
+    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    app_state.shader.setInt(.u_fog_enabled, 0);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setVec4(.u_tint, .{ brightness, brightness, brightness, 1 });
     gl.ActiveTexture(gl.TEXTURE0);
-    app_state.shader.setInt("u_atlas", 0);
+    app_state.shader.setInt(.u_atlas, 0);
 
     for (render.map_render.arm_sides) |side| {
         var arm: render.MeshBuilder = .{};
         defer arm.deinit(app_state.frame);
         try render.held_item.appendArm(&arm, app_state.frame, 1.0);
-        app_state.shader.setMat4("u_view_proj", base.mul(render.map_render.armMatrix(side)).m);
+        app_state.shader.setMat4(.u_view_proj, base.mul(render.map_render.armMatrix(side)).m);
         drawMapPass(&arm, app_state.textures.char);
     }
 
     const transform = base.mul(render.map_render.boardMatrix(swing));
-    app_state.shader.setMat4("u_view_proj", transform.m);
+    app_state.shader.setMat4(.u_view_proj, transform.m);
     gl.Disable(gl.CULL_FACE);
 
     var background: render.MeshBuilder = .{};
@@ -4332,9 +4300,9 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     try render.map_render.appendFace(&face, app_state.frame);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
     drawMapPass(&face, app_state.map_surface);
-    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
     gl.Disable(gl.BLEND);
 
     var markers: render.MeshBuilder = .{};
@@ -4352,14 +4320,7 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
 }
 
 fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
-    const eye = app_state.player.base.position;
-    const brightness = world.light.brightnessAt(
-        &app_state.level.world_map,
-        math.util.floorDouble(eye.x),
-        math.util.floorDouble(eye.y + game.Player.eye_height),
-        math.util.floorDouble(eye.z),
-        0,
-    );
+    const brightness = handBrightness(app_state);
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
@@ -4391,14 +4352,14 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     }
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
-    app_state.shader.setMat4("u_view_proj", transform.m);
-    app_state.shader.setVec3("u_camera_pos", .{ 0, 0, 0 });
-    app_state.shader.setInt("u_fog_enabled", 0);
-    app_state.shader.setInt("u_alpha_test", 1);
-    app_state.shader.setInt("u_textured", 1);
-    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    app_state.shader.setMat4(.u_view_proj, transform.m);
+    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    app_state.shader.setInt(.u_fog_enabled, 0);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
     gl.ActiveTexture(gl.TEXTURE0);
-    app_state.shader.setInt("u_atlas", 0);
+    app_state.shader.setInt(.u_atlas, 0);
     if (shape) |held| switch (held) {
         .cube => app_state.textures.terrain.bind(),
         .sprite => |sprite| switch (sprite.atlas) {
@@ -4427,10 +4388,10 @@ fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
     }
     if (mesh.vertices.items.len == 0) return;
 
-    app_state.shader.setMat4("u_view_proj", view_proj.m);
-    app_state.shader.setInt("u_textured", 0);
-    app_state.shader.setInt("u_alpha_test", 0);
-    app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
+    app_state.shader.setMat4(.u_view_proj, view_proj.m);
+    app_state.shader.setInt(.u_textured, 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
+    app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.Disable(gl.CULL_FACE);
@@ -4442,8 +4403,8 @@ fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
 
     gl.DepthMask(gl.TRUE);
     gl.Disable(gl.BLEND);
-    app_state.shader.setInt("u_textured", 1);
-    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
     app_state.textures.terrain.bind();
 }
 
@@ -4463,8 +4424,8 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
         .fancy = app_state.settings.fancy_graphics,
     };
 
-    app_state.shader.setMat4("u_view_proj", view_proj.m);
-    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setMat4(.u_view_proj, view_proj.m);
+    app_state.shader.setInt(.u_alpha_test, 0);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.Disable(gl.CULL_FACE);
@@ -4473,7 +4434,7 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     try drawWeatherLayer(app_state, view, &app_state.textures.rain, render.weather.appendRain);
 
     gl.Disable(gl.BLEND);
-    app_state.shader.setInt("u_alpha_test", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
     app_state.textures.terrain.bind();
 }
 
@@ -4625,25 +4586,20 @@ fn drawFishLines(app_state: *AppState, partial: f32) !void {
     if (mesh.vertices.items.len == 0) return;
 
     gl.LineWidth(2.0);
-    app_state.shader.setInt("u_textured", 0);
-    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setInt(.u_textured, 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
 
     var gpu = render.GpuMesh.uploadLines(&mesh);
     defer gpu.deinit();
     gpu.draw();
 
-    app_state.shader.setInt("u_alpha_test", 1);
-    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setInt(.u_textured, 1);
     gl.LineWidth(1.0);
 }
 
 fn drawSelectionOutline(app_state: *AppState) !void {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    ) orelse return;
+    const hit = pickedBlock(app_state) orelse return;
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
@@ -4654,39 +4610,18 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.DepthMask(gl.FALSE);
     gl.LineWidth(2.0);
-    app_state.shader.setInt("u_textured", 0);
-    app_state.shader.setInt("u_alpha_test", 0);
+    app_state.shader.setInt(.u_textured, 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
 
     var gpu = render.GpuMesh.uploadLines(&mesh);
     defer gpu.deinit();
     gpu.draw();
 
-    app_state.shader.setInt("u_alpha_test", 1);
-    app_state.shader.setInt("u_textured", 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setInt(.u_textured, 1);
     gl.LineWidth(1.0);
     gl.DepthMask(gl.TRUE);
     gl.Disable(gl.BLEND);
-}
-
-fn probeCapture(app_state: *AppState, name: []const u8) !void {
-    const px = drawableSize(app_state);
-    const w: usize = @intCast(px.w);
-    const h: usize = @intCast(px.h);
-    const pixels = try app_state.gpa.alloc(u8, w * h * 3);
-    defer app_state.gpa.free(pixels);
-    gl.PixelStorei(gl.PACK_ALIGNMENT, 1);
-    gl.ReadPixels(0, 0, px.w, px.h, gl.RGB, gl.UNSIGNED_BYTE, pixels.ptr);
-    var file = try std.Io.Dir.cwd().createFile(app_state.io, name, .{});
-    defer file.close(app_state.io);
-    var buf: [4096]u8 = undefined;
-    var writer = file.writer(app_state.io, &buf);
-    try writer.interface.print("P6\n{d} {d}\n255\n", .{ w, h });
-    var row: usize = h;
-    while (row > 0) {
-        row -= 1;
-        try writer.interface.writeAll(pixels[row * w * 3 ..][0 .. w * 3]);
-    }
-    try writer.interface.flush();
 }
 
 pub fn iterate(
@@ -4704,53 +4639,6 @@ pub fn iterate(
         .{ .unlimited = {} };
     const dt = app_state.fps_capper.delay();
     _ = dt;
-
-    {
-        const Probe = struct {
-            var frame: u32 = 0;
-        };
-        if (Probe.frame == 0) {
-            app_state.mojang_until_ms = 0;
-            app_state.settings.render_distance = .normal;
-            try startWorld(app_state, "freecamprobe", "freecam probe", 4242);
-            app_state.level.world_map.setTime(1000);
-        }
-        Probe.frame += 1;
-        if (Probe.frame == 150) {
-            app_state.player.base.position = .{ .x = 8.5, .y = 80.0, .z = 8.5 };
-            app_state.player.base.prev_position = app_state.player.base.position;
-            app_state.player.yaw = 0;
-            app_state.player.pitch = 0;
-            try probeCapture(app_state, "fc_before.ppm");
-            try runCommand(app_state, "/freecam");
-            std.debug.print("after /freecam: active={} cam=({d:.2},{d:.2},{d:.2}) player=({d:.2},{d:.2},{d:.2})\n", .{
-                app_state.freecam.active,
-                app_state.freecam.position.x, app_state.freecam.position.y, app_state.freecam.position.z,
-                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
-            });
-            app_state.keys.forward = true;
-            app_state.keys.jump = true;
-        }
-        if (Probe.frame == 260) {
-            app_state.keys = .{};
-            std.debug.print("after flying: cam=({d:.2},{d:.2},{d:.2}) player=({d:.2},{d:.2},{d:.2})\n", .{
-                app_state.freecam.position.x, app_state.freecam.position.y, app_state.freecam.position.z,
-                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
-            });
-        }
-        if (Probe.frame == 290) {
-            try probeCapture(app_state, "fc_flying.ppm");
-            try runCommand(app_state, "/freecam");
-            std.debug.print("toggled off: active={} player=({d:.2},{d:.2},{d:.2})\n", .{
-                app_state.freecam.active,
-                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
-            });
-        }
-        if (Probe.frame == 320) {
-            try probeCapture(app_state, "fc_after.ppm");
-            return .success;
-        }
-    }
 
     if (sdl3.timer.getMillisecondsSinceInit() < app_state.mojang_until_ms) {
         try render.mojang_screen.draw(uiContext(app_state, gui));

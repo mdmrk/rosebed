@@ -8,15 +8,15 @@ const World = @import("world_map.zig");
 pub const frame_width = 2;
 pub const frame_height = 3;
 
-pub fn spansX(world_map: *const World, x: i32, y: i32, z: i32) bool {
+pub fn spansX(world_map: anytype, x: i32, y: i32, z: i32) bool {
     return world_map.getBlock(x - 1, y, z) == .portal or world_map.getBlock(x + 1, y, z) == .portal;
 }
 
-pub fn bounds(world_map: *const World, x: i32, y: i32, z: i32) block.Bounds {
+pub fn bounds(world_map: anytype, x: i32, y: i32, z: i32) block.Bounds {
     return block.portalBounds(spansX(world_map, x, y, z));
 }
 
-pub fn facesNeighbour(world_map: *const World, x: i32, y: i32, z: i32, side: block.Side) bool {
+pub fn facesNeighbour(world_map: anytype, x: i32, y: i32, z: i32, side: block.Side) bool {
     if (world_map.getBlock(x, y, z) == .portal) return false;
 
     const along_x = (world_map.getBlock(x - 1, y, z) == .portal and world_map.getBlock(x - 2, y, z) != .portal) or

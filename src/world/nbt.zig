@@ -44,6 +44,20 @@ pub fn putDuped(gpa: std.mem.Allocator, compound: *Compound, key: []const u8, ta
     try compound.put(gpa, try gpa.dupe(u8, key), tag);
 }
 
+pub fn intField(compound: Compound, key: []const u8) ?i32 {
+    return switch (compound.get(key) orelse return null) {
+        .int => |value| value,
+        else => null,
+    };
+}
+
+pub fn shortField(compound: Compound, key: []const u8) i16 {
+    return switch (compound.get(key) orelse return 0) {
+        .short => |value| value,
+        else => 0,
+    };
+}
+
 fn writeString(w: *std.Io.Writer, s: []const u8) !void {
     try w.writeInt(u16, @intCast(s.len), .big);
     try w.writeAll(s);

@@ -271,12 +271,12 @@ pub fn drawTexturedMesh(mesh: *MeshBuilder, shader: Shader, texture: anytype) !v
     shader.use();
     gl.ActiveTexture(gl.TEXTURE0);
     texture.bind();
-    shader.setInt("u_atlas", 0);
-    shader.setInt("u_fog_enabled", 0);
-    shader.setInt("u_alpha_test", 1);
-    shader.setInt("u_textured", 1);
-    shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
-    shader.setMat4("u_view_proj", identity);
+    shader.setInt(.u_atlas, 0);
+    shader.setInt(.u_fog_enabled, 0);
+    shader.setInt(.u_alpha_test, 1);
+    shader.setInt(.u_textured, 1);
+    shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
+    shader.setMat4(.u_view_proj, identity);
     gpu.draw();
 }
 
@@ -285,11 +285,11 @@ pub fn drawColorMesh(mesh: *MeshBuilder, shader: Shader) !void {
     var gpu = GpuMesh.upload(mesh);
     defer gpu.deinit();
     shader.use();
-    shader.setInt("u_fog_enabled", 0);
-    shader.setInt("u_alpha_test", 0);
-    shader.setInt("u_textured", 0);
-    shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
-    shader.setMat4("u_view_proj", identity);
+    shader.setInt(.u_fog_enabled, 0);
+    shader.setInt(.u_alpha_test, 0);
+    shader.setInt(.u_textured, 0);
+    shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
+    shader.setMat4(.u_view_proj, identity);
     gpu.draw();
 }
 

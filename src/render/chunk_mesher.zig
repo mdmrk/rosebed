@@ -92,16 +92,16 @@ fn offsetBy(cell: [3]i32, step: [3]i32) [3]i32 {
     return .{ cell[0] + step[0], cell[1] + step[1], cell[2] + step[2] };
 }
 
-fn brightnessOf(world_map: *const world.World, cell: [3]i32, minimum: u4) f32 {
+fn brightnessOf(world_map: *const world.ChunkView, cell: [3]i32, minimum: u4) f32 {
     return world.light.brightnessAt(world_map, cell[0], cell[1], cell[2], minimum);
 }
 
-fn blocksGrass(world_map: *const world.World, cell: [3]i32) bool {
+fn blocksGrass(world_map: *const world.ChunkView, cell: [3]i32) bool {
     return world_map.getBlock(cell[0], cell[1], cell[2]).isOpaque();
 }
 
 fn smoothBrightness(
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     face: FaceDir,
     x: i32,
     y: i32,
@@ -144,13 +144,13 @@ fn texturesFor(options: Options, textures: world.block.FaceTextures) world.block
     return world.block.FaceTextures.initFill(tile);
 }
 
-fn showsFace(options: Options, world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, side: world.Side) bool {
+fn showsFace(options: Options, world_map: *const world.ChunkView, id: world.Block, x: i32, y: i32, z: i32, side: world.Side) bool {
     if (options.all_faces) return true;
     if (id == .portal) return world.portal.facesNeighbour(world_map, x, y, z, side);
     return id.shouldRenderFace(world_map.getBlock(x, y, z), side, options.fancy);
 }
 
-fn chestRing(world_map: *const world.World, x: i32, y: i32, z: i32) world.block.ChestRing {
+fn chestRing(world_map: *const world.ChunkView, x: i32, y: i32, z: i32) world.block.ChestRing {
     return .{
         .north = world_map.getBlock(x, y, z - 1),
         .south = world_map.getBlock(x, y, z + 1),
@@ -168,7 +168,7 @@ pub const Climate = struct {
     humidity: f64 = 0.5,
 };
 
-pub fn climateAt(world_map: *const world.World, x: i32, z: i32) Climate {
+pub fn climateAt(world_map: *const world.ChunkView, x: i32, z: i32) Climate {
     const width = world.constants.chunk_width;
     const chunk = world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{};
     const lx: u32 = @intCast(@mod(x, width));
@@ -323,7 +323,7 @@ fn buildFireStanding(
         .{ foot_high, by, bz },    .{ tip_low, top, bz },
     }, fireUvs(near), color);
     try mesh.quad(gpa, .{
-        .{ tip_high, top, bz },   .{ foot_low, by, bz },
+        .{ tip_high, top, bz },    .{ foot_low, by, bz },
         .{ foot_low, by, bz + 1 }, .{ tip_high, top, bz + 1 },
     }, fireUvs(near), color);
     try mesh.quad(gpa, .{
@@ -345,7 +345,7 @@ fn buildFireStanding(
     tip_far = bz + 0.9;
 
     try mesh.quad(gpa, .{
-        .{ tip_low, top, bz },     .{ foot_high, by, bz },
+        .{ tip_low, top, bz },      .{ foot_high, by, bz },
         .{ foot_high, by, bz + 1 }, .{ tip_low, top, bz + 1 },
     }, fireUvsFlipped(far), color);
     try mesh.quad(gpa, .{
@@ -353,7 +353,7 @@ fn buildFireStanding(
         .{ foot_low, by, bz },      .{ tip_high, top, bz },
     }, fireUvsFlipped(far), color);
     try mesh.quad(gpa, .{
-        .{ bx, top, tip_far },     .{ bx, by, foot_near },
+        .{ bx, top, tip_far },      .{ bx, by, foot_near },
         .{ bx + 1, by, foot_near }, .{ bx + 1, top, tip_far },
     }, fireUvsFlipped(near), color);
     try mesh.quad(gpa, .{
@@ -365,7 +365,7 @@ fn buildFireStanding(
 fn buildFireOnNeighbours(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     near: Atlas.Uv,
     far: Atlas.Uv,
     color: [4]u8,
@@ -412,7 +412,7 @@ fn buildFireOnNeighbours(
     const tip = ceiling - fire_ceiling_drop;
     if ((x +% (y + 1) +% z) & 1 == 0) {
         try mesh.quad(gpa, .{
-            .{ bx, tip, bz },         .{ bx + 1, ceiling, bz },
+            .{ bx, tip, bz },             .{ bx + 1, ceiling, bz },
             .{ bx + 1, ceiling, bz + 1 }, .{ bx, tip, bz + 1 },
         }, fireUvs(near), color);
         try mesh.quad(gpa, .{
@@ -421,12 +421,12 @@ fn buildFireOnNeighbours(
         }, fireUvs(far), color);
     } else {
         try mesh.quad(gpa, .{
-            .{ bx, tip, bz + 1 },         .{ bx, ceiling, bz },
-            .{ bx + 1, ceiling, bz },     .{ bx + 1, tip, bz + 1 },
+            .{ bx, tip, bz + 1 },     .{ bx, ceiling, bz },
+            .{ bx + 1, ceiling, bz }, .{ bx + 1, tip, bz + 1 },
         }, fireUvs(near), color);
         try mesh.quad(gpa, .{
-            .{ bx + 1, tip, bz },         .{ bx + 1, ceiling, bz + 1 },
-            .{ bx, ceiling, bz + 1 },     .{ bx, tip, bz },
+            .{ bx + 1, tip, bz },     .{ bx + 1, ceiling, bz + 1 },
+            .{ bx, ceiling, bz + 1 }, .{ bx, tip, bz },
         }, fireUvs(far), color);
     }
 }
@@ -434,7 +434,7 @@ fn buildFireOnNeighbours(
 fn buildFire(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     tile: u8,
     brightness: f32,
     x: i32,
@@ -578,7 +578,7 @@ fn wireColor(metadata: u4, brightness: f32) [4]u8 {
 fn buildRail(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -655,7 +655,7 @@ fn buildRail(
 fn buildWire(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     metadata: u4,
     x: i32,
     y: i32,
@@ -829,7 +829,7 @@ const lever_stick_faces = [6][4]usize{
 fn buildLever(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     metadata: u4,
     x: i32,
     y: i32,
@@ -886,7 +886,7 @@ fn repeaterTopCorners(origin: [3]f32, facing: u2) [4][3]f32 {
 fn buildRepeater(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -1057,7 +1057,7 @@ fn tileUvs(tile: u8, fractions: [4][2]f32) [4][2]f32 {
 fn buildBed(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -1123,7 +1123,7 @@ fn buildBed(
 fn buildDoor(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -1261,7 +1261,7 @@ pub fn buildPistonShaft(
 pub fn buildPistonHead(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -1283,7 +1283,7 @@ pub fn buildPistonHead(
 fn buildBoundedBox(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     bounds: world.block.Bounds,
     textures: world.block.FaceTextures,
@@ -1299,7 +1299,7 @@ fn buildBoundedBox(
 fn buildBoundedBoxTurned(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     bounds: world.block.Bounds,
     textures: world.block.FaceTextures,
@@ -1341,14 +1341,14 @@ fn buildBoundedBoxTurned(
     }
 }
 
-fn fluidBrightness(world_map: *const world.World, x: i32, y: i32, z: i32, minimum: u4) f32 {
+fn fluidBrightness(world_map: *const world.ChunkView, x: i32, y: i32, z: i32, minimum: u4) f32 {
     return @max(
         world.light.brightnessAt(world_map, x, y, z, minimum),
         world.light.brightnessAt(world_map, x, y + 1, z, minimum),
     );
 }
 
-fn fluidCornerHeight(world_map: *const world.World, x: i32, y: i32, z: i32, material: world.Material) f32 {
+fn fluidCornerHeight(world_map: *const world.ChunkView, x: i32, y: i32, z: i32, material: world.Material) f32 {
     var count: u32 = 0;
     var submerged: f32 = 0;
 
@@ -1395,7 +1395,7 @@ const fluid_sides = [4]struct {
 fn buildFluid(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     x: i32,
     y: i32,
@@ -1500,7 +1500,7 @@ fn buildFluid(
 pub fn buildBlockAt(
     target: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
+    world_map: *const world.ChunkView,
     id: world.Block,
     metadata: u4,
     x: i32,
@@ -1725,6 +1725,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     var mesh: Mesh = .{};
     errdefer mesh.deinit(gpa);
 
+    const view = world.ChunkView.around(world_map, chunk.x, chunk.z);
+
     const origin_x: f32 = @floatFromInt(chunk.x * world.constants.chunk_width);
     const origin_z: f32 = @floatFromInt(chunk.z * world.constants.chunk_width);
 
@@ -1748,7 +1750,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 try buildBlockAt(
                     target,
                     gpa,
-                    world_map,
+                    &view,
                     id,
                     metadata,
                     @intFromFloat(bx),
@@ -2103,7 +2105,8 @@ test "an unobstructed face lights all four corners the same" {
     chunk.setBlock(8, 0, 8, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
     for (corners) |corner| try std.testing.expectApproxEqAbs(@as(f32, 1.0), corner, 1.0e-6);
 }
 
@@ -2116,7 +2119,8 @@ test "a block beside the face darkens the two corners nearest it" {
     chunk.setBlock(9, 1, 8, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
 
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[3], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[2], 1.0e-6);
@@ -2134,7 +2138,8 @@ test "a diagonal block darkens only the corner it touches" {
     chunk.setBlock(9, 1, 9, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
 
     const dark = world.light.brightnessAt(&world_map, 9, 1, 9, 0);
     try std.testing.expectApproxEqAbs((3.0 + dark) / 4.0, corners[0], 1.0e-6);
@@ -2153,7 +2158,8 @@ test "two solid edges hide whatever is diagonally behind them" {
     chunk.setBlock(8, 1, 9, .stone);
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    const corners = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
 
     const dark = world.light.brightnessAt(&world_map, 9, 1, 8, 0);
     try std.testing.expect(world.light.brightnessAt(&world_map, 9, 1, 9, 0) > dark);
@@ -2175,13 +2181,14 @@ test "a seam face needs its neighbour lit before it shades correctly" {
     }
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
-    const unlit_neighbour = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const unlit_neighbour = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
     try std.testing.expect(unlit_neighbour[1] < 1.0);
     try std.testing.expect(unlit_neighbour[0] < 1.0);
 
     try world.light.relightChunk(gpa, &world_map, 1, 0);
-    const lit_neighbour = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
-    const interior = smoothBrightness(&world_map, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
+    const lit_neighbour = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 15, 0, 8, 0);
+    const interior = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], 8, 0, 8, 0);
     for (lit_neighbour, interior) |seam, inside| {
         try std.testing.expectApproxEqAbs(@as(f32, 1.0), seam, 1.0e-6);
         try std.testing.expectApproxEqAbs(inside, seam, 1.0e-6);
@@ -2227,7 +2234,8 @@ test "a water surface surrounded by sources sits one ninth below the block top" 
         for (7..10) |z| chunk.setBlock(@intCast(x), 0, @intCast(z), .stationary_water);
     }
 
-    const height = fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const height = fluidCornerHeight(&view, 8, 0, 8, world.Material.water);
     try std.testing.expectApproxEqAbs(@as(f32, 8.0 / 9.0), height, 1.0e-6);
 }
 
@@ -2239,7 +2247,8 @@ test "water under more water fills its block completely" {
     chunk.setBlock(8, 0, 8, .stationary_water);
     chunk.setBlock(8, 1, 8, .stationary_water);
 
-    try std.testing.expectEqual(@as(f32, 1.0), fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water));
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    try std.testing.expectEqual(@as(f32, 1.0), fluidCornerHeight(&view, 8, 0, 8, world.Material.water));
 }
 
 test "a shallower flowing block pulls the surface corner it shares down" {
@@ -2252,8 +2261,9 @@ test "a shallower flowing block pulls the surface corner it shares down" {
     }
     chunk.setBlockMetadata(9, 0, 9, 6);
 
-    const shared = fluidCornerHeight(&world_map, 9, 0, 9, world.Material.water);
-    const away = fluidCornerHeight(&world_map, 8, 0, 8, world.Material.water);
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    const shared = fluidCornerHeight(&view, 9, 0, 9, world.Material.water);
+    const away = fluidCornerHeight(&view, 8, 0, 8, world.Material.water);
     try std.testing.expect(shared < away);
 }
 
@@ -3051,7 +3061,8 @@ fn meshExtent(mesh: MeshBuilder, axis: usize) [2]f32 {
 }
 
 fn pistonHeadMesh(gpa: std.mem.Allocator, world_map: *world.World, metadata: u4, mesh: *MeshBuilder) !void {
-    try buildPistonHead(mesh, gpa, world_map, .piston_head, metadata, 0, 0, 0, .{ 0, 0, 0 }, piston_shaft_length, .{});
+    const view = world.ChunkView.around(world_map, 0, 0);
+    try buildPistonHead(mesh, gpa, &view, .piston_head, metadata, 0, 0, 0, .{ 0, 0, 0 }, piston_shaft_length, .{});
 }
 
 test "the piston head is a plate with a shaft reaching back into the base" {
@@ -3120,7 +3131,8 @@ test "an extended east-facing piston lands its side tile exactly where RenderBlo
     const metadata = world.block.pistonFacingValue(.east) | world.block.piston_flag;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try buildBoundedBoxTurned(&mesh, gpa, &world_map, .piston, world.block.pistonBaseBounds(metadata), world.block.pistonBaseTextures(.piston, metadata), .east, 0, 0, 0, .{ 0, 0, 0 }, .{});
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    try buildBoundedBoxTurned(&mesh, gpa, &view, .piston, world.block.pistonBaseBounds(metadata), world.block.pistonBaseTextures(.piston, metadata), .east, 0, 0, 0, .{ 0, 0, 0 }, .{});
 
     const uv = Atlas.tileUv(world.block.piston_side_tile);
     const expected = [4]struct { at: [3]f32, pixel: [2]f32 }{
@@ -3221,12 +3233,13 @@ test "a retracted piston fills its block, an extended one comes up short" {
 
     var retracted: MeshBuilder = .{};
     defer retracted.deinit(gpa);
-    try buildBoundedBox(&retracted, gpa, &world_map, .piston, world.block.pistonBaseBounds(world.block.pistonFacingValue(.up)), world.block.pistonBaseTextures(.piston, world.block.pistonFacingValue(.up)), 0, 0, 0, .{ 0, 0, 0 }, .{});
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    try buildBoundedBox(&retracted, gpa, &view, .piston, world.block.pistonBaseBounds(world.block.pistonFacingValue(.up)), world.block.pistonBaseTextures(.piston, world.block.pistonFacingValue(.up)), 0, 0, 0, .{ 0, 0, 0 }, .{});
 
     var extended: MeshBuilder = .{};
     defer extended.deinit(gpa);
     const meta = world.block.pistonFacingValue(.up) | world.block.piston_flag;
-    try buildBoundedBox(&extended, gpa, &world_map, .piston, world.block.pistonBaseBounds(meta), world.block.pistonBaseTextures(.piston, meta), 0, 0, 0, .{ 0, 0, 0 }, .{});
+    try buildBoundedBox(&extended, gpa, &view, .piston, world.block.pistonBaseBounds(meta), world.block.pistonBaseTextures(.piston, meta), 0, 0, 0, .{ 0, 0, 0 }, .{});
 
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), meshExtent(retracted, 1)[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), meshExtent(extended, 1)[1], 1.0e-6);
@@ -3246,10 +3259,11 @@ test "an extended piston loses the collar off its sides, the head having taken i
 
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
+        const view = world.ChunkView.around(&world_map, 0, 0);
         try buildBoundedBoxTurned(
             &mesh,
             gpa,
-            &world_map,
+            &view,
             .piston,
             world.block.pistonBaseBounds(metadata),
             world.block.pistonBaseTextures(.piston, metadata),
@@ -3298,10 +3312,11 @@ test "the collar on a piston's sides always points the way the piston faces" {
 
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
+        const view = world.ChunkView.around(&world_map, 0, 0);
         try buildBoundedBoxTurned(
             &mesh,
             gpa,
-            &world_map,
+            &view,
             .piston,
             world.block.pistonBaseBounds(metadata),
             world.block.pistonBaseTextures(.piston, metadata),
@@ -3533,7 +3548,8 @@ fn bedMesh(gpa: std.mem.Allocator, facing: u2, pillow: bool) !MeshBuilder {
 
     var mesh: MeshBuilder = .{};
     errdefer mesh.deinit(gpa);
-    try buildBed(&mesh, gpa, &world_map, .bed, metadata, 8, 64, 8, .{ 8, 64, 8 }, .{});
+    const view = world.ChunkView.around(&world_map, 0, 0);
+    try buildBed(&mesh, gpa, &view, .bed, metadata, 8, 64, 8, .{ 8, 64, 8 }, .{});
     return mesh;
 }
 
@@ -3597,7 +3613,6 @@ test "the bed's top texture turns a quarter for every step of its facing" {
         }
     }
 }
-
 
 test "fire standing on solid ground is eight leaning quads, not a crossed sprite" {
     const gpa = std.testing.allocator;

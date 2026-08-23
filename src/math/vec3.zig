@@ -34,6 +34,10 @@ pub fn scale(v: Vec3, s: f64) Vec3 {
     return fromSimd(toSimd(v) * @as(Simd, @splat(s)));
 }
 
+pub fn lerp(a: Vec3, b: Vec3, t: f64) Vec3 {
+    return fromSimd(toSimd(a) + (toSimd(b) - toSimd(a)) * @as(Simd, @splat(t)));
+}
+
 pub fn dot(a: Vec3, b: Vec3) f64 {
     return @reduce(.Add, toSimd(a) * toSimd(b));
 }

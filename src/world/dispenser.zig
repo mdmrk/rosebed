@@ -100,22 +100,8 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Dispenser) !
     return .{ .compound = compound };
 }
 
-fn intField(compound: nbt.Compound, key: []const u8) ?i32 {
-    return switch (compound.get(key) orelse return null) {
-        .int => |value| value,
-        else => null,
-    };
-}
-
-fn shortField(compound: nbt.Compound, key: []const u8) i16 {
-    return switch (compound.get(key) orelse return 0) {
-        .short => |value| value,
-        else => 0,
-    };
-}
-
 fn loadStack(compound: nbt.Compound) ?Stack {
-    const raw: u16 = @bitCast(shortField(compound, "id"));
+    const raw: u16 = @bitCast(nbt.shortField(compound, "id"));
     const count = switch (compound.get("Count") orelse return null) {
         .byte => |value| @as(u8, @bitCast(value)),
         else => return null,
@@ -126,7 +112,7 @@ fn loadStack(compound: nbt.Compound) ?Stack {
         .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
     else
         .{ .item = @enumFromInt(raw) };
-    return .{ .id = id, .count = count, .meta = @bitCast(shortField(compound, "Damage")) };
+    return .{ .id = id, .count = count, .meta = @bitCast(nbt.shortField(compound, "Damage")) };
 }
 
 pub const Placed = struct {
@@ -164,9 +150,9 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 
     return .{
-        .x = intField(compound, "x") orelse return null,
-        .y = intField(compound, "y") orelse return null,
-        .z = intField(compound, "z") orelse return null,
+        .x = nbt.intField(compound, "x") orelse return null,
+        .y = nbt.intField(compound, "y") orelse return null,
+        .z = nbt.intField(compound, "z") orelse return null,
         .state = state,
     };
 }

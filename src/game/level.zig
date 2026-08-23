@@ -2,7 +2,6 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
-const testing_world = world.testing;
 
 const Animal = @import("animal.zig");
 const Entities = @import("entities.zig");
