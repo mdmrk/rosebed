@@ -3730,7 +3730,14 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     app_state.shader.setVec4("u_tint", .{ 1, 1, 1, 1 });
     const frustum = math.Frustum.fromViewProjection(view_proj);
     gl.Enable(gl.CULL_FACE);
-    app_state.chunks_drawn = app_state.chunks.drawSolid(frustum);
+    app_state.chunks_drawn = try app_state.chunks.drawSolid(
+        app_state.frame,
+        app_state.shader,
+        frustum,
+        .{ .x = eye.x, .y = eye.y + game.Player.eye_height, .z = eye.z },
+        app_state.settings.advanced_opengl,
+        app_state.cloud_offset,
+    );
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);

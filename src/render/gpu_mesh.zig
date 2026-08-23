@@ -60,6 +60,11 @@ pub fn draw(self: GpuMesh) void {
     gl.DrawElements(self.mode, self.index_count, gl.UNSIGNED_INT, 0);
 }
 
+pub fn drawRange(self: GpuMesh, first_index: usize, count: gl.sizei) void {
+    gl.BindVertexArray(self.vao);
+    gl.DrawElements(self.mode, count, gl.UNSIGNED_INT, first_index * @sizeOf(u32));
+}
+
 pub fn deinit(self: GpuMesh) void {
     gl.DeleteVertexArrays(1, @ptrCast(&self.vao));
     gl.DeleteBuffers(1, @ptrCast(&self.vbo));
