@@ -5,7 +5,7 @@ const gl = @import("gl");
 const world = @import("world");
 
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const hotbar_width: f32 = 182;
 const hotbar_height: f32 = 22;

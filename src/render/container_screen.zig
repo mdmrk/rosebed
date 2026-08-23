@@ -3,9 +3,9 @@ const std = @import("std");
 const game = @import("game");
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const width: f32 = 176;
 pub const height: f32 = 166;

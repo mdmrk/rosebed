@@ -3,9 +3,9 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Atlas = @import("atlas.zig");
-const Colorizer = @import("colorizer.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const Atlas = @import("Atlas.zig");
+const Colorizer = @import("Colorizer.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const FaceDir = struct {
     side: world.Side,

@@ -4,7 +4,7 @@ const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
 const nbt = @import("nbt.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const width: i32 = 128;
 pub const height: i32 = 128;

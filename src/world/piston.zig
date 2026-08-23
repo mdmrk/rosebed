@@ -8,7 +8,7 @@ const Side = block.Side;
 const nbt = @import("nbt.zig");
 const redstone = @import("redstone.zig");
 const testing_world = @import("testing.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const id_key = "Piston";
 pub const push_limit: u32 = 12;

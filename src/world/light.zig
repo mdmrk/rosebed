@@ -2,9 +2,9 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
-const Chunk = @import("chunk.zig");
+const Chunk = @import("Chunk.zig");
 const constants = @import("constants.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const max_level: u4 = 15;
 
@@ -399,7 +399,7 @@ test "light crosses a chunk seam from an already lit neighbor" {
 
 test "a generated chunk is lit down to its surface and dark at bedrock" {
     const gpa = std.testing.allocator;
-    const TerrainGenerator = @import("terrain_gen.zig");
+    const TerrainGenerator = @import("TerrainGenerator.zig");
 
     const generator = try TerrainGenerator.init(gpa, 1);
     defer generator.deinit(gpa);

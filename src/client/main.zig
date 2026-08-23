@@ -15,7 +15,7 @@ const render = @import("render");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
-const Link = @import("link.zig");
+const Link = @import("Link.zig");
 
 const ticks_per_second = 20.0;
 const screen_width = 854;

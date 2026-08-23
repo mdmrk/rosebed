@@ -2,13 +2,13 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const chest = @import("chest.zig");
-const Chunk = @import("chunk.zig");
+const Chunk = @import("Chunk.zig");
 const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
 const furnace = @import("furnace.zig");
 const generator = @import("generator.zig");
 const nbt = @import("nbt.zig");
-const RegionFile = @import("region.zig");
+const RegionFile = @import("RegionFile.zig");
 
 pub const saves_dir_name = "saves";
 pub const region_dir_name = "region";

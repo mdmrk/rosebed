@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Font = @import("font.zig");
+const Font = @import("Font.zig");
 
 pub const line_height: f32 = 8;
 pub const max_lines: usize = 16;

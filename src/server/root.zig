@@ -1,6 +1,6 @@
 const handshake_test = @import("handshake_test.zig");
-pub const Session = @import("session.zig");
-pub const Window = @import("window.zig");
+pub const Session = @import("Session.zig");
+pub const Window = @import("Window.zig");
 
 test {
     _ = handshake_test;

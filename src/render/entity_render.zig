@@ -4,10 +4,10 @@ const game = @import("game");
 const math = @import("math");
 const world = @import("world");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
-const Colorizer = @import("colorizer.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const Colorizer = @import("Colorizer.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
 const white = [4]u8{ 255, 255, 255, 255 };

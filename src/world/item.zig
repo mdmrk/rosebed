@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Block = @import("block.zig").Block;
 const Side = @import("block.zig").Side;
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 const shears_max_damage: u16 = 238;
 const flint_and_steel_max_damage: u16 = 64;

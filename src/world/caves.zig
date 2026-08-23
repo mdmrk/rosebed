@@ -4,8 +4,8 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
-const Chunk = @import("chunk.zig");
-const JavaRandom = @import("java_random.zig");
+const Chunk = @import("Chunk.zig");
+const JavaRandom = @import("JavaRandom.zig");
 
 const chunk_radius: i32 = 8;
 

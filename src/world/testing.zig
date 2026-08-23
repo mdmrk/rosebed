@@ -3,7 +3,7 @@ const std = @import("std");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const constants = @import("constants.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub fn flatWorld(allocator: std.mem.Allocator, floor_height: u32) !World {
     var w = World.init(allocator);

@@ -1,4 +1,4 @@
-pub const Connection = @import("connection.zig");
+pub const Connection = @import("Connection.zig");
 
 test {
     _ = Connection;

@@ -8,7 +8,7 @@ const light = @import("light.zig");
 const portal = @import("portal.zig");
 const rail = @import("rail.zig");
 const testing_world = @import("testing.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 const fall_check_radius: i32 = 32;
 

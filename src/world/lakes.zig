@@ -2,9 +2,9 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
-const JavaRandom = @import("java_random.zig");
+const JavaRandom = @import("JavaRandom.zig");
 const light = @import("light.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 const grid_x = 16;
 const grid_z = 16;

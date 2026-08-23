@@ -4,9 +4,9 @@ const game = @import("game");
 const achievements = game.achievements;
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const text_wrap = @import("text_wrap.zig");
 
 pub const window_width: f32 = 160;

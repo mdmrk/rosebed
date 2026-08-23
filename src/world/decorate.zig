@@ -5,10 +5,10 @@ const math = @import("math");
 const biome = @import("biome.zig");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
-const Chunk = @import("chunk.zig");
-const JavaRandom = @import("java_random.zig");
+const Chunk = @import("Chunk.zig");
+const JavaRandom = @import("JavaRandom.zig");
 const light = @import("light.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 fn tryPlaceIfMatches(world_map: *World, wx: i32, wy: i32, wz: i32, match_id: Block, replace_id: Block) void {
     if (world_map.getBlock(wx, wy, wz) == match_id) {

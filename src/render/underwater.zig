@@ -2,10 +2,10 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
-const GpuMesh = @import("gpu_mesh.zig");
-const MeshBuilder = @import("mesh_builder.zig");
-const Shader = @import("shader.zig");
+const Atlas = @import("Atlas.zig");
+const GpuMesh = @import("GpuMesh.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
+const Shader = @import("Shader.zig");
 
 const identity: [16]f32 = .{
     1, 0, 0, 0,

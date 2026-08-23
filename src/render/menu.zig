@@ -5,7 +5,7 @@ const math = @import("math");
 
 const button = @import("button.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const saving_label = "Saving level..";

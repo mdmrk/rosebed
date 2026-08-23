@@ -3,8 +3,8 @@ const std = @import("std");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const chest = @import("chest.zig");
-const JavaRandom = @import("java_random.zig");
-const World = @import("world_map.zig");
+const JavaRandom = @import("JavaRandom.zig");
+const World = @import("World.zig");
 
 const room_height: i32 = 3;
 

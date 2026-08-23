@@ -6,7 +6,7 @@ const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
 const testing = @import("testing.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const Point = struct {
     x: i32,

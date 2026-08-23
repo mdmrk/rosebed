@@ -3,7 +3,7 @@ const std = @import("std");
 const Item = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
 const testing_world = @import("testing.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const id_key = "RecordPlayer";
 

@@ -11,7 +11,7 @@ const note = @import("note.zig");
 const piston = @import("piston.zig");
 const rail = @import("rail.zig");
 const testing_world = @import("testing.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 var wires_provide_power: bool = true;
 
@@ -744,11 +744,11 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Alloca
 const detector_inset: f64 = 2.0 / 16.0;
 const detector_height: f64 = 0.25;
 
-pub fn detectorBox(x: i32, y: i32, z: i32) math.AABB {
+pub fn detectorBox(x: i32, y: i32, z: i32) math.Aabb {
     const fx: f64 = @floatFromInt(x);
     const fy: f64 = @floatFromInt(y);
     const fz: f64 = @floatFromInt(z);
-    return math.AABB.init(
+    return math.Aabb.init(
         fx + detector_inset,
         fy,
         fz + detector_inset,
@@ -758,7 +758,7 @@ pub fn detectorBox(x: i32, y: i32, z: i32) math.AABB {
     );
 }
 
-pub fn onMinecartOverRail(world_map: *World, cart: math.AABB) std.mem.Allocator.Error!void {
+pub fn onMinecartOverRail(world_map: *World, cart: math.Aabb) std.mem.Allocator.Error!void {
     var x = math.util.floorDouble(cart.min_x);
     const max_x = math.util.floorDouble(cart.max_x);
     const max_y = math.util.floorDouble(cart.max_y);

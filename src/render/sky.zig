@@ -3,7 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const Color = [3]f32;
 

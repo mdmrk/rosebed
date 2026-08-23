@@ -4,8 +4,8 @@ const assets = @import("assets");
 
 const item = @import("item.zig");
 const Item = item.Item;
-const JavaRandom = @import("java_random.zig");
-const World = @import("world_map.zig");
+const JavaRandom = @import("JavaRandom.zig");
+const World = @import("World.zig");
 
 pub const Side = enum(u3) {
     down,

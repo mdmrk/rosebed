@@ -3,7 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const segments: usize = 8;
 pub const segment_height: f64 = 16.0;

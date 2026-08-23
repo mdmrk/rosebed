@@ -6,7 +6,7 @@ const net = @import("net");
 const world = @import("world");
 const chunk_payload = world.chunk_payload;
 
-const Session = @import("session.zig");
+const Session = @import("Session.zig");
 
 pub const default_port: u16 = 25565;
 pub const ticks_per_second: u32 = 20;

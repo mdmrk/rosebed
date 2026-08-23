@@ -3,8 +3,8 @@ const std = @import("std");
 const world = @import("world");
 
 const chunk_mesher = @import("chunk_mesher.zig");
-const Colorizer = @import("colorizer.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const Colorizer = @import("Colorizer.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const expand: f32 = 0.002;
 pub const outline_color: [4]u8 = .{ 0, 0, 0, 102 };
@@ -113,7 +113,7 @@ test "the crack is cropped to a slab's bounds rather than squashed onto them" {
 
     try crackMesh(gpa, &mesh, .slab, 0);
 
-    const uv = @import("atlas.zig").tileUv(crackTile(0.5));
+    const uv = @import("Atlas.zig").tileUv(crackTile(0.5));
     const north = mesh.vertices.items[2 * 4 ..][0..4];
     var v_low: f32 = std.math.floatMax(f32);
     var v_high: f32 = -std.math.floatMax(f32);
@@ -152,7 +152,7 @@ test "a lever cracks over its own stick, not over the box it is picked by" {
     }
     try std.testing.expect(leans_out);
 
-    const uv = @import("atlas.zig").tileUv(crackTile(0.5));
+    const uv = @import("Atlas.zig").tileUv(crackTile(0.5));
     for (mesh.vertices.items) |vertex| {
         try std.testing.expect(vertex.u >= uv.u0 - 1.0e-4 and vertex.u <= uv.u1 + 1.0e-4);
         try std.testing.expect(vertex.v >= uv.v0 - 1.0e-4 and vertex.v <= uv.v1 + 1.0e-4);

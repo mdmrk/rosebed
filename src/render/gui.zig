@@ -4,13 +4,13 @@ const game = @import("game");
 const gl = @import("gl");
 const world = @import("world");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
-const Font = @import("font.zig");
-const GpuMesh = @import("gpu_mesh.zig");
-const MeshBuilder = @import("mesh_builder.zig");
-const Shader = @import("shader.zig");
-const Textures = @import("textures.zig");
+const Font = @import("Font.zig");
+const GpuMesh = @import("GpuMesh.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
+const Shader = @import("Shader.zig");
+const Textures = @import("Textures.zig");
 
 pub const Ui = struct {
     gpa: std.mem.Allocator,

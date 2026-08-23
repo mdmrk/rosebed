@@ -1,9 +1,9 @@
 const std = @import("std");
 
 const chat = @import("chat.zig");
-const Font = @import("font.zig");
+const Font = @import("Font.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const height: f32 = 20;
 pub const max_length = 128;

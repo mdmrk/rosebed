@@ -6,7 +6,7 @@ const net = @import("net");
 const remote = @import("remote");
 const world = @import("world");
 
-const Session = @import("session.zig");
+const Session = @import("Session.zig");
 
 const Pair = struct {
     gpa: std.mem.Allocator,

@@ -1,5 +1,5 @@
-pub const Manager = @import("manager.zig");
-pub const Pool = @import("pool.zig");
+pub const Manager = @import("Manager.zig");
+pub const Pool = @import("Pool.zig");
 
 test {
     _ = Manager;

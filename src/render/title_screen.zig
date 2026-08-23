@@ -5,7 +5,7 @@ const math = @import("math");
 
 const button = @import("button.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const logo_texture_size: f32 = 256;
 const logo_piece_width: f32 = 155;
@@ -77,7 +77,7 @@ pub fn draw(
 
     const splash_width: f32 = @floatFromInt(ui.font.stringWidth(splash));
     const pulse: f32 = @floatFromInt(time_ms % 1000);
-    const throb = 1.8 - math.util.abs(math.util.sin(pulse / 1000.0 * std.math.pi * 2.0) * 0.1);
+    const throb = 1.8 - @abs(math.util.sin(pulse / 1000.0 * std.math.pi * 2.0) * 0.1);
     const splash_transform: gui.Transform = .{
         .x = @floor(ui.res.width / 2.0) + splash_offset_x,
         .y = splash_y,

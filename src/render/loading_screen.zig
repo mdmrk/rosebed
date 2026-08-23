@@ -1,7 +1,7 @@
 const gl = @import("gl");
 
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const text_color: [4]u8 = .{ 255, 255, 255, 255 };
 const bar_background: [4]u8 = .{ 128, 128, 128, 255 };

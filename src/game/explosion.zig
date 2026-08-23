@@ -3,9 +3,9 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Entity = @import("entity.zig");
-const Particle = @import("particle.zig");
-const Player = @import("player.zig");
+const Entity = @import("Entity.zig");
+const Particle = @import("Particle.zig");
+const Player = @import("Player.zig");
 const raycast = @import("raycast.zig");
 
 pub const shell_resolution: usize = 16;
@@ -153,7 +153,7 @@ fn pushBack(base: *Entity, impact: Impact) void {
     base.motion.z += impact.along[2] * impact.strength;
 }
 
-pub fn blockDensity(world_map: *const world.World, at: math.Vec3, box: math.AABB) f32 {
+pub fn blockDensity(world_map: *const world.World, at: math.Vec3, box: math.Aabb) f32 {
     const step_x = 1.0 / ((box.max_x - box.min_x) * 2.0 + 1.0);
     const step_y = 1.0 / ((box.max_y - box.min_y) * 2.0 + 1.0);
     const step_z = 1.0 / ((box.max_z - box.min_z) * 2.0 + 1.0);

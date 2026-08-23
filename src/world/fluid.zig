@@ -5,7 +5,7 @@ const math = @import("math");
 const block = @import("block.zig");
 const Block = block.Block;
 const constants = @import("constants.zig");
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 const max_decay: i32 = 8;
 const falling: u4 = 8;

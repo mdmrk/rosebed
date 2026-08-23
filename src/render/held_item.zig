@@ -5,7 +5,7 @@ const math = @import("math");
 const world = @import("world");
 
 const chunk_mesher = @import("chunk_mesher.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
 const degrees = std.math.pi / 180.0;

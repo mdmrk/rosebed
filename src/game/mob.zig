@@ -6,8 +6,8 @@ pub const Watched = net.packet.Watched;
 pub const Metadata = net.packet.Metadata;
 const world = @import("world");
 
-const Animal = @import("animal.zig");
-const Player = @import("player.zig");
+const Animal = @import("Animal.zig");
+const Player = @import("Player.zig");
 
 pub const Drops = struct {
     count: u8,
@@ -86,19 +86,19 @@ pub const Id = u16;
 pub const capacity: usize = 64;
 
 const vanilla = [_]Type{
-    @import("pig.zig").mob_type,
-    @import("sheep.zig").mob_type,
-    @import("cow.zig").mob_type,
-    @import("chicken.zig").mob_type,
-    @import("slime.zig").mob_type,
-    @import("wolf.zig").mob_type,
-    @import("ghast.zig").mob_type,
-    @import("creeper.zig").mob_type,
-    @import("skeleton.zig").mob_type,
-    @import("spider.zig").mob_type,
-    @import("zombie.zig").mob_type,
-    @import("pig_zombie.zig").mob_type,
-    @import("squid.zig").mob_type,
+    @import("Pig.zig").mob_type,
+    @import("Sheep.zig").mob_type,
+    @import("Cow.zig").mob_type,
+    @import("Chicken.zig").mob_type,
+    @import("Slime.zig").mob_type,
+    @import("Wolf.zig").mob_type,
+    @import("Ghast.zig").mob_type,
+    @import("Creeper.zig").mob_type,
+    @import("Skeleton.zig").mob_type,
+    @import("Spider.zig").mob_type,
+    @import("Zombie.zig").mob_type,
+    @import("PigZombie.zig").mob_type,
+    @import("Squid.zig").mob_type,
 };
 
 pub const pig: Id = 0;

@@ -7,7 +7,7 @@ const sdl3 = @import("sdl3");
 
 const button = @import("button.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const options_screen = @import("options_screen.zig");
 pub const Backdrop = options_screen.Backdrop;
 

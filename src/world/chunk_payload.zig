@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
-const Chunk = @import("chunk.zig");
+const Chunk = @import("Chunk.zig");
 const constants = @import("constants.zig");
 pub const blocks_len = constants.chunk_volume;
 pub const size_x: u8 = constants.chunk_width;

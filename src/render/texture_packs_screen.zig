@@ -2,10 +2,10 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const button = @import("button.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const texture_pack = @import("texture_pack.zig");
 
 const dirt_tile_scale: f32 = 32;

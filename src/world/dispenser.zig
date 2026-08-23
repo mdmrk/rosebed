@@ -3,7 +3,7 @@ const std = @import("std");
 const block = @import("block.zig");
 const Stack = block.Stack;
 const Item = @import("item.zig").Item;
-const JavaRandom = @import("java_random.zig");
+const JavaRandom = @import("JavaRandom.zig");
 const nbt = @import("nbt.zig");
 
 pub const id_key = "Trap";

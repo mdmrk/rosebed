@@ -2,7 +2,7 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const World = @import("world_map.zig");
+const World = @import("World.zig");
 
 pub const Pos = struct { x: i32, y: i32, z: i32 };
 

@@ -5,11 +5,11 @@ const stats = game.stats;
 const gl = @import("gl");
 const world = @import("world");
 
-const Atlas = @import("atlas.zig");
+const Atlas = @import("Atlas.zig");
 const button = @import("button.zig");
-const Font = @import("font.zig");
+const Font = @import("Font.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const dirt_tile_scale: f32 = 32;
 const list_dirt_tint: [4]u8 = .{ 32, 32, 32, 255 };

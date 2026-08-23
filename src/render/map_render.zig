@@ -4,8 +4,8 @@ const gl = @import("gl");
 const math = @import("math");
 const world = @import("world");
 
-const Font = @import("font.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const Font = @import("Font.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const degrees = std.math.pi / 180.0;
 

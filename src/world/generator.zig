@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const Chunk = @import("chunk.zig");
-const Climate = @import("climate.zig");
-const NetherGenerator = @import("nether_gen.zig");
-const TerrainGenerator = @import("terrain_gen.zig");
-const World = @import("world_map.zig");
+const Chunk = @import("Chunk.zig");
+const Climate = @import("Climate.zig");
+const NetherGenerator = @import("NetherGenerator.zig");
+const TerrainGenerator = @import("TerrainGenerator.zig");
+const World = @import("World.zig");
 
 pub const Dimension = enum(i8) {
     overworld = 0,

@@ -2,8 +2,8 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const JavaRandom = @import("java_random.zig");
-const World = @import("world_map.zig");
+const JavaRandom = @import("JavaRandom.zig");
+const World = @import("World.zig");
 
 pub const frame_width = 2;
 pub const frame_height = 3;
@@ -562,7 +562,7 @@ test "a portal lights the frame it stands in" {
 
 test "arriving in the nether carves a portal into real nether terrain" {
     const gpa = std.testing.allocator;
-    const NetherGenerator = @import("nether_gen.zig");
+    const NetherGenerator = @import("NetherGenerator.zig");
 
     var gen = try NetherGenerator.init(gpa, 12345);
     defer gen.deinit(gpa);

@@ -5,7 +5,7 @@ const world = @import("world");
 
 const container = @import("container_screen.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 const texture_size: f32 = 256;
 

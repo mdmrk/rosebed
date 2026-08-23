@@ -8,7 +8,7 @@ const world = @import("world");
 
 const container = @import("container_screen.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const MobModel = @import("mob_model.zig");
 
 const label_x: f32 = 86;

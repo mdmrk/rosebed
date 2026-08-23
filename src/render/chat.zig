@@ -2,9 +2,9 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const Font = @import("font.zig");
+const Font = @import("Font.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const max_message_length = 100;
 pub const max_lines = 50;

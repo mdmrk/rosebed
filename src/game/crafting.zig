@@ -3,7 +3,7 @@ const std = @import("std");
 const world = @import("world");
 const dye_blue: u16 = world.item.dye_meta_lapis;
 
-const Inventory = @import("inventory.zig");
+const Inventory = @import("Inventory.zig");
 
 pub const player_grid_size: u8 = 2;
 pub const workbench_grid_size: u8 = 3;

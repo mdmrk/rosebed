@@ -5,7 +5,7 @@ const world = @import("world");
 
 const button = @import("button.zig");
 const gui = @import("gui.zig");
-const MeshBuilder = @import("mesh_builder.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const sign_render = @import("sign_render.zig");
 
 pub const title = "Edit sign message:";
