@@ -482,6 +482,28 @@ pub fn appendSquid(
     if (squid.animal.hurt_time > 0 or squid.animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
 }
 
+pub fn ghastScale(ghast: game.Ghast, partial_ticks: f32) [3]f32 {
+    const charge = @max(0.0, ghast.renderAttackCounter(partial_ticks) / 20.0);
+    const eased = 1.0 / (charge * charge * charge * charge * charge * 2.0 + 1.0);
+    const tall = (8.0 + eased) / 2.0;
+    const wide = (8.0 + 1.0 / eased) / 2.0;
+    return .{ wide, tall, wide };
+}
+
+pub fn appendGhast(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    ghast: game.Ghast,
+    partial_ticks: f32,
+) !void {
+    const parts = mob_model.ghastPosed(ghast.renderAge(partial_ticks));
+    return appendAnimal(mesh, gpa, world_map, ghast.animal, partial_ticks, mob_model.ghast, .{
+        .posed = &parts,
+        .scale = ghastScale(ghast, partial_ticks),
+    });
+}
+
 fn spiderPoseOf(spider: game.Spider, partial_ticks: f32) [mob_model.spider.parts.len]mob_model.Part {
     return mob_model.spiderPosed(.{
         .limb_swing = spider.animal.limbSwingPhase(partial_ticks),
@@ -2847,6 +2869,36 @@ pub fn appendFishHook(
     try mesh.quad(gpa, positions, uvs, .{ level, level, level, 255 });
 }
 
+const fireball_scale: f32 = 2.0;
+const fireball_half_width: f32 = 0.5 * fireball_scale;
+const fireball_bottom: f32 = -0.25 * fireball_scale;
+const fireball_top: f32 = 0.75 * fireball_scale;
+
+pub fn appendFireball(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    fireball: game.Fireball,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    const pos = fireball.base.renderPosition(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    const uv = Atlas.tileUv(world.item.Item.snowball.iconTile(0) orelse return);
+
+    const positions = [4][3]f32{
+        .{ cx - basis.right_x * fireball_half_width + basis.tilt_x * fireball_bottom, cy + basis.up_y * fireball_bottom, cz - basis.right_z * fireball_half_width + basis.tilt_z * fireball_bottom },
+        .{ cx - basis.right_x * fireball_half_width + basis.tilt_x * fireball_top, cy + basis.up_y * fireball_top, cz - basis.right_z * fireball_half_width + basis.tilt_z * fireball_top },
+        .{ cx + basis.right_x * fireball_half_width + basis.tilt_x * fireball_top, cy + basis.up_y * fireball_top, cz + basis.right_z * fireball_half_width + basis.tilt_z * fireball_top },
+        .{ cx + basis.right_x * fireball_half_width + basis.tilt_x * fireball_bottom, cy + basis.up_y * fireball_bottom, cz + basis.right_z * fireball_half_width + basis.tilt_z * fireball_bottom },
+    };
+    const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
+
+    try mesh.quad(gpa, positions, uvs, white);
+}
+
 pub const line_color: [4]u8 = .{ 0, 0, 0, 255 };
 
 pub fn appendFishLine(
@@ -2925,4 +2977,87 @@ test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
         try std.testing.expect(@abs(reach[1]) < 0.5);
         try std.testing.expect(reach[0] / length * along[0] + reach[2] / length * along[2] > 0.8);
     }
+}
+
+test "a ghast is a body cube with nine tentacles hanging under it" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    const ghast = game.Ghast.spawn(.{ .x = 0, .y = 64, .z = 0 });
+    try appendGhast(&mesh, gpa, &world_map, ghast, 0);
+
+    try std.testing.expectEqual(@as(usize, 10 * 6 * 4), mesh.vertices.items.len);
+
+    const body = partBounds(mesh, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), body[1][0] - body[0][0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), body[1][1] - body[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 66.25), body[0][1], 1.0e-5);
+
+    for (1..10) |tentacle| {
+        const bounds = partBounds(mesh, tentacle);
+        try std.testing.expect(bounds[0][1] < body[0][1]);
+        try std.testing.expect(bounds[1][1] < body[0][1] + 0.5);
+        try std.testing.expect(bounds[0][0] > body[0][0] and bounds[1][0] < body[1][0]);
+    }
+
+    for (0..3) |row| {
+        const first = partBounds(mesh, 1 + row * 3);
+        const middle = partBounds(mesh, 2 + row * 3);
+        const last = partBounds(mesh, 3 + row * 3);
+        try std.testing.expect(first[0][0] < middle[0][0] and middle[0][0] < last[0][0]);
+        if (row > 0) {
+            const previous = partBounds(mesh, row * 3 - 2);
+            try std.testing.expect(previous[0][2] > first[0][2]);
+        }
+    }
+}
+
+test "a ghast puffs wider and shorter while it charges, and rounds out again once it has fired" {
+    var ghast = game.Ghast.spawn(.{ .x = 0, .y = 64, .z = 0 });
+
+    const resting = ghastScale(ghast, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), resting[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), resting[1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.5), resting[2], 1.0e-5);
+
+    ghast.prev_attack_counter = game.Ghast.fire_at;
+    ghast.attack_counter = game.Ghast.fire_at;
+    const charged = ghastScale(ghast, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 5.5), charged[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 25.0 / 6.0), charged[1], 1.0e-5);
+    try std.testing.expectEqual(charged[0], charged[2]);
+
+    ghast.prev_attack_counter = game.Ghast.reload_at;
+    ghast.attack_counter = game.Ghast.reload_at;
+    try std.testing.expectEqual(resting, ghastScale(ghast, 0));
+}
+
+test "a ghast's tentacles sway with its age while its body holds still" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var young: MeshBuilder = .{};
+    defer young.deinit(gpa);
+    var older: MeshBuilder = .{};
+    defer older.deinit(gpa);
+
+    var ghast = game.Ghast.spawn(.{ .x = 0, .y = 64, .z = 0 });
+    try appendGhast(&young, gpa, &world_map, ghast, 0);
+    ghast.ticks_existed = 7;
+    try appendGhast(&older, gpa, &world_map, ghast, 0);
+
+    for (partVertices(young, 0), partVertices(older, 0)) |still, swaying| {
+        try std.testing.expectApproxEqAbs(still.z, swaying.z, 1.0e-6);
+    }
+
+    var moved = false;
+    for (partVertices(young, 1), partVertices(older, 1)) |before, after| {
+        if (@abs(before.z - after.z) > 1.0e-3) moved = true;
+    }
+    try std.testing.expect(moved);
 }

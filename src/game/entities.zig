@@ -4362,6 +4362,62 @@ test "a creeper killed before its fuse runs out leaves its gunpowder behind" {
     try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
 }
 
+const SoundLog = struct {
+    keys: [8][]const u8 = undefined,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+        const self: *SoundLog = @ptrCast(@alignCast(context));
+        if (self.count == self.keys.len) return;
+        self.keys[self.count] = sound.key;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *SoundLog) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+
+    fn indexOf(self: SoundLog, key: []const u8) ?usize {
+        for (self.keys[0..self.count], 0..) |heard, index| {
+            if (std.mem.eql(u8, heard, key)) return index;
+        }
+        return null;
+    }
+};
+
+test "a ghast draws breath halfway through its wind-up and barks as the fireball leaves" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var heard: SoundLog = .{};
+    w.sound_sink = heard.sink();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    try entities.spawnGhast(gpa, math.Vec3.init(8.5, 1, 8.5));
+
+    var player = Player.spawn(math.Vec3.init(24.5, 1, 8.5));
+    player.base.id = entities.takeId();
+
+    for (0..64) |_| {
+        try soloTick(&entities, gpa, &w, &player, &rand);
+        if (entities.fireballs.items.len > 0) break;
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), entities.fireballs.items.len);
+
+    const charge = heard.indexOf(assets.sounds.mob.ghast.charge.key);
+    const shot = heard.indexOf(assets.sounds.mob.ghast.fireball.key);
+    try std.testing.expect(charge != null and shot != null);
+    try std.testing.expect(charge.? < shot.?);
+    try std.testing.expectEqual(@as(i32, Ghast.reload_at), entities.first(Ghast, mob.ghast).?.attack_counter);
+}
+
 test "a skeleton that sees the player looses a real arrow into the world" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);

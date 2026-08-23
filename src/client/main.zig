@@ -3844,6 +3844,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         if (hook.dead) continue;
         try render.entity_render.appendFishHook(&particle_mesh, app_state.frame, &app_state.level.world_map, hook, basis, partial);
     }
+    var fireball_mesh: render.MeshBuilder = .{};
+    defer fireball_mesh.deinit(app_state.frame);
+    for (app_state.level.entities.fireballs.items) |fireball| {
+        if (fireball.dead) continue;
+        try render.entity_render.appendFireball(&fireball_mesh, app_state.frame, fireball, basis, partial);
+    }
     drawEntityMesh(&atlas_mesh);
     if (particle_mesh.vertices.items.len > 0) {
         app_state.textures.particles.bind();
@@ -3853,6 +3859,11 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (item_particle_mesh.vertices.items.len > 0) {
         app_state.textures.items.bind();
         drawEntityMesh(&item_particle_mesh);
+        app_state.textures.terrain.bind();
+    }
+    if (fireball_mesh.vertices.items.len > 0) {
+        app_state.textures.items.bind();
+        drawEntityMesh(&fireball_mesh);
         app_state.textures.terrain.bind();
     }
 
@@ -3918,6 +3929,15 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     var shoal = app_state.level.entities.of(game.Squid, game.mob.squid);
     while (shoal.next()) |squid| {
         try render.entity_render.appendSquid(&squid_mesh, app_state.frame, &app_state.level.world_map, squid.*, partial);
+    }
+    var ghast_mesh: render.MeshBuilder = .{};
+    defer ghast_mesh.deinit(app_state.frame);
+    var ghast_fire_mesh: render.MeshBuilder = .{};
+    defer ghast_fire_mesh.deinit(app_state.frame);
+    var ghasts = app_state.level.entities.of(game.Ghast, game.mob.ghast);
+    while (ghasts.next()) |ghast| {
+        const face = if (ghast.isAttacking()) &ghast_fire_mesh else &ghast_mesh;
+        try render.entity_render.appendGhast(face, app_state.frame, &app_state.level.world_map, ghast.*, partial);
     }
     var wolf_mesh: render.MeshBuilder = .{};
     defer wolf_mesh.deinit(app_state.frame);
@@ -4108,6 +4128,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.squid.bind();
         drawEntityMesh(&squid_mesh);
         app_state.textures.terrain.bind();
+    }
+
+    inline for (.{
+        .{ &ghast_mesh, "ghast" },
+        .{ &ghast_fire_mesh, "ghast_fire" },
+    }) |face| {
+        if (face[0].vertices.items.len > 0) {
+            @field(app_state.textures, face[1]).bind();
+            drawEntityMesh(face[0]);
+            app_state.textures.terrain.bind();
+        }
     }
 
     if (spider_mesh.vertices.items.len > 0) {

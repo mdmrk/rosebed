@@ -77,6 +77,16 @@ pub fn isAttacking(self: Ghast) bool {
     return self.attack_counter > charge_at;
 }
 
+pub fn renderAge(self: Ghast, partial_ticks: f32) f32 {
+    return @as(f32, @floatFromInt(self.ticks_existed)) + partial_ticks;
+}
+
+pub fn renderAttackCounter(self: Ghast, partial_ticks: f32) f32 {
+    const prev: f32 = @floatFromInt(self.prev_attack_counter);
+    const now: f32 = @floatFromInt(self.attack_counter);
+    return prev + (now - prev) * partial_ticks;
+}
+
 pub fn takeShot(self: *Ghast) ?Shot {
     const shot = self.pending_shot orelse return null;
     self.pending_shot = null;
@@ -178,8 +188,14 @@ fn updateActionState(
         return;
     }
 
+    if (self.attack_counter == charge_at) {
+        animal.playSound(world_map, assets.sounds.mob.ghast.charge, rand);
+    }
+
     self.attack_counter += 1;
     if (self.attack_counter != fire_at) return;
+
+    animal.playSound(world_map, assets.sounds.mob.ghast.fireball, rand);
 
     const look = lookVector(animal.yaw, animal.pitch);
     self.pending_shot = .{

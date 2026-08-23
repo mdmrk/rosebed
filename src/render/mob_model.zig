@@ -485,6 +485,53 @@ pub fn squidPosed(tentacle_angle: f32) [squid_parts.len]Part {
     return parts;
 }
 
+const ghast_tentacles: usize = 9;
+const ghast_lift: f32 = -16;
+const ghast_tentacle_spread: f32 = 5;
+
+const ghast_parts = buildGhastParts();
+
+fn buildGhastParts() [1 + ghast_tentacles]Part {
+    @setEvalBranchQuota(10_000);
+    var parts: [1 + ghast_tentacles]Part = undefined;
+    parts[0] = .{
+        .box = .{ .origin = .{ -8, -8, -8 }, .size = .{ 16, 16, 16 }, .tex_u = 0, .tex_v = 0 },
+        .pivot = .{ 0, ghast_lift, 0 },
+    };
+
+    var rand = world.JavaRandom.init(1660);
+    for (parts[1..], 0..) |*part, index| {
+        const column: f32 = @floatFromInt(index % 3);
+        const row: f32 = @floatFromInt(index / 3);
+        const stagger: f32 = @floatFromInt(index / 3 % 2);
+        const length: f32 = @floatFromInt(rand.nextIntBound(7) + 8);
+        part.* = .{
+            .box = .{ .origin = .{ -1, 0, -1 }, .size = .{ 2, length, 2 }, .tex_u = 0, .tex_v = 0 },
+            .pivot = .{
+                (column - stagger * 0.5 + 0.25 - 1.0) * ghast_tentacle_spread,
+                7 + ghast_lift,
+                (row - 1.0) * ghast_tentacle_spread,
+            },
+        };
+    }
+    return parts;
+}
+
+pub const ghast: Model = .{
+    .parts = &ghast_parts,
+    .head_index = 0,
+    .texture_width = 64,
+    .texture_height = 32,
+};
+
+pub fn ghastPosed(age: f32) [ghast_parts.len]Part {
+    var parts = ghast_parts;
+    for (parts[1..], 0..) |*part, index| {
+        part.rotate_x = 0.2 * math.util.sin(age * 0.3 + @as(f32, @floatFromInt(index))) + 0.4;
+    }
+    return parts;
+}
+
 const biped_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, 0, -2 }, .size = .{ 8, 12, 4 }, .tex_u = 16, .tex_v = 16 }, .pivot = .{ 0, -24, 0 } },
     .{ .box = .{ .origin = .{ -2, 0, -2 }, .size = .{ 4, 12, 4 }, .tex_u = 0, .tex_v = 16 }, .pivot = .{ -2, -12, 0 } },
@@ -1056,4 +1103,28 @@ test "ModelMinecart's floor, four walls and inner plate close into a cart" {
     try std.testing.expect(inner[1][1] < floor[1][1]);
     try std.testing.expectApproxEqAbs(@as(f32, -0.19375), inner[1][1], tol);
     try std.testing.expectApproxEqAbs(@as(f32, -0.25625), inner[0][1], tol);
+}
+
+test "the ghast's nine tentacles hang from a three by three grid under its body, at the lengths ModelGhast rolls for them" {
+    const body = ghast.parts[0];
+    try std.testing.expectEqual([3]f32{ 0, -16, 0 }, body.pivot);
+    try std.testing.expectEqual([3]f32{ 16, 16, 16 }, body.box.size);
+
+    const expected = [9][3]f32{
+        .{ -3.75, -5, 8 },
+        .{ 1.25, -5, 13 },
+        .{ 6.25, -5, 9 },
+        .{ -6.25, 0, 11 },
+        .{ -1.25, 0, 11 },
+        .{ 3.75, 0, 10 },
+        .{ -3.75, 5, 12 },
+        .{ 1.25, 5, 9 },
+        .{ 6.25, 5, 12 },
+    };
+
+    try std.testing.expectEqual(expected.len, ghast.parts.len - 1);
+    for (ghast.parts[1..], expected) |part, want| {
+        try std.testing.expectEqual([3]f32{ want[0], -9, want[1] }, part.pivot);
+        try std.testing.expectEqual([3]f32{ 2, want[2], 2 }, part.box.size);
+    }
 }
