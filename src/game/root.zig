@@ -13,6 +13,7 @@ pub const explosion = @import("explosion.zig");
 pub const FallingBlock = @import("falling_block.zig");
 pub const Fireball = @import("fireball.zig");
 pub const FishHook = @import("fish_hook.zig");
+pub const Freecam = @import("freecam.zig");
 pub const Ghast = @import("ghast.zig");
 pub const Inventory = @import("inventory.zig");
 pub const ItemEntity = @import("item_entity.zig");
@@ -44,6 +45,7 @@ pub const Zombie = @import("zombie.zig");
 test {
     _ = Entity;
     _ = Entities;
+    _ = Freecam;
     _ = Player;
     _ = physics;
     _ = raycast;

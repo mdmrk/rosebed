@@ -121,6 +121,7 @@ const AppState = struct {
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
     third_person: bool = false,
+    freecam: game.Freecam = .{},
     frames_this_second: u32 = 0,
     chunk_updates_this_second: u32 = 0,
     debug_fps: u32 = 0,
@@ -250,8 +251,12 @@ fn debugStats(app_state: *const AppState) render.debug_overlay.Stats {
 }
 
 fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
-    const x: i32 = @intFromFloat(@floor(app_state.player.base.position.x));
-    const z: i32 = @intFromFloat(@floor(app_state.player.base.position.z));
+    const centre = if (app_state.freecam.active)
+        app_state.freecam.position
+    else
+        app_state.player.base.position;
+    const x: i32 = @intFromFloat(@floor(centre.x));
+    const z: i32 = @intFromFloat(@floor(centre.z));
     return .{
         .x = @divFloor(x, world.constants.chunk_width),
         .z = @divFloor(z, world.constants.chunk_width),
@@ -508,6 +513,7 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
 }
 
 fn clickLeft(app_state: *AppState) !void {
+    if (app_state.freecam.active) return;
     if (app_state.missed_click_cooldown > 0) return;
     swingArm(app_state);
     if (pickedEntity(app_state)) |target| {
@@ -1446,6 +1452,18 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         .help => for (game.commands.help_lines) |help_line| {
             app_state.chat.addMessage(app_state.font, help_line);
         },
+        .freecam => {
+            if (app_state.freecam.active) {
+                app_state.freecam.leave();
+                app_state.chat.addMessage(app_state.font, game.commands.freecam_off_line);
+            } else {
+                const eye = app_state.player.eyePosition();
+                app_state.freecam.enter(eye, app_state.player.yaw, app_state.player.pitch);
+                app_state.digging = null;
+                app_state.mouse_left_down = false;
+                app_state.chat.addMessage(app_state.font, game.commands.freecam_on_line);
+            }
+        },
         .kill => {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);
@@ -1822,6 +1840,7 @@ fn dropLink(app_state: *AppState) void {
 
 fn closeWorld(app_state: *AppState) void {
     dropLink(app_state);
+    app_state.freecam.leave();
     app_state.dimension = .overworld;
     app_state.pending_portal = false;
     if (app_state.save_handle) |*handle| handle.close(app_state.gpa, app_state.io);
@@ -3305,7 +3324,16 @@ fn tick(app_state: *AppState) !void {
     if (app_state.sign_edit) |*open| open.tick();
 
     try tickSleep(app_state);
-    const moving_allowed = !containerOpen(app_state) and !app_state.dead and !app_state.player.isMovementBlocked();
+    if (app_state.freecam.active) {
+        app_state.freecam.beginTick();
+        app_state.freecam.move(
+            (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0),
+            (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0),
+            (if (app_state.keys.jump) @as(f32, 1) else 0) - (if (app_state.keys.sneak) @as(f32, 1) else 0),
+        );
+    }
+    const moving_allowed = !containerOpen(app_state) and !app_state.dead and
+        !app_state.player.isMovementBlocked() and !app_state.freecam.active;
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
     const before_move = app_state.player.base.position;
@@ -3603,10 +3631,18 @@ const lava_fog_color = render.sky.Color{ 0.6, 0.1, 0.0 };
 const lava_fog_density: f32 = 2.0;
 
 fn cameraSubmerged(app_state: *const AppState) bool {
+    if (app_state.freecam.active) {
+        const eye = app_state.freecam.position;
+        return game.physics.isInsideWater(&app_state.level.world_map, eye.x, eye.y, eye.z);
+    }
     return app_state.player.isSubmerged(&app_state.level.world_map);
 }
 
 fn cameraInLava(app_state: *const AppState) bool {
+    if (app_state.freecam.active) {
+        const eye = app_state.freecam.position;
+        return game.physics.isInsideMaterial(&app_state.level.world_map, .lava, eye.x, eye.y, eye.z);
+    }
     return app_state.player.isEyeInLava(&app_state.level.world_map);
 }
 
@@ -3698,6 +3734,13 @@ fn updateListener(app_state: *AppState) void {
     const sound = if (app_state.sound) |*value| value else return;
     const player = &app_state.player;
     const partial = app_state.timer.render_partial_ticks;
+    if (app_state.freecam.active) {
+        const camera = app_state.freecam.renderPosition(partial);
+        const camera_yaw = app_state.freecam.prev_yaw +
+            (app_state.freecam.yaw - app_state.freecam.prev_yaw) * partial;
+        sound.setListener(.init(camera.x, camera.y, camera.z), camera_yaw) catch {};
+        return;
+    }
     const position = player.base.renderPosition(partial);
     const yaw = player.prev_yaw + (player.yaw - player.prev_yaw) * partial;
     sound.setListener(.init(position.x, position.y + game.Player.eye_height, position.z), yaw) catch {};
@@ -3719,7 +3762,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const proj = math.Mat4.perspective(fov, aspect, near_plane, far_plane);
     const partial = app_state.timer.render_partial_ticks;
     const eye_view = app_state.player.viewMatrix(partial);
-    const camera = if (app_state.player.sleeping)
+    const camera = if (app_state.freecam.active)
+        app_state.freecam.viewMatrix(partial)
+    else if (app_state.player.sleeping)
         app_state.player.sleepViewMatrix(&app_state.level.world_map, partial)
     else if (app_state.third_person) pulled: {
         const distance = app_state.player.thirdPersonDistance(&app_state.level.world_map, partial);
@@ -3727,21 +3772,27 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     } else eye_view;
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const view = if (app_state.settings.view_bobbing)
+    const view = if (app_state.freecam.active)
+        camera
+    else if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(camera)
     else
         hurt.mul(warp).mul(camera);
     const view_proj = proj.mul(view);
     const eye = app_state.player.base.renderPosition(partial);
+    const camera_eye = if (app_state.freecam.active)
+        app_state.freecam.renderPosition(partial)
+    else
+        math.Vec3.init(eye.x, eye.y + game.Player.eye_height, eye.z);
 
     app_state.shader.use();
     try drawSky(app_state, proj, partial, horizon);
 
     app_state.shader.setMat4("u_view_proj", view_proj.m);
     app_state.shader.setVec3("u_camera_pos", .{
-        @floatCast(eye.x),
-        @floatCast(eye.y + game.Player.eye_height),
-        @floatCast(eye.z),
+        @floatCast(camera_eye.x),
+        @floatCast(camera_eye.y),
+        @floatCast(camera_eye.z),
     });
     setupFog(app_state, horizon);
     gl.ActiveTexture(gl.TEXTURE0);
@@ -3756,7 +3807,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.frame,
         app_state.shader,
         frustum,
-        .{ .x = eye.x, .y = eye.y + game.Player.eye_height, .z = eye.z },
+        .{ .x = camera_eye.x, .y = camera_eye.y, .z = camera_eye.z },
         app_state.settings.advanced_opengl,
         app_state.cloud_offset,
     );
@@ -4114,7 +4165,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
 
     try drawPeers(app_state, partial);
-    if (app_state.third_person or app_state.player.sleeping) try drawPlayer(app_state, partial);
+    if (app_state.third_person or app_state.player.sleeping or app_state.freecam.active) try drawPlayer(app_state, partial);
     try drawFishLines(app_state, partial);
 
     try drawSelectionOutline(app_state);
@@ -4131,7 +4182,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     try drawLightning(app_state, view_proj);
     try drawWeather(app_state, view_proj, partial);
     try drawClouds(app_state, proj, partial);
-    if (!app_state.third_person and !app_state.player.sleeping) {
+    if (!app_state.third_person and !app_state.player.sleeping and !app_state.freecam.active) {
         try drawHeldItem(app_state, proj, partial);
         if (app_state.player.fire > 0) try drawFireOverlay(app_state, proj);
     }
@@ -4617,6 +4668,27 @@ fn drawSelectionOutline(app_state: *AppState) !void {
     gl.Disable(gl.BLEND);
 }
 
+fn probeCapture(app_state: *AppState, name: []const u8) !void {
+    const px = drawableSize(app_state);
+    const w: usize = @intCast(px.w);
+    const h: usize = @intCast(px.h);
+    const pixels = try app_state.gpa.alloc(u8, w * h * 3);
+    defer app_state.gpa.free(pixels);
+    gl.PixelStorei(gl.PACK_ALIGNMENT, 1);
+    gl.ReadPixels(0, 0, px.w, px.h, gl.RGB, gl.UNSIGNED_BYTE, pixels.ptr);
+    var file = try std.Io.Dir.cwd().createFile(app_state.io, name, .{});
+    defer file.close(app_state.io);
+    var buf: [4096]u8 = undefined;
+    var writer = file.writer(app_state.io, &buf);
+    try writer.interface.print("P6\n{d} {d}\n255\n", .{ w, h });
+    var row: usize = h;
+    while (row > 0) {
+        row -= 1;
+        try writer.interface.writeAll(pixels[row * w * 3 ..][0 .. w * 3]);
+    }
+    try writer.interface.flush();
+}
+
 pub fn iterate(
     app_state: *AppState,
 ) !sdl3.AppResult {
@@ -4632,6 +4704,53 @@ pub fn iterate(
         .{ .unlimited = {} };
     const dt = app_state.fps_capper.delay();
     _ = dt;
+
+    {
+        const Probe = struct {
+            var frame: u32 = 0;
+        };
+        if (Probe.frame == 0) {
+            app_state.mojang_until_ms = 0;
+            app_state.settings.render_distance = .normal;
+            try startWorld(app_state, "freecamprobe", "freecam probe", 4242);
+            app_state.level.world_map.setTime(1000);
+        }
+        Probe.frame += 1;
+        if (Probe.frame == 150) {
+            app_state.player.base.position = .{ .x = 8.5, .y = 80.0, .z = 8.5 };
+            app_state.player.base.prev_position = app_state.player.base.position;
+            app_state.player.yaw = 0;
+            app_state.player.pitch = 0;
+            try probeCapture(app_state, "fc_before.ppm");
+            try runCommand(app_state, "/freecam");
+            std.debug.print("after /freecam: active={} cam=({d:.2},{d:.2},{d:.2}) player=({d:.2},{d:.2},{d:.2})\n", .{
+                app_state.freecam.active,
+                app_state.freecam.position.x, app_state.freecam.position.y, app_state.freecam.position.z,
+                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
+            });
+            app_state.keys.forward = true;
+            app_state.keys.jump = true;
+        }
+        if (Probe.frame == 260) {
+            app_state.keys = .{};
+            std.debug.print("after flying: cam=({d:.2},{d:.2},{d:.2}) player=({d:.2},{d:.2},{d:.2})\n", .{
+                app_state.freecam.position.x, app_state.freecam.position.y, app_state.freecam.position.z,
+                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
+            });
+        }
+        if (Probe.frame == 290) {
+            try probeCapture(app_state, "fc_flying.ppm");
+            try runCommand(app_state, "/freecam");
+            std.debug.print("toggled off: active={} player=({d:.2},{d:.2},{d:.2})\n", .{
+                app_state.freecam.active,
+                app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z,
+            });
+        }
+        if (Probe.frame == 320) {
+            try probeCapture(app_state, "fc_after.ppm");
+            return .success;
+        }
+    }
 
     if (sdl3.timer.getMillisecondsSinceInit() < app_state.mojang_until_ms) {
         try render.mojang_screen.draw(uiContext(app_state, gui));
@@ -4967,7 +5086,11 @@ pub fn event(
                 const gui = guiSize(app_state);
                 setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui));
             } else if (worldFocused(app_state)) {
-                app_state.player.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+                if (app_state.freecam.active) {
+                    app_state.freecam.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+                } else {
+                    app_state.player.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+                }
             }
         },
         .mouse_wheel => |w| if (worldFocused(app_state)) {
@@ -5054,7 +5177,7 @@ pub fn event(
             },
             .right => if (app_state.controls_open or app_state.video_open or app_state.options_open or app_state.stats_open or app_state.screen == .title or app_state.paused or app_state.dead or app_state.chat.open) {} else if (containerOpen(app_state)) {
                 try openContainerClickAt(app_state, .right);
-            } else {
+            } else if (!app_state.freecam.active) {
                 if (try useBlockOrPlace(app_state)) {
                     swingArm(app_state);
                 } else if (app_state.link == null) {

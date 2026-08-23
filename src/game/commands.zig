@@ -6,6 +6,7 @@ pub const max_count: u8 = 64;
 
 pub const Verb = enum {
     help,
+    freecam,
     give,
     kill,
     spawn,
@@ -17,6 +18,7 @@ pub const Verb = enum {
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
             .help => "",
+            .freecam => "",
             .give => "<id|name> [num]",
             .kill => "",
             .spawn => "<mob> [num]",
@@ -30,6 +32,7 @@ pub const Verb = enum {
     pub fn description(self: Verb) []const u8 {
         return switch (self) {
             .help => "shows this message",
+            .freecam => "detaches the camera from the player",
             .give => "gives the player a resource",
             .kill => "kills the player",
             .spawn => "spawns a mob where you look",
@@ -81,6 +84,7 @@ pub const Weather = struct {
 pub const Result = union(enum) {
     nothing,
     help,
+    freecam,
     kill,
     seed: Seed,
     give: Give,
@@ -123,6 +127,9 @@ pub const help_lines: []const []const u8 = blk: {
 pub const unknown_command_line = "Unknown command. Type /help for a list.";
 
 pub const kill_line = "Ouch. That look like it hurt.";
+
+pub const freecam_on_line = "Freecam on. The camera flies, your body stays.";
+pub const freecam_off_line = "Freecam off.";
 
 pub const no_sky_line = "There is no sky here to change.";
 
@@ -178,6 +185,7 @@ pub fn parse(line: []const u8) Result {
 
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
+        .freecam => if (words.next() == null) .freecam else .nothing,
         .kill => if (words.next() == null) .kill else .nothing,
         .give => parseGive(&words),
         .spawn => parseSpawn(&words),
@@ -479,4 +487,10 @@ test "a name reports the id it resolved to, so the reply reads the same either w
     try std.testing.expectEqual(@as(u32, 264), parse("/give diamond").give.raw_id);
     try std.testing.expectEqual(@as(u32, 264), parse("/give 264").give.raw_id);
     try std.testing.expectEqual(@as(u32, 1), parse("/give 001").give.raw_id);
+}
+
+
+test "freecam takes no arguments at all" {
+    try std.testing.expectEqual(Result.freecam, parse("/freecam"));
+    try std.testing.expectEqual(Result.nothing, parse("/freecam on"));
 }

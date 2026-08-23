@@ -103,7 +103,7 @@ pub const width: f64 = 0.6;
 pub const height: f64 = 1.8;
 pub const eye_height: f64 = 1.62;
 
-const turn_scale = 0.15;
+pub const turn_scale = 0.15;
 
 const gravity: f64 = 0.08;
 const vertical_drag: f64 = 0.98;
@@ -707,7 +707,7 @@ pub fn digSpeedFactor(self: Player, world_map: *const world.World) f32 {
     return factor;
 }
 
-fn turnFactor(sensitivity: f32) f32 {
+pub fn turnFactor(sensitivity: f32) f32 {
     const s = sensitivity * 0.6 + 0.2;
     return s * s * s * 8.0;
 }
