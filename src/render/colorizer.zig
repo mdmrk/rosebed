@@ -8,6 +8,7 @@ const Colorizer = @This();
 pub const white: [3]u8 = .{ 255, 255, 255 };
 pub const pine: [3]u8 = unpack(6396257);
 pub const birch: [3]u8 = unpack(8431445);
+pub const foliage_default: [3]u8 = unpack(4764952);
 
 const table_size = 256;
 

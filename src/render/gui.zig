@@ -356,6 +356,10 @@ const iso_up_corners = [4][3]f32{ .{ 0, 1, 1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1
 const iso_south_corners = [4][3]f32{ .{ 0, 0, 1 }, .{ 0, 1, 1 }, .{ 1, 1, 1 }, .{ 1, 0, 1 } };
 const iso_east_corners = [4][3]f32{ .{ 1, 0, 1 }, .{ 1, 1, 1 }, .{ 1, 1, 0 }, .{ 1, 0, 0 } };
 
+fn shadeChannel(channel: u8, brightness: f32) u8 {
+    return @intFromFloat(@round(@as(f32, @floatFromInt(channel)) * brightness));
+}
+
 fn appendIsoFace(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -367,6 +371,7 @@ fn appendIsoFace(
     inset: f32,
     tile: u8,
     brightness: f32,
+    tint: [3]u8,
     x: f32,
     y: f32,
     res: Scaled,
@@ -389,8 +394,12 @@ fn appendIsoFace(
             chunk_mesher.croppedUv(v_edge, if (i == 0 or i == 3) uv.v0 else uv.v1, bounds, axis_v, corner[axis_v]),
         };
     }
-    const shade: u8 = @intFromFloat(@round(brightness * 255.0));
-    try mesh.quad(gpa, positions, uvs, .{ shade, shade, shade, 255 });
+    try mesh.quad(gpa, positions, uvs, .{
+        shadeChannel(tint[0], brightness),
+        shadeChannel(tint[1], brightness),
+        shadeChannel(tint[2], brightness),
+        255,
+    });
 }
 
 pub fn appendBlockIcon3d(
@@ -413,10 +422,11 @@ pub fn appendBlockIcon3d(
         textures = world.block.slabTextures(meta);
     }
     const inset = id.sideInset();
+    const tint = chunk_mesher.renderColor(id, meta);
     for (id.itemRenderBoxes()) |bounds| {
-        try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, 2, bounds, 0, textures.get(.up), iso_brightness_up, x, y, res);
-        try appendIsoFace(mesh, gpa, iso_south_corners, 2, 0, 1, bounds, inset, textures.get(.south), iso_brightness_south, x, y, res);
-        try appendIsoFace(mesh, gpa, iso_east_corners, 0, 2, 1, bounds, inset, textures.get(.east), iso_brightness_east, x, y, res);
+        try appendIsoFace(mesh, gpa, iso_up_corners, 1, 0, 2, bounds, 0, textures.get(.up), iso_brightness_up, tint, x, y, res);
+        try appendIsoFace(mesh, gpa, iso_south_corners, 2, 0, 1, bounds, inset, textures.get(.south), iso_brightness_south, tint, x, y, res);
+        try appendIsoFace(mesh, gpa, iso_east_corners, 0, 2, 1, bounds, inset, textures.get(.east), iso_brightness_east, tint, x, y, res);
     }
 }
 
@@ -476,6 +486,33 @@ test "the icon cube is lit the way the GUI's two item lights light it" {
     try std.testing.expectEqual(@as(u8, 255), @as(u8, @intFromFloat(@round(iso_brightness_up * 255.0))));
     try std.testing.expectEqual(@as(u8, 189), @as(u8, @intFromFloat(@round(iso_brightness_south * 255.0))));
     try std.testing.expectEqual(@as(u8, 216), @as(u8, @intFromFloat(@round(iso_brightness_east * 255.0))));
+}
+
+test "an icon face carries the block's render color, not bare white" {
+    const gpa = std.testing.allocator;
+    const res = scaledResolution(854, 480, 2);
+
+    var stone: MeshBuilder = .{};
+    defer stone.deinit(gpa);
+    try appendBlockIcon3d(&stone, gpa, .stone, 0, 0, 0, res);
+    try std.testing.expectEqual([4]u8{ 255, 255, 255, 255 }, stone.vertices.items[0].color);
+    try std.testing.expectEqual([4]u8{ 189, 189, 189, 255 }, stone.vertices.items[4].color);
+    try std.testing.expectEqual([4]u8{ 216, 216, 216, 255 }, stone.vertices.items[8].color);
+
+    var oak: MeshBuilder = .{};
+    defer oak.deinit(gpa);
+    try appendBlockIcon3d(&oak, gpa, .leaves, 0, 0, 0, res);
+    try std.testing.expectEqual([4]u8{ 72, 181, 24, 255 }, oak.vertices.items[0].color);
+
+    var pine: MeshBuilder = .{};
+    defer pine.deinit(gpa);
+    try appendBlockIcon3d(&pine, gpa, .leaves, 1, 0, 0, res);
+    try std.testing.expectEqual([4]u8{ 97, 153, 97, 255 }, pine.vertices.items[0].color);
+
+    var birch: MeshBuilder = .{};
+    defer birch.deinit(gpa);
+    try appendBlockIcon3d(&birch, gpa, .leaves, 2, 0, 0, res);
+    try std.testing.expectEqual([4]u8{ 128, 167, 85, 255 }, birch.vertices.items[0].color);
 }
 
 test "the icon cube projects to the hexagon renderBlockOnInventory draws" {

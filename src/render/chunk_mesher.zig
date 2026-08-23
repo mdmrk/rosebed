@@ -47,6 +47,18 @@ fn shadeColor(shade: f32, tint: [3]u8) [4]u8 {
     return color;
 }
 
+pub fn renderColor(id: world.Block, metadata: u4) [3]u8 {
+    return switch (id) {
+        .leaves => if (metadata & 1 == 1)
+            Colorizer.pine
+        else if (metadata & 2 == 2)
+            Colorizer.birch
+        else
+            Colorizer.foliage_default,
+        else => Colorizer.white,
+    };
+}
+
 pub fn blockTint(colorizer: Colorizer, id: world.Block, metadata: u4, side: world.Side, temperature: f64, humidity: f64) [3]u8 {
     return switch (id) {
         .grass => if (side == .up)
