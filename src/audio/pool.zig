@@ -33,7 +33,13 @@ pub fn keyOf(gpa: std.mem.Allocator, path: []const u8, strip_digits: bool) ![]u8
 }
 
 pub fn add(self: *Pool, gpa: std.mem.Allocator, path: []const u8, source: Source) !void {
-    const key = try keyOf(gpa, path, self.strip_digits);
+    const derived = try keyOf(gpa, path, self.strip_digits);
+    defer gpa.free(derived);
+    return self.addKeyed(gpa, derived, source);
+}
+
+pub fn addKeyed(self: *Pool, gpa: std.mem.Allocator, name: []const u8, source: Source) !void {
+    const key = try gpa.dupe(u8, name);
     errdefer gpa.free(key);
 
     const index: u32 = @intCast(self.entries.items.len);

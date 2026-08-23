@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -34,6 +35,9 @@ pub fn specFor(size: u8) Animal.Spec {
         .width = extent,
         .height = extent,
         .max_health = @as(i32, size) * @as(i32, size),
+        .hurt_sound = assets.sounds.mob.slime,
+        .death_sound = assets.sounds.mob.slime,
+        .sound_volume = 0.6,
     };
 }
 

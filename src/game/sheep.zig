@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -17,7 +18,15 @@ pub const width: f64 = 0.9;
 pub const height: f64 = 1.3;
 pub const max_health: i32 = 10;
 
-pub const spec: Animal.Spec = .{ .width = width, .height = height, .max_health = max_health };
+pub const spec: Animal.Spec = .{
+    .width = width,
+    .height = height,
+    .max_health = max_health,
+    .living_sound = assets.sounds.mob.sheep,
+    .hurt_sound = assets.sounds.mob.sheep,
+    .death_sound = assets.sounds.mob.sheep,
+    .talk_interval = Animal.passive_talk_interval,
+};
 
 const white: u4 = 0;
 const pink: u4 = 6;

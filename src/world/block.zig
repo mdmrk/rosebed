@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const assets = @import("assets");
+
 const item = @import("item.zig");
 const Item = item.Item;
 const JavaRandom = @import("java_random.zig");
@@ -177,21 +179,21 @@ pub const StepSound = enum {
     cloth,
     sand,
 
-    pub fn walk(self: StepSound) []const u8 {
+    pub fn walk(self: StepSound) assets.Sound {
         return switch (self) {
-            .powder, .stone, .metal, .glass => "step.stone",
-            .wood => "step.wood",
-            .gravel => "step.gravel",
-            .grass => "step.grass",
-            .cloth => "step.cloth",
-            .sand => "step.sand",
+            .powder, .stone, .metal, .glass => assets.sounds.step.stone,
+            .wood => assets.sounds.step.wood,
+            .gravel => assets.sounds.step.gravel,
+            .grass => assets.sounds.step.grass,
+            .cloth => assets.sounds.step.cloth,
+            .sand => assets.sounds.step.sand,
         };
     }
 
-    pub fn destroy(self: StepSound) []const u8 {
+    pub fn destroy(self: StepSound) assets.Sound {
         return switch (self) {
-            .glass => "random.glass",
-            .sand => "step.gravel",
+            .glass => assets.sounds.random.glass,
+            .sand => assets.sounds.step.gravel,
             else => self.walk(),
         };
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const game = @import("game");
 const math = @import("math");
 const net = @import("net");
@@ -637,7 +638,7 @@ fn collectItem(
             dropped.base.position.x,
             dropped.base.position.y,
             dropped.base.position.z,
-            "random.pop",
+            assets.sounds.random.pop,
             0.2,
             pickup_pitch,
         );
@@ -1113,7 +1114,7 @@ fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body
     _ = self;
     const at = math.Vec3.init(body.x, body.y, body.z);
     const rand = &level.world_map.rand;
-    level.world_map.playSoundEffect(at.x, at.y, at.z, "random.explode", 4.0, blast_pitch(rand));
+    level.world_map.playSoundEffect(at.x, at.y, at.z, assets.sounds.random.explode, 4.0, blast_pitch(rand));
 
     const origin: [3]i32 = .{
         @intFromFloat(body.x),

@@ -51,6 +51,10 @@ pub const spec: Animal.Spec = .{
     .height = height,
     .movement = .drifting,
     .breathes_underwater = true,
+    .hurt_sound = null,
+    .death_sound = null,
+    .sound_volume = 0.4,
+    .talk_interval = Animal.passive_talk_interval,
 };
 
 fn init(position: math.Vec3) Squid {

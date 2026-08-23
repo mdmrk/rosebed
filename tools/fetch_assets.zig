@@ -68,7 +68,7 @@ const Resource = struct {
 fn poolFor(path: []const u8) ?Resource.Pool {
     const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
     const prefix = path[0..slash];
-    if (std.mem.eql(u8, prefix, "sound") or std.mem.eql(u8, prefix, "newsound")) return .embedded;
+    if (std.mem.eql(u8, prefix, "newsound")) return .embedded;
     if (std.mem.eql(u8, prefix, "music") or std.mem.eql(u8, prefix, "newmusic")) return .streamed;
     if (std.mem.eql(u8, prefix, "streaming")) return .streamed;
     return null;
@@ -86,6 +86,7 @@ fn findResources(gpa: std.mem.Allocator, index_json: []const u8) ![]Resource {
         const path = entry.key_ptr.*;
         if (!std.mem.endsWith(u8, path, ".ogg")) continue;
         const pool = poolFor(path) orelse continue;
+        if (pool == .embedded and isUnportedSound(path)) continue;
         try list.append(gpa, .{
             .path = try gpa.dupe(u8, path),
             .hash = try gpa.dupe(u8, entry.value_ptr.object.get("hash").?.string),
@@ -134,9 +135,41 @@ fn sha1Hex(bytes: []const u8, out: *[40]u8) void {
     _ = std.fmt.bufPrint(out, "{x}", .{digest}) catch unreachable;
 }
 
+const sound_namespace = "sounds";
+
+const unported_sound_dirs = [_][]const u8{
+    "newsound/mob/blaze/",
+    "newsound/mob/cat/",
+    "newsound/mob/endermen/",
+    "newsound/mob/irongolem/",
+    "newsound/mob/magmacube/",
+    "newsound/mob/silverfish/",
+    "newsound/mob/zombie/",
+};
+
+fn isUnportedSound(path: []const u8) bool {
+    for (unported_sound_dirs) |prefix| {
+        if (std.mem.startsWith(u8, path, prefix)) return true;
+    }
+    return false;
+}
+
+fn soundKey(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
+    var end = std.mem.indexOfScalar(u8, name, '.') orelse name.len;
+    while (end > 0 and std.ascii.isDigit(name[end - 1])) end -= 1;
+    const key = try alloc.dupe(u8, name[0..end]);
+    std.mem.replaceScalar(u8, key, '/', '.');
+    return key;
+}
+
 const Node = struct {
     children: std.StringHashMap(*Node),
     embed_path: ?[]const u8 = null,
+    decl_path: ?[]const u8 = null,
+    sound_key: ?[]const u8 = null,
+    variants: std.ArrayList(Variant) = .empty,
+
+    const Variant = struct { decl_path: []const u8, embed_path: []const u8 };
 
     fn init(alloc: std.mem.Allocator) !*Node {
         const n = try alloc.create(Node);
@@ -145,46 +178,77 @@ const Node = struct {
     }
 };
 
-fn insert(alloc: std.mem.Allocator, root: *Node, path: []const u8) !void {
+fn reach(alloc: std.mem.Allocator, root: *Node, tree_path: []const u8) !*Node {
     var node = root;
-    var it = std.mem.splitScalar(u8, path, '/');
-    var seg = it.next();
-    while (seg) |name| {
-        const next = it.next();
-        if (next == null) {
-            const leaf = try Node.init(alloc);
-            leaf.embed_path = path;
-            try node.children.put(name, leaf);
-        } else {
-            const gop = try node.children.getOrPut(name);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = try Node.init(alloc);
-            }
-            node = gop.value_ptr.*;
-        }
-        seg = next;
+    var it = std.mem.splitScalar(u8, tree_path, '/');
+    while (it.next()) |name| {
+        const gop = try node.children.getOrPut(name);
+        if (!gop.found_existing) gop.value_ptr.* = try Node.init(alloc);
+        node = gop.value_ptr.*;
     }
+    return node;
+}
+
+fn insert(
+    alloc: std.mem.Allocator,
+    root: *Node,
+    tree_path: []const u8,
+    decl_path: []const u8,
+    embed_path: []const u8,
+) !void {
+    const leaf = try reach(alloc, root, tree_path);
+    leaf.embed_path = embed_path;
+    leaf.decl_path = decl_path;
+}
+
+fn insertSound(
+    alloc: std.mem.Allocator,
+    root: *Node,
+    key: []const u8,
+    decl_path: []const u8,
+    embed_path: []const u8,
+) !void {
+    const tree_path = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ sound_namespace, key });
+    std.mem.replaceScalar(u8, tree_path, '.', '/');
+    const leaf = try reach(alloc, root, tree_path);
+    leaf.sound_key = key;
+    try leaf.variants.append(alloc, .{ .decl_path = decl_path, .embed_path = embed_path });
 }
 
 fn identFor(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
-    if (std.mem.eql(u8, name, "null")) return "@\"null\"";
-
     const buf = try alloc.alloc(u8, name.len);
     for (name, 0..) |c, i| {
         buf[i] = if (std.ascii.isAlphanumeric(c) or c == '_') c else '_';
     }
-    return buf;
+    if (std.zig.isValidId(buf)) return buf;
+    return std.fmt.allocPrint(alloc, "@\"{s}\"", .{buf});
+}
+
+fn lessThanName(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.order(u8, a, b) == .lt;
 }
 
 fn emit(writer: anytype, alloc: std.mem.Allocator, node: *Node, depth: usize) !void {
-    var it = node.children.iterator();
-    while (it.next()) |entry| {
-        const name = entry.key_ptr.*;
-        const child = entry.value_ptr.*;
+    var names = try alloc.alloc([]const u8, node.children.count());
+    var it = node.children.keyIterator();
+    var index: usize = 0;
+    while (it.next()) |key| : (index += 1) names[index] = key.*;
+    std.mem.sort([]const u8, names, {}, lessThanName);
+
+    for (names) |name| {
+        const child = node.children.get(name).?;
         try writer.splatByteAll(' ', depth * 4);
         const ident = try identFor(alloc, name);
-        if (child.embed_path) |p| {
-            try writer.print("pub const {s}: Asset = .{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }};\n", .{ ident, p, p });
+        if (child.sound_key) |key| {
+            try writer.print("pub const {s}: Sound = .{{ .key = \"{s}\", .variants = &.{{\n", .{ ident, key });
+            for (child.variants.items) |variant| {
+                try writer.splatByteAll(' ', (depth + 1) * 4);
+                try writer.print(".{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }},\n", .{ variant.decl_path, variant.embed_path });
+            }
+            try writer.splatByteAll(' ', depth * 4);
+            try writer.writeAll("} };\n");
+        } else if (child.embed_path) |embed_path| {
+            try writer.print("pub const {s}: Asset = .{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }};\n", .{ ident, child.decl_path.?, embed_path });
         } else {
             try writer.print("pub const {s} = struct {{\n", .{ident});
             try emit(writer, alloc, child, depth + 1);
@@ -202,29 +266,23 @@ fn writeManifest(
     sounds: []const Resource,
 ) !void {
     const root = try Node.init(gpa);
-    for (names.items) |p| try insert(gpa, root, p);
+    for (names.items) |p| try insert(gpa, root, p, p, p);
+    for (sounds) |sound| {
+        const slash = std.mem.indexOfScalar(u8, sound.path, '/').?;
+        const name = sound.path[slash + 1 ..];
+        try insertSound(gpa, root, try soundKey(gpa, name), name, sound.path);
+    }
 
     var out_buf: std.Io.Writer.Allocating = .init(gpa);
     defer out_buf.deinit();
 
     try out_buf.writer.writeAll(
         \\pub const Asset = struct { path: []const u8, bytes: []const u8 };
+        \\pub const Sound = struct { key: []const u8, variants: []const Asset };
         \\
     );
 
     try emit(&out_buf.writer, gpa, root, 0);
-
-    try out_buf.writer.writeAll(
-        \\pub const sounds = [_]Asset{
-        \\
-    );
-    for (sounds) |sound| {
-        try out_buf.writer.print(
-            "    .{{ .path = \"{s}\", .bytes = @embedFile(\"{s}\") }},\n",
-            .{ sound.path, sound.path },
-        );
-    }
-    try out_buf.writer.writeAll("};\n");
 
     var out_file = try assets_dir.createFile(io, "root.zig", .{ .truncate = true });
     defer out_file.close(io);

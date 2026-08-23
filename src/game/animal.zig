@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const assets = @import("assets");
+pub const default_hurt_sound = assets.sounds.random.hurt;
 const math = @import("math");
 const world = @import("world");
 const testing_world = world.testing;
@@ -42,6 +44,13 @@ fire: i32 = 0,
 fall_distance: f32 = 0,
 last_fall: f32 = 0,
 entity_age: i32 = 0,
+living_sound: ?assets.Sound = null,
+living_sound_of: ?*const fn (*Animal, *world.JavaRandom) ?assets.Sound = null,
+hurt_sound: ?assets.Sound = default_hurt_sound,
+death_sound: ?assets.Sound = default_hurt_sound,
+sound_volume: f32 = default_sound_volume,
+talk_interval: i32 = default_talk_interval,
+living_sound_time: i32 = 0,
 move_strafing: f32 = 0,
 move_forward: f32 = 0,
 random_yaw_velocity: f32 = 0,
@@ -78,8 +87,18 @@ pub const Spec = struct {
     takes_fall_damage: bool = true,
     move_speed: f32 = default_move_speed,
     eye_fraction: f64 = eye_height_fraction,
+    living_sound: ?assets.Sound = null,
+    living_sound_of: ?*const fn (*Animal, *world.JavaRandom) ?assets.Sound = null,
+    hurt_sound: ?assets.Sound = default_hurt_sound,
+    death_sound: ?assets.Sound = default_hurt_sound,
+    sound_volume: f32 = default_sound_volume,
+    talk_interval: i32 = default_talk_interval,
 };
 
+pub const living_sound_roll: i32 = 1000;
+pub const default_sound_volume: f32 = 1.0;
+pub const default_talk_interval: i32 = 80;
+pub const passive_talk_interval: i32 = 120;
 pub const default_max_health: i32 = 10;
 pub const default_step_height: f64 = 0.5;
 pub const max_air: i32 = 300;
@@ -203,7 +222,29 @@ pub fn spawn(position: math.Vec3, spec: Spec) Animal {
         .takes_fall_damage = spec.takes_fall_damage,
         .move_speed = spec.move_speed,
         .eye_fraction = spec.eye_fraction,
+        .living_sound = spec.living_sound,
+        .living_sound_of = spec.living_sound_of,
+        .hurt_sound = spec.hurt_sound,
+        .death_sound = spec.death_sound,
+        .sound_volume = spec.sound_volume,
+        .talk_interval = spec.talk_interval,
     };
+}
+
+pub fn playSound(self: *const Animal, world_map: *const world.World, sound: assets.Sound, rand: *world.JavaRandom) void {
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        sound,
+        self.sound_volume,
+        (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0,
+    );
+}
+
+fn playLivingSound(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+    const name = if (self.living_sound_of) |pick| pick(self, rand) else self.living_sound;
+    self.playSound(world_map, name orelse return, rand);
 }
 
 pub fn deinit(self: *Animal, gpa: std.mem.Allocator) void {
@@ -726,6 +767,14 @@ pub fn tick(
     self.base.beginTick();
     self.drowned = false;
     self.last_fall = 0;
+
+    const talked = self.living_sound_time;
+    self.living_sound_time += 1;
+    if (rand.nextIntBound(living_sound_roll) < talked) {
+        self.living_sound_time = -self.talk_interval;
+        self.playLivingSound(world_map, rand);
+    }
+
     self.updateFireAndWater(world_map, rand);
 
     if (self.isAlive() and self.isInsideOpaqueBlock(world_map)) {

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const assets = @import("assets");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const Side = block.Side;
@@ -362,6 +364,7 @@ pub fn updatePowerState(world_map: *World, x: i32, y: i32, z: i32) !void {
         defer pushing = false;
         if (try extend(world_map, x, y, z, id, facing)) {
             try world_map.setBlockMetadataWithNotify(x, y, z, facing_value | block.piston_flag);
+            playPistonSound(world_map, x, y, z, assets.sounds.tile.piston.out, 0.25, 0.6);
         }
     } else if (!powered and extended) {
         world_map.setBlockMetadata(x, y, z, facing_value);
@@ -369,7 +372,19 @@ pub fn updatePowerState(world_map: *World, x: i32, y: i32, z: i32) !void {
         pushing = true;
         defer pushing = false;
         try retract(world_map, x, y, z, id, facing);
+        playPistonSound(world_map, x, y, z, assets.sounds.tile.piston.in, 0.15, 0.6);
     }
+}
+
+fn playPistonSound(world_map: *World, x: i32, y: i32, z: i32, sound: assets.Sound, spread: f32, floor: f32) void {
+    world_map.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        sound,
+        0.5,
+        world_map.rand.nextFloat() * spread + floor,
+    );
 }
 
 pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) !void {

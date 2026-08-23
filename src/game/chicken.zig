@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -28,6 +29,10 @@ pub const spec: Animal.Spec = .{
     .height = height,
     .max_health = max_health,
     .takes_fall_damage = false,
+    .living_sound = assets.sounds.mob.chicken,
+    .hurt_sound = assets.sounds.mob.chickenhurt,
+    .death_sound = assets.sounds.mob.chickenhurt,
+    .talk_interval = Animal.passive_talk_interval,
 };
 
 const egg_interval: i32 = 6000;

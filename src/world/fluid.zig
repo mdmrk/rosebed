@@ -220,6 +220,12 @@ fn checkForHarden(fluid: Fluid, world_map: *World, x: i32, y: i32, z: i32) !void
     } else if (meta <= 4) {
         try world_map.setBlockWithNotify(x, y, z, .cobblestone);
     }
+
+    triggerLavaMixEffects(world_map, x, y, z);
+}
+
+fn triggerLavaMixEffects(world_map: *World, x: i32, y: i32, z: i32) void {
+    world_map.playFizzAt(x, y, z);
 }
 
 pub fn onBlockAdded(world_map: *World, x: i32, y: i32, z: i32) !void {

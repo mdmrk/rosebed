@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -34,6 +35,9 @@ pub const spec: Animal.Spec = .{
     .max_health = max_health,
     .move_speed = idle_move_speed,
     .immune_to_fire = true,
+    .living_sound = assets.sounds.mob.zombiepig.zpig,
+    .hurt_sound = assets.sounds.mob.zombiepig.zpighurt,
+    .death_sound = assets.sounds.mob.zombiepig.zpigdeath,
 };
 
 fn init(position: math.Vec3) PigZombie {

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const assets = @import("assets");
+
 const block = @import("block.zig");
 const nbt = @import("nbt.zig");
 const testing_world = @import("testing.zig");
@@ -15,13 +17,13 @@ pub const Instrument = enum(u8) {
     click = 3,
     bass = 4,
 
-    pub fn soundName(self: Instrument) []const u8 {
+    pub fn soundName(self: Instrument) assets.Sound {
         return switch (self) {
-            .harp => "note.harp",
-            .bass_drum => "note.bd",
-            .snare => "note.snare",
-            .click => "note.hat",
-            .bass => "note.bassattack",
+            .harp => assets.sounds.note.harp,
+            .bass_drum => assets.sounds.note.bd,
+            .snare => assets.sounds.note.snare,
+            .click => assets.sounds.note.hat,
+            .bass => assets.sounds.note.bassattack,
         };
     }
 };

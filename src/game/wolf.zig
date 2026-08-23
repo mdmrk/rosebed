@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -43,12 +44,27 @@ pub const move_speed: f32 = 1.1;
 pub const eye_fraction: f64 = 0.8;
 pub const max_spawned_in_chunk: u32 = 8;
 
+pub const whine_health: i32 = 10;
+
+fn livingSound(animal: *Animal, rand: *world.JavaRandom) ?assets.Sound {
+    const self: *Wolf = @fieldParentPtr("animal", animal);
+    if (self.angry) return assets.sounds.mob.wolf.growl;
+    if (rand.nextIntBound(3) != 0) return assets.sounds.mob.wolf.bark;
+    if (self.tamed and animal.health < whine_health) return assets.sounds.mob.wolf.whine;
+    return assets.sounds.mob.wolf.panting;
+}
+
 pub const spec: Animal.Spec = .{
     .width = width,
     .height = height,
     .max_health = max_health,
     .move_speed = move_speed,
     .eye_fraction = eye_fraction,
+    .living_sound_of = livingSound,
+    .hurt_sound = assets.sounds.mob.wolf.hurt,
+    .death_sound = assets.sounds.mob.wolf.death,
+    .sound_volume = 0.4,
+    .talk_interval = Animal.passive_talk_interval,
 };
 
 pub const sight_range: f64 = 16.0;

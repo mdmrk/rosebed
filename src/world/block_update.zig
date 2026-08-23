@@ -132,6 +132,7 @@ pub fn toggleDoor(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.E
         try world_map.setBlockMetadataWithNotify(x, y + 1, z, (metadata ^ block.door_open_bit) + block.door_top_bit);
     }
     try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.door_open_bit);
+    world_map.playDoorToggle(x, y, z);
 }
 
 fn trapdoorHolds(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4) bool {
@@ -146,6 +147,7 @@ fn trapdoorCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
 pub fn toggleTrapdoor(world_map: *World, x: i32, y: i32, z: i32) !void {
     const metadata = world_map.getBlockMetadata(x, y, z);
     try world_map.setBlockMetadataWithNotify(x, y, z, metadata ^ block.trapdoor_open_bit);
+    world_map.playDoorToggle(x, y, z);
 }
 
 pub fn mergeSlabBelow(world_map: *World, x: i32, y: i32, z: i32) !bool {

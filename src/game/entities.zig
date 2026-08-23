@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -1880,7 +1881,7 @@ pub fn tickLightning(
                 bolt.base.position.x,
                 bolt.base.position.y,
                 bolt.base.position.z,
-                "ambient.weather.thunder",
+                assets.sounds.ambient.weather.thunder,
                 Lightning.thunder_volume,
                 0.8 + rand.nextFloat() * 0.2,
             );
@@ -1888,7 +1889,7 @@ pub fn tickLightning(
                 bolt.base.position.x,
                 bolt.base.position.y,
                 bolt.base.position.z,
-                "random.explode",
+                assets.sounds.random.explode,
                 Lightning.crack_volume,
                 0.5 + rand.nextFloat() * 0.2,
             );

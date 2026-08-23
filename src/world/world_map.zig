@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 
 const biome = @import("biome.zig");
@@ -71,7 +72,7 @@ pub const EntityProbe = struct {
 
 pub const SoundSink = struct {
     context: *anyopaque,
-    playSound: *const fn (context: *anyopaque, name: []const u8, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void,
+    playSound: *const fn (context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void,
     playRecord: *const fn (context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void,
 };
 
@@ -583,9 +584,32 @@ pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
     if (self.access) |access| try access.updateAllRenderers(access.context);
 }
 
-pub fn playSoundEffect(self: *const World, x: f64, y: f64, z: f64, name: []const u8, volume: f32, pitch: f32) void {
+pub fn playFizzAt(self: *World, x: i32, y: i32, z: i32) void {
+    self.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        assets.sounds.random.fizz,
+        0.5,
+        2.6 + (self.rand.nextFloat() - self.rand.nextFloat()) * 0.8,
+    );
+}
+
+pub fn playDoorToggle(self: *World, x: i32, y: i32, z: i32) void {
+    const sound = if (self.rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
+    self.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        sound,
+        1.0,
+        self.rand.nextFloat() * 0.1 + 0.9,
+    );
+}
+
+pub fn playSoundEffect(self: *const World, x: f64, y: f64, z: f64, sound: assets.Sound, volume: f32, pitch: f32) void {
     const sink = self.sound_sink orelse return;
-    sink.playSound(sink.context, name, x, y, z, volume, pitch);
+    sink.playSound(sink.context, sound, x, y, z, volume, pitch);
 }
 
 pub fn playRecord(self: *const World, name: ?[]const u8, x: i32, y: i32, z: i32) void {

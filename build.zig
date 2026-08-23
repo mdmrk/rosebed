@@ -69,23 +69,24 @@ pub fn setupModules(
         .optimize = optimize,
     });
 
+    const assets_mod = b.createModule(.{
+        .root_source_file = b.path("src/assets/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const world_mod = b.createModule(.{
         .root_source_file = b.path("src/world/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "math", .module = math_mod },
+            .{ .name = "assets", .module = assets_mod },
         },
     });
 
     const net_mod = b.createModule(.{
         .root_source_file = b.path("src/net/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const assets_mod = b.createModule(.{
-        .root_source_file = b.path("src/assets/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -122,6 +123,7 @@ pub fn setupModules(
             .{ .name = "world", .module = world_mod },
             .{ .name = "game", .module = game_mod },
             .{ .name = "net", .module = net_mod },
+            .{ .name = "assets", .module = assets_mod },
         },
     });
 

@@ -676,7 +676,7 @@ fn worldAccess(app_state: *AppState) world.World.Access {
 }
 
 fn clickSound(app_state: *AppState) void {
-    if (app_state.sound) |*sound| sound.playSoundFx("random.click", 1.0, 1.0) catch {};
+    if (app_state.sound) |*sound| sound.playSoundFx(assets.sounds.random.click, 1.0, 1.0) catch {};
 }
 
 fn soundSink(app_state: *AppState) world.World.SoundSink {
@@ -687,9 +687,9 @@ fn soundSink(app_state: *AppState) world.World.SoundSink {
     };
 }
 
-fn playSound(context: *anyopaque, name: []const u8, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void {
+fn playSound(context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
-    if (app_state.sound) |*sound| sound.playSound(name, x, y, z, volume, pitch) catch {};
+    if (app_state.sound) |*device| device.playSound(sound, x, y, z, volume, pitch) catch {};
 }
 
 fn playRecord(context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void {
@@ -3440,13 +3440,15 @@ fn spawnRainParticles(app_state: *AppState) !void {
         loudest.x,
         loudest.y,
         loudest.z,
-        "ambient.weather.rain",
+        assets.sounds.ambient.weather.rain,
         if (overhead) rain_sound_far else rain_sound_near,
         if (overhead) 0.5 else 1.0,
     );
 }
 
 const fire_sound_chance = 24;
+const portal_sound_chance = 100;
+const water_sound_chance = 64;
 
 fn spawnDisplayParticles(app_state: *AppState) !void {
     const rand = &app_state.level.world_map.rand;
@@ -3468,21 +3470,46 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 );
                 try app_state.level.entities.particles.append(app_state.gpa, game.Particle.spawnLava(position, rand));
             },
-            .portal => try app_state.level.entities.spawnPortalParticles(
-                app_state.gpa,
-                x,
-                y,
-                z,
-                world.portal.spansX(&app_state.level.world_map, x, y, z),
-                rand,
-            ),
+            .portal => {
+                if (rand.nextIntBound(portal_sound_chance) == 0) {
+                    app_state.level.world_map.playSoundEffect(
+                        @as(f64, @floatFromInt(x)) + 0.5,
+                        @as(f64, @floatFromInt(y)) + 0.5,
+                        @as(f64, @floatFromInt(z)) + 0.5,
+                        assets.sounds.portal.portal,
+                        1.0,
+                        rand.nextFloat() * 0.4 + 0.8,
+                    );
+                }
+                try app_state.level.entities.spawnPortalParticles(
+                    app_state.gpa,
+                    x,
+                    y,
+                    z,
+                    world.portal.spansX(&app_state.level.world_map, x, y, z),
+                    rand,
+                );
+            },
+            .flowing_water, .stationary_water => {
+                if (rand.nextIntBound(water_sound_chance) != 0) continue;
+                const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
+                if (meta == 0 or meta >= 8) continue;
+                app_state.level.world_map.playSoundEffect(
+                    @as(f64, @floatFromInt(x)) + 0.5,
+                    @as(f64, @floatFromInt(y)) + 0.5,
+                    @as(f64, @floatFromInt(z)) + 0.5,
+                    assets.sounds.liquid.water,
+                    rand.nextFloat() * 0.25 + 12.0 / 16.0,
+                    rand.nextFloat() * 1.0 + 0.5,
+                );
+            },
             .fire => {
                 if (rand.nextIntBound(fire_sound_chance) == 0) {
                     app_state.level.world_map.playSoundEffect(
                         @as(f64, @floatFromInt(x)) + 0.5,
                         @as(f64, @floatFromInt(y)) + 0.5,
                         @as(f64, @floatFromInt(z)) + 0.5,
-                        "fire.fire",
+                        assets.sounds.fire.fire,
                         1.0 + rand.nextFloat(),
                         rand.nextFloat() * 0.7 + 0.3,
                     );

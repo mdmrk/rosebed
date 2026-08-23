@@ -389,7 +389,7 @@ fn torchTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!
     if (id == .torch_redstone_on) {
         if (!suppressed) return;
         try world_map.setBlockAndMetadataWithNotify(x, y, z, .torch_redstone_off, world_map.getBlockMetadata(x, y, z));
-        _ = try checkForBurnout(world_map, x, y, z, true);
+        if (try checkForBurnout(world_map, x, y, z, true)) world_map.playFizzAt(x, y, z);
         return;
     }
 

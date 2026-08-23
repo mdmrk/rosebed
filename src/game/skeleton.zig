@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -34,6 +35,9 @@ pub const spec: Animal.Spec = .{
     .width = width,
     .height = height,
     .max_health = max_health,
+    .living_sound = assets.sounds.mob.skeleton,
+    .hurt_sound = assets.sounds.mob.skeletonhurt,
+    .death_sound = assets.sounds.mob.skeletonhurt,
 };
 
 pub const Shot = struct {

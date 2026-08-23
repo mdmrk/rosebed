@@ -71,7 +71,7 @@ fn create(gpa: std.mem.Allocator, seed: u64, mixer: sdl3.mixer.Mixer) !Manager {
 
     var self: Manager = .{
         .mixer = mixer,
-        .audios = try gpa.alloc(sdl3.mixer.Audio, assets.sounds.len),
+        .audios = try gpa.alloc(sdl3.mixer.Audio, embedded_sound_count),
         .voices = undefined,
         .streaming_voice = undefined,
         .music_voice = undefined,
@@ -90,9 +90,13 @@ fn create(gpa: std.mem.Allocator, seed: u64, mixer: sdl3.mixer.Mixer) !Manager {
         self.music.deinit(gpa);
     }
 
-    for (assets.sounds, 0..) |sound, index| {
-        self.audios[index] = try .initNoCopy(mixer, sound.bytes, false);
-        try self.install(gpa, sound.path, .{ .embedded = @intCast(index) });
+    var loaded: usize = 0;
+    for (sound_groups) |group| {
+        for (group.variants) |variant| {
+            self.audios[loaded] = try .initNoCopy(mixer, variant.bytes, false);
+            try self.sounds.addKeyed(gpa, group.key, .{ .embedded = @intCast(loaded) });
+            loaded += 1;
+        }
     }
 
     return self;
@@ -110,6 +114,33 @@ pub fn deinit(self: *Manager, gpa: std.mem.Allocator) void {
     self.mixer.deinit();
     sdl3.mixer.quit();
 }
+
+fn collectGroups(comptime namespace: type) []const assets.Sound {
+    comptime {
+        var found: []const assets.Sound = &.{};
+        for (@typeInfo(namespace).@"struct".decls) |decl| {
+            const entry = @field(namespace, decl.name);
+            const Entry = @TypeOf(entry);
+            if (Entry == assets.Sound) {
+                found = found ++ [_]assets.Sound{entry};
+            } else if (Entry == type) {
+                found = found ++ collectGroups(entry);
+            }
+        }
+        return found;
+    }
+}
+
+pub const sound_groups = blk: {
+    @setEvalBranchQuota(200000);
+    break :blk collectGroups(assets.sounds);
+};
+
+pub const embedded_sound_count = blk: {
+    var total: usize = 0;
+    for (sound_groups) |group| total += group.variants.len;
+    break :blk total;
+};
 
 fn targetFor(self: *Manager, path: []const u8) ?Target {
     const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
@@ -225,9 +256,9 @@ pub fn setVolumes(self: *Manager, sound: f32, music: f32) !void {
     }
 }
 
-pub fn playSound(self: *Manager, name: []const u8, x: f64, y: f64, z: f64, volume: f32, pitch: f32) !void {
+pub fn playSound(self: *Manager, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) !void {
     if (self.sound_volume == 0) return;
-    const source = self.sounds.pick(name, self.prng.random()) orelse return;
+    const source = self.sounds.pick(sound.key, self.prng.random()) orelse return;
     if (volume <= 0) return;
 
     const voice = self.nextVoice();
@@ -237,9 +268,9 @@ pub fn playSound(self: *Manager, name: []const u8, x: f64, y: f64, z: f64, volum
     try self.start(voice, source, pitch);
 }
 
-pub fn playSoundFx(self: *Manager, name: []const u8, volume: f32, pitch: f32) !void {
+pub fn playSoundFx(self: *Manager, sound: assets.Sound, volume: f32, pitch: f32) !void {
     if (self.sound_volume == 0) return;
-    const source = self.sounds.pick(name, self.prng.random()) orelse return;
+    const source = self.sounds.pick(sound.key, self.prng.random()) orelse return;
 
     const voice = self.nextVoice();
     voice.position = null;
@@ -288,7 +319,7 @@ test "an embedded sound decodes and reaches the mix" {
     const silence = try manager.mixer.generate(&buffer);
     try std.testing.expect(std.mem.allEqual(u8, silence, 0));
 
-    try manager.playSound("step.grass", 0, 0, 0, 1.0, 1.0);
+    try manager.playSound(assets.sounds.step.grass, 0, 0, 0, 1.0, 1.0);
 
     var loudest: i16 = 0;
     for (0..8) |_| {
@@ -335,4 +366,21 @@ test "turning the listener swings a fixed source across the stereo field" {
 test "height offsets survive the listener transform" {
     const above = listenerSpace(.init(0, 3, 0), 37);
     try std.testing.expectEqual(@as(f64, 3), above.y);
+}
+
+test "every sound group is named by its own key and backed by ogg variants" {
+    try std.testing.expect(sound_groups.len > 0);
+    for (sound_groups) |group| {
+        try std.testing.expect(group.variants.len > 0);
+        for (group.variants) |variant| {
+            try std.testing.expect(std.mem.endsWith(u8, variant.path, ".ogg"));
+        }
+    }
+}
+
+test "a group gathers the numbered takes the pool used to collapse by hand" {
+    try std.testing.expectEqualStrings("step.grass", assets.sounds.step.grass.key);
+    try std.testing.expectEqual(@as(usize, 4), assets.sounds.step.grass.variants.len);
+    try std.testing.expectEqualStrings("mob.wolf.growl", assets.sounds.mob.wolf.growl.key);
+    try std.testing.expectEqual(@as(usize, 3), assets.sounds.mob.wolf.growl.variants.len);
 }

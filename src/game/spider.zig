@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -29,6 +30,9 @@ pub const spec: Animal.Spec = .{
     .height = height,
     .max_health = max_health,
     .move_speed = move_speed,
+    .living_sound = assets.sounds.mob.spider,
+    .hurt_sound = assets.sounds.mob.spider,
+    .death_sound = assets.sounds.mob.spiderdeath,
 };
 
 fn init(position: math.Vec3) Spider {
@@ -221,6 +225,8 @@ fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
     self.monster.deliverAttack(animal, context);
 }
 
+const wall_push: f64 = 0.5;
+
 fn darkWorld(gpa: std.mem.Allocator) !world.World {
     var w = world.World.init(gpa);
     errdefer w.deinit();
@@ -405,20 +411,31 @@ test "a spider walks up a wall it has run into" {
     var w = try darkWorld(gpa);
     defer w.deinit();
 
+    var wall_y: u32 = 1;
+    while (wall_y <= 4) : (wall_y += 1) {
+        var wall_z: i32 = 6;
+        while (wall_z <= 11) : (wall_z += 1) {
+            w.setBlock(10, @intCast(wall_y), wall_z, .stone);
+        }
+    }
+
     var rand = world.JavaRandom.init(0);
     var self = Spider.spawn(math.Vec3.init(8.5, 1, 8.5));
     defer self.deinit(gpa);
     self.animal.base.on_ground = true;
-    self.animal.base.blocked_horizontally = true;
-
-    try std.testing.expect(self.animal.isOnLadder());
 
     const started = self.animal.base.position.y;
-    for (0..10) |_| {
-        self.animal.base.blocked_horizontally = true;
+    var climbed = false;
+    for (0..40) |_| {
+        self.animal.base.motion.x = wall_push;
         try self.tick(gpa, &w, .{}, &rand);
+        if (self.animal.base.blocked_horizontally) {
+            try std.testing.expect(self.animal.isOnLadder());
+            climbed = true;
+        }
     }
 
+    try std.testing.expect(climbed);
     try std.testing.expect(self.animal.base.position.y > started);
 }
 

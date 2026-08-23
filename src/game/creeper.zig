@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -37,6 +38,8 @@ pub const spec: Animal.Spec = .{
     .width = width,
     .height = height,
     .max_health = max_health,
+    .hurt_sound = assets.sounds.mob.creeper,
+    .death_sound = assets.sounds.mob.creeperdeath,
 };
 
 fn init(position: math.Vec3) Creeper {
