@@ -220,7 +220,7 @@ fn identFor(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
     for (name, 0..) |c, i| {
         buf[i] = if (std.ascii.isAlphanumeric(c) or c == '_') c else '_';
     }
-    if (std.zig.isValidId(buf)) return buf;
+    if (std.zig.isValidId(buf) and !std.zig.primitives.isPrimitive(buf)) return buf;
     return std.fmt.allocPrint(alloc, "@\"{s}\"", .{buf});
 }
 
