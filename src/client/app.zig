@@ -810,12 +810,11 @@ fn dropSelectedItem(app_state: *AppState) !void {
 
 fn dropHeldStack(app_state: *AppState, click_type: game.Window.Click) !void {
     const thrown = game.Window.throwCarried(click_type, &app_state.held_stack) orelse return;
-    try spawnDroppedItem(
-        app_state,
-        @intFromFloat(@floor(app_state.player.base.position.x)),
-        @intFromFloat(@floor(app_state.player.base.position.y)),
-        @intFromFloat(@floor(app_state.player.base.position.z)),
+    try app_state.level.entities.throwFromPlayer(
+        app_state.gpa,
+        &app_state.player,
         thrown,
+        &app_state.level.world_map.rand,
     );
     if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
@@ -880,12 +879,11 @@ fn containerClickAt(app_state: *AppState, aimed: i16, click_type: game.Window.Cl
     const outcome = window.click(aimed, click_type, shift, &app_state.held_stack);
 
     if (outcome.thrown) |stack| {
-        try spawnDroppedItem(
-            app_state,
-            @intFromFloat(@floor(app_state.player.base.position.x)),
-            @intFromFloat(@floor(app_state.player.base.position.y)),
-            @intFromFloat(@floor(app_state.player.base.position.z)),
+        try app_state.level.entities.throwFromPlayer(
+            app_state.gpa,
+            &app_state.player,
             stack,
+            &app_state.level.world_map.rand,
         );
         if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
     }
@@ -985,12 +983,11 @@ fn adoptServerWindow(app_state: *AppState, link: *Link) void {
 fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
     for (grid) |*slot| {
         const stack = slot.* orelse continue;
-        try spawnDroppedItem(
-            app_state,
-            @intFromFloat(@floor(app_state.player.base.position.x)),
-            @intFromFloat(@floor(app_state.player.base.position.y)),
-            @intFromFloat(@floor(app_state.player.base.position.z)),
+        try app_state.level.entities.throwFromPlayer(
+            app_state.gpa,
+            &app_state.player,
             stack,
+            &app_state.level.world_map.rand,
         );
         slot.* = null;
         try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);

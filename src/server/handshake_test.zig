@@ -891,7 +891,12 @@ test "an item a player scoops up is taken off every other screen" {
     try pair.trackWorld(1);
     try std.testing.expectEqual(@as(usize, 1), pair.client_level.entities.items.items.len);
 
-    try pair.server_level.entities.tickItems(gpa, &pair.server_level.world_map, pair.server_level.roster.items);
+    try pair.server_level.entities.tickItems(
+        gpa,
+        &pair.server_level.world_map,
+        pair.server_level.roster.items,
+        &pair.server_level.world_map.rand,
+    );
     try std.testing.expectEqual(@as(usize, 1), pair.server_level.entities.collected.items.len);
 
     const taken = pair.server_level.entities.collected.items[0];

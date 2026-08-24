@@ -1375,13 +1375,7 @@ fn windowClick(self: *Session, gpa: std.mem.Allocator, level: *game.Level, body:
     if (outcome.smelted) |made| try self.award(gpa, .{ .crafted = made.id }, made.count);
 
     if (outcome.thrown) |stack| {
-        try level.dropStackAt(
-            gpa,
-            math.util.floorDouble(player.base.position.x),
-            math.util.floorDouble(player.base.position.y),
-            math.util.floorDouble(player.base.position.z),
-            stack,
-        );
+        try level.entities.throwFromPlayer(gpa, player, stack, &level.world_map.rand);
         try self.award(gpa, .{ .general = .drop }, 1);
     }
 
@@ -1397,23 +1391,20 @@ fn windowClick(self: *Session, gpa: std.mem.Allocator, level: *game.Level, body:
 
 fn closeWindow(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !void {
     const player = self.player orelse return;
-    const x = math.util.floorDouble(player.base.position.x);
-    const y = math.util.floorDouble(player.base.position.y);
-    const z = math.util.floorDouble(player.base.position.z);
 
     for (&self.crafting) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.entities.throwFromPlayer(gpa, player, stack, &level.world_map.rand);
     }
     for (&self.workbench) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.entities.throwFromPlayer(gpa, player, stack, &level.world_map.rand);
     }
     if (self.carried) |stack| {
         self.carried = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.entities.throwFromPlayer(gpa, player, stack, &level.world_map.rand);
     }
 
     self.open = .player;
