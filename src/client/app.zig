@@ -739,8 +739,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
 
     if (harvested) {
         try app_state.stats.mine(app_state.gpa, block_id);
-        const dropped = block_id.shearedDrop(meta, held) orelse
-            block_id.drop(meta, &app_state.level.world_map.rand);
+        const dropped = block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
         if (dropped) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }

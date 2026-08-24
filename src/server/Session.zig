@@ -1655,11 +1655,17 @@ fn digBlock(
     try level.world_map.setBlockWithNotify(x, height, z, .air);
     _ = level.world_map.removeSign(x, height, z);
     _ = level.world_map.removeNote(x, height, z);
-    if (broken.harvestableWith(player.inventory.selectedStack())) {
+    const held = player.inventory.selectedStack();
+    const harvested = broken.harvestableWith(held);
+    if (harvested) {
         try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
     }
 
-    if (broken.drop(meta, &level.world_map.rand)) |dropped| {
+    const drop = if (harvested)
+        broken.harvestDrop(meta, held, &level.world_map.rand)
+    else
+        broken.drop(meta, &level.world_map.rand);
+    if (drop) |dropped| {
         try level.dropStackAt(gpa, x, height, z, .{
             .id = dropped.id,
             .count = dropped.count,

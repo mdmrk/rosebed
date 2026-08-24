@@ -1312,6 +1312,11 @@ pub const Block = enum(u8) {
         return self.vanillaDrop(meta, rand);
     }
 
+    pub fn harvestDrop(self: Block, meta: u4, held: ?Stack, rand: *JavaRandom) ?Stack {
+        if (self == .snow_layer) return .{ .id = .{ .item = .snowball }, .count = 1 };
+        return self.shearedDrop(meta, held) orelse self.drop(meta, rand);
+    }
+
     pub fn shearedDrop(self: Block, meta: u4, held: ?Stack) ?Stack {
         const stack = held orelse return null;
         switch (stack.id) {
@@ -1352,7 +1357,7 @@ pub const Block = enum(u8) {
             .tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = .{ .item = .seeds }, .count = 1 } else null,
             .dead_bush => null,
             .reed => .{ .id = .{ .item = .reed }, .count = 1 },
-            .snow_layer => .{ .id = .{ .item = .snowball }, .count = 1 },
+            .snow_layer => null,
             .snow_block => .{ .id = .{ .item = .snowball }, .count = 4 },
             .glowstone => .{ .id = .{ .item = .glowstone_dust }, .count = @intCast(2 + rand.nextIntBound(3)) },
             .wool => .{ .id = .{ .block = .wool }, .count = 1, .meta = meta },
@@ -2490,10 +2495,18 @@ test "clay always drops 4 clay balls" {
     try std.testing.expectEqual(@as(u8, 4), dropped.count);
 }
 
-test "reed drops its item form and snow drops a snowball" {
+test "reed drops its item form and a snow layer drops nothing on its own" {
     var rand = JavaRandom.init(0);
     try std.testing.expectEqual(Id{ .item = .reed }, Block.reed.drop(0, &rand).?.id);
-    try std.testing.expectEqual(Id{ .item = .snowball }, Block.snow_layer.drop(0, &rand).?.id);
+    try std.testing.expectEqual(@as(?Stack, null), Block.snow_layer.drop(0, &rand));
+}
+
+test "a harvested snow layer hands over one snowball" {
+    var rand = JavaRandom.init(0);
+    const shovel = Stack{ .id = .{ .item = .shovel_iron }, .count = 1 };
+    const harvested = Block.snow_layer.harvestDrop(0, shovel, &rand).?;
+    try std.testing.expectEqual(Id{ .item = .snowball }, harvested.id);
+    try std.testing.expectEqual(@as(u8, 1), harvested.count);
 }
 
 test "blocks without a special drop rule self-drop with metadata reset to 0" {
