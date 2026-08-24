@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const JavaRandom = @import("JavaRandom.zig");
+const JavaRandom = @import("../JavaRandom.zig");
 
 const PerlinNoise = @This();
 

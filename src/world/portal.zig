@@ -562,7 +562,7 @@ test "a portal lights the frame it stands in" {
 
 test "arriving in the nether carves a portal into real nether terrain" {
     const gpa = std.testing.allocator;
-    const NetherGenerator = @import("NetherGenerator.zig");
+    const NetherGenerator = @import("gen/NetherGenerator.zig");
 
     var gen = try NetherGenerator.init(gpa, 12345);
     defer gen.deinit(gpa);

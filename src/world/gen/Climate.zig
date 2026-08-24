@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const biome = @import("biome.zig");
-const JavaRandom = @import("JavaRandom.zig");
+const JavaRandom = @import("../JavaRandom.zig");
 const SimplexOctaves = @import("SimplexOctaves.zig");
 
 const Climate = @This();

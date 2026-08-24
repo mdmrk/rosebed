@@ -3,7 +3,7 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 
-const biome = @import("biome.zig");
+const biome = @import("gen/biome.zig");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
@@ -25,7 +25,7 @@ const rail = @import("rail.zig");
 const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
-const TerrainGenerator = @import("TerrainGenerator.zig");
+const TerrainGenerator = @import("gen/TerrainGenerator.zig");
 const Weather = @import("Weather.zig");
 
 const World = @This();

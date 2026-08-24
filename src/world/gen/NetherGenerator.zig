@@ -1,14 +1,14 @@
 const std = @import("std");
 
-const Block = @import("block.zig").Block;
+const Block = @import("../block.zig").Block;
 const caves = @import("caves.zig");
-const Chunk = @import("Chunk.zig");
+const Chunk = @import("../Chunk.zig");
 const Climate = @import("Climate.zig");
 const decorate = @import("decorate.zig");
-const JavaRandom = @import("JavaRandom.zig");
+const JavaRandom = @import("../JavaRandom.zig");
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
-const World = @import("World.zig");
+const World = @import("../World.zig");
 
 const NetherGenerator = @This();
 

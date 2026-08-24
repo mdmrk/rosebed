@@ -398,7 +398,7 @@ test "light crosses a chunk seam from an already lit neighbor" {
 
 test "a generated chunk is lit down to its surface and dark at bedrock" {
     const gpa = std.testing.allocator;
-    const TerrainGenerator = @import("TerrainGenerator.zig");
+    const TerrainGenerator = @import("gen/TerrainGenerator.zig");
 
     const generator = try TerrainGenerator.init(gpa, 1);
     defer generator.deinit(gpa);

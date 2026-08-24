@@ -2,10 +2,10 @@ const std = @import("std");
 
 const math = @import("math");
 
-const block = @import("block.zig");
-const Block = @import("block.zig").Block;
-const Chunk = @import("Chunk.zig");
-const JavaRandom = @import("JavaRandom.zig");
+const block = @import("../block.zig");
+const Block = @import("../block.zig").Block;
+const Chunk = @import("../Chunk.zig");
+const JavaRandom = @import("../JavaRandom.zig");
 
 const chunk_radius: i32 = 8;
 

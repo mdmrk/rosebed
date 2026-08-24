@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const block = @import("block.zig");
-const Block = @import("block.zig").Block;
+const block = @import("../block.zig");
+const Block = @import("../block.zig").Block;
 
 pub const Biome = enum {
     tundra,

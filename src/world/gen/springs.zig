@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const block = @import("block.zig");
-const Block = @import("block.zig").Block;
-const World = @import("World.zig");
+const block = @import("../block.zig");
+const Block = @import("../block.zig").Block;
+const World = @import("../World.zig");
 
 pub fn generate(world_map: *World, x: i32, y: i32, z: i32, liquid_id: Block) !void {
     if (world_map.getBlock(x, y + 1, z) != .stone) return;

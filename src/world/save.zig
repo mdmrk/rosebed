@@ -6,7 +6,7 @@ const Chunk = @import("Chunk.zig");
 const chunk_nbt = @import("chunk_nbt.zig");
 const deflate = @import("deflate.zig");
 const furnace = @import("furnace.zig");
-const generator = @import("generator.zig");
+const generator = @import("gen/generator.zig");
 const nbt = @import("nbt.zig");
 const RegionFile = @import("RegionFile.zig");
 
