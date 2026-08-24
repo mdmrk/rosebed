@@ -40,6 +40,7 @@ pub const Spider = @import("Spider.zig");
 pub const Squid = @import("Squid.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
+pub const Window = @import("Window.zig");
 pub const Wolf = @import("Wolf.zig");
 pub const Zombie = @import("Zombie.zig");
 
@@ -60,8 +61,8 @@ test {
     _ = FallingBlock;
     _ = Animal;
     _ = Arrow;
-    _ = Boat;
     _ = bed;
+    _ = Boat;
     _ = FishHook;
     _ = Minecart;
     _ = Chicken;
@@ -73,6 +74,7 @@ test {
     _ = Skeleton;
     _ = Slime;
     _ = Spider;
+    _ = Window;
     _ = Wolf;
     _ = Zombie;
     _ = Monster;

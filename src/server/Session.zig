@@ -6,8 +6,6 @@ const math = @import("math");
 const net = @import("net");
 const world = @import("world");
 
-const Window = @import("Window.zig");
-
 const Session = @This();
 
 pub const State = enum { greeting, awaiting_login, playing, closed };
@@ -31,10 +29,10 @@ pending_chat: ?ChatLine = null,
 pending_swing: bool = false,
 equipment: [equipment_slots]?world.Stack = @splat(null),
 riding: game.Entity.Id = game.Entity.no_id,
-crafting: [Window.crafting_grid]?world.Stack = @splat(null),
-workbench: [Window.workbench_grid]?world.Stack = @splat(null),
+crafting: [game.Window.crafting_grid]?world.Stack = @splat(null),
+workbench: [game.Window.workbench_grid]?world.Stack = @splat(null),
 carried: ?world.Stack = null,
-mirror: [Window.max_slots]?world.Stack = @splat(null),
+mirror: [game.Window.max_slots]?world.Stack = @splat(null),
 mirror_used: usize = 0,
 mirror_carried: ?world.Stack = null,
 open: Open = .player,
@@ -1178,13 +1176,13 @@ pub const Open = union(enum) {
     minecart: game.Entity.Id,
 };
 
-pub fn currentWindow(self: *Session, level: *game.Level) Window {
-    var window: Window = .{};
+pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
+    var window: game.Window = .{};
     const player = self.player orelse return window;
 
     switch (self.open) {
         .player => {
-            window.addGrid(&self.crafting, Window.crafting_side);
+            window.addGrid(&self.crafting, game.Window.crafting_side);
             for (0..game.Inventory.armor_size) |piece| {
                 window.add(.{
                     .stack = &player.inventory.armor[piece],
@@ -1193,7 +1191,7 @@ pub fn currentWindow(self: *Session, level: *game.Level) Window {
                 });
             }
         },
-        .workbench => window.addGrid(&self.workbench, Window.workbench_side),
+        .workbench => window.addGrid(&self.workbench, game.Window.workbench_side),
         .chest => |pair| {
             const upper = level.world_map.chestAt(pair.upper.x, pair.upper.y, pair.upper.z) orelse return window;
             window.addStore(&upper.items, .chest);
@@ -1247,7 +1245,7 @@ pub fn sendWindowContents(self: *Session, gpa: std.mem.Allocator, level: *game.L
     var window = self.currentWindow(level);
     if (window.count == 0) return;
 
-    var stacks: [Window.max_slots]?net.packet.Stack = @splat(null);
+    var stacks: [game.Window.max_slots]?net.packet.Stack = @splat(null);
     for (0..window.count) |slot| {
         const held = window.stackAt(slot);
         stacks[slot] = wireStack(held);
@@ -1340,7 +1338,7 @@ fn openContainer(self: *Session, gpa: std.mem.Allocator, level: *game.Level, ope
     try self.sendWindowContents(gpa, level);
 }
 
-fn mintCraftedMap(self: *Session, level: *game.Level, window: *Window) !void {
+fn mintCraftedMap(self: *Session, level: *game.Level, window: *game.Window) !void {
     const player = self.player orelse return;
     if (window.grid.len == 0) return;
 

@@ -1,8 +1,11 @@
 const std = @import("std");
 
-const game = @import("game");
-pub const player_slot_count: usize = game.Inventory.size;
 const world = @import("world");
+
+const crafting = @import("crafting.zig");
+const Inventory = @import("Inventory.zig");
+
+pub const player_slot_count: usize = Inventory.size;
 
 const Window = @This();
 
@@ -33,13 +36,13 @@ pub fn add(self: *Window, slot: Slot) void {
     self.count += 1;
 }
 
-pub fn addPlayer(self: *Window, inventory: *game.Inventory) void {
-    var index: usize = game.Inventory.hotbar_size;
-    while (index < game.Inventory.size) : (index += 1) {
+pub fn addPlayer(self: *Window, inventory: *Inventory) void {
+    var index: usize = Inventory.hotbar_size;
+    while (index < Inventory.size) : (index += 1) {
         self.add(.{ .stack = &inventory.slots[index] });
     }
     index = 0;
-    while (index < game.Inventory.hotbar_size) : (index += 1) {
+    while (index < Inventory.hotbar_size) : (index += 1) {
         self.add(.{ .stack = &inventory.slots[index] });
     }
 }
@@ -49,7 +52,7 @@ pub fn playerStart(self: *const Window) usize {
 }
 
 pub fn hotbarStart(self: *const Window) usize {
-    return self.count - game.Inventory.hotbar_size;
+    return self.count - Inventory.hotbar_size;
 }
 
 pub fn stackAt(self: *const Window, index: usize) ?world.Stack {
@@ -57,7 +60,7 @@ pub fn stackAt(self: *const Window, index: usize) ?world.Stack {
     const slot = self.slots[index];
     if (slot.kind == .craft_result) {
         if (self.grid.len == 0) return null;
-        return game.crafting.findMatch(self.grid, self.grid_side);
+        return crafting.findMatch(self.grid, self.grid_side);
     }
     const held = slot.stack orelse return null;
     return held.*;
@@ -77,7 +80,7 @@ pub fn addGrid(self: *Window, grid: []?world.Stack, side: u8) void {
 
 fn accepts(slot: Slot, stack: world.Stack) bool {
     const piece = slot.armor orelse return true;
-    return game.Inventory.fitsArmorSlot(stack, piece);
+    return Inventory.fitsArmorSlot(stack, piece);
 }
 
 fn limitOf(slot: Slot, stack: world.Stack) u8 {
@@ -124,6 +127,10 @@ pub fn click(
 
 fn takeOutput(self: *Window, at: usize, button: Click, carried: *?world.Stack) ?world.Stack {
     const storage = self.slots[at].stack orelse return null;
+    return takeInto(storage, button, carried);
+}
+
+pub fn takeInto(storage: *?world.Stack, button: Click, carried: *?world.Stack) ?world.Stack {
     const ready = storage.* orelse return null;
     const taken = if (button == .left) ready.count else (ready.count + 1) / 2;
 
@@ -141,7 +148,10 @@ fn takeOutput(self: *Window, at: usize, button: Click, carried: *?world.Stack) ?
 }
 
 fn plainClick(self: *Window, at: usize, button: Click, carried: *?world.Stack) void {
-    const slot = self.slots[at];
+    clickSlot(self.slots[at], button, carried);
+}
+
+pub fn clickSlot(slot: Slot, button: Click, carried: *?world.Stack) void {
     const storage = slot.stack orelse return;
 
     if (storage.*) |*existing| {
@@ -182,7 +192,7 @@ fn stampMinted(self: *Window, result: *world.Stack) void {
 }
 
 fn takeResult(self: *Window, carried: *?world.Stack) ?world.Stack {
-    var result = game.crafting.findMatch(self.grid, self.grid_side) orelse return null;
+    var result = crafting.findMatch(self.grid, self.grid_side) orelse return null;
     self.stampMinted(&result);
     if (carried.*) |*held| {
         if (!held.id.eql(result.id) or held.meta != result.meta) return null;
@@ -191,7 +201,7 @@ fn takeResult(self: *Window, carried: *?world.Stack) ?world.Stack {
     } else {
         carried.* = result;
     }
-    game.crafting.consume(self.grid);
+    crafting.consume(self.grid);
     return result;
 }
 
@@ -227,12 +237,12 @@ fn quickMove(self: *Window, from: usize) Outcome {
     }
 
     if (self.slots[from].kind == .craft_result) {
-        var result = game.crafting.findMatch(self.grid, self.grid_side) orelse return .{};
+        var result = crafting.findMatch(self.grid, self.grid_side) orelse return .{};
         self.stampMinted(&result);
         var moving = result;
-        game.Inventory.mergeStack(targets[0..count], &moving);
+        Inventory.mergeStack(targets[0..count], &moving);
         if (moving.count == result.count) return .{};
-        game.crafting.consume(self.grid);
+        crafting.consume(self.grid);
         return .{ .crafted = .{
             .id = result.id,
             .count = result.count - moving.count,
@@ -243,7 +253,7 @@ fn quickMove(self: *Window, from: usize) Outcome {
     const source = self.slots[from].stack orelse return .{};
     var moving = source.* orelse return .{};
     const before = moving.count;
-    game.Inventory.mergeStack(targets[0..count], &moving);
+    Inventory.mergeStack(targets[0..count], &moving);
     source.* = if (moving.count == 0) null else moving;
 
     if (self.slots[from].kind != .output or moving.count == before) return .{};
@@ -251,7 +261,7 @@ fn quickMove(self: *Window, from: usize) Outcome {
 }
 
 test "the player window lays its slots out the way vanilla numbers them" {
-    var inventory: game.Inventory = .{};
+    var inventory: Inventory = .{};
     var grid: [crafting_grid]?world.Stack = @splat(null);
 
     inventory.slots[0] = .{ .id = .{ .block = .stone }, .count = 5 };
@@ -261,7 +271,7 @@ test "the player window lays its slots out the way vanilla numbers them" {
     var window: Window = .{ .grid = &grid, .grid_side = crafting_side };
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
-    for (0..game.Inventory.armor_size) |piece| {
+    for (0..Inventory.armor_size) |piece| {
         window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
     }
     window.addPlayer(&inventory);
@@ -274,14 +284,14 @@ test "the player window lays its slots out the way vanilla numbers them" {
 }
 
 test "picking a stack up and putting it back down goes through the carried slot" {
-    var inventory: game.Inventory = .{};
+    var inventory: Inventory = .{};
     var grid: [crafting_grid]?world.Stack = @splat(null);
     inventory.slots[0] = .{ .id = .{ .block = .stone }, .count = 5 };
 
     var window: Window = .{ .grid = &grid, .grid_side = crafting_side };
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
-    for (0..game.Inventory.armor_size) |piece| {
+    for (0..Inventory.armor_size) |piece| {
         window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
     }
     window.addPlayer(&inventory);
@@ -297,13 +307,13 @@ test "picking a stack up and putting it back down goes through the carried slot"
 }
 
 test "a helmet only goes in the helmet slot" {
-    var inventory: game.Inventory = .{};
+    var inventory: Inventory = .{};
     var grid: [crafting_grid]?world.Stack = @splat(null);
 
     var window: Window = .{ .grid = &grid, .grid_side = crafting_side };
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
-    for (0..game.Inventory.armor_size) |piece| {
+    for (0..Inventory.armor_size) |piece| {
         window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
     }
     window.addPlayer(&inventory);
@@ -318,7 +328,7 @@ test "a helmet only goes in the helmet slot" {
 }
 
 test "throwing a stack out of the window hands it back to be dropped" {
-    var inventory: game.Inventory = .{};
+    var inventory: Inventory = .{};
     var grid: [crafting_grid]?world.Stack = @splat(null);
 
     var window: Window = .{ .grid = &grid, .grid_side = crafting_side };

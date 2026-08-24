@@ -864,9 +864,7 @@ fn dropSelectedItem(app_state: *AppState) !void {
     try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
 
-const ClickType = enum { left, right };
-
-fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
+fn dropHeldStack(app_state: *AppState, click_type: game.Window.Click) !void {
     const held = app_state.held_stack orelse return;
     const drop_count = if (click_type == .left) held.count else 1;
     try spawnDroppedItem(
@@ -879,49 +877,6 @@ fn dropHeldStack(app_state: *AppState, click_type: ClickType) !void {
     const remaining = held.count - drop_count;
     app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
     if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
-}
-
-const SlotRules = struct {
-    armor: ?world.item.ArmorSlot = null,
-
-    fn accepts(self: SlotRules, stack: game.Inventory.ItemStack) bool {
-        const piece = self.armor orelse return true;
-        return game.Inventory.fitsArmorSlot(stack, piece);
-    }
-
-    fn limit(self: SlotRules, stack: game.Inventory.ItemStack) u8 {
-        if (self.armor != null) return 1;
-        return stack.id.maxStackSize();
-    }
-};
-
-fn slotClick(app_state: *AppState, slot: *?game.Inventory.ItemStack, click_type: ClickType, rules: SlotRules) void {
-    if (slot.*) |*existing| {
-        if (app_state.held_stack) |*held| {
-            if (existing.id.eql(held.id) and existing.meta == held.meta) {
-                const amount = @min(if (click_type == .left) held.count else 1, rules.limit(existing.*) -| existing.count);
-                existing.count += amount;
-                held.count -= amount;
-                if (held.count == 0) app_state.held_stack = null;
-            } else {
-                if (!rules.accepts(held.*)) return;
-                const swapped = existing.*;
-                slot.* = held.*;
-                app_state.held_stack = swapped;
-            }
-        } else {
-            const amount = if (click_type == .left) existing.count else (existing.count + 1) / 2;
-            app_state.held_stack = .{ .id = existing.id, .count = amount, .meta = existing.meta };
-            existing.count -= amount;
-            if (existing.count == 0) slot.* = null;
-        }
-    } else if (app_state.held_stack) |*held| {
-        if (!rules.accepts(held.*)) return;
-        const amount = @min(if (click_type == .left) held.count else 1, rules.limit(held.*));
-        slot.* = .{ .id = held.id, .count = amount, .meta = held.meta };
-        held.count -= amount;
-        if (held.count == 0) app_state.held_stack = null;
-    }
 }
 
 fn stampCraftedMap(app_state: *AppState, stack: *game.Inventory.ItemStack) !void {
@@ -959,7 +914,7 @@ fn containerClickAt(
     slots: []const render.container_screen.Slot,
     grid: []?game.Inventory.ItemStack,
     size: u8,
-    click_type: ClickType,
+    click_type: game.Window.Click,
     box_height: f32,
     shift: bool,
 ) !void {
@@ -978,14 +933,14 @@ fn containerClickAt(
         .furnace_output => try furnaceOutputClick(app_state, click_type),
         else => {
             const storage = slotStorage(app_state, slot, grid) orelse return;
-            slotClick(app_state, storage, click_type, slotRules(slot));
+            game.Window.clickSlot(slotRules(slot, storage), click_type, &app_state.held_stack);
         },
     }
 }
 
-fn slotRules(slot: render.container_screen.Slot) SlotRules {
-    if (slot.kind != .armor) return .{};
-    return .{ .armor = @enumFromInt(slot.index) };
+fn slotRules(slot: render.container_screen.Slot, storage: *?game.Inventory.ItemStack) game.Window.Slot {
+    if (slot.kind != .armor) return .{ .stack = storage };
+    return .{ .stack = storage, .armor = @enumFromInt(slot.index) };
 }
 
 fn slotStorage(
@@ -1052,23 +1007,12 @@ fn quickMove(
     }
 }
 
-fn furnaceOutputClick(app_state: *AppState, click_type: ClickType) !void {
+fn furnaceOutputClick(app_state: *AppState, click_type: game.Window.Click) !void {
     const furnace = openedFurnace(app_state) orelse return;
-    const output = furnace.output orelse return;
+    const taken = game.Window.takeInto(&furnace.output, click_type, &app_state.held_stack) orelse return;
 
-    const taken = if (click_type == .left) output.count else (output.count + 1) / 2;
-    if (app_state.held_stack) |*held| {
-        if (!held.id.eql(output.id) or held.meta != output.meta) return;
-        if (@as(u16, held.count) + taken > output.id.maxStackSize()) return;
-        held.count += taken;
-    } else {
-        app_state.held_stack = .{ .id = output.id, .count = taken, .meta = output.meta };
-    }
-
-    furnace.output.?.count -= taken;
-    if (furnace.output.?.count == 0) furnace.output = null;
-    try app_state.stats.craft(app_state.gpa, output.id, taken);
-    if (game.achievements.forSmelted(output.id)) |earned| try awardAchievement(app_state, earned);
+    try app_state.stats.craft(app_state.gpa, taken.id, taken.count);
+    if (game.achievements.forSmelted(taken.id)) |earned| try awardAchievement(app_state, earned);
 }
 
 fn shiftHeld() bool {
@@ -1076,7 +1020,7 @@ fn shiftHeld() bool {
     return mods.left_shift or mods.right_shift;
 }
 
-fn openContainerClickAt(app_state: *AppState, click_type: ClickType) !void {
+fn openContainerClickAt(app_state: *AppState, click_type: game.Window.Click) !void {
     const shift = shiftHeld();
     if (app_state.furnace_open != null) {
         const layout = render.furnace_screen.slots();
@@ -1107,7 +1051,7 @@ fn windowClickAt(
     slots: []const render.container_screen.Slot,
     grid: []?game.Inventory.ItemStack,
     size: u8,
-    click_type: ClickType,
+    click_type: game.Window.Click,
     box_height: f32,
     shift: bool,
 ) !void {
@@ -1133,7 +1077,7 @@ fn aimedWindowSlot(
 
 const no_window_slot: i16 = std.math.minInt(i16);
 
-fn reportWindowClick(app_state: *AppState, slot: i16, click_type: ClickType, shift: bool) !void {
+fn reportWindowClick(app_state: *AppState, slot: i16, click_type: game.Window.Click, shift: bool) !void {
     if (slot == no_window_slot) return;
     const link = app_state.link orelse return;
     try link.connection.reportWindowClick(
