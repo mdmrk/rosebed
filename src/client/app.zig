@@ -4407,6 +4407,41 @@ pub fn iterate(
     return .run;
 }
 
+fn typeText(app_state: *AppState, text: []const u8) void {
+    if (app_state.sign_edit) |open| {
+        if (editedSign(app_state)) |state| {
+            for (text) |c| {
+                if (!render.chat.isAllowed(c)) continue;
+                state.append(open.line, c);
+            }
+        }
+    } else if (app_state.screen == .create_world) {
+        app_state.create_state.typeText(text);
+        updateCreateFolder(app_state);
+    } else if (app_state.screen == .multiplayer) {
+        app_state.multiplayer_state.typeText(text);
+    } else if (app_state.chat.open) {
+        app_state.chat.typeText(text);
+    }
+}
+
+fn typingSomewhere(app_state: *const AppState) bool {
+    return app_state.sign_edit != null or
+        app_state.screen == .create_world or
+        app_state.screen == .multiplayer or
+        app_state.chat.open;
+}
+
+fn pasteRequested(key: sdl3.events.Keyboard) bool {
+    return key.key == .v and (key.mod.left_control or key.mod.right_control);
+}
+
+fn pasteClipboard(app_state: *AppState) void {
+    const clipped = sdl3.clipboard.getText() catch return;
+    defer sdl3.free(clipped);
+    typeText(app_state, clipped);
+}
+
 fn boundTo(app_state: *const AppState, binding: game.Settings.Binding, key: ?sdl3.keycode.Keycode) bool {
     return app_state.settings.keys.get(binding) == @intFromEnum(key orelse return false);
 }
@@ -4443,7 +4478,9 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| if (app_state.controls_open) {
+        .key_down => |k| if (pasteRequested(k) and typingSomewhere(app_state)) {
+            pasteClipboard(app_state);
+        } else if (app_state.controls_open) {
             if (app_state.rebinding) |binding| {
                 if (k.key) |key| {
                     app_state.settings.keys.set(binding, @intFromEnum(key));
@@ -4572,21 +4609,7 @@ pub fn event(
             const step = w.scroll_y * render.screen.texture_packs.entry_height;
             app_state.pack_scroll = render.screen.texture_packs.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
         },
-        .text_input => |t| if (app_state.sign_edit) |open| {
-            if (editedSign(app_state)) |state| {
-                for (t.text) |c| {
-                    if (!render.chat.isAllowed(c)) continue;
-                    state.append(open.line, c);
-                }
-            }
-        } else if (app_state.screen == .create_world) {
-            app_state.create_state.typeText(t.text);
-            updateCreateFolder(app_state);
-        } else if (app_state.screen == .multiplayer) {
-            app_state.multiplayer_state.typeText(t.text);
-        } else if (app_state.chat.open) {
-            app_state.chat.typeText(t.text);
-        },
+        .text_input => |t| typeText(app_state, t.text),
         .mouse_button_down => |m| switch (m.button) {
             .left => if (app_state.controls_open) {
                 controlsClick(app_state);
