@@ -259,6 +259,28 @@ pub fn build(b: *std.Build) void {
     const fetch_assets_step = b.step("fetch-assets", "Download the official Beta 1.7.3 client jar and extract its assets");
     fetch_assets_step.dependOn(&fetch_assets_run.step);
 
+    const client_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/client/app.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "gl", .module = modules.gl_bindings },
+            .{ .name = "sdl3", .module = modules.sdl3_mod },
+            .{ .name = "math", .module = modules.math_mod },
+            .{ .name = "core", .module = modules.core_mod },
+            .{ .name = "world", .module = modules.world_mod },
+            .{ .name = "render", .module = modules.render_mod },
+            .{ .name = "game", .module = modules.game_mod },
+            .{ .name = "assets", .module = modules.assets_mod },
+            .{ .name = "audio", .module = modules.audio_mod },
+            .{ .name = "net", .module = modules.net_mod },
+            .{ .name = "remote", .module = modules.remote_mod },
+        },
+    });
+    client_test_mod.addAnonymousImport("icon_png", .{
+        .root_source_file = b.path("web/favicon-96x96.png"),
+    });
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.math_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.core_mod })).step);
@@ -266,6 +288,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.server_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.remote_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = server.root_module })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = client_test_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.world_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.audio_mod })).step);
