@@ -217,3 +217,27 @@ test "clicking the middle of a chest slot finds it" {
     const click_y = (org[1] + layout[10].y + 8) * res.factor;
     try std.testing.expectEqual(@as(?usize, 10), container.slotAt(layout, click_x, click_y, res, height(3)));
 }
+
+test "the chest screen's slots line up with the protocol window, slot for slot" {
+    for ([_]u8{ 1, 3, max_rows }) |rows| {
+        var layout: [max_slot_count]container.Slot = undefined;
+        const screen = slots(rows, &layout, .chest);
+
+        var cargo: [max_rows * 9]?world.Stack = @splat(null);
+        var inventory: game.Inventory = .{};
+
+        var window: game.Window = .{};
+        window.addStore(cargo[0 .. @as(usize, rows) * 9], .chest);
+        window.addPlayer(&inventory);
+
+        try std.testing.expectEqual(screen.len, window.count);
+        for (screen, 0..) |slot, index| {
+            const expected: *?world.Stack = switch (slot.kind) {
+                .chest => &cargo[slot.index],
+                .inventory => &inventory.slots[slot.index],
+                else => unreachable,
+            };
+            try std.testing.expectEqual(expected, window.slots[index].stack.?);
+        }
+    }
+}
