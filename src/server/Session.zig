@@ -713,8 +713,8 @@ pub fn travel(
 
     from.leave(player);
 
-    const centre_x = @divFloor(math.util.floorDouble(x), world.constants.chunk_width);
-    const centre_z = @divFloor(math.util.floorDouble(z), world.constants.chunk_width);
+    const centre_x = @divFloor(math.util.floorDouble(x), world.Chunk.width);
+    const centre_z = @divFloor(math.util.floorDouble(z), world.Chunk.width);
     var dx: i32 = -1;
     while (dx <= 1) : (dx += 1) {
         var dz: i32 = -1;
@@ -1810,7 +1810,7 @@ fn useItemOn(
         },
         .flint_and_steel => {
             const target = world.block_update.placementTarget(&level.world_map, x, y, z, face);
-            if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+            if (target.y < 0 or target.y >= world.Chunk.height) return;
             if (level.world_map.getBlock(target.x, target.y, target.z) == .air) {
                 try level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
             }
@@ -1899,7 +1899,7 @@ fn placeSign(self: *Session, level: *game.Level, x: i32, y: i32, z: i32, face: w
     if (!level.world_map.getBlock(x, y, z).material().isSolid()) return;
 
     const target = world.block_update.placementTarget(&level.world_map, x, y, z, face);
-    if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+    if (target.y < 0 or target.y >= world.Chunk.height) return;
     if (!level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return;
 
     if (face == .up) {
@@ -2090,7 +2090,7 @@ fn placeBlock(
         z,
         @enumFromInt(face),
     );
-    if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+    if (target.y < 0 or target.y >= world.Chunk.height) return;
     if (!withinReach(player, target.x, target.y, target.z)) return;
     if (!level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return;
     if (!world.block_update.canPlaceOnSide(&level.world_map, target.x, target.y, target.z, placed, target.face)) return;
@@ -2119,9 +2119,9 @@ pub fn sendBlockChange(
     metadata: u4,
 ) !void {
     if (self.state != .playing) return;
-    if (y < 0 or y >= world.constants.chunk_height) return;
+    if (y < 0 or y >= world.Chunk.height) return;
 
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     const coord: world.World.ChunkCoord = .{ .x = @divFloor(x, width), .z = @divFloor(z, width) };
     if (!self.sent_chunks.contains(coord)) return;
 
@@ -2140,7 +2140,7 @@ fn moveTo(player: *game.Player, x: f64, y: f64, z: f64) void {
 }
 
 fn playerChunk(player: *const game.Player) world.World.ChunkCoord {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     return .{
         .x = @divFloor(math.util.floorDouble(player.base.position.x), width),
         .z = @divFloor(math.util.floorDouble(player.base.position.z), width),
@@ -2192,9 +2192,9 @@ fn sendChunk(self: *Session, gpa: std.mem.Allocator, level: *game.Level, coord: 
     defer gpa.free(compressed);
 
     try self.send(gpa, .{ .map_chunk = .{
-        .x = coord.x * world.constants.chunk_width,
+        .x = coord.x * world.Chunk.width,
         .y = 0,
-        .z = coord.z * world.constants.chunk_width,
+        .z = coord.z * world.Chunk.width,
         .size_x = chunk_payload.size_x,
         .size_y = chunk_payload.size_y,
         .size_z = chunk_payload.size_z,
@@ -2210,7 +2210,7 @@ fn sendSignsIn(
     level: *game.Level,
     coord: world.World.ChunkCoord,
 ) !void {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     var posts = level.world_map.signs.iterator();
     while (posts.next()) |entry| {
         const at = entry.key_ptr.*;
@@ -2237,7 +2237,7 @@ pub fn sendSign(
 }
 
 pub fn seesChunkAt(self: *const Session, x: i32, z: i32) bool {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     return self.sent_chunks.contains(.{ .x = @divFloor(x, width), .z = @divFloor(z, width) });
 }
 
@@ -2555,8 +2555,8 @@ fn stoneFloorLevel(gpa: std.mem.Allocator) !game.Level {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try level.world_map.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 63, @intCast(z), .stone);
                 }
             }

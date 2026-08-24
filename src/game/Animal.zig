@@ -903,8 +903,8 @@ fn grassWorld(gpa: std.mem.Allocator) !world.World {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
                     chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
                 }
@@ -1171,8 +1171,8 @@ test "an animal in open water swims up and never drowns" {
     defer w.deinit();
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y < 6) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
         }
@@ -1207,8 +1207,8 @@ test "an animal standing in lava catches fire and burns" {
     defer w.deinit();
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 1, @intCast(z), .stationary_lava);
         }
     }

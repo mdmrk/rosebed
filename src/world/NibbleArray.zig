@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 
 const NibbleArray = @This();
 
-data: [constants.chunk_volume / 2]u8 = [_]u8{0} ** (constants.chunk_volume / 2),
+data: [Chunk.volume / 2]u8 = [_]u8{0} ** (Chunk.volume / 2),
 
 fn index(x: u32, y: u32, z: u32) usize {
     return (x << 11) | (z << 7) | y;

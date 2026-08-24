@@ -4,7 +4,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 const testing = @import("testing.zig");
 const World = @import("World.zig");
 
@@ -387,9 +387,9 @@ fn walledWorld(gpa: std.mem.Allocator, floor_height: u32) !World {
 
     const top: i32 = @intCast(floor_height);
     var x: i32 = 0;
-    while (x < constants.chunk_width) : (x += 1) {
+    while (x < Chunk.width) : (x += 1) {
         var z: i32 = 0;
-        while (z < constants.chunk_width) : (z += 1) {
+        while (z < Chunk.width) : (z += 1) {
             w.setBlock(x, top, z, .stone);
             w.setBlock(x, top + 1, z, .stone);
         }

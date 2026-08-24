@@ -51,7 +51,7 @@ pub fn scorch(self: *const Lightning, world_map: *world.World, rand: *world.Java
 }
 
 fn lightFire(world_map: *world.World, x: i32, y: i32, z: i32) !void {
-    if (y < 0 or y >= world.constants.chunk_height) return;
+    if (y < 0 or y >= world.Chunk.height) return;
     if (world_map.getBlock(x, y, z) != .air) return;
     if (!world.block_update.canPlaceAt(world_map, x, y, z, .fire)) return;
     try world_map.setBlockWithNotify(x, y, z, .fire);

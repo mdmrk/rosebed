@@ -1154,8 +1154,8 @@ fn floodedWorld(surface_y: u32) !world.World {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     errdefer w.deinit();
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y < surface_y) : (y += 1) {
                 chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
@@ -1194,8 +1194,8 @@ fn lavaWorld(surface_y: u32) !world.World {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     errdefer w.deinit();
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y < surface_y) : (y += 1) {
                 chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_lava);

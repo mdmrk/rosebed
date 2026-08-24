@@ -186,8 +186,8 @@ fn grassField(gpa: std.mem.Allocator, radius: i32) !world.World {
         var chunk_z: i32 = -radius;
         while (chunk_z <= radius) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .grass);
                     chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
                 }

@@ -226,8 +226,8 @@ pub fn chunkSeed(chunk_x: i32, chunk_z: i32, world_seed: i64, salt: i64) i64 {
 pub fn canSpawnHere(self: Slime, world_seed: i64, rand: *world.JavaRandom) bool {
     if (rand.nextIntBound(10) != 0) return false;
 
-    const chunk_x = @divFloor(math.util.floorDouble(self.animal.base.position.x), world.constants.chunk_width);
-    const chunk_z = @divFloor(math.util.floorDouble(self.animal.base.position.z), world.constants.chunk_width);
+    const chunk_x = @divFloor(math.util.floorDouble(self.animal.base.position.x), world.Chunk.width);
+    const chunk_z = @divFloor(math.util.floorDouble(self.animal.base.position.z), world.Chunk.width);
     var chunk_rand = world.JavaRandom.init(chunkSeed(chunk_x, chunk_z, world_seed, chunk_salt));
     if (chunk_rand.nextIntBound(10) != 0) return false;
 
@@ -364,8 +364,8 @@ fn stoneFloor(gpa: std.mem.Allocator) !world.World {
         var chunk_z: i32 = -2;
         while (chunk_z <= 2) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                 }
             }

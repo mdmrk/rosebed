@@ -293,8 +293,8 @@ fn seaWorld(gpa: std.mem.Allocator, surface: u32) !world.World {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                     var y: u32 = 1;
                     while (y <= surface) : (y += 1) {

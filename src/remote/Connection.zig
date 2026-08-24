@@ -816,9 +816,9 @@ fn mapChunk(
     level: *game.Level,
     body: anytype,
 ) !void {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     if (body.size_x != width or body.size_z != width) return;
-    if (body.size_y != world.constants.chunk_height) return;
+    if (body.size_y != world.Chunk.height) return;
 
     const coord: world.World.ChunkCoord = .{
         .x = @divFloor(body.x, width),
@@ -838,7 +838,7 @@ fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block:
 }
 
 fn multiBlockChange(self: *Connection, level: *game.Level, body: anytype) !void {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     for (body.coordinates, body.types, body.metadata) |packed_xz, block, meta| {
         const raw: u16 = @bitCast(packed_xz);
         const local_x: i32 = @intCast((raw >> 12) & 0x0f);
@@ -1387,8 +1387,8 @@ test "a map chunk from the server becomes a real chunk in the world" {
     const source = try gpa.create(world.Chunk);
     defer gpa.destroy(source);
     source.* = world.Chunk.init(2, -3);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             source.setBlock(@intCast(x), 40, @intCast(z), .stone);
             source.setSkyLight(@intCast(x), 41, @intCast(z), 15);
         }
@@ -1400,12 +1400,12 @@ test "a map chunk from the server becomes a real chunk in the world" {
 
     try connection.handle(gpa, &level, testing_username, .{ .pre_chunk = .{ .x = 2, .z = -3, .load = true } });
     try connection.handle(gpa, &level, testing_username, .{ .map_chunk = .{
-        .x = 2 * world.constants.chunk_width,
+        .x = 2 * world.Chunk.width,
         .y = 0,
-        .z = -3 * world.constants.chunk_width,
-        .size_x = world.constants.chunk_width,
-        .size_y = world.constants.chunk_height,
-        .size_z = world.constants.chunk_width,
+        .z = -3 * world.Chunk.width,
+        .size_x = world.Chunk.width,
+        .size_y = world.Chunk.height,
+        .size_z = world.Chunk.width,
         .compressed = compressed,
     } });
 

@@ -258,8 +258,8 @@ fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
     const x: i32 = @intFromFloat(@floor(centre.x));
     const z: i32 = @intFromFloat(@floor(centre.z));
     return .{
-        .x = @divFloor(x, world.constants.chunk_width),
-        .z = @divFloor(z, world.constants.chunk_width),
+        .x = @divFloor(x, world.Chunk.width),
+        .z = @divFloor(z, world.Chunk.width),
     };
 }
 
@@ -614,7 +614,7 @@ fn digStep(app_state: *AppState) !void {
 
 fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: i32) [3]u8 {
     if (id == .grass) return .{ 255, 255, 255 };
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     const chunk = app_state.level.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
     const lx: u32 = @intCast(@mod(x, width));
     const lz: u32 = @intCast(@mod(z, width));
@@ -1933,8 +1933,8 @@ fn enterSavedDimension(app_state: *AppState, target: world.Dimension) !void {
 
 fn loadingChunkCoord(app_state: *const AppState, index: i32) world.World.ChunkCoord {
     const side = spawn_load_radius * 2 + 1;
-    const center_x = @divFloor(app_state.loading.center[0], world.constants.chunk_width);
-    const center_z = @divFloor(app_state.loading.center[1], world.constants.chunk_width);
+    const center_x = @divFloor(app_state.loading.center[0], world.Chunk.width);
+    const center_z = @divFloor(app_state.loading.center[1], world.Chunk.width);
     return .{
         .x = center_x + @mod(index, side) - spawn_load_radius,
         .z = center_z + @divFloor(index, side) - spawn_load_radius,
@@ -1956,7 +1956,7 @@ fn stepLoading(app_state: *AppState) !void {
 }
 
 fn firstUncoveredBlock(app_state: *AppState, x: i32, z: i32) !world.Block {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     try app_state.level.world_map.ensureDecorated(&app_state.level.generator, @divFloor(x, width), @divFloor(z, width));
 
     var y: i32 = 63;
@@ -2698,7 +2698,7 @@ fn strikeFlintAtTarget(app_state: *AppState) !bool {
     const hit = pickedBlock(app_state) orelse return false;
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
+    if (target.y < 0 or target.y >= world.Chunk.height) return false;
 
     if (app_state.level.world_map.getBlock(target.x, target.y, target.z) == .air) {
         try app_state.level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
@@ -2772,7 +2772,7 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
     if (!app_state.level.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.constants.chunk_height) return false;
+    if (target.y < 0 or target.y >= world.Chunk.height) return false;
     if (!app_state.level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return false;
 
     if (hit.face == .up) {
@@ -2983,7 +2983,7 @@ fn openRemoteSignEditor(app_state: *AppState, hit: game.raycast.Hit) !void {
     if (hit.face == .down) return;
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.constants.chunk_height) return;
+    if (target.y < 0 or target.y >= world.Chunk.height) return;
     _ = try app_state.level.world_map.addSign(target.x, target.y, target.z);
     openSignEditor(app_state, target.x, target.y, target.z);
 }
@@ -3031,7 +3031,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const px = target.x;
     const py = target.y;
     const pz = target.z;
-    if (py < 0 or py >= world.constants.chunk_height) return false;
+    if (py < 0 or py >= world.Chunk.height) return false;
     if (!app_state.level.world_map.getBlock(px, py, pz).isReplaceable()) return false;
     if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, px, py, pz, placed, target.face)) return false;
     if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(px, py, pz)) return false;

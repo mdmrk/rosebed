@@ -1,10 +1,9 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
-const constants = @import("constants.zig");
-pub const width = constants.chunk_width;
-pub const height = constants.chunk_height;
-pub const volume = constants.chunk_volume;
+pub const width = 16;
+pub const height = 128;
+pub const volume = width * height * width;
 const NibbleArray = @import("NibbleArray.zig");
 
 const Chunk = @This();

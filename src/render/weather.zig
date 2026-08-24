@@ -111,7 +111,7 @@ pub fn appendRain(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
             try appendColumn(mesh, gpa, x, z, .{
                 .bottom = bottom,
                 .top = top,
-                .shade = brightnessAt(view.world_map, x, world.constants.chunk_height, z) * rain_light_scale + rain_light_floor,
+                .shade = brightnessAt(view.world_map, x, world.Chunk.height, z) * rain_light_scale + rain_light_floor,
                 .alpha = fade(view, x, z, reach, rain_alpha_base, rain_alpha_falloff),
                 .scroll_u = 0,
                 .scroll_v = scroll,
@@ -158,7 +158,7 @@ pub fn appendSnow(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
 }
 
 fn brightnessAt(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
-    return world.light.brightnessAt(world_map, x, @min(y, world.constants.chunk_height - 1), z, 0);
+    return world.light.brightnessAt(world_map, x, @min(y, world.Chunk.height - 1), z, 0);
 }
 
 fn fade(view: View, x: i32, z: i32, reach: i32, base: f32, falloff: f32) f32 {

@@ -256,8 +256,8 @@ test "a boat out of water sinks and one in water is held up" {
     _ = dry.tick(&w, null);
     try std.testing.expect(dry.base.motion.y < 0);
 
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             w.getChunk(0, 0).?.setBlock(@intCast(x), 4, @intCast(z), .stationary_water);
         }
     }

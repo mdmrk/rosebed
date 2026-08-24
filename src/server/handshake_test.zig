@@ -37,7 +37,7 @@ const Pair = struct {
 
     fn blockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
         const self: *Pair = @ptrCast(@alignCast(context));
-        if (y < 0 or y >= world.constants.chunk_height) return;
+        if (y < 0 or y >= world.Chunk.height) return;
         const block = self.server_level.world_map.getBlock(x, y, z);
         const metadata = self.server_level.world_map.getBlockMetadata(x, y, z);
         self.session.sendBlockChange(self.gpa, x, y, z, block, metadata) catch return error.OutOfMemory;
@@ -141,7 +141,7 @@ const Pair = struct {
         const x: i32 = @intFromFloat(@floor(feet.x));
         const z: i32 = @intFromFloat(@floor(feet.z));
 
-        var y: i32 = world.constants.chunk_height - 1;
+        var y: i32 = world.Chunk.height - 1;
         while (y > 0 and !self.server_level.world_map.getBlock(x, y, z).isSolid()) : (y -= 1) {}
 
         const stand: math.Vec3 = .{

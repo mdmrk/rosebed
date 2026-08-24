@@ -2,7 +2,7 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 const item = @import("item.zig");
 const light = @import("light.zig");
 const portal = @import("portal.zig");
@@ -88,7 +88,7 @@ fn doorBeside(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
 }
 
 pub fn canPlaceDoorAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    if (y < 1 or y + 1 >= constants.chunk_height) return false;
+    if (y < 1 or y + 1 >= Chunk.height) return false;
     if (!world_map.getBlock(x, y - 1, z).isOpaqueCube()) return false;
     return world_map.getBlock(x, y, z).isReplaceable() and world_map.getBlock(x, y + 1, z).isReplaceable();
 }

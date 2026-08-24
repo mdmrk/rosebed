@@ -162,8 +162,8 @@ fn castStopping(
 fn testWorldWithFloor() !world.World {
     var w = world.World.init(std.testing.allocator);
     const chunk = try w.createChunk(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 5, @intCast(z), .stone);
         }
     }

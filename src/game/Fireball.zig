@@ -204,8 +204,8 @@ test "a fireball trails bubbles once it is under water" {
     defer w.deinit();
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y < 8) : (y += 1) chunk.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
         }

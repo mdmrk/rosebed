@@ -181,7 +181,7 @@ pub const Climate = struct {
 };
 
 pub fn climateAt(world_map: *const world.ChunkView, x: i32, z: i32) Climate {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     const chunk = world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{};
     const lx: u32 = @intCast(@mod(x, width));
     const lz: u32 = @intCast(@mod(z, width));
@@ -1739,16 +1739,16 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 
     const view = world.ChunkView.around(world_map, chunk.x, chunk.z);
 
-    const origin_x: f32 = @floatFromInt(chunk.x * world.constants.chunk_width);
-    const origin_z: f32 = @floatFromInt(chunk.z * world.constants.chunk_width);
+    const origin_x: f32 = @floatFromInt(chunk.x * world.Chunk.width);
+    const origin_z: f32 = @floatFromInt(chunk.z * world.Chunk.width);
 
-    for (0..world.constants.chunk_width) |lx| {
-        for (0..world.constants.chunk_width) |lz| {
+    for (0..world.Chunk.width) |lx| {
+        for (0..world.Chunk.width) |lz| {
             const climate: Climate = .{
                 .temperature = chunk.getTemperature(@intCast(lx), @intCast(lz)),
                 .humidity = chunk.getHumidity(@intCast(lx), @intCast(lz)),
             };
-            for (0..world.constants.chunk_height) |ly| {
+            for (0..world.Chunk.height) |ly| {
                 const id = chunk.getBlock(@intCast(lx), @intCast(ly), @intCast(lz));
                 if (id == .air) continue;
 
@@ -2185,8 +2185,8 @@ test "a seam face needs its neighbour lit before it shades correctly" {
 
     const near = try world_map.createChunk(0, 0);
     const far = try world_map.createChunk(1, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             near.setBlock(@intCast(x), 0, @intCast(z), .stone);
             far.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
@@ -3396,8 +3396,8 @@ fn wireWorldMap(gpa: std.mem.Allocator) !world.World {
     errdefer world_map.deinit();
 
     const chunk = try world_map.createChunk(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }

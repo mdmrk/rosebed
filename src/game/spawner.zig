@@ -273,16 +273,16 @@ fn spawnInChunk(
     const chosen: Chosen = switch (category) {
         .creature => .{ .creature = pickWeighted(
             Creature,
-            creatureList(world_map.biomeAt(chunk_x * world.constants.chunk_width, chunk_z * world.constants.chunk_width)),
+            creatureList(world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width)),
             rand,
         ).kind },
         .monster => .{ .monster = pickWeighted(Horror, monsterList(dimension), rand).monster },
         .water_creature => .{ .water_creature = pickWeighted(Shoal, &water_creatures, rand).swimmer },
     };
 
-    const origin_x = chunk_x * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
-    const origin_y = rand.nextIntBound(world.constants.chunk_height);
-    const origin_z = chunk_z * world.constants.chunk_width + rand.nextIntBound(world.constants.chunk_width);
+    const origin_x = chunk_x * world.Chunk.width + rand.nextIntBound(world.Chunk.width);
+    const origin_y = rand.nextIntBound(world.Chunk.height);
+    const origin_z = chunk_z * world.Chunk.width + rand.nextIntBound(world.Chunk.width);
 
     if (world_map.getBlock(origin_x, origin_y, origin_z).isOpaqueCube()) return 0;
     if (world_map.getBlock(origin_x, origin_y, origin_z).material() != category.material()) return 0;
@@ -427,8 +427,8 @@ fn grassPlateau(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, surf
     var chunk_x = from_chunk_x;
     while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
         const chunk = try w.createChunk(chunk_x, 0);
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 var y: u32 = 0;
                 while (y <= surface_y) : (y += 1) {
                     chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
@@ -448,8 +448,8 @@ fn stoneCavern(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, caver
     var chunk_x = from_chunk_x;
     while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
         const chunk = try w.createChunk(chunk_x, 0);
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 var y: u32 = 0;
                 while (y <= cavern_y + 4) : (y += 1) {
                     const solid = y < cavern_y or y > cavern_y + 1;
@@ -468,8 +468,8 @@ fn openSea(gpa: std.mem.Allocator, from_chunk_x: i32, to_chunk_x: i32, sea_level
     var chunk_x = from_chunk_x;
     while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
         const chunk = try w.createChunk(chunk_x, 0);
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                 var y: u32 = 1;
                 while (y <= sea_level) : (y += 1) {
@@ -485,8 +485,8 @@ fn stampClimate(w: *world.World, from_chunk_x: i32, to_chunk_x: i32, temperature
     var chunk_x = from_chunk_x;
     while (chunk_x <= to_chunk_x) : (chunk_x += 1) {
         const chunk = w.getChunk(chunk_x, 0).?;
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 chunk.setClimate(@intCast(x), @intCast(z), temperature, humidity);
             }
         }
@@ -555,7 +555,7 @@ test "every kind we can make finds its way into a grassy world" {
     var w = try grassPlateau(gpa, 3, 5, surface);
     defer w.deinit();
     stampClimate(&w, 3, 5, 0.4, 0.9);
-    try std.testing.expectEqual(world.biome.Biome.taiga, w.biomeAt(3 * world.constants.chunk_width, 0));
+    try std.testing.expectEqual(world.biome.Biome.taiga, w.biomeAt(3 * world.Chunk.width, 0));
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -587,8 +587,8 @@ test "nothing spawns on bare stone" {
 
     for (3..6) |chunk_x| {
         const chunk = w.getChunk(@intCast(chunk_x), 0).?;
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 chunk.setBlock(@intCast(x), surface, @intCast(z), .stone);
             }
         }
@@ -611,8 +611,8 @@ test "nothing spawns in the dark" {
 
     for (3..6) |chunk_x| {
         const chunk = w.getChunk(@intCast(chunk_x), 0).?;
-        for (0..world.constants.chunk_width) |x| {
-            for (0..world.constants.chunk_width) |z| {
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
                 chunk.setSkyLight(@intCast(x), surface + 1, @intCast(z), 0);
             }
         }

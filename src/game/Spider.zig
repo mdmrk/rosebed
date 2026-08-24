@@ -236,8 +236,8 @@ fn darkWorld(gpa: std.mem.Allocator) !world.World {
         var chunk_z: i32 = -2;
         while (chunk_z <= 2) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                 }
             }
@@ -252,8 +252,8 @@ fn lightUp(w: *world.World) void {
         var chunk_z: i32 = -2;
         while (chunk_z <= 2) : (chunk_z += 1) {
             const chunk = w.getChunk(chunk_x, chunk_z).?;
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     var y: u32 = 1;
                     while (y <= 4) : (y += 1) chunk.setSkyLight(@intCast(x), y, @intCast(z), 15);
                 }

@@ -2,7 +2,7 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
 
 pub fn flatWorld(allocator: std.mem.Allocator, floor_height: u32) !World {
@@ -10,8 +10,8 @@ pub fn flatWorld(allocator: std.mem.Allocator, floor_height: u32) !World {
     errdefer w.deinit();
 
     const chunk = try w.createChunk(0, 0);
-    for (0..constants.chunk_width) |x| {
-        for (0..constants.chunk_width) |z| {
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
             var y: u32 = 0;
             while (y < floor_height) : (y += 1) {
                 chunk.setBlock(@intCast(x), y, @intCast(z), .stone);

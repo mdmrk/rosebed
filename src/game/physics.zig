@@ -61,8 +61,8 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
 fn collidingBoxes(world_map: *const world.World, query: math.Aabb, out: *[max_colliding_boxes]math.Aabb) usize {
     const min_x = math.util.floorDouble(query.min_x);
     const max_x = math.util.floorDouble(query.max_x);
-    const min_y = std.math.clamp(math.util.floorDouble(query.min_y), 0, world.constants.chunk_height - 1);
-    const max_y = std.math.clamp(math.util.floorDouble(query.max_y), 0, world.constants.chunk_height - 1);
+    const min_y = std.math.clamp(math.util.floorDouble(query.min_y), 0, world.Chunk.height - 1);
+    const max_y = std.math.clamp(math.util.floorDouble(query.max_y), 0, world.Chunk.height - 1);
     const min_z = math.util.floorDouble(query.min_z);
     const max_z = math.util.floorDouble(query.max_z);
 
@@ -346,8 +346,8 @@ pub fn isInsideMaterial(world_map: *const world.World, material: world.Material,
 fn testWorldWithFloor(floor_top_y: u32) !world.World {
     var w = world.World.init(std.testing.allocator);
     const chunk = try w.createChunk(0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 0;
             while (y < floor_top_y) : (y += 1) {
                 chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
@@ -458,8 +458,8 @@ test "a step that lands mid-block locks out stepping until the offset decays" {
 fn waterWorld() !world.World {
     var w = try testWorldWithFloor(1);
     errdefer w.deinit();
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y < 5) : (y += 1) {
                 w.getChunk(0, 0).?.setBlock(@intCast(x), y, @intCast(z), .stationary_water);

@@ -1963,7 +1963,7 @@ pub fn tickPickups(self: *Entities) void {
 }
 
 fn chunkOf(coordinate: f64) i32 {
-    return @divFloor(math.util.floorDouble(coordinate), world.constants.chunk_width);
+    return @divFloor(math.util.floorDouble(coordinate), world.Chunk.width);
 }
 
 fn collectChunkEntities(

@@ -129,7 +129,7 @@ fn worldAccess(dim: *Dim) world.World.Access {
 
 fn markBlockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
     const dim: *Dim = @ptrCast(@alignCast(context));
-    if (y < 0 or y >= world.constants.chunk_height) return;
+    if (y < 0 or y >= world.Chunk.height) return;
 
     const block = dim.level.world_map.getBlock(x, y, z);
     const metadata = dim.level.world_map.getBlockMetadata(x, y, z);
@@ -260,7 +260,7 @@ fn queueOutbox(server: *Server, connection: *Connection) !void {
 fn findSpawn(level: *game.Level) ![3]i32 {
     try level.world_map.ensureDecorated(&level.generator, 0, 0);
 
-    var y: i32 = world.constants.chunk_height - 2;
+    var y: i32 = world.Chunk.height - 2;
     while (y > 0) : (y -= 1) {
         if (!level.world_map.getBlock(8, y, 8).isSolid()) continue;
         return .{ 8, y + 1, 8 };

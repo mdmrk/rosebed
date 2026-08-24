@@ -64,12 +64,12 @@ pub fn markDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, chunk_x: i32, chu
 
 fn seamOffset(local: i32) i32 {
     if (local == 0) return -1;
-    if (local == world.constants.chunk_width - 1) return 1;
+    if (local == world.Chunk.width - 1) return 1;
     return 0;
 }
 
 pub fn markBlockDirty(self: *ChunkRenderer, gpa: std.mem.Allocator, x: i32, z: i32) !void {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     const chunk_x = @divFloor(x, width);
     const chunk_z = @divFloor(z, width);
     const offset_x = seamOffset(@mod(x, width));
@@ -87,7 +87,7 @@ const immediate_rebuild_distance = 16.0;
 
 pub fn radiusFor(render_distance: u5) i32 {
     const diameter = @min(@as(i32, 64) << (3 - render_distance), 400);
-    return @divTrunc(diameter, 2 * world.constants.chunk_width);
+    return @divTrunc(diameter, 2 * world.Chunk.width);
 }
 
 const Pending = struct {
@@ -115,7 +115,7 @@ pub fn flush(
     defer pending.deinit(gpa);
     try pending.ensureTotalCapacity(gpa, self.dirty.count());
 
-    const width: f64 = @floatFromInt(world.constants.chunk_width);
+    const width: f64 = @floatFromInt(world.Chunk.width);
     var it = self.dirty.keyIterator();
     while (it.next()) |coord| {
         const center_x = (@as(f64, @floatFromInt(coord.x)) + 0.5) * width;
@@ -161,8 +161,8 @@ pub fn flush(
 }
 
 fn chunkBounds(coord: world.World.ChunkCoord) struct { min: [3]f32, max: [3]f32 } {
-    const width: f32 = @floatFromInt(world.constants.chunk_width);
-    const height: f32 = @floatFromInt(world.constants.chunk_height);
+    const width: f32 = @floatFromInt(world.Chunk.width);
+    const height: f32 = @floatFromInt(world.Chunk.height);
     const min_x = @as(f32, @floatFromInt(coord.x)) * width;
     const min_z = @as(f32, @floatFromInt(coord.z)) * width;
     return .{
@@ -346,7 +346,7 @@ pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, frust
     var ordered: std.ArrayList(Ordered) = .empty;
     defer ordered.deinit(gpa);
 
-    const width: f64 = @floatFromInt(world.constants.chunk_width);
+    const width: f64 = @floatFromInt(world.Chunk.width);
     var it = self.meshes.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.translucent.index_count == 0) continue;
@@ -541,8 +541,8 @@ test "a query box wraps its chunk by the original's six block margin" {
         }
     }
 
-    const width: f32 = @floatFromInt(world.constants.chunk_width);
-    const height: f32 = @floatFromInt(world.constants.chunk_height);
+    const width: f32 = @floatFromInt(world.Chunk.width);
+    const height: f32 = @floatFromInt(world.Chunk.height);
     try std.testing.expectEqual([3]f32{ -query_box_margin, -query_box_margin, -query_box_margin }, min);
     try std.testing.expectEqual([3]f32{
         width + query_box_margin,

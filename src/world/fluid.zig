@@ -4,7 +4,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
 
 const max_decay: i32 = 8;
@@ -378,8 +378,8 @@ fn testWorld(floor_top_y: u32) !World {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try world_map.createChunk(chunk_x, chunk_z);
-            for (0..constants.chunk_width) |x| {
-                for (0..constants.chunk_width) |z| {
+            for (0..Chunk.width) |x| {
+                for (0..Chunk.width) |z| {
                     var y: u32 = 0;
                     while (y < floor_top_y) : (y += 1) {
                         chunk.setBlock(@intCast(x), y, @intCast(z), .stone);

@@ -6,7 +6,7 @@ const block = @import("block.zig");
 const Block = block.Block;
 const Side = block.Side;
 const block_update = @import("block_update.zig");
-const constants = @import("constants.zig");
+const Chunk = @import("Chunk.zig");
 const note = @import("note.zig");
 const piston = @import("piston.zig");
 const rail = @import("rail.zig");
@@ -875,8 +875,8 @@ fn flatWorld(floor_height: u32) !World {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..constants.chunk_width) |x| {
-                for (0..constants.chunk_width) |z| {
+            for (0..Chunk.width) |x| {
+                for (0..Chunk.width) |z| {
                     var y: u32 = 0;
                     while (y < floor_height) : (y += 1) {
                         chunk.setBlock(@intCast(x), y, @intCast(z), .stone);

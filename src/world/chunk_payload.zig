@@ -2,14 +2,13 @@ const std = @import("std");
 
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
-const constants = @import("constants.zig");
-pub const blocks_len = constants.chunk_volume;
-pub const size_x: u8 = constants.chunk_width;
-pub const size_y: u8 = constants.chunk_height;
-pub const size_z: u8 = constants.chunk_width;
+pub const blocks_len = Chunk.volume;
+pub const size_x: u8 = Chunk.width;
+pub const size_y: u8 = Chunk.height;
+pub const size_z: u8 = Chunk.width;
 const deflate = @import("deflate.zig");
 
-pub const nibbles_len = constants.chunk_volume / 2;
+pub const nibbles_len = Chunk.volume / 2;
 pub const full_len = blocks_len + nibbles_len * 3;
 
 pub fn writeFull(chunk: *const Chunk, out: *[full_len]u8) void {
@@ -79,8 +78,8 @@ test "a compressed chunk inflates back to exactly what was written" {
     defer gpa.destroy(chunk);
     chunk.* = Chunk.init(0, 0);
 
-    for (0..constants.chunk_width) |x| {
-        for (0..constants.chunk_width) |z| {
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 0, @intCast(z), .bedrock);
             chunk.setBlock(@intCast(x), 1, @intCast(z), .dirt);
             chunk.setSkyLight(@intCast(x), 2, @intCast(z), 15);
@@ -109,8 +108,8 @@ test "a chunk read back from its payload matches the one that was written" {
     sent.* = Chunk.init(3, -4);
 
     var seed: u32 = 1;
-    for (0..constants.chunk_width) |x| {
-        for (0..constants.chunk_width) |z| {
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
             for (0..40) |y| {
                 seed = seed *% 1664525 +% 1013904223;
                 sent.setBlock(@intCast(x), @intCast(y), @intCast(z), @enumFromInt(@as(u8, @truncate(seed >> 16))));

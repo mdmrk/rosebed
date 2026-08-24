@@ -3,7 +3,6 @@ const std = @import("std");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
-const constants = @import("constants.zig");
 const World = @import("World.zig");
 
 pub const max_level: u4 = 15;
@@ -88,7 +87,7 @@ fn spreadCost(id: Block) u8 {
 pub fn generateHeightMap(chunk: *Chunk) void {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
-            var y: u32 = constants.chunk_height - 1;
+            var y: u32 = Chunk.height - 1;
             while (y > 0 and opacity(chunk.getBlock(@intCast(x), y - 1, @intCast(z))) == 0) y -= 1;
             chunk.setHeightValue(@intCast(x), @intCast(z), @intCast(y));
         }
@@ -119,9 +118,9 @@ const Propagation = struct {
     }
 
     fn inside(self: *const Propagation, x: i32, y: i32, z: i32) bool {
-        return y >= 0 and y < constants.chunk_height and
-            x >= self.min_x and x < self.min_x + constants.chunk_width and
-            z >= self.min_z and z < self.min_z + constants.chunk_width;
+        return y >= 0 and y < Chunk.height and
+            x >= self.min_x and x < self.min_x + Chunk.width and
+            z >= self.min_z and z < self.min_z + Chunk.width;
     }
 
     fn seed(self: *Propagation, gpa: std.mem.Allocator, x: i32, y: i32, z: i32) !void {
@@ -177,8 +176,8 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
     chunk.sky_light = .{};
     chunk.block_light = .{};
 
-    const min_x = chunk_x * constants.chunk_width;
-    const min_z = chunk_z * constants.chunk_width;
+    const min_x = chunk_x * Chunk.width;
+    const min_z = chunk_z * Chunk.width;
 
     var sky: Propagation = .{ .world_map = world_map, .kind = .sky, .min_x = min_x, .min_z = min_z };
     defer sky.queue.deinit(gpa);
@@ -191,7 +190,7 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
             const x = min_x + @as(i32, @intCast(lx));
             const z = min_z + @as(i32, @intCast(lz));
 
-            for (0..constants.chunk_height) |ly| {
+            for (0..Chunk.height) |ly| {
                 const y: i32 = @intCast(ly);
                 if (ly >= sky_floor) {
                     chunk.setSkyLight(@intCast(lx), @intCast(ly), @intCast(lz), max_level);
@@ -216,7 +215,7 @@ pub fn relightChunk(gpa: std.mem.Allocator, world_map: *World, chunk_x: i32, chu
 const Side = struct { chunk_x: i32, chunk_z: i32, local_x: ?u32, local_z: ?u32 };
 
 fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, chunk_x: i32, chunk_z: i32) !void {
-    const last = constants.chunk_width - 1;
+    const last = Chunk.width - 1;
     const sides = [4]Side{
         .{ .chunk_x = chunk_x - 1, .chunk_z = chunk_z, .local_x = last, .local_z = null },
         .{ .chunk_x = chunk_x + 1, .chunk_z = chunk_z, .local_x = 0, .local_z = null },
@@ -226,13 +225,13 @@ fn seedBorder(gpa: std.mem.Allocator, propagation: *Propagation, chunk_x: i32, c
 
     for (sides) |side| {
         const neighbor = propagation.world_map.getChunk(side.chunk_x, side.chunk_z) orelse continue;
-        const origin_x = side.chunk_x * constants.chunk_width;
-        const origin_z = side.chunk_z * constants.chunk_width;
+        const origin_x = side.chunk_x * Chunk.width;
+        const origin_z = side.chunk_z * Chunk.width;
 
-        for (0..constants.chunk_width) |along| {
+        for (0..Chunk.width) |along| {
             const lx = side.local_x orelse @as(u32, @intCast(along));
             const lz = side.local_z orelse @as(u32, @intCast(along));
-            for (0..constants.chunk_height) |ly| {
+            for (0..Chunk.height) |ly| {
                 const level = switch (propagation.kind) {
                     .sky => neighbor.getSkyLight(lx, @intCast(ly), lz),
                     .block => neighbor.getBlockLight(lx, @intCast(ly), lz),
@@ -560,8 +559,8 @@ test "a pressure plate lets daylight through instead of casting a shadow under i
     defer world_map.deinit();
 
     const chunk = try world_map.createChunk(0, 0);
-    for (0..constants.chunk_width) |x| {
-        for (0..constants.chunk_width) |z| {
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
         }
     }

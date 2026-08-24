@@ -321,8 +321,8 @@ test "a bobber floats where it lands in water" {
     const gpa = std.testing.allocator;
     var w = try testing_world.flatWorld(gpa, 4);
     defer w.deinit();
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             w.getChunk(0, 0).?.setBlock(@intCast(x), 4, @intCast(z), .stationary_water);
         }
     }

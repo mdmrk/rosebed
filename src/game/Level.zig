@@ -110,7 +110,7 @@ pub fn dropStackAt(self: *Level, gpa: std.mem.Allocator, x: i32, y: i32, z: i32,
 }
 
 pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !void {
-    const width = world.constants.chunk_width;
+    const width = world.Chunk.width;
     var columns: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{};
     defer columns.deinit(scratch);
 
@@ -321,8 +321,8 @@ fn playerChunkCoord(player: *const Player) world.World.ChunkCoord {
     const x: i32 = @intFromFloat(@floor(player.base.position.x));
     const z: i32 = @intFromFloat(@floor(player.base.position.z));
     return .{
-        .x = @divFloor(x, world.constants.chunk_width),
-        .z = @divFloor(z, world.constants.chunk_width),
+        .x = @divFloor(x, world.Chunk.width),
+        .z = @divFloor(z, world.Chunk.width),
     };
 }
 
@@ -411,8 +411,8 @@ fn testLevel(gpa: std.mem.Allocator) !Level {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try level.world_map.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                     chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
                 }
@@ -786,8 +786,8 @@ test "the nether spawns none of the overworld's animals" {
         var chunk_z: i32 = -1;
         while (chunk_z <= 1) : (chunk_z += 1) {
             const chunk = try level.world_map.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .netherrack);
                 }
             }

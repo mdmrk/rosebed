@@ -9,7 +9,6 @@ const Block = block.Block;
 const block_update = @import("block_update.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("Chunk.zig");
-const constants = @import("constants.zig");
 const dispenser = @import("dispenser.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
@@ -185,7 +184,7 @@ pub fn tickWeather(self: *World) void {
 }
 
 pub fn findTopSolidBlock(self: *const World, x: i32, z: i32) i32 {
-    var y: i32 = constants.chunk_height - 1;
+    var y: i32 = Chunk.height - 1;
     while (y > 0) : (y -= 1) {
         const material = self.getBlock(x, y, z).material();
         if (material.isSolid() or material.isLiquid()) return y + 1;
@@ -501,70 +500,70 @@ fn floorMod(value: i32, divisor: i32) i32 {
 }
 
 pub fn getBlock(self: *const World, x: i32, y: i32, z: i32) Block {
-    if (y < 0 or y >= constants.chunk_height) return .air;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return .air;
-    return chunk.getBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+    if (y < 0 or y >= Chunk.height) return .air;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return .air;
+    return chunk.getBlock(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return .plains;
-    const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
-    const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return .plains;
+    const local_x: u32 = @intCast(floorMod(x, Chunk.width));
+    const local_z: u32 = @intCast(floorMod(z, Chunk.width));
     return biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z));
 }
 
 pub fn setBlock(self: *World, x: i32, y: i32, z: i32, id: Block) void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    chunk.setBlock(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), id);
+    if (y < 0 or y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
+    chunk.setBlock(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), id);
 }
 
 pub fn getSkyLight(self: *const World, x: i32, y: i32, z: i32) u4 {
     if (y < 0) return 0;
-    if (y >= constants.chunk_height) return 15;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return 0;
-    return chunk.getSkyLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+    if (y >= Chunk.height) return 15;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
+    return chunk.getSkyLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn setSkyLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    chunk.setSkyLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
+    if (y < 0 or y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
+    chunk.setSkyLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
 }
 
 pub fn getBlockLight(self: *const World, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= constants.chunk_height) return 0;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return 0;
-    return chunk.getBlockLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+    if (y < 0 or y >= Chunk.height) return 0;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
+    return chunk.getBlockLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn setBlockLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    chunk.setBlockLight(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
+    if (y < 0 or y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
+    chunk.setBlockLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
 }
 
 pub fn getBlockMetadata(self: *const World, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= constants.chunk_height) return 0;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return 0;
-    return chunk.getBlockMetadata(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)));
+    if (y < 0 or y >= Chunk.height) return 0;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
+    return chunk.getBlockMetadata(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn setBlockMetadata(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    chunk.setBlockMetadata(@intCast(floorMod(x, constants.chunk_width)), @intCast(y), @intCast(floorMod(z, constants.chunk_width)), value);
+    if (y < 0 or y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
+    chunk.setBlockMetadata(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
 }
 
 pub fn canBlockSeeTheSky(self: *const World, x: i32, y: i32, z: i32) bool {
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return false;
-    const height = chunk.getHeightValue(@intCast(floorMod(x, constants.chunk_width)), @intCast(floorMod(z, constants.chunk_width)));
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return false;
+    const height = chunk.getHeightValue(@intCast(floorMod(x, Chunk.width)), @intCast(floorMod(z, Chunk.width)));
     return y >= height;
 }
 
 pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x: i32, max_y: i32, max_z: i32) bool {
-    if (max_y < 0 or min_y >= constants.chunk_height) return false;
-    const width = constants.chunk_width;
+    if (max_y < 0 or min_y >= Chunk.height) return false;
+    const width = Chunk.width;
     var chunk_x = floorDiv(min_x, width);
     while (chunk_x <= floorDiv(max_x, width)) : (chunk_x += 1) {
         var chunk_z = floorDiv(min_z, width);
@@ -622,10 +621,10 @@ pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void
 }
 
 pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block, meta: u4) !void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    const chunk = self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) orelse return;
-    const local_x: u32 = @intCast(floorMod(x, constants.chunk_width));
-    const local_z: u32 = @intCast(floorMod(z, constants.chunk_width));
+    if (y < 0 or y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
+    const local_x: u32 = @intCast(floorMod(x, Chunk.width));
+    const local_z: u32 = @intCast(floorMod(z, Chunk.width));
     const previous = chunk.getBlock(local_x, @intCast(y), local_z);
     const previous_meta = chunk.getBlockMetadata(local_x, @intCast(y), local_z);
     chunk.setBlock(local_x, @intCast(y), local_z, id);
@@ -637,8 +636,8 @@ pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: B
 }
 
 pub fn setBlockMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, meta: u4) !void {
-    if (y < 0 or y >= constants.chunk_height) return;
-    if (self.getChunk(floorDiv(x, constants.chunk_width), floorDiv(z, constants.chunk_width)) == null) return;
+    if (y < 0 or y >= Chunk.height) return;
+    if (self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) == null) return;
     self.setBlockMetadata(x, y, z, meta);
     try self.notifyBlockChange(x, y, z);
 }
@@ -1167,7 +1166,7 @@ fn settleFrost(self: *World, chunk: *Chunk, x: i32, z: i32, local_x: u32, local_
     if (!self.biomeAt(x, z).snows()) return;
 
     const y = self.findTopSolidBlock(x, z);
-    if (y < 0 or y >= constants.chunk_height) return;
+    if (y < 0 or y >= Chunk.height) return;
     if (chunk.getBlockLight(local_x, @intCast(y), local_z) >= frost_light_limit) return;
 
     const below = self.getBlock(x, y - 1, z);
@@ -1198,8 +1197,8 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
         var chunk_z = center_chunk_z - random_tick_chunk_radius;
         while (chunk_z <= center_chunk_z + random_tick_chunk_radius) : (chunk_z += 1) {
             const chunk = self.getChunk(chunk_x, chunk_z) orelse continue;
-            const base_x = chunk_x * constants.chunk_width;
-            const base_z = chunk_z * constants.chunk_width;
+            const base_x = chunk_x * Chunk.width;
+            const base_z = chunk_z * Chunk.width;
 
             if (self.rand.nextIntBound(lightning_odds) == 0 and self.weather.isThundering() and self.weather.isRaining()) {
                 self.update_lcg = self.update_lcg *% 3 +% 1013904223;
@@ -1228,9 +1227,9 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
                 const local_z: u32 = @intCast((bits >> 8) & 15);
                 const local_y: u32 = @intCast((bits >> 16) & 127);
                 const sampled = chunk.getBlock(local_x, local_y, local_z);
-                const at_x = chunk_x * constants.chunk_width + @as(i32, @intCast(local_x));
+                const at_x = chunk_x * Chunk.width + @as(i32, @intCast(local_x));
                 const at_y: i32 = @intCast(local_y);
-                const at_z = chunk_z * constants.chunk_width + @as(i32, @intCast(local_z));
+                const at_z = chunk_z * Chunk.width + @as(i32, @intCast(local_z));
 
                 if (sampled == .leaves) {
                     try leaf_decay.tick(self, at_x, at_y, at_z);

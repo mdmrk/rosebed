@@ -14,7 +14,6 @@ pub const chunk_nbt = @import("chunk_nbt.zig");
 pub const chunk_payload = @import("chunk_payload.zig");
 pub const ChunkView = @import("ChunkView.zig");
 pub const Climate = @import("Climate.zig");
-pub const constants = @import("constants.zig");
 pub const decorate = @import("decorate.zig");
 pub const deflate = @import("deflate.zig");
 pub const dispenser = @import("dispenser.zig");

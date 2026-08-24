@@ -226,8 +226,8 @@ fn stoneFloor(gpa: std.mem.Allocator) !world.World {
         var chunk_z: i32 = -2;
         while (chunk_z <= 2) : (chunk_z += 1) {
             const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.constants.chunk_width) |x| {
-                for (0..world.constants.chunk_width) |z| {
+            for (0..world.Chunk.width) |x| {
+                for (0..world.Chunk.width) |z| {
                     chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
                 }
             }
@@ -269,8 +269,8 @@ test "a zombie under an open sky at noon catches fire" {
     try std.testing.expect(w.isDaytime());
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y <= 4) : (y += 1) chunk.setSkyLight(@intCast(x), y, @intCast(z), 15);
         }
@@ -297,14 +297,14 @@ test "a zombie under a roof never catches fire, however bright the day" {
     w.skylight_subtracted = w.calculateSkylightSubtracted(1.0);
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             chunk.setBlock(@intCast(x), 4, @intCast(z), .stone);
         }
     }
     try world.light.relightChunk(gpa, &w, 0, 0);
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y <= 3) : (y += 1) chunk.setBlockLight(@intCast(x), y, @intCast(z), 15);
         }
@@ -330,8 +330,8 @@ test "a zombie at night is left alone by the sun" {
     try std.testing.expect(!w.isDaytime());
 
     const chunk = w.getChunk(0, 0).?;
-    for (0..world.constants.chunk_width) |x| {
-        for (0..world.constants.chunk_width) |z| {
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
             var y: u32 = 1;
             while (y <= 4) : (y += 1) chunk.setSkyLight(@intCast(x), y, @intCast(z), 15);
         }

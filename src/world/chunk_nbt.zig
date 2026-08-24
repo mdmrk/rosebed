@@ -3,7 +3,6 @@ const std = @import("std");
 const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
-const constants = @import("constants.zig");
 const nbt = @import("nbt.zig");
 
 pub const level_key = "Level";
@@ -172,10 +171,10 @@ pub fn load(root: nbt.Tag) !Loaded {
 
     var chunk = Chunk.init(try intField(level, "xPos"), try intField(level, "zPos"));
 
-    @memcpy(std.mem.asBytes(&chunk.blocks), try bytesField(level, "Blocks", constants.chunk_volume));
-    @memcpy(&chunk.metadata.data, try bytesField(level, "Data", constants.chunk_volume / 2));
-    @memcpy(&chunk.sky_light.data, try bytesField(level, "SkyLight", constants.chunk_volume / 2));
-    @memcpy(&chunk.block_light.data, try bytesField(level, "BlockLight", constants.chunk_volume / 2));
+    @memcpy(std.mem.asBytes(&chunk.blocks), try bytesField(level, "Blocks", Chunk.volume));
+    @memcpy(&chunk.metadata.data, try bytesField(level, "Data", Chunk.volume / 2));
+    @memcpy(&chunk.sky_light.data, try bytesField(level, "SkyLight", Chunk.volume / 2));
+    @memcpy(&chunk.block_light.data, try bytesField(level, "BlockLight", Chunk.volume / 2));
     @memcpy(&chunk.height_map, try bytesField(level, "HeightMap", Chunk.width * Chunk.width));
 
     const populated = switch (try field(level, "TerrainPopulated")) {
@@ -264,8 +263,8 @@ test "the stored layout is the original's Level compound" {
     try std.testing.expectEqual(@as(i32, -3), level.get("xPos").?.int);
     try std.testing.expectEqual(@as(i32, 7), level.get("zPos").?.int);
     try std.testing.expectEqual(@as(i64, 5), level.get("LastUpdate").?.long);
-    try std.testing.expectEqual(@as(usize, constants.chunk_volume), level.get("Blocks").?.byte_array.len);
-    try std.testing.expectEqual(@as(usize, constants.chunk_volume / 2), level.get("Data").?.byte_array.len);
+    try std.testing.expectEqual(@as(usize, Chunk.volume), level.get("Blocks").?.byte_array.len);
+    try std.testing.expectEqual(@as(usize, Chunk.volume / 2), level.get("Data").?.byte_array.len);
     try std.testing.expectEqual(@as(usize, 256), level.get("HeightMap").?.byte_array.len);
     try std.testing.expectEqual(@as(usize, 0), level.get("Entities").?.list.items.len);
 }
