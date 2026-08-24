@@ -347,7 +347,7 @@ pub fn tickBodies(self: *Connection, gpa: std.mem.Allocator, level: *game.Level)
         }
     }
 
-    try level.entities.tickItems(gpa, &level.world_map, level.roster.items);
+    try level.entities.tickItems(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickArrows(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickFireballs(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickHooks(gpa, &level.world_map, level.roster.items, rand);
@@ -639,15 +639,13 @@ fn collectItem(
             dropped.base.position.y,
             dropped.base.position.z,
             assets.sounds.random.pop,
-            0.2,
-            pickup_pitch,
+            game.ItemEntity.pickup_volume,
+            game.ItemEntity.pickupPitch(&level.world_map.rand),
         );
         return;
     }
     _ = self;
 }
-
-const pickup_pitch: f32 = 2.0;
 
 pub const vehicle_boat: u8 = 1;
 pub const vehicle_minecart: u8 = 10;

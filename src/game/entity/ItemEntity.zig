@@ -61,6 +61,12 @@ pub fn canPickUp(self: ItemEntity) bool {
     return self.pickup_delay == 0;
 }
 
+pub const pickup_volume: f32 = 0.2;
+
+pub fn pickupPitch(rand: *world.JavaRandom) f32 {
+    return ((rand.nextFloat() - rand.nextFloat()) * 0.7 + 1.0) * 2.0;
+}
+
 test "spawn seeds an upward hop and a small random horizontal drift" {
     var rand = world.JavaRandom.init(0);
     const item = ItemEntity.spawn(math.Vec3.init(8, 5, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
