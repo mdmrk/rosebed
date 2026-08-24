@@ -5,7 +5,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
+const Mob = @import("../mob.zig");
 
 const Pig = @This();
 

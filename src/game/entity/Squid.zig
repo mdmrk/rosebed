@@ -5,8 +5,8 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
-const physics = @import("physics.zig");
+const Mob = @import("../mob.zig");
+const physics = @import("../physics.zig");
 
 const Squid = @This();
 

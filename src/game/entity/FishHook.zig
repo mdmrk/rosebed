@@ -4,9 +4,9 @@ const math = @import("math");
 const world = @import("world");
 const testing_world = world.testing;
 
-const Entity = @import("Entity.zig");
-const physics = @import("physics.zig");
-const Player = @import("Player.zig");
+const Entity = @import("../Entity.zig");
+const physics = @import("../physics.zig");
+const Player = @import("../Player.zig");
 
 pub const line_segments: usize = 16;
 pub const line_lift: f64 = 0.25;

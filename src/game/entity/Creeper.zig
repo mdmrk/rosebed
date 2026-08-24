@@ -5,8 +5,8 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const explosion = @import("explosion.zig");
-const Mob = @import("mob.zig");
+const explosion = @import("../explosion.zig");
+const Mob = @import("../mob.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
 
@@ -290,7 +290,7 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
 }
 
 fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Creeper = @fieldParentPtr("animal", animal);
 
     self.monster.deliverAttack(animal, context);

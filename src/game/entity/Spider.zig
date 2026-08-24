@@ -5,7 +5,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
+const Mob = @import("../mob.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
 

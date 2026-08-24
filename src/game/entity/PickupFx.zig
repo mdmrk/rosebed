@@ -4,7 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const ItemEntity = @import("ItemEntity.zig");
-const Player = @import("Player.zig");
+const Player = @import("../Player.zig");
 
 const PickupFx = @This();
 

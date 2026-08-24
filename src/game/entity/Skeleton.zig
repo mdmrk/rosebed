@@ -5,7 +5,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
+const Mob = @import("../mob.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
 const Zombie = @import("Zombie.zig");
@@ -248,7 +248,7 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
 }
 
 fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Skeleton = @fieldParentPtr("animal", animal);
 
     const shot = self.takeShot() orelse return;

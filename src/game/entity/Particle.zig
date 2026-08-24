@@ -3,7 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Entity = @import("Entity.zig");
+const Entity = @import("../Entity.zig");
 
 const Particle = @This();
 

@@ -3,8 +3,8 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Entity = @import("Entity.zig");
-const Inventory = @import("Inventory.zig");
+const Entity = @import("../Entity.zig");
+const Inventory = @import("../Inventory.zig");
 
 const ItemEntity = @This();
 

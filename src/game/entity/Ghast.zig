@@ -5,9 +5,9 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
-const physics = @import("physics.zig");
-const raycast = @import("raycast.zig");
+const Mob = @import("../mob.zig");
+const physics = @import("../physics.zig");
+const raycast = @import("../raycast.zig");
 
 const Ghast = @This();
 
@@ -332,7 +332,7 @@ pub const mob_type: Mob.Type = .{
 };
 
 fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Ghast = @fieldParentPtr("animal", animal);
     const shot = self.takeShot() orelse return;
 

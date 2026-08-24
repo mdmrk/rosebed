@@ -4,7 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Entity = @import("Entity.zig");
-const Particle = @import("Particle.zig");
+const Particle = @import("entity/Particle.zig");
 const Player = @import("Player.zig");
 const raycast = @import("raycast.zig");
 

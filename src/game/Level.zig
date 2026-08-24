@@ -3,7 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("Animal.zig");
+const Animal = @import("entity/Animal.zig");
 const Entities = @import("Entities.zig");
 const Inventory = @import("Inventory.zig");
 const Player = @import("Player.zig");

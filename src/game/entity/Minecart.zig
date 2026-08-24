@@ -5,7 +5,7 @@ const world = @import("world");
 pub const Kind = world.item.MinecartKind;
 const testing_world = world.testing;
 
-const Entity = @import("Entity.zig");
+const Entity = @import("../Entity.zig");
 
 const Minecart = @This();
 

@@ -5,9 +5,9 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
-const Player = @import("Player.zig");
-const raycast = @import("raycast.zig");
+const Mob = @import("../mob.zig");
+const Player = @import("../Player.zig");
+const raycast = @import("../raycast.zig");
 
 const Wolf = @This();
 
@@ -571,7 +571,7 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
 }
 
 fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Wolf = @fieldParentPtr("animal", animal);
     const entities: *Entities = @ptrCast(@alignCast(context.entities));
 

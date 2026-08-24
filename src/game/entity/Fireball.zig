@@ -3,8 +3,8 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Entity = @import("Entity.zig");
-const raycast = @import("raycast.zig");
+const Entity = @import("../Entity.zig");
+const raycast = @import("../raycast.zig");
 
 const Fireball = @This();
 

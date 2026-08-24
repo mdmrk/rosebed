@@ -5,10 +5,10 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
+const Mob = @import("../mob.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
-const physics = @import("physics.zig");
+const physics = @import("../physics.zig");
 const Zombie = @import("Zombie.zig");
 pub const width: f64 = Zombie.width;
 pub const height: f64 = Zombie.height;
@@ -209,7 +209,7 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
 }
 
 fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *PigZombie = @fieldParentPtr("animal", animal);
 
     if (self.rouses_horde) |attacker| {

@@ -5,8 +5,8 @@ const math = @import("math");
 const world = @import("world");
 
 const Animal = @import("Animal.zig");
-const Mob = @import("mob.zig");
-const raycast = @import("raycast.zig");
+const Mob = @import("../mob.zig");
+const raycast = @import("../raycast.zig");
 
 const Slime = @This();
 
@@ -635,7 +635,7 @@ fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
 }
 
 fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Slime = @fieldParentPtr("animal", animal);
     const entities: *Entities = @ptrCast(@alignCast(tick_context.entities));
 
@@ -657,7 +657,7 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
 }
 
 fn mobOnDeath(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
-    const Entities = @import("Entities.zig");
+    const Entities = @import("../Entities.zig");
     const self: *Slime = @fieldParentPtr("animal", animal);
     if (!self.splitsApart()) return;
 

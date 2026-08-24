@@ -6,9 +6,9 @@ const math = @import("math");
 const world = @import("world");
 const testing_world = world.testing;
 
-pub const Entity = @import("Entity.zig");
-const Mob = @import("mob.zig");
-const physics = @import("physics.zig");
+pub const Entity = @import("../Entity.zig");
+const Mob = @import("../mob.zig");
+const physics = @import("../physics.zig");
 
 const Animal = @This();
 
