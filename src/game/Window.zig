@@ -4,7 +4,6 @@ const world = @import("world");
 
 const crafting = @import("crafting.zig");
 const Inventory = @import("Inventory.zig");
-
 pub const player_slot_count: usize = Inventory.size;
 
 const Window = @This();

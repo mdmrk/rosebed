@@ -1,18 +1,18 @@
 const std = @import("std");
 
-const biome = @import("biome.zig");
 const block = @import("../block.zig");
 const Block = @import("../block.zig").Block;
-const caves = @import("caves.zig");
 const Chunk = @import("../Chunk.zig");
+const JavaRandom = @import("../JavaRandom.zig");
+const World = @import("../World.zig");
+const biome = @import("biome.zig");
+const caves = @import("caves.zig");
 const Climate = @import("Climate.zig");
 const decorate = @import("decorate.zig");
 const dungeons = @import("dungeons.zig");
-const JavaRandom = @import("../JavaRandom.zig");
 const lakes = @import("lakes.zig");
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
-const World = @import("../World.zig");
 
 const TerrainGenerator = @This();
 

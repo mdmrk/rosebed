@@ -3,8 +3,8 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const ItemEntity = @import("ItemEntity.zig");
 const Player = @import("../Player.zig");
+const ItemEntity = @import("ItemEntity.zig");
 
 const PickupFx = @This();
 

@@ -4,9 +4,9 @@ const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("Animal.zig");
 const explosion = @import("../explosion.zig");
 const Mob = @import("../mob.zig");
+const Animal = @import("Animal.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
 

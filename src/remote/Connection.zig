@@ -348,6 +348,7 @@ pub fn tickBodies(self: *Connection, gpa: std.mem.Allocator, level: *game.Level)
     }
 
     try level.entities.tickItems(gpa, &level.world_map, level.roster.items, rand);
+    try level.entities.tickPrimed(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickArrows(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickFireballs(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickHooks(gpa, &level.world_map, level.roster.items, rand);
@@ -389,6 +390,7 @@ const Body = union(enum) {
     arrow: *game.Arrow,
     fireball: *game.Fireball,
     falling_block: *game.FallingBlock,
+    primed_tnt: *game.PrimedTnt,
     boat: *game.Boat,
     minecart: *game.Minecart,
     hook: *game.FishHook,
@@ -499,6 +501,7 @@ fn bodyById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?Body {
         .{ "arrows", "arrow" },
         .{ "fireballs", "fireball" },
         .{ "falling_blocks", "falling_block" },
+        .{ "primed", "primed_tnt" },
         .{ "boats", "boat" },
         .{ "minecarts", "minecart" },
         .{ "hooks", "hook" },
@@ -651,6 +654,7 @@ pub const vehicle_boat: u8 = 1;
 pub const vehicle_minecart: u8 = 10;
 pub const vehicle_arrow: u8 = 60;
 pub const vehicle_fireball: u8 = 63;
+pub const vehicle_primed_tnt: u8 = 50;
 pub const vehicle_falling_sand: u8 = 70;
 pub const vehicle_falling_gravel: u8 = 71;
 pub const vehicle_fish_hook: u8 = 90;
@@ -742,6 +746,12 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             shot.base.id = id;
             (Body{ .fireball = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.fireballs.append(gpa, shot);
+        },
+        vehicle_primed_tnt => {
+            var lit = game.PrimedTnt.spawn(math.Vec3.init(0, 0, 0), world.tnt.fuse_ticks, &level.world_map.rand);
+            lit.base.id = id;
+            (Body{ .primed_tnt = &lit }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.primed.append(gpa, lit);
         },
         vehicle_falling_sand, vehicle_falling_gravel => {
             const block: world.Block = if (body.kind == vehicle_falling_sand) .sand else .gravel;

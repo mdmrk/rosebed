@@ -3,7 +3,6 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 
-const biome = @import("gen/biome.zig");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
@@ -12,6 +11,8 @@ const Chunk = @import("Chunk.zig");
 const dispenser = @import("dispenser.zig");
 const fluid = @import("fluid.zig");
 const furnace = @import("furnace.zig");
+const biome = @import("gen/biome.zig");
+const TerrainGenerator = @import("gen/TerrainGenerator.zig");
 const JavaRandom = @import("JavaRandom.zig");
 const jukebox = @import("jukebox.zig");
 const leaf_decay = @import("leaf_decay.zig");
@@ -25,7 +26,7 @@ const rail = @import("rail.zig");
 const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
-const TerrainGenerator = @import("gen/TerrainGenerator.zig");
+const tnt = @import("tnt.zig");
 const Weather = @import("Weather.zig");
 
 const World = @This();
@@ -55,6 +56,8 @@ pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
 pub const Dispensed = struct { pos: BlockPos, step: [2]i32, stack: block.Stack };
 
 pub const FallingBlock = struct { pos: BlockPos, id: Block };
+
+pub const PrimedTnt = struct { pos: BlockPos, fuse: i32 };
 
 pub const TorchUpdate = struct { pos: BlockPos, time: i64 };
 
@@ -100,6 +103,7 @@ due: std.ArrayList(ScheduledTick) = .empty,
 changed: std.ArrayList(BlockPos) = .empty,
 dropped: std.ArrayList(DroppedBlock) = .empty,
 falling: std.ArrayList(FallingBlock) = .empty,
+primed: std.ArrayList(PrimedTnt) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 update_lcg: i32 = 0,
 time: i64 = 0,
@@ -214,6 +218,7 @@ pub fn deinit(self: *World) void {
     self.changed.deinit(self.allocator);
     self.dropped.deinit(self.allocator);
     self.falling.deinit(self.allocator);
+    self.primed.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
     self.chests.deinit(self.allocator);
@@ -1076,6 +1081,7 @@ fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocat
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
     if (id == .dispenser) try self.setBlockMetadataWithNotify(x, y, z, self.dispenserDefaultFacing(x, y, z));
     if (block.isRail(id)) try rail.refreshAt(self, x, y, z, true);
+    if (id == .tnt) try tnt.onBlockAdded(self, x, y, z);
     try redstone.onBlockAdded(self, x, y, z, id);
 }
 
@@ -1097,6 +1103,7 @@ fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32, source: Block) st
     const id = self.getBlock(x, y, z);
     if (id.isLiquid()) try fluid.onNeighborChange(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+    if (id == .tnt) try tnt.onNeighborChange(self, x, y, z, source);
     try block_update.onNeighborChange(self, x, y, z);
     try redstone.onNeighborChange(self, x, y, z, source);
 }

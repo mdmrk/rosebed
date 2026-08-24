@@ -4,11 +4,11 @@ const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("Animal.zig");
 const Mob = @import("../mob.zig");
+const physics = @import("../physics.zig");
+const Animal = @import("Animal.zig");
 const Monster = @import("Monster.zig");
 pub const max_health: i32 = Monster.max_health;
-const physics = @import("../physics.zig");
 const Zombie = @import("Zombie.zig");
 pub const width: f64 = Zombie.width;
 pub const height: f64 = Zombie.height;

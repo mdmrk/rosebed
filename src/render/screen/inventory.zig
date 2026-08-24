@@ -6,10 +6,10 @@ const armor_size = game.Inventory.armor_size;
 const gl = @import("gl");
 const world = @import("world");
 
-const container = @import("container.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 const MobModel = @import("../mob_model.zig");
+const container = @import("container.zig");
 
 const label_x: f32 = 86;
 const label_y: f32 = 16;

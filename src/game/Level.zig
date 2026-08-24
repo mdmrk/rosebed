@@ -3,8 +3,8 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("entity/Animal.zig");
 const Entities = @import("Entities.zig");
+const Animal = @import("entity/Animal.zig");
 const Inventory = @import("Inventory.zig");
 const Player = @import("Player.zig");
 const spawner = @import("spawner.zig");
@@ -144,6 +144,11 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
         try self.entities.spawnFallingBlock(gpa, fall.pos.x, fall.pos.y, fall.pos.z, fall.id);
     }
     self.world_map.falling.clearRetainingCapacity();
+
+    for (self.world_map.primed.items) |lit| {
+        try self.entities.primeTnt(gpa, lit, &self.world_map.rand);
+    }
+    self.world_map.primed.clearRetainingCapacity();
 
     for (self.world_map.dispensed.items) |shot| {
         try self.entities.dispense(gpa, shot, &self.world_map.rand);
@@ -349,6 +354,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items, rand);
+    try self.entities.tickPrimed(gpa, &self.world_map, self.roster.items, rand);
     try self.tickFallingBlocks(gpa);
 
     self.world_map.tickWeather();
@@ -585,6 +591,62 @@ test "the light crossing a step asks the front end to redraw everything" {
 
     try level.tick(gpa, arena.allocator());
     try std.testing.expectEqual(@as(u32, 1), recorder.redraws);
+}
+
+test "lit tnt becomes an entity, burns down its fuse and blows a hole in the ground" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+
+    try level.world_map.setBlockWithNotify(4, 1, 4, .tnt);
+    try level.world_map.setBlockWithNotify(4, 1, 4, .air);
+    try world.tnt.primeByPlayer(&level.world_map, 4, 1, 4);
+
+    try level.tick(gpa, arena.allocator());
+    try std.testing.expectEqual(@as(usize, 1), level.entities.primed.items.len);
+    try std.testing.expectEqual(@as(usize, 0), level.world_map.primed.items.len);
+
+    for (0..world.tnt.fuse_ticks + 2) |_| {
+        try level.tick(gpa, arena.allocator());
+        if (level.entities.primed.items.len == 0) break;
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), level.entities.primed.items.len);
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(4, 0, 4));
+}
+
+test "a stick of tnt caught in a blast is lit rather than smashed" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+
+    try level.world_map.setBlockWithNotify(4, 1, 4, .tnt);
+    try level.world_map.setBlockWithNotify(6, 1, 4, .tnt);
+    try level.world_map.setBlockWithNotify(6, 1, 4, .air);
+    try world.tnt.primeByPlayer(&level.world_map, 6, 1, 4);
+
+    for (0..world.tnt.fuse_ticks + 2) |_| {
+        try level.tick(gpa, arena.allocator());
+        if (level.world_map.getBlock(4, 1, 4) != .tnt) break;
+    }
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(4, 1, 4));
+    try std.testing.expectEqual(@as(usize, 1), level.entities.primed.items.len);
+    for (level.entities.items.items) |dropped| {
+        try std.testing.expect(!dropped.stack.id.eql(.{ .block = .tnt }));
+    }
 }
 
 test "a falling block that lands becomes a block again" {

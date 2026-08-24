@@ -57,6 +57,7 @@ pub const player_update_period: u32 = 2;
 pub const mob_update_period: u32 = 3;
 pub const vehicle_update_period: u32 = 5;
 pub const fireball_update_period: u32 = 10;
+pub const tnt_update_period: u32 = 10;
 pub const slow_update_period: u32 = 20;
 pub const still_update_period: u32 = std.math.maxInt(u32);
 pub const resync_period: u32 = 400;
@@ -85,6 +86,7 @@ pub const Peer = struct {
         arrow: *const game.Arrow,
         fireball: *const game.Fireball,
         falling_block: *const game.FallingBlock,
+        primed_tnt: *const game.PrimedTnt,
         boat: *const game.Boat,
         minecart: *const game.Minecart,
         hook: *const game.FishHook,
@@ -104,7 +106,7 @@ pub const Peer = struct {
         return switch (self.body) {
             .player => |who| who.player.yaw,
             .mob => |entry| entry.animal.yaw,
-            .item, .falling_block, .painting => 0,
+            .item, .falling_block, .primed_tnt, .painting => 0,
             inline else => |it| it.yaw,
         };
     }
@@ -113,7 +115,7 @@ pub const Peer = struct {
         return switch (self.body) {
             .player => |who| who.player.pitch,
             .mob => |entry| entry.animal.pitch,
-            .item, .falling_block, .painting => 0,
+            .item, .falling_block, .primed_tnt, .painting => 0,
             inline else => |it| it.pitch,
         };
     }
@@ -176,7 +178,7 @@ fn peerMotion(peer: Peer) math.Vec3 {
 
 fn sendsMotion(peer: Peer) bool {
     return switch (peer.body) {
-        .item, .boat, .minecart, .falling_block, .hook => true,
+        .item, .boat, .minecart, .falling_block, .primed_tnt, .hook => true,
         .mob => |entry| entry.type_id == game.mob.squid,
         else => false,
     };
@@ -200,6 +202,7 @@ fn updatePeriod(peer: Peer) u32 {
         .mob => mob_update_period,
         .hook, .boat, .minecart => vehicle_update_period,
         .fireball => fireball_update_period,
+        .primed_tnt => tnt_update_period,
         .item, .arrow, .falling_block => slow_update_period,
         .painting => still_update_period,
     };
@@ -278,6 +281,7 @@ pub fn collectWorldPeers(
         .{ "arrows", "arrow" },
         .{ "fireballs", "fireball" },
         .{ "falling_blocks", "falling_block" },
+        .{ "primed", "primed_tnt" },
         .{ "boats", "boat" },
         .{ "minecarts", "minecart" },
         .{ "hooks", "hook" },
@@ -413,6 +417,7 @@ pub const vehicle_boat: u8 = 1;
 pub const vehicle_minecart: u8 = 10;
 pub const vehicle_arrow: u8 = 60;
 pub const vehicle_fireball: u8 = 63;
+pub const vehicle_primed_tnt: u8 = 50;
 pub const vehicle_falling_sand: u8 = 70;
 pub const vehicle_falling_gravel: u8 = 71;
 pub const vehicle_fish_hook: u8 = 90;
@@ -503,6 +508,13 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         .falling_block => |falling| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
             .kind = fallingVehicleKind(falling.block_id) orelse vehicle_falling_sand,
+            .x = now.x,
+            .y = now.y,
+            .z = now.z,
+        } }),
+        .primed_tnt => try self.send(gpa, .{ .vehicle_spawn = .{
+            .entity_id = @bitCast(peer.id),
+            .kind = vehicle_primed_tnt,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -1636,14 +1648,22 @@ fn digBlock(
     const height: i32 = y;
     if (!withinReach(player, x, height, z)) return;
 
-    if (status == dig_started) return world.note.onPunched(&level.world_map, x, height, z);
+    if (status == dig_started) {
+        const punched = level.world_map.getBlock(x, height, z);
+        if (punched == .tnt and holdingFlintAndSteel(player)) {
+            return world.tnt.markLit(&level.world_map, x, height, z);
+        }
+        return world.note.onPunched(&level.world_map, x, height, z);
+    }
     if (status != dig_finished) return;
 
     const broken = level.world_map.getBlock(x, height, z);
     if (broken == .air) return;
 
     const meta = level.world_map.getBlockMetadata(x, height, z);
+    const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
     try level.world_map.setBlockWithNotify(x, height, z, .air);
+    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, x, height, z);
     _ = level.world_map.removeSign(x, height, z);
     _ = level.world_map.removeNote(x, height, z);
     const held = player.inventory.selectedStack();
@@ -1651,6 +1671,7 @@ fn digBlock(
     if (harvested) {
         try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
     }
+    if (lit_tnt) return;
 
     const drop = if (harvested)
         broken.harvestDrop(meta, held, &level.world_map.rand)
@@ -1663,6 +1684,11 @@ fn digBlock(
             .meta = dropped.meta,
         });
     }
+}
+
+fn holdingFlintAndSteel(player: *const game.Player) bool {
+    const stack = player.inventory.selectedStack() orelse return false;
+    return stack.id.eql(.{ .item = .flint_and_steel });
 }
 
 fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: i32, y: i32, z: i32) !bool {
@@ -2526,6 +2552,54 @@ test "a finished dig takes the block out of the world and leaves its drop" {
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 63, 8));
     try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
     try std.testing.expectEqual(world.Id{ .block = .cobblestone }, level.entities.items.items[0].stack.id);
+}
+
+test "punching tnt with flint and steel lights it instead of dropping it" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    const player = session.player.?;
+    player.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .flint_and_steel }, .count = 1 };
+    try level.world_map.setBlockWithNotify(8, 64, 8, .tnt);
+
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try std.testing.expect(world.tnt.isLit(level.world_map.getBlockMetadata(8, 64, 8)));
+
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(@as(usize, 0), level.entities.items.items.len);
+    try std.testing.expectEqual(@as(usize, 1), level.world_map.primed.items.len);
+}
+
+test "punching tnt bare handed still drops it as an item" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    try level.world_map.setBlockWithNotify(8, 64, 8, .tnt);
+
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
+
+    try std.testing.expectEqual(@as(usize, 0), level.world_map.primed.items.len);
+    try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
+    try std.testing.expectEqual(world.Id{ .block = .tnt }, level.entities.items.items[0].stack.id);
 }
 
 test "a dig that has only started leaves the block alone" {

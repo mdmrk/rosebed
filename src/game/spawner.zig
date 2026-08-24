@@ -3,16 +3,14 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
 const Chicken = @import("entity/Chicken.zig");
 const Cow = @import("entity/Cow.zig");
 const Creeper = @import("entity/Creeper.zig");
-const Entities = @import("Entities.zig");
 const Ghast = @import("entity/Ghast.zig");
-const mob = @import("mob.zig");
 const Pig = @import("entity/Pig.zig");
 const PigZombie = @import("entity/PigZombie.zig");
-const Player = @import("Player.zig");
 const Sheep = @import("entity/Sheep.zig");
 const Skeleton = @import("entity/Skeleton.zig");
 const Slime = @import("entity/Slime.zig");
@@ -20,6 +18,8 @@ const Spider = @import("entity/Spider.zig");
 const Squid = @import("entity/Squid.zig");
 const Wolf = @import("entity/Wolf.zig");
 const Zombie = @import("entity/Zombie.zig");
+const mob = @import("mob.zig");
+const Player = @import("Player.zig");
 
 pub const eligible_radius: i32 = 8;
 pub const max_creatures: i32 = 15;

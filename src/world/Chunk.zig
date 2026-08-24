@@ -1,11 +1,11 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
+const NibbleArray = @import("NibbleArray.zig");
+
 pub const width = 16;
 pub const height = 128;
 pub const volume = width * height * width;
-const NibbleArray = @import("NibbleArray.zig");
-
 const Chunk = @This();
 
 x: i32,

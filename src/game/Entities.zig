@@ -5,36 +5,37 @@ const math = @import("math");
 const world = @import("world");
 
 const achievements = @import("achievements.zig");
+const Entity = @import("Entity.zig");
 const Animal = @import("entity/Animal.zig");
 const Arrow = @import("entity/Arrow.zig");
 const Boat = @import("entity/Boat.zig");
 const Chicken = @import("entity/Chicken.zig");
 const Cow = @import("entity/Cow.zig");
 const Creeper = @import("entity/Creeper.zig");
-const Entity = @import("Entity.zig");
-const explosion = @import("explosion.zig");
 const FallingBlock = @import("entity/FallingBlock.zig");
 const Fireball = @import("entity/Fireball.zig");
 const FishHook = @import("entity/FishHook.zig");
 const Ghast = @import("entity/Ghast.zig");
-const Inventory = @import("Inventory.zig");
 const ItemEntity = @import("entity/ItemEntity.zig");
 const Lightning = @import("entity/Lightning.zig");
 const Minecart = @import("entity/Minecart.zig");
-const mob = @import("mob.zig");
-pub const lightning_pig_zombie = mob.pig_zombie;
 const Painting = @import("entity/Painting.zig");
 const Particle = @import("entity/Particle.zig");
 const PickupFx = @import("entity/PickupFx.zig");
 const Pig = @import("entity/Pig.zig");
 const PigZombie = @import("entity/PigZombie.zig");
-const Player = @import("Player.zig");
+const PrimedTnt = @import("entity/PrimedTnt.zig");
 const Sheep = @import("entity/Sheep.zig");
 const Skeleton = @import("entity/Skeleton.zig");
 const Slime = @import("entity/Slime.zig");
 const Spider = @import("entity/Spider.zig");
 const Wolf = @import("entity/Wolf.zig");
 const Zombie = @import("entity/Zombie.zig");
+const explosion = @import("explosion.zig");
+const Inventory = @import("Inventory.zig");
+const mob = @import("mob.zig");
+pub const lightning_pig_zombie = mob.pig_zombie;
+const Player = @import("Player.zig");
 
 const Entities = @This();
 
@@ -42,6 +43,7 @@ items: std.ArrayList(ItemEntity) = .empty,
 arrows: std.ArrayList(Arrow) = .empty,
 fireballs: std.ArrayList(Fireball) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
+primed: std.ArrayList(PrimedTnt) = .empty,
 mobs: std.ArrayList(Mob) = .empty,
 particles: std.ArrayList(Particle) = .empty,
 pickups: std.ArrayList(PickupFx) = .empty,
@@ -153,7 +155,7 @@ pub fn takeId(self: *Entities) Entity.Id {
 }
 
 pub fn stampIds(self: *Entities) void {
-    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "boats", "minecarts", "hooks" }) |name| {
+    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
         for (@field(self, name).items) |*entity| {
             if (entity.base.id == Entity.no_id) entity.base.id = self.takeId();
         }
@@ -351,7 +353,7 @@ pub fn removeMob(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
 pub fn removeById(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
     if (self.removeMob(gpa, id)) return true;
 
-    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "boats", "minecarts", "hooks" }) |name| {
+    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
         const list = &@field(self, name);
         for (list.items, 0..) |entity, index| {
             if (entity.base.id != id) continue;
@@ -524,6 +526,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.arrows.deinit(gpa);
     self.fireballs.deinit(gpa);
     self.falling_blocks.deinit(gpa);
+    self.primed.deinit(gpa);
     self.particles.deinit(gpa);
     self.pickups.deinit(gpa);
     self.paintings.deinit(gpa);
@@ -753,6 +756,55 @@ pub fn spawnPainting(self: *Entities, gpa: std.mem.Allocator, painting: Painting
     var hung = painting;
     hung.id = self.takeId();
     try self.paintings.append(gpa, hung);
+}
+
+pub fn primeTnt(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    lit: world.World.PrimedTnt,
+    rand: *world.JavaRandom,
+) !void {
+    try self.primed.append(gpa, PrimedTnt.spawnInBlock(lit.pos.x, lit.pos.y, lit.pos.z, lit.fuse, rand));
+}
+
+pub fn tickPrimed(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    roster: []const *Player,
+    rand: *world.JavaRandom,
+) !void {
+    var index: usize = 0;
+    while (index < self.primed.items.len) {
+        const lit = &self.primed.items[index];
+        const outcome = lit.tick(world_map);
+
+        if (outcome == .burning) {
+            try self.particles.append(gpa, Particle.spawnSmoke(
+                lit.smokePosition(),
+                math.Vec3.init(0, 0, 0),
+                rand,
+            ));
+            index += 1;
+            continue;
+        }
+
+        const at = lit.blastPosition();
+        const owned_here = lit.base.remote == null;
+        _ = self.primed.swapRemove(index);
+        if (!owned_here) continue;
+
+        try explosion.detonate(
+            gpa,
+            self,
+            world_map,
+            roster,
+            at,
+            PrimedTnt.explosion_size,
+            PrimedTnt.explosion_is_flaming,
+            rand,
+        );
+    }
 }
 
 pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: world.Block) !void {

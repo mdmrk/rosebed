@@ -304,6 +304,49 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
 }
 
+pub fn appendPrimedTnt(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, lit: game.PrimedTnt, partial_ticks: f32) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const pos = lit.center(partial_ticks);
+    const half = 0.5 * lit.swellScale(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    try chunk_mesher.buildCube(
+        mesh,
+        gpa,
+        .{ cx - half, cy - half, cz - half },
+        .{ cx + half, cy + half, cz + half },
+        world.Block.tnt.faceTextures(),
+        world.Block.tnt.sideInset() * half * 2.0,
+    );
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, lit.base));
+}
+
+pub fn appendPrimedTntFlash(mesh: *MeshBuilder, gpa: std.mem.Allocator, lit: game.PrimedTnt, partial_ticks: f32) !void {
+    const flash = lit.flashWhitening(partial_ticks);
+    if (flash <= 0.0) return;
+
+    const first_vertex = mesh.vertices.items.len;
+    const pos = lit.center(partial_ticks);
+    const half = 0.5 * lit.swellScale(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    try chunk_mesher.buildCube(
+        mesh,
+        gpa,
+        .{ cx - half, cy - half, cz - half },
+        .{ cx + half, cy + half, cz + half },
+        world.Block.tnt.faceTextures(),
+        0,
+    );
+
+    mesh.paintColors(first_vertex, .{ 255, 255, 255, @intFromFloat(flash * 255.0) });
+}
+
 pub const hurt_tint: f32 = 0.4;
 
 const to_radians: f32 = std.math.pi / 180.0;
@@ -1114,6 +1157,35 @@ test "a moving block that has arrived is left to the static mesh" {
     }, 0.0);
 
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+}
+
+test "primed tnt renders as a full cube that flashes white as the fuse burns" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+    var rand = world.JavaRandom.init(0);
+
+    var dark: MeshBuilder = .{};
+    defer dark.deinit(gpa);
+    var lit = game.PrimedTnt.spawnInBlock(0, 4, 0, 17, &rand);
+    try appendPrimedTnt(&dark, gpa, &world_map, lit, 0);
+    try std.testing.expectEqual(@as(usize, 6 * 4), dark.vertices.items.len);
+    try std.testing.expectEqual(@as(f32, 0.0), lit.flashWhitening(0));
+
+    var flare: MeshBuilder = .{};
+    defer flare.deinit(gpa);
+    try appendPrimedTntFlash(&flare, gpa, lit, 0);
+    try std.testing.expectEqual(@as(usize, 0), flare.vertices.items.len);
+
+    lit.fuse = 20;
+    try std.testing.expect(lit.flashWhitening(0) > 0.5);
+    try appendPrimedTntFlash(&flare, gpa, lit, 0);
+    try std.testing.expectEqual(@as(usize, 6 * 4), flare.vertices.items.len);
+    for (flare.vertices.items) |vertex| {
+        try std.testing.expectEqual([3]u8{ 255, 255, 255 }, vertex.color[0..3].*);
+        try std.testing.expect(vertex.color[3] > 128);
+    }
 }
 
 test "a falling block renders as a full cube" {

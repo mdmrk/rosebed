@@ -3,10 +3,10 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("Animal.zig");
 const Mob = @import("../mob.zig");
 const physics = @import("../physics.zig");
 const raycast = @import("../raycast.zig");
+const Animal = @import("Animal.zig");
 
 const Monster = @This();
 

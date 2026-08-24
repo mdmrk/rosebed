@@ -4,9 +4,9 @@ const float_pi: f32 = std.math.pi;
 const math = @import("math");
 const world = @import("world");
 
-const Animal = @import("Animal.zig");
 const Mob = @import("../mob.zig");
 const physics = @import("../physics.zig");
+const Animal = @import("Animal.zig");
 
 const Squid = @This();
 

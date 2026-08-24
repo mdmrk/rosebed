@@ -2,19 +2,19 @@ const std = @import("std");
 
 const world = @import("world");
 
-const Animal = @import("entity/Animal.zig");
 const Entities = @import("Entities.zig");
 const Entity = @import("Entity.zig");
-const Inventory = @import("Inventory.zig");
-const Level = @import("Level.zig");
+const Animal = @import("entity/Animal.zig");
 const Minecart = @import("entity/Minecart.zig");
 const Painting = @import("entity/Painting.zig");
 const Pig = @import("entity/Pig.zig");
+const Sheep = @import("entity/Sheep.zig");
+const Wolf = @import("entity/Wolf.zig");
+const Inventory = @import("Inventory.zig");
+const Level = @import("Level.zig");
 const Player = @import("Player.zig");
 const raycast = @import("raycast.zig");
-const Sheep = @import("entity/Sheep.zig");
 const stats = @import("stats.zig");
-const Wolf = @import("entity/Wolf.zig");
 
 pub const reach_distance = 4.5;
 pub const boat_reach = 5.0;

@@ -255,6 +255,12 @@ fn scatterRubble(
 
         if (id == .air) continue;
 
+        if (id == .tnt) {
+            try world_map.setBlockWithNotify(cell.x, cell.y, cell.z, .air);
+            try world.tnt.primeByExplosion(world_map, cell.x, cell.y, cell.z, rand);
+            continue;
+        }
+
         if (id.drop(world_map.getBlockMetadata(cell.x, cell.y, cell.z), rand)) |stack| {
             var kept: u8 = 0;
             for (0..stack.count) |_| {

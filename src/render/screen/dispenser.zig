@@ -3,8 +3,8 @@ const std = @import("std");
 const game = @import("game");
 const world = @import("world");
 
-const container = @import("container.zig");
 const gui = @import("../gui.zig");
+const container = @import("container.zig");
 
 const grid_x: f32 = 62;
 const grid_y: f32 = 17;

@@ -694,8 +694,18 @@ fn startDigging(app_state: *AppState, hit: game.raycast.Hit) !void {
     if (app_state.link) |link| {
         return link.connection.reportDigStart(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face));
     }
-    if (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) != .note_block) return;
+    const punched = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
+    if (punched == .tnt and holdingFlintAndSteel(app_state)) {
+        world.tnt.markLit(&app_state.level.world_map, hit.x, hit.y, hit.z);
+        return;
+    }
+    if (punched != .note_block) return;
     try world.note.onPunched(&app_state.level.world_map, hit.x, hit.y, hit.z);
+}
+
+fn holdingFlintAndSteel(app_state: *const AppState) bool {
+    const stack = app_state.player.inventory.selectedStack() orelse return false;
+    return stack.id.eql(.{ .item = .flint_and_steel });
 }
 
 fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
@@ -727,7 +737,9 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         particleTint(app_state, block_id, x, y, z),
         &app_state.level.world_map.rand,
     );
+    const lit_tnt = block_id == .tnt and world.tnt.isLit(meta);
     try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
+    if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, x, y, z);
     try spillFurnace(app_state, x, y, z);
     try spillDispenser(app_state, x, y, z);
     try ejectBrokenJukebox(app_state, x, y, z);
@@ -739,7 +751,7 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
 
     if (harvested) {
         try app_state.stats.mine(app_state.gpa, block_id);
-        const dropped = block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
+        const dropped = if (lit_tnt) null else block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
         if (dropped) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
@@ -3331,6 +3343,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     for (app_state.level.entities.falling_blocks.items) |block| {
         try render.entity_render.appendFallingBlock(&atlas_mesh, app_state.frame, &app_state.level.world_map, block, partial);
     }
+    for (app_state.level.entities.primed.items) |lit| {
+        try render.entity_render.appendPrimedTnt(&atlas_mesh, app_state.frame, &app_state.level.world_map, lit, partial);
+    }
     var moving_pistons = app_state.level.world_map.pistons.iterator();
     while (moving_pistons.next()) |entry| {
         try render.entity_render.appendMovingPiston(
@@ -3368,6 +3383,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
+    try drawPrimedTntFlash(app_state, partial);
     if (particle_mesh.vertices.items.len > 0) {
         app_state.textures.particles.bind();
         drawEntityMesh(&particle_mesh);
@@ -3949,6 +3965,29 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     defer gpu.deinit();
     gpu.draw();
     app_state.textures.terrain.bind();
+}
+
+fn drawPrimedTntFlash(app_state: *AppState, partial: f32) !void {
+    if (app_state.level.entities.primed.items.len == 0) return;
+
+    var mesh: render.MeshBuilder = .{};
+    defer mesh.deinit(app_state.frame);
+    for (app_state.level.entities.primed.items) |lit| {
+        try render.entity_render.appendPrimedTntFlash(&mesh, app_state.frame, lit, partial);
+    }
+    if (mesh.vertices.items.len == 0) return;
+
+    app_state.shader.setInt(.u_textured, 0);
+    app_state.shader.setInt(.u_alpha_test, 0);
+    app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.DST_ALPHA);
+
+    drawEntityMesh(&mesh);
+
+    gl.Disable(gl.BLEND);
+    app_state.shader.setInt(.u_textured, 1);
+    app_state.shader.setInt(.u_alpha_test, 1);
 }
 
 fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
