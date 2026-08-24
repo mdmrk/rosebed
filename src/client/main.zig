@@ -476,24 +476,6 @@ pub fn init(
 
 const missed_click_ticks = 10;
 
-fn pickedBlock(app_state: *const AppState) ?game.raycast.Hit {
-    return game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        reach_distance,
-    );
-}
-
-fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
-    var reach: f64 = reach_distance;
-    if (pickedBlock(app_state)) |hit| {
-        reach = hit.distance;
-    }
-    reach = @min(reach, game.Entities.entity_reach);
-    return app_state.level.entities.pick(app_state.player.eyePosition(), app_state.player.lookVector(), reach);
-}
-
 fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
     var damage: i32 = 1;
     if (app_state.player.inventory.selectedStack()) |stack| {
@@ -512,7 +494,7 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
         return link.connection.reportUse(app_state.gpa, id, true);
     }
 
-    if (target == .painting) return breakPainting(app_state, target.painting);
+    if (target == .painting) return game.interact.breakPainting(interactContext(app_state), target.painting);
 
     _ = app_state.level.entities.hurtTarget(target, damage, .{
         .position = app_state.player.base.position,
@@ -543,12 +525,12 @@ fn clickLeft(app_state: *AppState) !void {
             try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
-        .cake => try eatCakeSlice(app_state, hit.x, hit.y, hit.z),
+        .cake => try game.interact.eatCakeSlice(interactContext(app_state), hit.x, hit.y, hit.z),
         .lever, .button => {
             _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
-        .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
+        .ore_redstone => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
         else => {},
     }
 }
@@ -701,37 +683,6 @@ fn playRecord(context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) vo
         @floatFromInt(z),
         1.0,
     ) catch {};
-}
-
-fn applyBlockChanges(app_state: *AppState) !void {
-    try app_state.level.applyBlockChanges(app_state.gpa, app_state.frame);
-}
-
-fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
-    try app_state.level.dropStackAt(app_state.gpa, x, y, z, stack);
-}
-
-fn damageHeldItem(app_state: *AppState, cost: u16) !void {
-    if (cost == 0) return;
-
-    const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
-    if (slot.*) |*stack| {
-        try app_state.stats.use(app_state.gpa, stack.id);
-        stack.damage(cost);
-        if (stack.count == 0) {
-            try app_state.stats.deplete(app_state.gpa, stack.id);
-            slot.* = null;
-        }
-    }
-}
-
-fn wearHeldItem(app_state: *AppState, destroyed: world.Block) !void {
-    const stack = app_state.player.inventory.selectedStack() orelse return;
-    const cost = switch (stack.id) {
-        .block => return,
-        .item => |id| id.blockDestroyedCost(destroyed),
-    };
-    try damageHeldItem(app_state, cost);
 }
 
 fn faceIndex(face: world.block.Side) u8 {
@@ -2286,12 +2237,51 @@ fn controlsClick(app_state: *AppState) void {
     }
 }
 
+fn interactContext(app_state: *AppState) game.interact.Context {
+    return .{
+        .gpa = app_state.gpa,
+        .frame = app_state.frame,
+        .level = &app_state.level,
+        .player = &app_state.player,
+        .stats = &app_state.stats,
+        .dimension = app_state.dimension,
+    };
+}
+
+fn pickedBlock(app_state: *AppState) ?game.raycast.Hit {
+    return interactContext(app_state).pickedBlock();
+}
+
+fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
+    return interactContext(app_state).pickedEntity();
+}
+
+fn applyBlockChanges(app_state: *AppState) !void {
+    return interactContext(app_state).applyBlockChanges();
+}
+
 fn consumeSelectedStack(app_state: *AppState) void {
-    const slot = &app_state.player.inventory.slots[app_state.player.inventory.selected];
-    if (slot.*) |*stack| {
-        stack.count -= 1;
-        if (stack.count == 0) slot.* = null;
-    }
+    interactContext(app_state).consumeSelectedStack();
+}
+
+fn damageHeldItem(app_state: *AppState, cost: u16) !void {
+    return interactContext(app_state).damageHeldItem(cost);
+}
+
+fn wearHeldItem(app_state: *AppState, destroyed: world.Block) !void {
+    return interactContext(app_state).wearHeldItem(destroyed);
+}
+
+fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
+    return interactContext(app_state).spawnDroppedItem(x, y, z, stack);
+}
+
+fn holdStack(app_state: *AppState, held: world.Item) void {
+    interactContext(app_state).holdStack(held);
+}
+
+fn dismount(app_state: *AppState) void {
+    interactContext(app_state).dismount();
 }
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
@@ -2327,7 +2317,7 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 return true;
             },
             .cake => {
-                try eatCakeSlice(app_state, hit.x, hit.y, hit.z);
+                try game.interact.eatCakeSlice(interactContext(app_state), hit.x, hit.y, hit.z);
                 return true;
             },
             .bed => {
@@ -2345,9 +2335,9 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                 return true;
             },
             .jukebox => {
-                if (try ejectJukeboxRecord(app_state, hit.x, hit.y, hit.z)) return true;
+                if (try game.interact.ejectJukeboxRecord(interactContext(app_state), hit.x, hit.y, hit.z)) return true;
             },
-            .ore_redstone => try lightRedstoneOre(app_state, hit.x, hit.y, hit.z),
+            .ore_redstone => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
             else => |id| {
                 if (id.def().on_activated) |hook| {
                     if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, id)) {
@@ -2359,77 +2349,6 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
         }
     }
     return placeBlockAtTarget(app_state);
-}
-
-fn ejectJukeboxRecord(app_state: *AppState, x: i32, y: i32, z: i32) !bool {
-    if (app_state.level.world_map.getBlockMetadata(x, y, z) == 0) return false;
-
-    const taken = try world.jukebox.takeRecord(&app_state.level.world_map, x, y, z);
-    const record = taken orelse return true;
-    try app_state.level.entities.ejectRecord(
-        app_state.gpa,
-        x,
-        y,
-        z,
-        .{ .id = .{ .item = record }, .count = 1 },
-        &app_state.level.world_map.rand,
-    );
-    try applyBlockChanges(app_state);
-    return true;
-}
-
-fn lightRedstoneOre(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    try app_state.level.entities.spawnRedstoneOreParticles(
-        app_state.gpa,
-        &app_state.level.world_map,
-        x,
-        y,
-        z,
-        &app_state.level.world_map.rand,
-    );
-    try world.redstone.lightRedstoneOre(&app_state.level.world_map, x, y, z);
-    try applyBlockChanges(app_state);
-}
-
-fn eatCakeSlice(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    if (app_state.player.health >= 20) return;
-    app_state.player.heal(3);
-
-    const eaten = app_state.level.world_map.getBlockMetadata(x, y, z) + 1;
-    if (eaten >= world.block.cake_slices) {
-        try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
-    } else {
-        try app_state.level.world_map.setBlockMetadataWithNotify(x, y, z, @intCast(eaten));
-    }
-    try applyBlockChanges(app_state);
-}
-
-fn breakPainting(app_state: *AppState, id: game.Entity.Id) !void {
-    const painting = app_state.level.entities.removePainting(id) orelse return;
-    try app_state.level.entities.dropStackAt(
-        app_state.gpa,
-        painting.position,
-        .{ .id = .{ .item = .painting }, .count = 1 },
-        &app_state.level.world_map.rand,
-    );
-}
-
-fn hangPaintingAtTarget(app_state: *AppState) !bool {
-    const hit = pickedBlock(app_state) orelse return false;
-
-    const direction = game.Painting.directionFromFace(hit.face) orelse return false;
-    const hung = game.Painting.pickArt(
-        .{ hit.x, hit.y, hit.z },
-        direction,
-        &app_state.level.world_map,
-        app_state.level.entities.paintings.items,
-        &app_state.level.world_map.rand,
-    ) orelse return true;
-
-    try app_state.level.entities.spawnPainting(app_state.gpa, hung);
-    try app_state.stats.use(app_state.gpa, .{ .item = .painting });
-    consumeSelectedStack(app_state);
-    return true;
 }
 
 const bed_not_valid_line = "Your home bed was missing or obstructed";
@@ -2461,29 +2380,6 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
     }
 }
 
-fn useHeldItem(app_state: *AppState) !void {
-    const held: ?world.Item = switch ((app_state.player.inventory.selectedStack() orelse return).id) {
-        .item => |id| id,
-        .block => null,
-    };
-    const item = held orelse return;
-    if (item.healAmount()) |amount| {
-        eatHeldFood(app_state, item, amount);
-        return;
-    }
-    if (item != .bow) return;
-    if (!app_state.player.inventory.consumeItem(.{ .item = .arrow })) return;
-
-    try app_state.level.entities.shootArrow(app_state.gpa, &app_state.player, &app_state.level.world_map.rand);
-    try app_state.stats.use(app_state.gpa, .{ .item = .bow });
-}
-
-fn eatHeldFood(app_state: *AppState, held: world.Item, heal_amount: u8) void {
-    app_state.player.heal(heal_amount);
-    consumeSelectedStack(app_state);
-    if (held == .mushroom_stew) holdStack(app_state, .bowl);
-}
-
 fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool {
     if (app_state.link) |link| {
         const id = switch (target) {
@@ -2505,9 +2401,9 @@ fn interactWithEntity(app_state: *AppState, target: game.Entities.Target) !bool 
         .block => null,
     } else null;
 
-    if (entry.type_id == game.mob.pig) return interactWithPig(app_state, entry.animal, held);
-    if (entry.type_id == game.mob.wolf) return interactWithWolf(app_state, entry.animal, held);
-    if (entry.type_id == game.mob.sheep) return interactWithSheep(app_state, entry.animal, held);
+    if (entry.type_id == game.mob.pig) return game.interact.interactWithPig(interactContext(app_state), entry.animal, held);
+    if (entry.type_id == game.mob.wolf) return game.interact.interactWithWolf(interactContext(app_state), entry.animal, held);
+    if (entry.type_id == game.mob.sheep) return game.interact.interactWithSheep(interactContext(app_state), entry.animal, held);
     if (entry.type_id != game.mob.cow) return false;
 
     const milked = game.Cow.interact(held orelse return false) orelse return false;
@@ -2546,125 +2442,6 @@ fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
     return true;
 }
 
-fn interactWithPig(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
-    const pig: *game.Pig = @fieldParentPtr("animal", animal);
-    if (pig.saddled) {
-        app_state.player.riding = animal.base.id;
-        return true;
-    }
-
-    if ((held orelse return false) != .saddle) return false;
-    pig.saddled = true;
-    try app_state.stats.use(app_state.gpa, .{ .item = .saddle });
-    consumeSelectedStack(app_state);
-    return true;
-}
-
-fn interactWithSheep(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
-    if ((held orelse return false) != .shears) return false;
-
-    const sheep: *game.Sheep = @fieldParentPtr("animal", animal);
-    const drops = sheep.shear(&app_state.level.world_map.rand) orelse return false;
-    try app_state.level.entities.dropShearedWool(
-        app_state.gpa,
-        sheep,
-        drops,
-        &app_state.level.world_map.rand,
-    );
-    try damageHeldItem(app_state, 1);
-    return true;
-}
-
-fn interactWithWolf(app_state: *AppState, animal: *game.Animal, held: ?world.Item) !bool {
-    const wolf: *game.Wolf = @fieldParentPtr("animal", animal);
-    const used = wolf.interactWith(app_state.gpa, game.Entities.viewOf(&app_state.player), held, &app_state.level.world_map.rand) orelse return false;
-
-    switch (used) {
-        .tamed, .refused => {
-            consumeSelectedStack(app_state);
-            try app_state.level.entities.spawnTreatReaction(
-                app_state.gpa,
-                wolf.animal,
-                used == .tamed,
-                &app_state.level.world_map.rand,
-            );
-            try app_state.stats.use(app_state.gpa, .{ .item = .bone });
-        },
-        .fed => {
-            consumeSelectedStack(app_state);
-            try app_state.stats.use(app_state.gpa, .{ .item = held.? });
-        },
-        .sat, .stood => {},
-    }
-    return true;
-}
-
-fn holdStack(app_state: *AppState, held: world.Item) void {
-    app_state.player.inventory.slots[app_state.player.inventory.selected] =
-        .{ .id = .{ .item = held }, .count = 1 };
-}
-
-fn strikeFlintAtTarget(app_state: *AppState) !bool {
-    const hit = pickedBlock(app_state) orelse return false;
-
-    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.Chunk.height) return false;
-
-    if (app_state.level.world_map.getBlock(target.x, target.y, target.z) == .air) {
-        try app_state.level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
-        try applyBlockChanges(app_state);
-    }
-
-    try damageHeldItem(app_state, 1);
-    return true;
-}
-
-fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !bool {
-    const hit = game.raycast.castWith(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        bucket_reach,
-        fill == .empty,
-    ) orelse return false;
-
-    switch (fill) {
-        .empty => {
-            const scooped = try world.block_update.scoopLiquid(&app_state.level.world_map, hit.x, hit.y, hit.z) orelse return false;
-            holdStack(app_state, scooped.bucketItem());
-        },
-        .milk => holdStack(app_state, .bucket),
-        .water, .lava => {
-            const step = hit.face.step();
-            const px = hit.x + step[0];
-            const py = hit.y + step[1];
-            const pz = hit.z + step[2];
-            if (!try world.block_update.pourLiquid(&app_state.level.world_map, px, py, pz, fill)) return false;
-            holdStack(app_state, .bucket);
-        },
-    }
-
-    try app_state.stats.use(app_state.gpa, .{ .item = held });
-    try applyBlockChanges(app_state);
-    return true;
-}
-
-fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {
-    const placed: world.Block = switch (held) {
-        .door_wood => .door_wood,
-        .door_iron => .door_iron,
-        else => return false,
-    };
-    const hit = pickedBlock(app_state) orelse return false;
-    if (hit.face != .up) return false;
-    if (!try world.block_update.placeDoor(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, placed, app_state.player.yaw)) return false;
-
-    try app_state.stats.use(app_state.gpa, .{ .item = held });
-    consumeSelectedStack(app_state);
-    try applyBlockChanges(app_state);
-    return true;
-}
-
 fn placeSignAtTarget(app_state: *AppState) !bool {
     const hit = pickedBlock(app_state) orelse return false;
     if (hit.face == .down) return false;
@@ -2695,49 +2472,6 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
     return true;
 }
 
-fn placeBedAtTarget(app_state: *AppState) !bool {
-    const hit = pickedBlock(app_state) orelse return false;
-    if (hit.face != .up) return false;
-    if (!try world.block_update.placeBed(&app_state.level.world_map, hit.x, hit.y + 1, hit.z, app_state.player.yaw)) return false;
-
-    try app_state.stats.use(app_state.gpa, .{ .item = .bed });
-    consumeSelectedStack(app_state);
-    try applyBlockChanges(app_state);
-    return true;
-}
-
-fn insertRecordAtTarget(app_state: *AppState, record: world.Item) !bool {
-    const hit = pickedBlock(app_state) orelse return false;
-    if (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) != .jukebox) return false;
-    if (app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z) != 0) return false;
-
-    try world.jukebox.insertRecord(&app_state.level.world_map, hit.x, hit.y, hit.z, record);
-    try app_state.stats.use(app_state.gpa, .{ .item = record });
-    consumeSelectedStack(app_state);
-    try applyBlockChanges(app_state);
-    return true;
-}
-
-fn dismount(app_state: *AppState) void {
-    const mount = app_state.player.riding;
-    app_state.player.riding = game.Entity.no_id;
-    if (mount == game.Entity.no_id) return;
-
-    const base: ?game.Entity = blk: {
-        if (app_state.level.entities.minecartById(mount)) |cart| {
-            cart.rider = game.Entity.no_id;
-            break :blk cart.base;
-        }
-        if (app_state.level.entities.boatById(mount)) |boat| break :blk boat.base;
-        if (app_state.level.entities.mobById(mount)) |entry| break :blk entry.animal.base;
-        break :blk null;
-    };
-
-    const stood_on = base orelse return;
-    app_state.player.base.position = game.Entity.dismountPosition(stood_on);
-    app_state.player.base.prev_position = app_state.player.base.position;
-}
-
 fn useFishingRod(app_state: *AppState) !bool {
     const caught = try app_state.level.entities.reelHook(
         app_state.gpa,
@@ -2758,44 +2492,6 @@ fn useFishingRod(app_state: *AppState) !bool {
         &app_state.level.world_map.rand,
     );
     swingArm(app_state);
-    return true;
-}
-
-fn placeBoatAtTarget(app_state: *AppState) !bool {
-    const hit = game.raycast.cast(
-        &app_state.level.world_map,
-        app_state.player.eyePosition(),
-        app_state.player.lookVector(),
-        boat_reach,
-    ) orelse return false;
-
-    const on_snow = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z) == .snow_layer;
-    const floor = if (on_snow) hit.y - 1 else hit.y;
-
-    _ = try app_state.level.entities.spawnBoat(
-        app_state.gpa,
-        @as(f64, @floatFromInt(hit.x)) + 0.5,
-        @as(f64, @floatFromInt(floor)) + 1.0,
-        @as(f64, @floatFromInt(hit.z)) + 0.5,
-    );
-    try app_state.stats.use(app_state.gpa, .{ .item = .boat });
-    consumeSelectedStack(app_state);
-    return true;
-}
-
-fn placeMinecartAtTarget(app_state: *AppState, kind: game.Minecart.Kind) !bool {
-    const hit = pickedBlock(app_state) orelse return false;
-    if (!world.block.isRail(app_state.level.world_map.getBlock(hit.x, hit.y, hit.z))) return false;
-
-    _ = try app_state.level.entities.spawnMinecart(
-        app_state.gpa,
-        @as(f64, @floatFromInt(hit.x)) + 0.5,
-        @as(f64, @floatFromInt(hit.y)) + 0.5,
-        @as(f64, @floatFromInt(hit.z)) + 0.5,
-        kind,
-    );
-    try app_state.stats.use(app_state.gpa, app_state.player.inventory.selectedStack().?.id);
-    consumeSelectedStack(app_state);
     return true;
 }
 
@@ -2892,15 +2588,15 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const placed = switch (stack.id) {
         .block => |b| b,
         .item => |held| blk: {
-            if (held.bucketFill()) |fill| return useBucket(app_state, held, fill);
-            if (held == .flint_and_steel) return strikeFlintAtTarget(app_state);
-            if (held == .painting) return hangPaintingAtTarget(app_state);
-            if (held == .bed) return placeBedAtTarget(app_state);
+            if (held.bucketFill()) |fill| return game.interact.useBucket(interactContext(app_state), held, fill);
+            if (held == .flint_and_steel) return game.interact.strikeFlintAtTarget(interactContext(app_state));
+            if (held == .painting) return game.interact.hangPaintingAtTarget(interactContext(app_state));
+            if (held == .bed) return game.interact.placeBedAtTarget(interactContext(app_state));
             if (held == .sign) return placeSignAtTarget(app_state);
-            if (held == .boat) return placeBoatAtTarget(app_state);
+            if (held == .boat) return game.interact.placeBoatAtTarget(interactContext(app_state));
             if (held == .fishing_rod) return useFishingRod(app_state);
-            if (held.recordName() != null) return insertRecordAtTarget(app_state, held);
-            if (held.minecartKind()) |kind| return placeMinecartAtTarget(app_state, kind);
+            if (held.recordName() != null) return game.interact.insertRecordAtTarget(interactContext(app_state), held);
+            if (held.minecartKind()) |kind| return game.interact.placeMinecartAtTarget(interactContext(app_state), kind);
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
                     if (pickedBlock(app_state)) |hit| {
@@ -2910,7 +2606,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
                         }
                     }
                 }
-                return placeDoorAtTarget(app_state, held);
+                return game.interact.placeDoorAtTarget(interactContext(app_state), held);
             };
         },
     };
@@ -5017,7 +4713,7 @@ pub fn event(
                 if (try useBlockOrPlace(app_state)) {
                     swingArm(app_state);
                 } else if (app_state.link == null) {
-                    try useHeldItem(app_state);
+                    try game.interact.useHeldItem(interactContext(app_state));
                 }
             },
             else => {},

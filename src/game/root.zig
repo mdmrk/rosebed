@@ -16,6 +16,7 @@ pub const Fireball = @import("entity/Fireball.zig");
 pub const FishHook = @import("entity/FishHook.zig");
 pub const Freecam = @import("Freecam.zig");
 pub const Ghast = @import("entity/Ghast.zig");
+pub const interact = @import("interact.zig");
 pub const Inventory = @import("Inventory.zig");
 pub const ItemEntity = @import("entity/ItemEntity.zig");
 pub const Level = @import("Level.zig");
@@ -51,6 +52,7 @@ test {
     _ = Player;
     _ = physics;
     _ = raycast;
+    _ = interact;
     _ = Inventory;
     _ = Lightning;
     _ = ItemEntity;
