@@ -2725,7 +2725,7 @@ fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !boo
         },
         .milk => holdStack(app_state, .bucket),
         .water, .lava => {
-            const step = bucketPourStep(hit.face);
+            const step = hit.face.step();
             const px = hit.x + step[0];
             const py = hit.y + step[1];
             const pz = hit.z + step[2];
@@ -2737,17 +2737,6 @@ fn useBucket(app_state: *AppState, held: world.Item, fill: world.item.Fill) !boo
     try app_state.stats.use(app_state.gpa, .{ .item = held });
     try applyBlockChanges(app_state);
     return true;
-}
-
-fn bucketPourStep(face: world.Side) [3]i32 {
-    return switch (face) {
-        .down => .{ 0, -1, 0 },
-        .up => .{ 0, 1, 0 },
-        .north => .{ 0, 0, -1 },
-        .south => .{ 0, 0, 1 },
-        .west => .{ -1, 0, 0 },
-        .east => .{ 1, 0, 0 },
-    };
 }
 
 fn placeDoorAtTarget(app_state: *AppState, held: world.Item) !bool {

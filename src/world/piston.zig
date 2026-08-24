@@ -34,7 +34,7 @@ pub const Moving = struct {
     }
 
     pub fn shoveAlong(self: Moving, amount: f32) [3]f64 {
-        const delta = block.pistonStep(self.facing);
+        const delta = self.facing.step();
         return .{
             @as(f64, amount) * @as(f64, @floatFromInt(delta[0])),
             @as(f64, amount) * @as(f64, @floatFromInt(delta[1])),
@@ -49,7 +49,7 @@ pub const Moving = struct {
 
     pub fn displacement(self: Moving, partial_ticks: f32) [3]f32 {
         const along = self.offset(partial_ticks);
-        const delta = block.pistonStep(self.facing);
+        const delta = self.facing.step();
         return .{
             along * @as(f32, @floatFromInt(delta[0])),
             along * @as(f32, @floatFromInt(delta[1])),
@@ -144,7 +144,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
 }
 
 fn step(x: i32, y: i32, z: i32, facing: Side, times: i32) [3]i32 {
-    const delta = block.pistonStep(facing);
+    const delta = facing.step();
     return .{ x + delta[0] * times, y + delta[1] * times, z + delta[2] * times };
 }
 

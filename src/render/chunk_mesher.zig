@@ -1180,7 +1180,7 @@ pub fn pistonShaftBox(metadata: u4, length: f32) world.block.Bounds {
 }
 
 fn pistonShaftAxis(metadata: u4) u2 {
-    const step = world.block.pistonStep(world.block.pistonFacing(metadata));
+    const step = world.block.pistonFacing(metadata).step();
     return if (step[0] != 0) 0 else if (step[1] != 0) 1 else 2;
 }
 
@@ -3101,7 +3101,7 @@ test "the head shaft is four pixels square whichever way it points" {
         const metadata = world.block.pistonFacingValue(facing);
         const shaft = pistonShaftBox(metadata, piston_shaft_length);
 
-        const along = world.block.pistonStep(facing);
+        const along = facing.step();
         for (0..3) |axis| {
             const span = shaft.max[axis] - shaft.min[axis];
             if (along[axis] != 0) {
@@ -3287,7 +3287,7 @@ test "an extended piston loses the collar off its sides, the head having taken i
             .{},
         );
 
-        const along = world.block.pistonStep(facing);
+        const along = facing.step();
         const axis: usize = if (along[0] != 0) 0 else if (along[1] != 0) 1 else 2;
 
         var sides: usize = 0;
@@ -3340,7 +3340,7 @@ test "the collar on a piston's sides always points the way the piston faces" {
             .{},
         );
 
-        const along = world.block.pistonStep(facing);
+        const along = facing.step();
         const axis: usize = if (along[0] != 0) 0 else if (along[1] != 0) 1 else 2;
         const toward_high = along[axis] > 0;
 

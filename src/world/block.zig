@@ -14,6 +14,17 @@ pub const Side = enum(u3) {
     south,
     west,
     east,
+
+    pub fn step(self: Side) [3]i32 {
+        return switch (self) {
+            .down => .{ 0, -1, 0 },
+            .up => .{ 0, 1, 0 },
+            .north => .{ 0, 0, -1 },
+            .south => .{ 0, 0, 1 },
+            .west => .{ -1, 0, 0 },
+            .east => .{ 1, 0, 0 },
+        };
+    }
 };
 
 pub const Material = enum {
@@ -308,17 +319,6 @@ pub fn pistonFacingValue(side: Side) u4 {
 
 pub fn pistonExtended(metadata: u4) bool {
     return metadata & piston_flag != 0;
-}
-
-pub fn pistonStep(side: Side) [3]i32 {
-    return switch (side) {
-        .down => .{ 0, -1, 0 },
-        .up => .{ 0, 1, 0 },
-        .north => .{ 0, 0, -1 },
-        .south => .{ 0, 0, 1 },
-        .west => .{ -1, 0, 0 },
-        .east => .{ 1, 0, 0 },
-    };
 }
 
 fn shrunkTowards(side: Side, depth: f32) Bounds {

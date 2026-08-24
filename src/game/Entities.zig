@@ -2177,7 +2177,7 @@ fn shoveBox(shove: world.World.PistonShove) ?math.Aabb {
 
     const bounds = stored.selectionBounds(shove.state.stored_metadata);
     const along = shove.state.offsetAt(shove.progress);
-    const delta = world.block.pistonStep(shove.state.facing);
+    const delta = shove.state.facing.step();
     const shift = [3]f64{
         @as(f64, along) * @as(f64, @floatFromInt(delta[0])),
         @as(f64, along) * @as(f64, @floatFromInt(delta[1])),

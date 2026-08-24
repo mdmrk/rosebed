@@ -1737,17 +1737,6 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: 
 pub const in_air_face: u8 = 255;
 pub const bucket_reach_squared: f64 = 25.0;
 
-fn bucketPourStep(face: world.block.Side) [3]i32 {
-    return switch (face) {
-        .down => .{ 0, -1, 0 },
-        .up => .{ 0, 1, 0 },
-        .north => .{ 0, 0, -1 },
-        .south => .{ 0, 0, 1 },
-        .west => .{ -1, 0, 0 },
-        .east => .{ 1, 0, 0 },
-    };
-}
-
 fn holdStack(self: *Session, held: world.Item) void {
     const player = self.player orelse return;
     player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = held }, .count = 1 };
@@ -1769,7 +1758,7 @@ fn useBucket(
         },
         .milk => self.holdStack(.bucket),
         .water, .lava => {
-            const step = bucketPourStep(face);
+            const step = face.step();
             if (!try world.block_update.pourLiquid(&level.world_map, x + step[0], y + step[1], z + step[2], fill)) return;
             self.holdStack(.bucket);
         },
