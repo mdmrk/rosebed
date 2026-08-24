@@ -1114,7 +1114,14 @@ fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body
     _ = self;
     const at = math.Vec3.init(body.x, body.y, body.z);
     const rand = &level.world_map.rand;
-    level.world_map.playSoundEffect(at.x, at.y, at.z, assets.sounds.random.explode, 4.0, blastPitch(rand));
+    level.world_map.playSoundEffect(
+        at.x,
+        at.y,
+        at.z,
+        assets.sounds.random.explode,
+        game.explosion.blast_volume,
+        game.explosion.blastPitch(rand),
+    );
 
     const origin: [3]i32 = .{
         @intFromFloat(body.x),
@@ -1146,10 +1153,6 @@ fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body
 
 const blast_drift: f64 = 0.5;
 const blast_falloff: f64 = 0.1;
-
-fn blastPitch(rand: *world.JavaRandom) f32 {
-    return 1.0 / (rand.nextFloat() * 0.4 + 0.7);
-}
 
 fn setProgress(self: *Connection, level: *game.Level, body: anytype) void {
     const open = self.opened orelse return;

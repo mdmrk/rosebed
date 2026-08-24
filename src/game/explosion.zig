@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -19,6 +20,13 @@ pub const drop_chance: f32 = 0.3;
 pub const fire_chance: i32 = 3;
 pub const particle_spread: f64 = 0.5;
 pub const particle_falloff: f64 = 0.1;
+pub const blast_volume: f32 = 4.0;
+pub const blast_pitch_spread: f32 = 0.2;
+pub const blast_pitch_scale: f32 = 0.7;
+
+pub fn blastPitch(rand: *world.JavaRandom) f32 {
+    return (1.0 + (rand.nextFloat() - rand.nextFloat()) * blast_pitch_spread) * blast_pitch_scale;
+}
 
 pub const Destroyed = std.ArrayList(world.World.BlockPos);
 
@@ -38,6 +46,7 @@ pub fn detonate(
     try carveBlocks(gpa, world_map, at, size, rand, &destroyed);
     throwEntities(entities, world_map, roster, at, size, rand);
     if (flaming) try lightFires(world_map, destroyed.items, rand);
+    world_map.playSoundEffect(at.x, at.y, at.z, assets.sounds.random.explode, blast_volume, blastPitch(rand));
     try scatterRubble(gpa, entities, world_map, at, size, destroyed.items, rand);
     try entities.recordBlast(gpa, at, size, destroyed.items);
 }

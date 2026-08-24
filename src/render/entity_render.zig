@@ -2899,6 +2899,74 @@ pub fn appendFireball(
     try mesh.quad(gpa, positions, uvs, white);
 }
 
+const fire_overlay_spread: f32 = 1.4;
+const fire_overlay_height: f32 = 1.4;
+const fire_overlay_half: f32 = 0.5;
+const fire_overlay_taper: f32 = 0.9;
+const fire_overlay_rise: f32 = 0.45;
+const fire_overlay_lean: f32 = -0.3;
+const fire_overlay_lean_per_layer: f32 = 0.02;
+const fire_overlay_layer_gap: f32 = 0.03;
+
+pub fn appendEntityFire(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    base: game.Entity,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    const pos = base.renderPosition(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    const scale: f32 = @as(f32, @floatCast(base.width)) * fire_overlay_spread;
+    var left: f32 = @as(f32, @floatCast(base.height)) / scale;
+
+    const tile = world.Block.fire.faceTextures().get(.down);
+    const away_x = -basis.right_z;
+    const away_z = basis.right_x;
+
+    var half = fire_overlay_half;
+    var lift: f32 = 0.0;
+    var lean = fire_overlay_lean + @as(f32, @floatFromInt(@as(i32, @intFromFloat(left)))) * fire_overlay_lean_per_layer;
+    var layer: u32 = 0;
+
+    while (left > 0.0) {
+        const uv = Atlas.tileUv(if (layer % 2 == 0) tile else tile +% Atlas.tiles_per_row);
+        const mirrored = layer / 2 % 2 == 0;
+        const u_near = if (mirrored) uv.u0 else uv.u1;
+        const u_far = if (mirrored) uv.u1 else uv.u0;
+
+        const across = half * scale;
+        const depth = lean * scale;
+        const bottom = cy + lift * scale;
+        const top = cy + (lift + fire_overlay_height) * scale;
+        const ox = basis.right_x * across + away_x * depth;
+        const oz = basis.right_z * across + away_z * depth;
+        const mx = -basis.right_x * across + away_x * depth;
+        const mz = -basis.right_z * across + away_z * depth;
+
+        try mesh.quad(gpa, .{
+            .{ cx + ox, bottom, cz + oz },
+            .{ cx + mx, bottom, cz + mz },
+            .{ cx + mx, top, cz + mz },
+            .{ cx + ox, top, cz + oz },
+        }, .{
+            .{ u_near, uv.v1 },
+            .{ u_far, uv.v1 },
+            .{ u_far, uv.v0 },
+            .{ u_near, uv.v0 },
+        }, white);
+
+        left -= fire_overlay_rise;
+        lift += fire_overlay_rise;
+        half *= fire_overlay_taper;
+        lean += fire_overlay_layer_gap;
+        layer += 1;
+    }
+}
+
 pub const line_color: [4]u8 = .{ 0, 0, 0, 255 };
 
 pub fn appendFishLine(

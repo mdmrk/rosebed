@@ -3368,6 +3368,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     for (app_state.level.entities.fireballs.items) |fireball| {
         if (fireball.dead) continue;
         try render.entity_render.appendFireball(&fireball_mesh, app_state.frame, fireball, basis, partial);
+        try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
     if (particle_mesh.vertices.items.len > 0) {
