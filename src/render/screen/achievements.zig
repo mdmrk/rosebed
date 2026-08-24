@@ -5,11 +5,11 @@ const achievements = game.achievements;
 const gl = @import("gl");
 const world = @import("world");
 
-const Atlas = @import("Atlas.zig");
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const text_wrap = @import("text_wrap.zig");
+const Atlas = @import("../Atlas.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const text_wrap = @import("../text_wrap.zig");
 
 pub const window_width: f32 = 256;
 pub const window_height: f32 = 202;

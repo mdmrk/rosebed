@@ -1,0 +1,45 @@
+pub const achievements = @import("screen/achievements.zig");
+pub const chest = @import("screen/chest.zig");
+pub const confirm = @import("screen/confirm.zig");
+pub const container = @import("screen/container.zig");
+pub const controls = @import("screen/controls.zig");
+pub const crafting = @import("screen/crafting.zig");
+pub const create_world = @import("screen/create_world.zig");
+pub const death = @import("screen/death.zig");
+pub const dispenser = @import("screen/dispenser.zig");
+pub const edit_sign = @import("screen/edit_sign.zig");
+pub const furnace = @import("screen/furnace.zig");
+pub const inventory = @import("screen/inventory.zig");
+pub const loading = @import("screen/loading.zig");
+pub const mojang = @import("screen/mojang.zig");
+pub const multiplayer = @import("screen/multiplayer.zig");
+pub const options = @import("screen/options.zig");
+pub const select_world = @import("screen/select_world.zig");
+pub const stats = @import("screen/stats.zig");
+pub const texture_packs = @import("screen/texture_packs.zig");
+pub const title = @import("screen/title.zig");
+pub const video_settings = @import("screen/video_settings.zig");
+
+test {
+    _ = achievements;
+    _ = chest;
+    _ = confirm;
+    _ = container;
+    _ = controls;
+    _ = crafting;
+    _ = create_world;
+    _ = death;
+    _ = dispenser;
+    _ = edit_sign;
+    _ = furnace;
+    _ = inventory;
+    _ = loading;
+    _ = mojang;
+    _ = multiplayer;
+    _ = options;
+    _ = select_world;
+    _ = stats;
+    _ = texture_packs;
+    _ = title;
+    _ = video_settings;
+}

@@ -2,9 +2,9 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const veil_top: [4]u8 = .{ 80, 0, 0, 96 };

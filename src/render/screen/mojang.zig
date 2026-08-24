@@ -1,8 +1,8 @@
 const gl = @import("gl");
 
-const Atlas = @import("Atlas.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
+const Atlas = @import("../Atlas.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 
 pub const logo_size: f32 = 256;
 pub const hold_ms: u64 = 1000;

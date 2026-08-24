@@ -3,10 +3,10 @@ const std = @import("std");
 const gl = @import("gl");
 const world = @import("world");
 
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const sign_render = @import("sign_render.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const sign_render = @import("../sign_render.zig");
 
 pub const title = "Edit sign message:";
 pub const title_y: f32 = 40;

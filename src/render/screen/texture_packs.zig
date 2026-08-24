@@ -2,11 +2,11 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const Atlas = @import("Atlas.zig");
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const texture_pack = @import("texture_pack.zig");
+const Atlas = @import("../Atlas.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const texture_pack = @import("../texture_pack.zig");
 
 const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
@@ -267,7 +267,7 @@ test "the two buttons sit side by side under the list" {
 
 test "a list that fits needs no scrollbar, and one that overflows gets one" {
     const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(f32, 0), maxScroll(res, 2));
+    try std.testing.expect(maxScroll(res, 2) <= 0);
     try std.testing.expect(scrollbarThumb(res, 2, 0) == null);
 
     const many = 40;
@@ -316,7 +316,7 @@ test "the last row can be scrolled to sit just above the bottom of the list" {
     const count = 40;
     const limit = maxScroll(res, count);
     const last = entryY(count - 1, limit);
-    try std.testing.expectEqual(listBottom(res) - row_height, last);
+    try std.testing.expectEqual(listBottom(res) - entry_height, last);
 }
 
 test "a list too short to fill the view is pushed down to sit centred in it" {

@@ -107,7 +107,7 @@ const AppState = struct {
     splash: []const u8 = splashes[0],
     mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
-    sign_edit: ?render.edit_sign_screen.State = null,
+    sign_edit: ?render.screen.edit_sign.State = null,
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     chest_open: ?world.World.BlockPos = null,
@@ -128,7 +128,7 @@ const AppState = struct {
     debug_chunk_updates: u32 = 0,
     debug_latched_ms: u64 = 0,
     options_parent: OptionsParent = .title,
-    dragging_slider: ?render.options_screen.Slider = null,
+    dragging_slider: ?render.screen.options.Slider = null,
     dragging_scrollbar: bool = false,
     settings: game.Settings = .{},
     held_stack: ?game.Inventory.ItemStack = null,
@@ -150,8 +150,8 @@ const AppState = struct {
     selected_world: ?usize = null,
     last_list_click_ms: u64 = 0,
     list_scroll: f32 = 0,
-    create_state: render.create_world_screen.State = undefined,
-    multiplayer_state: render.multiplayer_screen.State = undefined,
+    create_state: render.screen.create_world.State = undefined,
+    multiplayer_state: render.screen.multiplayer.State = undefined,
     loading: Loading = .{},
     dimension: world.Dimension = .overworld,
     needs_spawn: bool = false,
@@ -165,10 +165,10 @@ const AppState = struct {
     stats: game.stats.Stats = .{},
     stats_open: bool = false,
     achievements_open: bool = false,
-    achievements_view: render.achievements_screen.State = .{},
+    achievements_view: render.screen.achievements.State = .{},
     achievements_grabbing: bool = false,
     achievement_toast: render.achievement_toast.State = .{},
-    stats_view: render.stats_screen.State = .{},
+    stats_view: render.screen.stats.State = .{},
     chat: render.chat.State = .{},
 };
 
@@ -452,9 +452,9 @@ pub fn init(
     app_state.shader = try render.terrain_shader.init();
     errdefer app_state.shader.deinit();
 
-    try render.mojang_screen.draw(uiContext(&app_state, guiSize(&app_state)));
+    try render.screen.mojang.draw(uiContext(&app_state, guiSize(&app_state)));
     try sdl3.video.gl.swapWindow(window);
-    app_state.mojang_until_ms = sdl3.timer.getMillisecondsSinceInit() + render.mojang_screen.hold_ms;
+    app_state.mojang_until_ms = sdl3.timer.getMillisecondsSinceInit() + render.screen.mojang.hold_ms;
 
     app_state.sky = try render.SkyRenderer.init(gpa);
     errdefer app_state.sky.deinit();
@@ -911,7 +911,7 @@ fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size
 
 fn containerClickAt(
     app_state: *AppState,
-    slots: []const render.container_screen.Slot,
+    slots: []const render.screen.container.Slot,
     grid: []?game.Inventory.ItemStack,
     size: u8,
     click_type: game.Window.Click,
@@ -919,8 +919,8 @@ fn containerClickAt(
     shift: bool,
 ) !void {
     const gui = guiSize(app_state);
-    const index = render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height) orelse {
-        if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
+    const index = render.screen.container.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height) orelse {
+        if (render.screen.container.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
             try dropHeldStack(app_state, click_type);
         }
         return;
@@ -938,14 +938,14 @@ fn containerClickAt(
     }
 }
 
-fn slotRules(slot: render.container_screen.Slot, storage: *?game.Inventory.ItemStack) game.Window.Slot {
+fn slotRules(slot: render.screen.container.Slot, storage: *?game.Inventory.ItemStack) game.Window.Slot {
     if (slot.kind != .armor) return .{ .stack = storage };
     return .{ .stack = storage, .armor = @enumFromInt(slot.index) };
 }
 
 fn slotStorage(
     app_state: *AppState,
-    slot: render.container_screen.Slot,
+    slot: render.screen.container.Slot,
     grid: []?game.Inventory.ItemStack,
 ) ?*?game.Inventory.ItemStack {
     return switch (slot.kind) {
@@ -962,14 +962,14 @@ fn slotStorage(
 
 fn quickMove(
     app_state: *AppState,
-    slots: []const render.container_screen.Slot,
+    slots: []const render.screen.container.Slot,
     grid: []?game.Inventory.ItemStack,
     size: u8,
     from: usize,
 ) !void {
-    const range = render.container_screen.quickRange(slots, from);
+    const range = render.screen.container.quickRange(slots, from);
 
-    var targets: [render.chest_screen.max_slot_count]*?game.Inventory.ItemStack = undefined;
+    var targets: [render.screen.chest.max_slot_count]*?game.Inventory.ItemStack = undefined;
     var count: usize = 0;
     for (0..range.end - range.start) |step| {
         const index = if (range.reverse) range.end - 1 - step else range.start + step;
@@ -1023,32 +1023,32 @@ fn shiftHeld() bool {
 fn openContainerClickAt(app_state: *AppState, click_type: game.Window.Click) !void {
     const shift = shiftHeld();
     if (app_state.furnace_open != null) {
-        const layout = render.furnace_screen.slots();
-        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
+        const layout = render.screen.furnace.slots();
+        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.screen.container.height, shift);
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
-        var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
-        const layout = render.chest_screen.slots(rows, &buffer, .chest);
-        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(rows), shift);
+        var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
+        const layout = render.screen.chest.slots(rows, &buffer, .chest);
+        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.screen.chest.height(rows), shift);
     } else if (openedDispenser(app_state) != null) {
-        const layout = render.dispenser_screen.slots();
-        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.container_screen.height, shift);
+        const layout = render.screen.dispenser.slots();
+        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.screen.container.height, shift);
     } else if (openedMinecart(app_state) != null) {
-        var buffer: [render.chest_screen.max_slot_count]render.container_screen.Slot = undefined;
-        const layout = render.chest_screen.slots(game.Minecart.chest_rows, &buffer, .minecart);
-        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.chest_screen.height(game.Minecart.chest_rows), shift);
+        var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
+        const layout = render.screen.chest.slots(game.Minecart.chest_rows, &buffer, .minecart);
+        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.screen.chest.height(game.Minecart.chest_rows), shift);
     } else if (app_state.workbench_open) {
-        const layout = render.crafting_screen.slots();
-        try windowClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.container_screen.height, shift);
+        const layout = render.screen.crafting.slots();
+        try windowClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.screen.container.height, shift);
     } else {
-        const layout = render.inventory_screen.slots();
-        try windowClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.container_screen.height, shift);
+        const layout = render.screen.inventory.slots();
+        try windowClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.screen.container.height, shift);
     }
 }
 
 fn windowClickAt(
     app_state: *AppState,
-    slots: []const render.container_screen.Slot,
+    slots: []const render.screen.container.Slot,
     grid: []?game.Inventory.ItemStack,
     size: u8,
     click_type: game.Window.Click,
@@ -1062,14 +1062,14 @@ fn windowClickAt(
 
 fn aimedWindowSlot(
     app_state: *AppState,
-    slots: []const render.container_screen.Slot,
+    slots: []const render.screen.container.Slot,
     box_height: f32,
 ) i16 {
     const gui = guiSize(app_state);
-    if (render.container_screen.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height)) |index| {
+    if (render.screen.container.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height)) |index| {
         return @intCast(index);
     }
-    if (render.container_screen.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
+    if (render.screen.container.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
         return remote.Connection.outside_slot;
     }
     return no_window_slot;
@@ -1340,7 +1340,7 @@ fn respawnPlayer(app_state: *AppState) !void {
 
 fn deathScreenClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const action = render.death_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    const action = render.screen.death.actionAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     clickSound(app_state);
     switch (action) {
         .respawn => try respawnPlayer(app_state),
@@ -1532,7 +1532,7 @@ fn freeTexturePacks(app_state: *AppState) void {
 }
 
 fn openMultiplayer(app_state: *AppState) !void {
-    app_state.multiplayer_state = render.multiplayer_screen.init(app_state.settings.last_server.text());
+    app_state.multiplayer_state = render.screen.multiplayer.init(app_state.settings.last_server.text());
     app_state.screen = .multiplayer;
     try sdl3.keyboard.startTextInput(app_state.window);
 }
@@ -1551,9 +1551,9 @@ fn connectToServer(app_state: *AppState) !void {
 
     var stored: [128]u8 = undefined;
     const typed = app_state.multiplayer_state.address.text();
-    app_state.settings.last_server.set(render.multiplayer_screen.storedName(typed, &stored));
+    app_state.settings.last_server.set(render.screen.multiplayer.storedName(typed, &stored));
 
-    const address = render.multiplayer_screen.parseAddress(typed);
+    const address = render.screen.multiplayer.parseAddress(typed);
 
     closeWorld(app_state);
     app_state.level.world_map.access = worldAccess(app_state);
@@ -1583,7 +1583,7 @@ fn connectToServer(app_state: *AppState) !void {
 }
 
 fn multiplayerClick(app_state: *AppState) !void {
-    const hit = render.multiplayer_screen.hitAt(
+    const hit = render.screen.multiplayer.hitAt(
         app_state.mouse_x,
         app_state.mouse_y,
         guiSize(app_state),
@@ -1636,12 +1636,12 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
 
 fn texturePacksClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.texture_packs_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+    if (render.screen.texture_packs.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
         app_state.dragging_scrollbar = true;
         return;
     }
 
-    const hit = render.texture_packs_screen.hitAt(
+    const hit = render.screen.texture_packs.hitAt(
         app_state.mouse_x,
         app_state.mouse_y,
         gui,
@@ -1671,7 +1671,7 @@ fn openTexturePackFolder(app_state: *AppState) void {
 }
 
 fn openCreateWorld(app_state: *AppState) !void {
-    app_state.create_state = render.create_world_screen.init(.create);
+    app_state.create_state = render.screen.create_world.init(.create);
     app_state.create_state.name.setText("New World");
     updateCreateFolder(app_state);
     app_state.screen = .create_world;
@@ -2035,12 +2035,12 @@ fn closeOptions(app_state: *AppState) !void {
 
 fn selectWorldClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.select_world_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.summaries.len)) {
+    if (render.screen.select_world.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.summaries.len)) {
         app_state.dragging_scrollbar = true;
         return;
     }
 
-    const hit = render.select_world_screen.hitAt(
+    const hit = render.screen.select_world.hitAt(
         app_state.mouse_x,
         app_state.mouse_y,
         gui,
@@ -2057,7 +2057,7 @@ fn selectWorldClick(app_state: *AppState) !void {
     switch (hit) {
         .entry => |index| {
             const now = sdl3.timer.getMillisecondsSinceInit();
-            const double = render.select_world_screen.isDoubleClick(
+            const double = render.screen.select_world.isDoubleClick(
                 app_state.selected_world,
                 index,
                 now,
@@ -2086,7 +2086,7 @@ fn playSelectedWorld(app_state: *AppState) !void {
 
 fn openRenameWorld(app_state: *AppState) !void {
     const index = app_state.selected_world orelse return;
-    app_state.create_state = render.create_world_screen.init(.rename);
+    app_state.create_state = render.screen.create_world.init(.rename);
     app_state.create_state.name.setText(app_state.summaries[index].name);
     app_state.screen = .create_world;
     try sdl3.keyboard.startTextInput(app_state.window);
@@ -2094,7 +2094,7 @@ fn openRenameWorld(app_state: *AppState) !void {
 
 fn createWorldClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const hit = render.create_world_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, &app_state.create_state) orelse return;
+    const hit = render.screen.create_world.hitAt(app_state.mouse_x, app_state.mouse_y, gui, &app_state.create_state) orelse return;
     switch (hit) {
         .name_field, .seed_field => {},
         else => clickSound(app_state),
@@ -2121,7 +2121,7 @@ fn confirmCreateWorld(app_state: *AppState) !void {
             defer app_state.gpa.free(folder);
 
             const random_seed = app_state.level.world_map.rand.nextLong();
-            const seed = render.create_world_screen.seedFromText(app_state.create_state.seed.text(), random_seed);
+            const seed = render.screen.create_world.seedFromText(app_state.create_state.seed.text(), random_seed);
             try startWorld(app_state, folder, name, seed);
         },
         .rename => {
@@ -2143,7 +2143,7 @@ fn confirmCreateWorld(app_state: *AppState) !void {
 
 fn confirmDeleteClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const hit = render.confirm_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, "Delete") orelse return;
+    const hit = render.screen.confirm.hitAt(app_state.mouse_x, app_state.mouse_y, gui, "Delete") orelse return;
     clickSound(app_state);
     switch (hit) {
         .confirm => {
@@ -2156,7 +2156,7 @@ fn confirmDeleteClick(app_state: *AppState) !void {
     }
 }
 
-fn setSlider(app_state: *AppState, which: render.options_screen.Slider, value: f32) void {
+fn setSlider(app_state: *AppState, which: render.screen.options.Slider, value: f32) void {
     switch (which) {
         .music => app_state.settings.music_volume = value,
         .sound => app_state.settings.sound_volume = value,
@@ -2173,11 +2173,11 @@ fn dragScrollbar(app_state: *AppState, dy_pixels: f32) void {
 
     if (app_state.stats_open) {
         const view = &app_state.stats_view;
-        view.scroll.set(view.tab, render.stats_screen.dragScroll(gui, view.*, dy));
+        view.scroll.set(view.tab, render.screen.stats.dragScroll(gui, view.*, dy));
     } else if (app_state.screen == .select_world) {
-        app_state.list_scroll = render.select_world_screen.dragScroll(gui, app_state.summaries.len, app_state.list_scroll, dy);
+        app_state.list_scroll = render.screen.select_world.dragScroll(gui, app_state.summaries.len, app_state.list_scroll, dy);
     } else if (app_state.screen == .texture_packs) {
-        app_state.pack_scroll = render.texture_packs_screen.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy);
+        app_state.pack_scroll = render.screen.texture_packs.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy);
     }
 }
 
@@ -2196,7 +2196,7 @@ fn pauseMenuClick(app_state: *AppState) !void {
 
 fn openStats(app_state: *AppState) !void {
     app_state.stats_view.deinit(app_state.gpa);
-    app_state.stats_view = try render.stats_screen.State.init(app_state.gpa, &app_state.stats);
+    app_state.stats_view = try render.screen.stats.State.init(app_state.gpa, &app_state.stats);
     app_state.stats_open = true;
 }
 
@@ -2211,7 +2211,7 @@ fn closeAchievements(app_state: *AppState) void {
 
 fn achievementsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.achievements_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) == null) return;
+    if (render.screen.achievements.hitAt(app_state.mouse_x, app_state.mouse_y, gui) == null) return;
     clickSound(app_state);
     closeAchievements(app_state);
     try togglePause(app_state);
@@ -2224,31 +2224,31 @@ fn closeStats(app_state: *AppState) void {
 
 fn statsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.stats_screen.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view)) {
+    if (render.screen.stats.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view)) {
         app_state.dragging_scrollbar = true;
         return;
     }
 
-    const hit = render.stats_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view) orelse return;
+    const hit = render.screen.stats.hitAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.stats_view) orelse return;
     clickSound(app_state);
     switch (hit) {
         .done => closeStats(app_state),
         .tab => |tab| app_state.stats_view.tab = tab,
         .header => |column| {
             app_state.stats_view.pressed = column;
-            render.stats_screen.applySort(&app_state.stats_view, &app_state.stats, column);
+            render.screen.stats.applySort(&app_state.stats_view, &app_state.stats, column);
         },
     }
 }
 
 fn optionsClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const hit = render.options_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    const hit = render.screen.options.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     clickSound(app_state);
     switch (hit) {
         .slider => |s| {
             app_state.dragging_slider = s;
-            setSlider(app_state, s, render.options_screen.sliderValueAt(s, app_state.mouse_x, gui));
+            setSlider(app_state, s, render.screen.options.sliderValueAt(s, app_state.mouse_x, gui));
         },
         .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
         .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
@@ -2260,12 +2260,12 @@ fn optionsClick(app_state: *AppState) !void {
 
 fn videoClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    const hit = render.video_settings_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    const hit = render.screen.video_settings.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     clickSound(app_state);
     if (hit == .done) {
         app_state.video_open = false;
     } else {
-        render.video_settings_screen.cycle(&app_state.settings, hit);
+        render.screen.video_settings.cycle(&app_state.settings, hit);
         switch (hit) {
             .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
             else => {},
@@ -2275,7 +2275,7 @@ fn videoClick(app_state: *AppState) !void {
 
 fn controlsClick(app_state: *AppState) void {
     const gui = guiSize(app_state);
-    const hit = render.controls_screen.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
+    const hit = render.screen.controls.hitAt(app_state.mouse_x, app_state.mouse_y, gui) orelse return;
     clickSound(app_state);
     switch (hit) {
         .binding => |binding| app_state.rebinding = binding,
@@ -2991,7 +2991,7 @@ fn drainEarnedAchievements(app_state: *AppState) !void {
 }
 
 fn inventoryKeyName(app_state: *const AppState) []const u8 {
-    return render.controls_screen.keyName(app_state.settings.keys.get(.inventory));
+    return render.screen.controls.keyName(app_state.settings.keys.get(.inventory));
 }
 
 fn recordMountedMovement(app_state: *AppState, dx: f64, dy: f64, dz: f64) !void {
@@ -4589,7 +4589,7 @@ pub fn iterate(
     _ = dt;
 
     if (sdl3.timer.getMillisecondsSinceInit() < app_state.mojang_until_ms) {
-        try render.mojang_screen.draw(uiContext(app_state, gui));
+        try render.screen.mojang.draw(uiContext(app_state, gui));
         try sdl3.video.gl.swapWindow(app_state.window);
         return .run;
     }
@@ -4647,7 +4647,7 @@ pub fn iterate(
     app_state.frame_end_ns = sdl3.timer.getNanosecondsSinceInit();
 
     const ui = uiContext(app_state, gui);
-    const backdrop: render.options_screen.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
+    const backdrop: render.screen.options.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
 
     if (app_state.screen == .playing) {
         if (cameraSubmerged(app_state) and !app_state.player.sleeping) {
@@ -4667,15 +4667,15 @@ pub fn iterate(
     }
 
     if (app_state.controls_open) {
-        try render.controls_screen.draw(ui, app_state.settings, backdrop, app_state.rebinding);
+        try render.screen.controls.draw(ui, app_state.settings, backdrop, app_state.rebinding);
     } else if (app_state.video_open) {
-        try render.video_settings_screen.draw(ui, app_state.settings, backdrop);
+        try render.screen.video_settings.draw(ui, app_state.settings, backdrop);
     } else if (app_state.options_open) {
-        try render.options_screen.draw(ui, app_state.settings, backdrop);
+        try render.screen.options.draw(ui, app_state.settings, backdrop);
     } else if (app_state.stats_open) {
         const view = &app_state.stats_view;
-        view.scroll.set(view.tab, render.stats_screen.clampScroll(gui, view.*, view.scrollOf()));
-        try render.stats_screen.draw(ui, view.*, &app_state.stats);
+        view.scroll.set(view.tab, render.screen.stats.clampScroll(gui, view.*, view.scrollOf()));
+        try render.screen.stats.draw(ui, view.*, &app_state.stats);
     } else if (app_state.achievements_open) {
         app_state.achievements_view.drag(
             app_state.mouse_x,
@@ -4683,7 +4683,7 @@ pub fn iterate(
             gui,
             app_state.achievements_grabbing,
         );
-        try render.achievements_screen.draw(
+        try render.screen.achievements.draw(
             ui,
             app_state.achievements_view,
             &app_state.stats,
@@ -4692,17 +4692,17 @@ pub fn iterate(
             inventoryKeyName(app_state),
         );
     } else if (app_state.screen == .title) {
-        try render.title_screen.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
+        try render.screen.title.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
     } else if (app_state.screen == .select_world) {
-        app_state.list_scroll = render.select_world_screen.clampScroll(gui, app_state.summaries.len, app_state.list_scroll);
-        try render.select_world_screen.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
+        app_state.list_scroll = render.screen.select_world.clampScroll(gui, app_state.summaries.len, app_state.list_scroll);
+        try render.screen.select_world.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
     } else if (app_state.screen == .create_world) {
-        try render.create_world_screen.draw(ui, &app_state.create_state);
+        try render.screen.create_world.draw(ui, &app_state.create_state);
     } else if (app_state.screen == .multiplayer) {
-        try render.multiplayer_screen.draw(ui, &app_state.multiplayer_state);
+        try render.screen.multiplayer.draw(ui, &app_state.multiplayer_state);
     } else if (app_state.screen == .texture_packs) {
-        app_state.pack_scroll = render.texture_packs_screen.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
-        try render.texture_packs_screen.draw(
+        app_state.pack_scroll = render.screen.texture_packs.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
+        try render.screen.texture_packs.draw(
             ui,
             app_state.packs,
             app_state.pack_thumbnails,
@@ -4713,28 +4713,28 @@ pub fn iterate(
         var message: [96]u8 = undefined;
         const name = if (app_state.selected_world) |index| app_state.summaries[index].name else "";
         const line = std.fmt.bufPrint(&message, "'{s}' will be lost forever! (A long time!)", .{name}) catch "This world will be lost forever! (A long time!)";
-        try render.confirm_screen.draw(ui, "Are you sure you want to delete this world?", line, "Delete");
+        try render.screen.confirm.draw(ui, "Are you sure you want to delete this world?", line, "Delete");
     } else if (app_state.screen == .loading) {
         const total = app_state.loading.total;
         const progress: i32 = if (total == 0) 0 else @intCast(app_state.loading.done * 100 / total);
-        try render.loading_screen.draw(ui, app_state.loading.title, "Building terrain", progress);
+        try render.screen.loading.draw(ui, app_state.loading.title, "Building terrain", progress);
     } else if (app_state.dead) {
-        try render.death_screen.draw(ui);
+        try render.screen.death.draw(ui);
     } else if (app_state.paused) {
         try render.menu.draw(ui, app_state.pause_saving, app_state.pause_ticks, app_state.timer.render_partial_ticks);
     } else if (openedFurnace(app_state)) |furnace| {
-        try render.furnace_screen.draw(
+        try render.screen.furnace.draw(
             ui,
             app_state.player.inventory,
             furnace.*,
             app_state.held_stack,
         );
     } else if (openedChest(app_state)) |open| {
-        try render.chest_screen.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
+        try render.screen.chest.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
     } else if (openedDispenser(app_state)) |open| {
-        try render.dispenser_screen.draw(ui, app_state.player.inventory, open, app_state.held_stack);
+        try render.screen.dispenser.draw(ui, app_state.player.inventory, open, app_state.held_stack);
     } else if (openedMinecart(app_state)) |cart| {
-        try render.chest_screen.drawCargo(
+        try render.screen.chest.drawCargo(
             ui,
             app_state.player.inventory,
             &cart.items,
@@ -4742,7 +4742,7 @@ pub fn iterate(
             app_state.held_stack,
         );
     } else if (app_state.workbench_open) {
-        try render.crafting_screen.draw(
+        try render.screen.crafting.draw(
             ui,
             app_state.player.inventory,
             app_state.workbench_grid,
@@ -4752,9 +4752,9 @@ pub fn iterate(
         const id = app_state.level.world_map.getBlock(open.x, open.y, open.z);
         const meta = app_state.level.world_map.getBlockMetadata(open.x, open.y, open.z);
         const state = app_state.level.world_map.signAt(open.x, open.y, open.z);
-        try render.edit_sign_screen.draw(ui, open, id, meta, if (state) |value| value.* else .{});
+        try render.screen.edit_sign.draw(ui, open, id, meta, if (state) |value| value.* else .{});
     } else if (app_state.inventory_open) {
-        try render.inventory_screen.draw(
+        try render.screen.inventory.draw(
             ui,
             render.mob_model.biped,
             app_state.player.inventory,
@@ -4920,7 +4920,7 @@ pub fn event(
                 dragScrollbar(app_state, m.y_rel);
             } else if (app_state.dragging_slider) |s| {
                 const gui = guiSize(app_state);
-                setSlider(app_state, s, render.options_screen.sliderValueAt(s, m.x, gui));
+                setSlider(app_state, s, render.screen.options.sliderValueAt(s, m.x, gui));
             } else if (worldFocused(app_state)) {
                 if (app_state.freecam.active) {
                     app_state.freecam.turn(m.x_rel, m.y_rel, app_state.settings.sensitivity, app_state.settings.invert_mouse);
@@ -4933,14 +4933,14 @@ pub fn event(
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
         } else if (app_state.stats_open) {
             const view = &app_state.stats_view;
-            const step = render.stats_screen.scrollStep(view.tab);
-            view.scroll.set(view.tab, render.stats_screen.clampScroll(guiSize(app_state), view.*, view.scrollOf() - w.scroll_y * step));
+            const step = render.screen.stats.scrollStep(view.tab);
+            view.scroll.set(view.tab, render.screen.stats.clampScroll(guiSize(app_state), view.*, view.scrollOf() - w.scroll_y * step));
         } else if (app_state.screen == .select_world) {
-            const step = w.scroll_y * render.select_world_screen.entry_height;
-            app_state.list_scroll = render.select_world_screen.clampScroll(guiSize(app_state), app_state.summaries.len, app_state.list_scroll - step);
+            const step = w.scroll_y * render.screen.select_world.entry_height;
+            app_state.list_scroll = render.screen.select_world.clampScroll(guiSize(app_state), app_state.summaries.len, app_state.list_scroll - step);
         } else if (app_state.screen == .texture_packs) {
-            const step = w.scroll_y * render.texture_packs_screen.entry_height;
-            app_state.pack_scroll = render.texture_packs_screen.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
+            const step = w.scroll_y * render.screen.texture_packs.entry_height;
+            app_state.pack_scroll = render.screen.texture_packs.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
         },
         .text_input => |t| if (app_state.sign_edit) |open| {
             if (editedSign(app_state)) |state| {
@@ -4971,7 +4971,7 @@ pub fn event(
                 try achievementsClick(app_state);
             } else if (app_state.screen == .title) {
                 const gui = guiSize(app_state);
-                if (render.title_screen.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| {
+                if (render.screen.title.actionAt(app_state.mouse_x, app_state.mouse_y, gui)) |action| {
                     clickSound(app_state);
                     switch (action) {
                         .singleplayer => try openSelectWorld(app_state),
@@ -4998,7 +4998,7 @@ pub fn event(
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);
             } else if (app_state.chat.open) {} else if (app_state.sign_edit != null) {
-                if (render.edit_sign_screen.hitAt(app_state.mouse_x, app_state.mouse_y, guiSize(app_state))) |hit| {
+                if (render.screen.edit_sign.hitAt(app_state.mouse_x, app_state.mouse_y, guiSize(app_state))) |hit| {
                     clickSound(app_state);
                     switch (hit) {
                         .done => try closeSignEditor(app_state),

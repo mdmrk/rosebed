@@ -1,8 +1,8 @@
 const game = @import("game");
 const grid_size = game.crafting.workbench_grid_size;
 
-const container = @import("container_screen.zig");
-const gui = @import("gui.zig");
+const container = @import("container.zig");
+const gui = @import("../gui.zig");
 
 const grid_x: f32 = 30;
 const grid_y: f32 = 17;

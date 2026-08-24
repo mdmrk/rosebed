@@ -3,10 +3,10 @@ const std = @import("std");
 const game = @import("game");
 const gl = @import("gl");
 
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const options_screen = @import("options_screen.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const options_screen = @import("options.zig");
 pub const Backdrop = options_screen.Backdrop;
 
 const opt_width: f32 = 150;

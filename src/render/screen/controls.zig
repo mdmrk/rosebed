@@ -5,10 +5,10 @@ pub const Binding = game.Settings.Binding;
 const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const options_screen = @import("options_screen.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const options_screen = @import("options.zig");
 pub const Backdrop = options_screen.Backdrop;
 
 const bind_width: f32 = 70;

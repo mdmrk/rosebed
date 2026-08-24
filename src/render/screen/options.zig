@@ -3,11 +3,11 @@ const std = @import("std");
 const game = @import("game");
 const gl = @import("gl");
 
-const button = @import("button.zig");
-const Font = @import("Font.zig");
-const gui = @import("gui.zig");
+const button = @import("../button.zig");
+const Font = @import("../Font.zig");
+const gui = @import("../gui.zig");
 pub const Backdrop = gui.Backdrop;
-const MeshBuilder = @import("MeshBuilder.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;

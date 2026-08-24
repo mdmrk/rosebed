@@ -2,10 +2,10 @@ const std = @import("std");
 
 const gl = @import("gl");
 
-const button = @import("button.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
-const text_field = @import("text_field.zig");
+const button = @import("../button.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
+const text_field = @import("../text_field.zig");
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const info_color: [4]u8 = .{ 160, 160, 160, 255 };

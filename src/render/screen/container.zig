@@ -3,9 +3,9 @@ const std = @import("std");
 const game = @import("game");
 const gl = @import("gl");
 
-const Atlas = @import("Atlas.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
+const Atlas = @import("../Atlas.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 
 pub const width: f32 = 176;
 pub const height: f32 = 166;
@@ -256,7 +256,7 @@ test "clicking the background between slots hits no slot but is not outside" {
 }
 
 test "a furnace shift-click walks ContainerFurnace's slot ranges" {
-    const furnace_screen = @import("furnace_screen.zig");
+    const furnace_screen = @import("furnace.zig");
     const layout = furnace_screen.slots();
 
     const output = quickRange(&layout, 2);
@@ -269,7 +269,7 @@ test "a furnace shift-click walks ContainerFurnace's slot ranges" {
 }
 
 test "a workbench shift-click walks ContainerWorkbench's slot ranges" {
-    const crafting_screen = @import("crafting_screen.zig");
+    const crafting_screen = @import("crafting.zig");
     const layout = crafting_screen.slots();
 
     try std.testing.expectEqual(QuickRange{ .start = 10, .end = 46, .reverse = true }, quickRange(&layout, 0));
@@ -279,7 +279,7 @@ test "a workbench shift-click walks ContainerWorkbench's slot ranges" {
 }
 
 test "an inventory shift-click walks ContainerPlayer's slot ranges" {
-    const inventory_screen = @import("inventory_screen.zig");
+    const inventory_screen = @import("inventory.zig");
     const layout = inventory_screen.slots();
 
     try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = true }, quickRange(&layout, 0));
@@ -290,7 +290,7 @@ test "an inventory shift-click walks ContainerPlayer's slot ranges" {
 }
 
 test "a chest shift-click moves stacks both ways, unlike the other containers" {
-    const chest_screen = @import("chest_screen.zig");
+    const chest_screen = @import("chest.zig");
     var buffer: [chest_screen.max_slot_count]Slot = undefined;
 
     const single = chest_screen.slots(3, &buffer, .chest);

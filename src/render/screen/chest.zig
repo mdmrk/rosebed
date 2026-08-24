@@ -3,9 +3,9 @@ const std = @import("std");
 const game = @import("game");
 const world = @import("world");
 
-const container = @import("container_screen.zig");
-const gui = @import("gui.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
+const container = @import("container.zig");
+const gui = @import("../gui.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 
 const texture_size: f32 = 256;
 
