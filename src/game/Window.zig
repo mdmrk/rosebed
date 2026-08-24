@@ -96,6 +96,14 @@ pub const Outcome = struct {
     smelted: ?world.Stack = null,
 };
 
+pub fn throwCarried(button: Click, carried: *?world.Stack) ?world.Stack {
+    const held = carried.* orelse return null;
+    const drop_count = if (button == .left) held.count else 1;
+    const kept = held.count - drop_count;
+    carried.* = if (kept == 0) null else .{ .id = held.id, .count = kept, .meta = held.meta };
+    return .{ .id = held.id, .count = drop_count, .meta = held.meta };
+}
+
 pub fn click(
     self: *Window,
     index: i16,
@@ -103,14 +111,7 @@ pub fn click(
     shift: bool,
     carried: *?world.Stack,
 ) Outcome {
-    if (index == outside_slot) {
-        const held = carried.* orelse return .{};
-        const drop_count = if (button == .left) held.count else 1;
-        const dropped: world.Stack = .{ .id = held.id, .count = drop_count, .meta = held.meta };
-        const kept = held.count - drop_count;
-        carried.* = if (kept == 0) null else .{ .id = held.id, .count = kept, .meta = held.meta };
-        return .{ .thrown = dropped };
-    }
+    if (index == outside_slot) return .{ .thrown = throwCarried(button, carried) };
 
     if (index < 0 or index >= self.count) return .{};
     const at: usize = @intCast(index);

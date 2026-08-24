@@ -142,3 +142,29 @@ test "clicking the middle of a furnace slot finds it" {
     const fuel_click_y = (org[1] + fuel_y + 8) * res.factor;
     try std.testing.expectEqual(@as(?usize, 1), container.slotAt(&layout, fuel_click_x, fuel_click_y, res, container.height));
 }
+
+test "the furnace screen's slots line up with the protocol window, slot for slot" {
+    var fire: world.furnace.Furnace = .{};
+    var player: game.Inventory = .{};
+
+    var window: game.Window = .{};
+    window.add(.{ .stack = &fire.input });
+    window.add(.{ .stack = &fire.fuel });
+    window.add(.{ .stack = &fire.output, .kind = .output });
+    window.store_count = window.count;
+    window.addPlayer(&player);
+
+    const screen = slots();
+    try std.testing.expectEqual(screen.len, window.count);
+    for (screen, 0..) |slot, index| {
+        const expected: *?world.Stack = switch (slot.kind) {
+            .furnace_input => &fire.input,
+            .furnace_fuel => &fire.fuel,
+            .furnace_output => &fire.output,
+            .inventory => &player.slots[slot.index],
+            else => unreachable,
+        };
+        try std.testing.expectEqual(expected, window.slots[index].stack.?);
+    }
+    try std.testing.expectEqual(game.Window.Kind.output, window.slots[2].kind);
+}

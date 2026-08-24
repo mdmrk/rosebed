@@ -810,26 +810,58 @@ fn dropSelectedItem(app_state: *AppState) !void {
 }
 
 fn dropHeldStack(app_state: *AppState, click_type: game.Window.Click) !void {
-    const held = app_state.held_stack orelse return;
-    const drop_count = if (click_type == .left) held.count else 1;
+    const thrown = game.Window.throwCarried(click_type, &app_state.held_stack) orelse return;
     try spawnDroppedItem(
         app_state,
         @intFromFloat(@floor(app_state.player.base.position.x)),
         @intFromFloat(@floor(app_state.player.base.position.y)),
         @intFromFloat(@floor(app_state.player.base.position.z)),
-        .{ .id = held.id, .count = drop_count, .meta = held.meta },
+        thrown,
     );
-    const remaining = held.count - drop_count;
-    app_state.held_stack = if (remaining == 0) null else .{ .id = held.id, .count = remaining, .meta = held.meta };
     if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
 }
 
-fn stampCraftedMap(app_state: *AppState, stack: *game.Inventory.ItemStack) !void {
+fn currentWindow(app_state: *AppState) game.Window {
+    var window: game.Window = .{};
+
+    if (openedFurnace(app_state)) |fire| {
+        window.add(.{ .stack = &fire.input });
+        window.add(.{ .stack = &fire.fuel });
+        window.add(.{ .stack = &fire.output, .kind = .output });
+        window.store_count = window.count;
+    } else if (openedChest(app_state)) |open| {
+        window.addStore(&open.upper.items, .chest);
+        if (open.lower) |lower| window.addStore(&lower.items, .chest);
+    } else if (openedDispenser(app_state)) |trap| {
+        window.addStore(&trap.items, .chest);
+    } else if (openedMinecart(app_state)) |cart| {
+        window.addStore(&cart.items, .chest);
+    } else if (app_state.workbench_open) {
+        window.addGrid(&app_state.workbench_grid, game.Window.workbench_side);
+    } else {
+        window.addGrid(&app_state.crafting_grid, game.Window.crafting_side);
+        for (0..game.Inventory.armor_size) |piece| {
+            window.add(.{
+                .stack = &app_state.player.inventory.armor[piece],
+                .kind = .armor,
+                .armor = @enumFromInt(piece),
+            });
+        }
+    }
+
+    window.addPlayer(&app_state.player.inventory);
+    return window;
+}
+
+fn mintCraftedMap(app_state: *AppState, window: *game.Window) !void {
     if (app_state.link != null) return;
-    if (!stack.id.eql(.{ .item = .map })) return;
+    if (window.grid.len == 0) return;
+
+    const result = game.crafting.findMatch(window.grid, window.grid_side) orelse return;
+    if (!result.id.eql(.{ .item = .map })) return;
 
     const id = try app_state.level.world_map.nextMapId();
-    stack.meta = @bitCast(id);
+    window.minted_map = @bitCast(id);
 
     const data = try app_state.level.world_map.mapData(id);
     data.center_x = math.util.floorDouble(app_state.player.base.position.x);
@@ -839,125 +871,35 @@ fn stampCraftedMap(app_state: *AppState, stack: *game.Inventory.ItemStack) !void
     data.markDirty();
 }
 
-fn resultSlotClick(app_state: *AppState, grid: []?game.Inventory.ItemStack, size: u8) !void {
-    var result = game.crafting.findMatch(grid, size) orelse return;
-    try stampCraftedMap(app_state, &result);
-    if (app_state.held_stack) |*held| {
-        if (!held.id.eql(result.id) or held.meta != result.meta) return;
-        if (@as(u16, held.count) + result.count > result.id.maxStackSize()) return;
-        held.count += result.count;
-    } else {
-        app_state.held_stack = result;
-    }
-    game.crafting.consume(grid);
-    if (app_state.link == null) try app_state.stats.craft(app_state.gpa, result.id, result.count);
-    if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
-}
+fn containerClickAt(app_state: *AppState, aimed: i16, click_type: game.Window.Click, shift: bool) !void {
+    if (aimed == no_window_slot) return;
 
-fn containerClickAt(
-    app_state: *AppState,
-    slots: []const render.screen.container.Slot,
-    grid: []?game.Inventory.ItemStack,
-    size: u8,
-    click_type: game.Window.Click,
-    box_height: f32,
-    shift: bool,
-) !void {
-    const gui = guiSize(app_state);
-    const index = render.screen.container.slotAt(slots, app_state.mouse_x, app_state.mouse_y, gui, box_height) orelse {
-        if (render.screen.container.isOutside(app_state.mouse_x, app_state.mouse_y, gui, box_height)) {
-            try dropHeldStack(app_state, click_type);
-        }
-        return;
-    };
-    if (shift) return quickMove(app_state, slots, grid, size, index);
+    var window = currentWindow(app_state);
+    if (window.count == 0) return;
+    try mintCraftedMap(app_state, &window);
 
-    const slot = slots[index];
-    switch (slot.kind) {
-        .craft_result => try resultSlotClick(app_state, grid, size),
-        .furnace_output => try furnaceOutputClick(app_state, click_type),
-        else => {
-            const storage = slotStorage(app_state, slot, grid) orelse return;
-            game.Window.clickSlot(slotRules(slot, storage), click_type, &app_state.held_stack);
-        },
-    }
-}
+    const outcome = window.click(aimed, click_type, shift, &app_state.held_stack);
 
-fn slotRules(slot: render.screen.container.Slot, storage: *?game.Inventory.ItemStack) game.Window.Slot {
-    if (slot.kind != .armor) return .{ .stack = storage };
-    return .{ .stack = storage, .armor = @enumFromInt(slot.index) };
-}
-
-fn slotStorage(
-    app_state: *AppState,
-    slot: render.screen.container.Slot,
-    grid: []?game.Inventory.ItemStack,
-) ?*?game.Inventory.ItemStack {
-    return switch (slot.kind) {
-        .inventory => &app_state.player.inventory.slots[slot.index],
-        .craft_input => &grid[slot.index],
-        .armor => &app_state.player.inventory.armor[slot.index],
-        .furnace_input, .furnace_fuel => (openedFurnace(app_state) orelse return null).slot(slot.index),
-        .chest => openedChestSlot(app_state, slot.index),
-        .dispenser => (openedDispenser(app_state) orelse return null).slot(slot.index),
-        .minecart => (openedMinecart(app_state) orelse return null).slot(slot.index),
-        .craft_result, .furnace_output => null,
-    };
-}
-
-fn quickMove(
-    app_state: *AppState,
-    slots: []const render.screen.container.Slot,
-    grid: []?game.Inventory.ItemStack,
-    size: u8,
-    from: usize,
-) !void {
-    const range = render.screen.container.quickRange(slots, from);
-
-    var targets: [render.screen.chest.max_slot_count]*?game.Inventory.ItemStack = undefined;
-    var count: usize = 0;
-    for (0..range.end - range.start) |step| {
-        const index = if (range.reverse) range.end - 1 - step else range.start + step;
-        targets[count] = slotStorage(app_state, slots[index], grid) orelse continue;
-        count += 1;
+    if (outcome.thrown) |stack| {
+        try spawnDroppedItem(
+            app_state,
+            @intFromFloat(@floor(app_state.player.base.position.x)),
+            @intFromFloat(@floor(app_state.player.base.position.y)),
+            @intFromFloat(@floor(app_state.player.base.position.z)),
+            stack,
+        );
+        if (app_state.link == null) try app_state.stats.add(app_state.gpa, .{ .general = .drop }, 1);
     }
 
-    switch (slots[from].kind) {
-        .craft_result => {
-            var result = game.crafting.findMatch(grid, size) orelse return;
-            try stampCraftedMap(app_state, &result);
-            var moving = result;
-            game.Inventory.mergeStack(targets[0..count], &moving);
-            if (moving.count == result.count) return;
-            game.crafting.consume(grid);
-            if (app_state.link == null) try app_state.stats.craft(app_state.gpa, result.id, result.count - moving.count);
-            if (game.achievements.forCrafted(result.id)) |earned| try awardAchievement(app_state, earned);
-        },
-        .furnace_output => {
-            const furnace = openedFurnace(app_state) orelse return;
-            var moving = furnace.output orelse return;
-            const before = moving.count;
-            game.Inventory.mergeStack(targets[0..count], &moving);
-            if (moving.count == before) return;
-            furnace.output = if (moving.count == 0) null else moving;
-            try app_state.stats.craft(app_state.gpa, moving.id, before - moving.count);
-            if (game.achievements.forSmelted(moving.id)) |earned| try awardAchievement(app_state, earned);
-        },
-        else => {
-            const source = slotStorage(app_state, slots[from], grid) orelse return;
-            var moving = source.* orelse return;
-            game.Inventory.mergeStack(targets[0..count], &moving);
-            source.* = if (moving.count == 0) null else moving;
-        },
+    if (outcome.crafted) |made| {
+        if (app_state.link == null) try app_state.stats.craft(app_state.gpa, made.id, made.count);
+        if (game.achievements.forCrafted(made.id)) |earned| try awardAchievement(app_state, earned);
     }
-}
 
-fn furnaceOutputClick(app_state: *AppState, click_type: game.Window.Click) !void {
-    const furnace = openedFurnace(app_state) orelse return;
-    const taken = game.Window.takeInto(&furnace.output, click_type, &app_state.held_stack) orelse return;
-
-    try app_state.stats.craft(app_state.gpa, taken.id, taken.count);
-    if (game.achievements.forSmelted(taken.id)) |earned| try awardAchievement(app_state, earned);
+    if (outcome.smelted) |made| {
+        try app_state.stats.craft(app_state.gpa, made.id, made.count);
+        if (game.achievements.forSmelted(made.id)) |earned| try awardAchievement(app_state, earned);
+    }
 }
 
 fn shiftHeld() bool {
@@ -969,39 +911,37 @@ fn openContainerClickAt(app_state: *AppState, click_type: game.Window.Click) !vo
     const shift = shiftHeld();
     if (app_state.furnace_open != null) {
         const layout = render.screen.furnace.slots();
-        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.screen.container.height, shift);
+        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
         var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
         const layout = render.screen.chest.slots(rows, &buffer, .chest);
-        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.screen.chest.height(rows), shift);
+        try windowClickAt(app_state, layout, click_type, render.screen.chest.height(rows), shift);
     } else if (openedDispenser(app_state) != null) {
         const layout = render.screen.dispenser.slots();
-        try windowClickAt(app_state, &layout, &.{}, 0, click_type, render.screen.container.height, shift);
+        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
     } else if (openedMinecart(app_state) != null) {
         var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
         const layout = render.screen.chest.slots(game.Minecart.chest_rows, &buffer, .minecart);
-        try windowClickAt(app_state, layout, &.{}, 0, click_type, render.screen.chest.height(game.Minecart.chest_rows), shift);
+        try windowClickAt(app_state, layout, click_type, render.screen.chest.height(game.Minecart.chest_rows), shift);
     } else if (app_state.workbench_open) {
         const layout = render.screen.crafting.slots();
-        try windowClickAt(app_state, &layout, &app_state.workbench_grid, game.crafting.workbench_grid_size, click_type, render.screen.container.height, shift);
+        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
     } else {
         const layout = render.screen.inventory.slots();
-        try windowClickAt(app_state, &layout, &app_state.crafting_grid, game.crafting.player_grid_size, click_type, render.screen.container.height, shift);
+        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
     }
 }
 
 fn windowClickAt(
     app_state: *AppState,
     slots: []const render.screen.container.Slot,
-    grid: []?game.Inventory.ItemStack,
-    size: u8,
     click_type: game.Window.Click,
     box_height: f32,
     shift: bool,
 ) !void {
     const aimed = aimedWindowSlot(app_state, slots, box_height);
-    try containerClickAt(app_state, slots, grid, size, click_type, box_height, shift);
+    try containerClickAt(app_state, aimed, click_type, shift);
     try reportWindowClick(app_state, aimed, click_type, shift);
 }
 

@@ -175,3 +175,31 @@ test "the armour column sits where ContainerPlayer puts it, helmet at the top" {
     try std.testing.expectEqual(armor_size, found);
     try std.testing.expectEqual(@as(usize, @intFromEnum(world.item.ArmorSlot.helmet)), layout[5].index);
 }
+
+test "the inventory screen's slots line up with the protocol window, slot for slot" {
+    var grid: [game.Window.crafting_grid]?world.Stack = @splat(null);
+    var player: game.Inventory = .{};
+
+    var window: game.Window = .{};
+    window.addGrid(&grid, game.Window.crafting_side);
+    for (0..game.Inventory.armor_size) |piece| {
+        window.add(.{
+            .stack = &player.armor[piece],
+            .kind = .armor,
+            .armor = @enumFromInt(piece),
+        });
+    }
+    window.addPlayer(&player);
+
+    const screen = slots();
+    try std.testing.expectEqual(screen.len, window.count);
+    for (screen, 0..) |slot, index| {
+        switch (slot.kind) {
+            .craft_result => try std.testing.expectEqual(game.Window.Kind.craft_result, window.slots[index].kind),
+            .craft_input => try std.testing.expectEqual(&grid[slot.index], window.slots[index].stack.?),
+            .armor => try std.testing.expectEqual(&player.armor[slot.index], window.slots[index].stack.?),
+            .inventory => try std.testing.expectEqual(&player.slots[slot.index], window.slots[index].stack.?),
+            else => unreachable,
+        }
+    }
+}

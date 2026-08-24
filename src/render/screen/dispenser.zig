@@ -92,3 +92,23 @@ test "clicking the middle of a dispenser slot finds it" {
     const click_y = (org[1] + layout[4].y + 8) * res.factor;
     try std.testing.expectEqual(@as(?usize, 4), container.slotAt(&layout, click_x, click_y, res, container.height));
 }
+
+test "the dispenser screen's slots line up with the protocol window, slot for slot" {
+    var trap: world.dispenser.Dispenser = .{};
+    var player: game.Inventory = .{};
+
+    var window: game.Window = .{};
+    window.addStore(&trap.items, .chest);
+    window.addPlayer(&player);
+
+    const screen = slots();
+    try std.testing.expectEqual(screen.len, window.count);
+    for (screen, 0..) |slot, index| {
+        const expected: *?world.Stack = switch (slot.kind) {
+            .dispenser => &trap.items[slot.index],
+            .inventory => &player.slots[slot.index],
+            else => unreachable,
+        };
+        try std.testing.expectEqual(expected, window.slots[index].stack.?);
+    }
+}

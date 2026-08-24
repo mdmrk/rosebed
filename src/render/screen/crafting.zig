@@ -1,4 +1,7 @@
+const std = @import("std");
+
 const game = @import("game");
+const world = @import("world");
 const grid_size = game.crafting.workbench_grid_size;
 
 const container = @import("container.zig");
@@ -62,4 +65,24 @@ pub fn draw(
         .{ .text = "Inventory", .x = inventory_label_x, .y = inventory_label_y },
     }, held, container.height);
     container.end();
+}
+
+test "the workbench screen's slots line up with the protocol window, slot for slot" {
+    var grid: [game.Window.workbench_grid]?world.Stack = @splat(null);
+    var player: game.Inventory = .{};
+
+    var window: game.Window = .{};
+    window.addGrid(&grid, game.Window.workbench_side);
+    window.addPlayer(&player);
+
+    const screen = slots();
+    try std.testing.expectEqual(screen.len, window.count);
+    for (screen, 0..) |slot, index| {
+        switch (slot.kind) {
+            .craft_result => try std.testing.expectEqual(game.Window.Kind.craft_result, window.slots[index].kind),
+            .craft_input => try std.testing.expectEqual(&grid[slot.index], window.slots[index].stack.?),
+            .inventory => try std.testing.expectEqual(&player.slots[slot.index], window.slots[index].stack.?),
+            else => unreachable,
+        }
+    }
 }
