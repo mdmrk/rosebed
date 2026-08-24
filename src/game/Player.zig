@@ -692,6 +692,21 @@ pub fn tickSleep(self: *Player) void {
     }
 }
 
+pub fn tickSleepWake(self: *Player, world_map: *world.World) !bool {
+    if (!self.sleeping) return false;
+
+    if (self.wake_pending) {
+        self.wake_pending = false;
+        try self.wakeUp(world_map, true, false);
+    } else if (!self.isInBed(world_map)) {
+        try self.wakeUp(world_map, true, false);
+    } else if (world_map.isDaytime()) {
+        try self.wakeUp(world_map, false, true);
+    } else return false;
+
+    return true;
+}
+
 pub fn sleepFade(self: Player) f32 {
     if (self.sleep_timer <= 0) return 0;
     const elapsed: f32 = @floatFromInt(self.sleep_timer);

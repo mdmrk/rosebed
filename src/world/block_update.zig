@@ -321,6 +321,21 @@ pub fn bedPartner(world_map: *const World, x: i32, y: i32, z: i32) ?[3]i32 {
     return if (world_map.getBlock(other[0], other[1], other[2]) == .bed) other else null;
 }
 
+pub const Pillow = struct {
+    at: [3]i32,
+    metadata: u4,
+};
+
+pub fn bedPillowAt(world_map: *const World, x: i32, y: i32, z: i32) ?Pillow {
+    var at: [3]i32 = .{ x, y, z };
+    var metadata = world_map.getBlockMetadata(at[0], at[1], at[2]);
+    if (!block.bedIsPillow(metadata)) {
+        at = bedPartner(world_map, x, y, z) orelse return null;
+        metadata = world_map.getBlockMetadata(at[0], at[1], at[2]);
+    }
+    return .{ .at = at, .metadata = metadata };
+}
+
 pub fn setBedOccupied(world_map: *World, x: i32, y: i32, z: i32, occupied: bool) !void {
     const metadata = world_map.getBlockMetadata(x, y, z);
     try world_map.setBlockMetadataWithNotify(x, y, z, block.bedOccupied(metadata, occupied));

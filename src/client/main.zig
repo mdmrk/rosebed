@@ -2489,24 +2489,19 @@ fn hangPaintingAtTarget(app_state: *AppState) !bool {
 }
 
 const bed_not_valid_line = "Your home bed was missing or obstructed";
-const bed_occupied_line = "This bed is occupied";
-const bed_no_sleep_line = "You can only sleep at night";
-const bed_blast_size: f32 = 5.0;
-const bed_blast_is_flaming = true;
 
 fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    var pillow: [3]i32 = .{ x, y, z };
-    var metadata = app_state.level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
-    if (!world.block.bedIsPillow(metadata)) {
-        pillow = world.block_update.bedPartner(&app_state.level.world_map, x, y, z) orelse return;
-        metadata = app_state.level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
+    const found = world.block_update.bedPillowAt(&app_state.level.world_map, x, y, z) orelse return;
+    const pillow = found.at;
+
+    if (app_state.dimension == .nether) {
+        try game.bed.blowUp(app_state.gpa, &app_state.level, pillow, found.metadata);
+        return try applyBlockChanges(app_state);
     }
 
-    if (app_state.dimension == .nether) return blowUpBed(app_state, pillow, metadata);
-
-    if (world.block.bedIsOccupied(metadata)) {
+    if (world.block.bedIsOccupied(found.metadata)) {
         if (app_state.player.sleeping and std.meta.eql(app_state.player.bed, pillow)) {
-            app_state.chat.addMessage(app_state.font, bed_occupied_line);
+            app_state.chat.addMessage(app_state.font, game.bed.occupied_line);
             return;
         }
         try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], false);
@@ -2517,38 +2512,9 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
             try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], true);
             try applyBlockChanges(app_state);
         },
-        .not_possible_now => app_state.chat.addMessage(app_state.font, bed_no_sleep_line),
+        .not_possible_now => app_state.chat.addMessage(app_state.font, game.bed.no_sleep_line),
         else => {},
     }
-}
-
-fn blowUpBed(app_state: *AppState, pillow: [3]i32, metadata: u4) !void {
-    var x = pillow[0];
-    var z = pillow[2];
-    try app_state.level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
-
-    const step = world.block.bedStep(world.block.bedFacing(metadata));
-    x += step[0];
-    z += step[1];
-    if (app_state.level.world_map.getBlock(x, pillow[1], z) == .bed) {
-        try app_state.level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
-    }
-
-    try game.explosion.detonate(
-        app_state.gpa,
-        &app_state.level.entities,
-        &app_state.level.world_map,
-        app_state.level.roster.items,
-        .{
-            .x = @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
-            .y = @as(f64, @as(f32, @floatFromInt(pillow[1])) + 0.5),
-            .z = @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
-        },
-        bed_blast_size,
-        bed_blast_is_flaming,
-        &app_state.level.world_map.rand,
-    );
-    try applyBlockChanges(app_state);
 }
 
 fn useHeldItem(app_state: *AppState) !void {
@@ -3224,16 +3190,7 @@ fn leaveServer(app_state: *AppState) !void {
 fn tickSleep(app_state: *AppState) !void {
     app_state.player.tickSleep();
     if (app_state.link != null) return;
-    if (!app_state.player.sleeping) return;
-
-    if (app_state.player.wake_pending) {
-        app_state.player.wake_pending = false;
-        try app_state.player.wakeUp(&app_state.level.world_map, true, false);
-    } else if (!app_state.player.isInBed(&app_state.level.world_map)) {
-        try app_state.player.wakeUp(&app_state.level.world_map, true, false);
-    } else if (app_state.level.world_map.isDaytime()) {
-        try app_state.player.wakeUp(&app_state.level.world_map, false, true);
-    } else return;
+    if (!try app_state.player.tickSleepWake(&app_state.level.world_map)) return;
 
     try applyBlockChanges(app_state);
 }

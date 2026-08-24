@@ -677,16 +677,7 @@ fn tickCarriedMaps(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !
 fn tickSleep(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !void {
     const player = self.player orelse return;
     player.tickSleep();
-    if (!player.sleeping) return;
-
-    if (player.wake_pending) {
-        player.wake_pending = false;
-        try player.wakeUp(&level.world_map, true, false);
-    } else if (!player.isInBed(&level.world_map)) {
-        try player.wakeUp(&level.world_map, true, false);
-    } else if (level.world_map.isDaytime()) {
-        try player.wakeUp(&level.world_map, false, true);
-    } else return;
+    if (!try player.tickSleepWake(&level.world_map)) return;
 
     self.last_height = player.base.position.y;
     try self.sendPosition(gpa);
@@ -1919,66 +1910,28 @@ pub const bed_reach_y: f64 = 2.0;
 fn sleepInBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: i32, y: i32, z: i32) !void {
     const player = self.player orelse return;
 
-    var pillow: [3]i32 = .{ x, y, z };
-    var metadata = level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
-    if (!world.block.bedIsPillow(metadata)) {
-        pillow = world.block_update.bedPartner(&level.world_map, x, y, z) orelse return;
-        metadata = level.world_map.getBlockMetadata(pillow[0], pillow[1], pillow[2]);
-    }
+    const found = world.block_update.bedPillowAt(&level.world_map, x, y, z) orelse return;
+    const pillow = found.at;
 
-    if (self.dimension == .nether) return self.blowUpBed(gpa, level, pillow, metadata);
+    if (self.dimension == .nether) return game.bed.blowUp(gpa, level, pillow, found.metadata);
 
-    if (world.block.bedIsOccupied(metadata)) {
-        if (anySleeperIn(level, pillow)) return self.sendChat(gpa, bed_occupied_line);
+    if (world.block.bedIsOccupied(found.metadata)) {
+        if (anySleeperIn(level, pillow)) return self.sendChat(gpa, game.bed.occupied_line);
         try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], false);
     }
 
     switch (player.sleepInBedAt(&level.world_map, self.dimension, pillow[0], pillow[1], pillow[2])) {
         .ok => try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], true),
-        .not_possible_now => try self.sendChat(gpa, bed_no_sleep_line),
+        .not_possible_now => try self.sendChat(gpa, game.bed.no_sleep_line),
         else => {},
     }
 }
-
-const bed_occupied_line = "This bed is occupied";
-const bed_no_sleep_line = "You can only sleep at night";
-const bed_blast_size: f32 = 5.0;
-const bed_blast_is_flaming = true;
 
 fn anySleeperIn(level: *game.Level, pillow: [3]i32) bool {
     for (level.occupants.items) |occupant| {
         if (occupant.player.sleeping and std.meta.eql(occupant.player.bed, pillow)) return true;
     }
     return false;
-}
-
-fn blowUpBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pillow: [3]i32, metadata: u4) !void {
-    _ = self;
-    var x = pillow[0];
-    var z = pillow[2];
-    try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
-
-    const step = world.block.bedStep(world.block.bedFacing(metadata));
-    x += step[0];
-    z += step[1];
-    if (level.world_map.getBlock(x, pillow[1], z) == .bed) {
-        try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
-    }
-
-    try game.explosion.detonate(
-        gpa,
-        &level.entities,
-        &level.world_map,
-        level.roster.items,
-        .{
-            .x = @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
-            .y = @as(f64, @as(f32, @floatFromInt(pillow[1])) + 0.5),
-            .z = @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
-        },
-        bed_blast_size,
-        bed_blast_is_flaming,
-        &level.world_map.rand,
-    );
 }
 
 pub fn sendSleep(self: *Session, gpa: std.mem.Allocator, id: game.Entity.Id, bed: [3]i32) !void {

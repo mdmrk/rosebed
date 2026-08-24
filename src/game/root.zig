@@ -1,6 +1,7 @@
 pub const achievements = @import("achievements.zig");
 pub const Animal = @import("Animal.zig");
 pub const Arrow = @import("Arrow.zig");
+pub const bed = @import("bed.zig");
 pub const Boat = @import("Boat.zig");
 pub const Chicken = @import("Chicken.zig");
 pub const commands = @import("commands.zig");
@@ -60,6 +61,7 @@ test {
     _ = Animal;
     _ = Arrow;
     _ = Boat;
+    _ = bed;
     _ = FishHook;
     _ = Minecart;
     _ = Chicken;
