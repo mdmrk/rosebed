@@ -391,6 +391,13 @@ fn plantBounds(half_width: f32, height: f32) Bounds {
     };
 }
 
+pub const cactus_inset: f32 = 1.0 / 16.0;
+
+pub const cactus_collision_bounds: Bounds = .{
+    .min = .{ cactus_inset, 0.0, cactus_inset },
+    .max = .{ 1.0 - cactus_inset, 1.0 - cactus_inset, 1.0 - cactus_inset },
+};
+
 pub const portal_thickness: f32 = 2.0 / 16.0;
 
 pub fn portalBounds(spans_x: bool) Bounds {

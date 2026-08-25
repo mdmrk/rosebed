@@ -35,6 +35,7 @@ const explosion = @import("explosion.zig");
 const Inventory = @import("Inventory.zig");
 const mob = @import("mob.zig");
 pub const lightning_pig_zombie = mob.pig_zombie;
+const physics = @import("physics.zig");
 const Player = @import("Player.zig");
 
 const Entities = @This();
@@ -1421,6 +1422,8 @@ fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?A
     };
 }
 
+const cactus_damage: i32 = 1;
+
 pub fn tickMinecarts(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1432,6 +1435,9 @@ pub fn tickMinecarts(
     while (index < self.minecarts.items.len) {
         const cart = &self.minecarts.items[index];
         const step = cart.tick(world_map, cart.rider != Entity.no_id);
+        if (cart.base.remote == null and physics.touchesBlock(world_map, cart.base.boundingBox(), .cactus)) {
+            _ = cart.hurt(cactus_damage);
+        }
 
         if (step.smoking and rand.nextIntBound(4) == 0) {
             cart.fuel -= 1;
@@ -1572,6 +1578,9 @@ pub fn tickBoats(
             null;
 
         const step = boat.tick(world_map, push);
+        if (boat.base.remote == null and physics.touchesBlock(world_map, boat.base.boundingBox(), .cactus)) {
+            _ = boat.hurt(cactus_damage);
+        }
 
         for (0..Boat.wakeCount(step.speed)) |_| {
             const wake = boat.wakeAt(rand);
@@ -1922,7 +1931,7 @@ fn tickItemsFor(
             }
         }
 
-        if (picked_up or (item.base.remote == null and item.isExpired())) {
+        if (picked_up or (item.base.remote == null and (item.isExpired() or item.isDestroyed()))) {
             _ = self.items.swapRemove(i);
         } else {
             i += 1;
@@ -2214,6 +2223,9 @@ pub fn tickMobs(
         };
 
         try kind.tick(entry.animal, gpa, world_map, players, rand);
+        if (physics.touchesBlock(world_map, entry.animal.base.boundingBox(), .cactus)) {
+            _ = kind.hurt(entry.animal, cactus_damage, null, rand);
+        }
         self.pushNeighbours(entry.animal);
         try kind.afterTick(entry.animal, context);
 
@@ -3707,6 +3719,24 @@ test "killing a monster earns Monster Hunter, killing an animal does not" {
         try soloTick(&entities, gpa, &w, &player, &rand);
         try std.testing.expectEqual(case.earns, player.earned.contains(.kill_enemy));
     }
+}
+
+test "a mob standing on a cactus is pricked by it" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .cactus);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(3);
+    var player = Player.spawn(math.Vec3.init(0.5, 1, 0.5));
+    const pig = try entities.spawnMob(gpa, mob.pig, math.Vec3.init(8.5, 2.0 - 1.0 / 16.0, 8.5), &rand);
+    const unhurt = pig.health;
+
+    try soloTick(&entities, gpa, &w, &player, &rand);
+    try std.testing.expectEqual(unhurt - cactus_damage, pig.health);
 }
 
 test "a monster that dies with nobody to blame earns nothing" {

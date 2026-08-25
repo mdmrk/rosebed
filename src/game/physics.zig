@@ -20,6 +20,11 @@ fn offsetBox(bounds: world.block.Bounds, x: i32, y: i32, z: i32) math.Aabb {
 }
 
 fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, out: *[2]math.Aabb) usize {
+    if (id == .cactus) {
+        out[0] = offsetBox(world.block.cactus_collision_bounds, x, y, z);
+        return 1;
+    }
+
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
@@ -235,6 +240,31 @@ pub fn handleWaterMovement(world_map: *const world.World, box: math.Aabb) ?math.
     if (!touching) return null;
     if (flow.length() <= 0.0) return math.Vec3.init(0, 0, 0);
     return flow.normalize().scale(flow_acceleration);
+}
+
+pub const collided_inset: f64 = 0.001;
+
+pub fn touchesBlock(world_map: *const world.World, box: math.Aabb, id: world.Block) bool {
+    const min_x = math.util.floorDouble(box.min_x + collided_inset);
+    const min_y = math.util.floorDouble(box.min_y + collided_inset);
+    const min_z = math.util.floorDouble(box.min_z + collided_inset);
+    const max_x = math.util.floorDouble(box.max_x - collided_inset);
+    const max_y = math.util.floorDouble(box.max_y - collided_inset);
+    const max_z = math.util.floorDouble(box.max_z - collided_inset);
+
+    if (!world_map.chunksExist(min_x, min_y, min_z, max_x, max_y, max_z)) return false;
+
+    var x = min_x;
+    while (x <= max_x) : (x += 1) {
+        var y = min_y;
+        while (y <= max_y) : (y += 1) {
+            var z = min_z;
+            while (z <= max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z) == id) return true;
+            }
+        }
+    }
+    return false;
 }
 
 pub fn isBoxInMaterial(world_map: *const world.World, box: math.Aabb, material: world.Material) bool {
@@ -513,6 +543,37 @@ test "stepping out of water needs a free, dry space to move into" {
     const box = math.Aabb.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3);
     try std.testing.expect(!isOffsetPositionInLiquid(&w, box, 0, 0, 0));
     try std.testing.expect(isOffsetPositionInLiquid(&w, box, 0, 4.0, 0));
+}
+
+test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(9, 1, 8, .cactus);
+
+    const walking = math.Aabb.init(7.7, 1.0, 7.7, 8.3, 2.8, 8.3);
+    const into = moveEntity(&w, walking, 1.0, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.0 + 1.0 / 16.0), into.aabb.max_x, 1.0e-9);
+
+    const falling = math.Aabb.init(8.7, 3.0, 7.7, 9.3, 4.8, 8.3);
+    const landed = moveEntity(&w, falling, 0, -2.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 1.0 / 16.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "a box counts as touching the cell it barely overlaps, but not the one it only abuts" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(9, 1, 8, .cactus);
+
+    const brushing = math.Aabb.init(8.2, 1.0, 7.7, 9.05, 2.8, 8.3);
+    try std.testing.expect(touchesBlock(&w, brushing, .cactus));
+
+    const flush = math.Aabb.init(8.2, 1.0, 7.7, 9.0, 2.8, 8.3);
+    try std.testing.expect(!touchesBlock(&w, flush, .cactus));
+
+    const standing_on_top = math.Aabb.init(8.7, 1.9375, 7.7, 9.3, 3.7375, 8.3);
+    try std.testing.expect(touchesBlock(&w, standing_on_top, .cactus));
+
+    try std.testing.expect(!touchesBlock(&w, brushing, .sand));
 }
 
 test "a closed door stops an entity walking into it" {

@@ -5,12 +5,14 @@ const world = @import("world");
 
 const Entity = @import("../Entity.zig");
 const Inventory = @import("../Inventory.zig");
+const physics = @import("../physics.zig");
 
 const ItemEntity = @This();
 
 base: Entity,
 stack: Inventory.ItemStack,
 age: u32 = 0,
+health: i32 = max_health,
 pickup_delay: u16 = 10,
 hover: f32 = 0,
 
@@ -22,6 +24,8 @@ const vertical_drag: f64 = 0.98;
 const ground_friction: f64 = 0.6 * 0.98;
 const air_friction: f64 = 0.98;
 const despawn_age: u32 = 6000;
+pub const max_health: i32 = 5;
+const cactus_damage: i32 = 1;
 
 pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaRandom) ItemEntity {
     var base = Entity.init(position, width, height);
@@ -43,6 +47,7 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World) void {
 
     self.base.motion.y -= gravity;
     _ = self.base.move(world_map);
+    if (physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.health -= cactus_damage;
 
     const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
     self.base.motion.x *= friction;
@@ -55,6 +60,10 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World) void {
 
 pub fn isExpired(self: ItemEntity) bool {
     return self.age >= despawn_age;
+}
+
+pub fn isDestroyed(self: ItemEntity) bool {
+    return self.health <= 0;
 }
 
 pub fn canPickUp(self: ItemEntity) bool {
@@ -115,6 +124,22 @@ test "canPickUp is false until the pickup delay elapses" {
     try std.testing.expect(item.canPickUp());
 }
 
+test "an item lying on a cactus is whittled away and destroyed" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .cactus);
+
+    var rand = world.JavaRandom.init(0);
+    var item = ItemEntity.spawn(math.Vec3.init(8.5, 2.0 - 1.0 / 16.0, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    item.base.motion = math.Vec3.init(0, 0, 0);
+
+    for (0..max_health) |_| {
+        try std.testing.expect(!item.isDestroyed());
+        item.tick(&w);
+    }
+    try std.testing.expect(item.isDestroyed());
+}
+
 pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {
     return .{
         .base = .{
@@ -127,6 +152,7 @@ pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {
             .on_ground = self.base.on_ground,
         },
         .stack = self.stack,
+        .health = @intCast(self.health),
         .age = @intCast(self.age),
     };
 }
@@ -139,6 +165,7 @@ pub fn fromRecord(record: world.entity_nbt.Item) ItemEntity {
             record.base.position[2],
         ), width, height),
         .stack = record.stack,
+        .health = record.health,
         .age = @intCast(@max(0, record.age)),
     };
     item.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);

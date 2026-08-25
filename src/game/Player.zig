@@ -126,6 +126,7 @@ pub const portal_reentry_cooldown: i32 = 10;
 const portal_fade_in: f32 = 0.0125;
 const portal_fade_out: f32 = 0.05;
 const drown_damage: i32 = 2;
+const cactus_damage: i32 = 1;
 const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
@@ -244,6 +245,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     const before_z = self.base.position.z;
     const moved = self.base.move(world_map);
     self.updateFallState(moved.dy);
+    self.hurtOnCactus(world_map);
 
     const moved_x = self.base.position.x - before_x;
     const moved_z = self.base.position.z - before_z;
@@ -288,6 +290,7 @@ pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) vo
     self.updateFire(world_map);
     self.updateAir(world_map);
     self.updateFallState(dy);
+    self.hurtOnCactus(world_map);
     if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
 }
@@ -390,6 +393,10 @@ fn updateFire(self: *Player, world_map: *const world.World) void {
         self.hurt(lava_damage);
         self.fire = lava_fire_ticks;
     }
+}
+
+fn hurtOnCactus(self: *Player, world_map: *const world.World) void {
+    if (game_physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.hurt(cactus_damage);
 }
 
 fn updateAir(self: *Player, world_map: *const world.World) void {
@@ -1098,6 +1105,23 @@ test "resting on the ground stays grounded" {
     player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
+}
+
+test "a cactus pricks the player perched on it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .cactus);
+
+    var pricked = Player.spawn(math.Vec3.init(8, 2.0 - 1.0 / 16.0, 8));
+    pricked.base.on_ground = true;
+    pricked.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(@as(i32, 19), pricked.health);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 1.0 / 16.0), pricked.base.position.y, 1.0e-9);
+
+    var spared = Player.spawn(math.Vec3.init(4, 1, 4));
+    spared.base.on_ground = true;
+    spared.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(@as(i32, 20), spared.health);
 }
 
 test "gravity accelerates a falling player" {
