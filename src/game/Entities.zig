@@ -623,6 +623,8 @@ const dispense_spread: f64 = 0.0075 * 6.0;
 const dispense_arrow_speed: f32 = 1.1;
 const dispense_arrow_spread: f32 = 6.0;
 const dispense_arrow_lift: f64 = 0.1;
+const dispense_puffs = 10;
+const dispense_puff_sink: f64 = -0.03;
 
 pub fn dispense(
     self: *Entities,
@@ -654,24 +656,49 @@ pub fn dispense(
         );
         arrow.from_player = true;
         try self.arrows.append(gpa, arrow);
-        return;
+    } else {
+        const launched = math.Vec3.init(muzzle.x, muzzle.y - dispense_drop, muzzle.z);
+        var item = ItemEntity.spawn(launched, .{
+            .id = shot.stack.id,
+            .count = shot.stack.count,
+            .meta = shot.stack.meta,
+        }, rand);
+
+        item.pickup_delay = 0;
+        const speed = rand.nextDouble() * 0.1 + 0.2;
+        item.base.motion = .{
+            .x = dx * speed + rand.nextGaussian() * dispense_spread,
+            .y = dispense_lift + rand.nextGaussian() * dispense_spread,
+            .z = dz * speed + rand.nextGaussian() * dispense_spread,
+        };
+        try self.items.append(gpa, item);
     }
 
-    const launched = math.Vec3.init(muzzle.x, muzzle.y - dispense_drop, muzzle.z);
-    var item = ItemEntity.spawn(launched, .{
-        .id = shot.stack.id,
-        .count = shot.stack.count,
-        .meta = shot.stack.meta,
-    }, rand);
+    try self.puffDispenserSmoke(gpa, muzzle, dx, dz, rand);
+}
 
-    item.pickup_delay = 0;
-    const speed = rand.nextDouble() * 0.1 + 0.2;
-    item.base.motion = .{
-        .x = dx * speed + rand.nextGaussian() * dispense_spread,
-        .y = dispense_lift + rand.nextGaussian() * dispense_spread,
-        .z = dz * speed + rand.nextGaussian() * dispense_spread,
-    };
-    try self.items.append(gpa, item);
+fn puffDispenserSmoke(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    muzzle: math.Vec3,
+    dx: f64,
+    dz: f64,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..dispense_puffs) |_| {
+        const speed = rand.nextDouble() * 0.2 + 0.01;
+        const at = math.Vec3.init(
+            muzzle.x + dx * 0.01 + (rand.nextDouble() - 0.5) * dz * 0.5,
+            muzzle.y + (rand.nextDouble() - 0.5) * 0.5,
+            muzzle.z + dz * 0.01 + (rand.nextDouble() - 0.5) * dx * 0.5,
+        );
+        const drift = math.Vec3.init(
+            dx * speed + rand.nextGaussian() * 0.01,
+            dispense_puff_sink + rand.nextGaussian() * 0.01,
+            dz * speed + rand.nextGaussian() * 0.01,
+        );
+        try self.particles.append(gpa, Particle.spawnSmoke(at, drift, rand));
+    }
 }
 
 pub fn ejectRecord(
@@ -3106,6 +3133,28 @@ test "a dispenser loaded with arrows shoots them instead of dropping them" {
     try std.testing.expect(shot.base.motion.x < -1.0);
     try std.testing.expect(shot.from_player);
     try std.testing.expectEqual(Entity.no_id, shot.owner);
+}
+
+test "a firing dispenser puffs smoke out of the face it fired from" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(4);
+    try entities.dispense(gpa, .{
+        .pos = .{ .x = 8, .y = 12, .z = 8 },
+        .step = .{ 0, 1 },
+        .stack = .{ .id = .{ .block = .cobblestone }, .count = 1 },
+    }, &rand);
+
+    try std.testing.expectEqual(@as(usize, dispense_puffs), entities.particles.items.len);
+
+    for (entities.particles.items) |puff| {
+        try std.testing.expectEqual(Particle.Kind.smoke, puff.kind);
+        try std.testing.expectApproxEqAbs(@as(f64, 9.11), puff.base.position.z, 1.0e-9);
+        try std.testing.expectApproxEqAbs(@as(f64, 8.5), puff.base.position.x, 0.25);
+        try std.testing.expectApproxEqAbs(@as(f64, 12.5), puff.base.position.y, 0.25);
+    }
 }
 
 test "an arrow a skeleton loosed credits the skeleton, not the nearest player" {

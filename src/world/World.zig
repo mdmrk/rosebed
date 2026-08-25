@@ -599,6 +599,32 @@ pub fn playFizzAt(self: *World, x: i32, y: i32, z: i32) void {
     );
 }
 
+pub fn playDispenserFailure(self: *const World, x: i32, y: i32, z: i32) void {
+    self.playSoundEffect(
+        @floatFromInt(x),
+        @floatFromInt(y),
+        @floatFromInt(z),
+        assets.sounds.random.click,
+        1.0,
+        1.2,
+    );
+}
+
+pub fn playDispenserShot(self: *const World, x: i32, y: i32, z: i32, stack: block.Stack) void {
+    const launched = switch (stack.id) {
+        .item => |id| id == .arrow or id == .egg or id == .snowball,
+        .block => false,
+    };
+    self.playSoundEffect(
+        @floatFromInt(x),
+        @floatFromInt(y),
+        @floatFromInt(z),
+        if (launched) assets.sounds.random.bow else assets.sounds.random.click,
+        1.0,
+        if (launched) 1.2 else 1.0,
+    );
+}
+
 pub fn playDoorToggle(self: *World, x: i32, y: i32, z: i32) void {
     const sound = if (self.rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
     self.playSoundEffect(
@@ -970,7 +996,11 @@ pub fn spillOrphanDispensers(self: *World) !void {
 pub fn dispense(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
     const step = block.dispenserStep(self.getBlockMetadata(x, y, z));
     const state = self.dispensers.getPtr(.{ .x = x, .y = y, .z = z }) orelse return;
-    const stack = state.takeRandomStack(&self.rand) orelse return;
+    const stack = state.takeRandomStack(&self.rand) orelse {
+        self.playDispenserFailure(x, y, z);
+        return;
+    };
+    self.playDispenserShot(x, y, z, stack);
     try self.dispensed.append(self.allocator, .{
         .pos = .{ .x = x, .y = y, .z = z },
         .step = step,

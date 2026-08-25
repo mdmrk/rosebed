@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 
 const block = @import("block.zig");
@@ -1095,6 +1096,49 @@ test "a lever powering a dispenser makes it hand one item out four ticks later" 
     try std.testing.expectEqual(@as(u8, 1), shot.stack.count);
     try std.testing.expectEqual([2]i32{ 0, 1 }, shot.step);
     try std.testing.expectEqual(@as(u8, 2), w.dispenserAt(8, 12, 8).?.items[0].?.count);
+}
+
+const DispenserSound = struct {
+    key: []const u8 = "",
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, pitch: f32) void {
+        const self: *DispenserSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *DispenserSound) World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "a dispenser clicks over an item, twangs over an arrow and clicks higher over nothing" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+    try armedDispenser(&w, @intFromEnum(block.Side.south));
+
+    var heard: DispenserSound = .{};
+    w.sound_sink = heard.sink();
+
+    try w.dispense(8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
+    try std.testing.expectEqual(@as(f32, 1.0), heard.pitch);
+
+    w.dispenserAt(8, 12, 8).?.slot(0).* = .{ .id = .{ .item = .arrow }, .count = 1 };
+    try w.dispense(8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.bow.key, heard.key);
+    try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
+
+    try w.dispense(8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
+    try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
+
+    try std.testing.expectEqual(@as(usize, 3), heard.count);
 }
 
 test "an unpowered dispenser is never scheduled and an empty one queues nothing" {
