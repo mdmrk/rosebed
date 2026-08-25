@@ -979,7 +979,7 @@ pub const Block = enum(u8) {
             .ore_redstone => uniform(51),
             .clay => uniform(72),
             .cactus => topAndSide(69, 71, 70),
-            .pumpkin => topAndSide(102, 102, 118),
+            .pumpkin => pumpkinTextures(self, pumpkin_default_facing),
             .snow_layer => uniform(66),
             .cobblestone => uniform(16),
             .cobblestone_mossy => uniform(36),
@@ -1037,14 +1037,7 @@ pub const Block = enum(u8) {
             .cake => cakeTextures(0),
             .bed => bedTextures(0),
             .sign_post, .wall_sign => uniform(sign_particle_tile),
-            .jack_o_lantern => FaceTextures.init(.{
-                .down = 102,
-                .up = 102,
-                .north = 118,
-                .south = 120,
-                .west = 118,
-                .east = 118,
-            }),
+            .jack_o_lantern => pumpkinTextures(self, pumpkin_default_facing),
             .piston, .piston_sticky => pistonBaseTextures(self, piston_item_metadata),
             .piston_head => pistonHeadTextures(piston_item_metadata),
             .piston_moving => uniform(piston_side_tile),
@@ -1897,6 +1890,37 @@ pub fn furnaceTextures(id: Block, metadata: u4) FaceTextures {
     return textures;
 }
 
+const pumpkin_top_tile: u8 = 102;
+const pumpkin_side_tile: u8 = 118;
+const pumpkin_face_tile: u8 = 119;
+const pumpkin_face_lit_tile: u8 = 120;
+pub const pumpkin_default_facing: u4 = 0;
+
+pub fn pumpkinFacing(metadata: u4) ?Side {
+    return switch (metadata) {
+        0 => .south,
+        1 => .west,
+        2 => .north,
+        3 => .east,
+        else => null,
+    };
+}
+
+pub fn pumpkinFacingFromYaw(yaw: f32) u4 {
+    const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 2.5);
+    return @intFromFloat(@mod(quarter, 4.0));
+}
+
+pub fn pumpkinTextures(id: Block, metadata: u4) FaceTextures {
+    var textures = FaceTextures.initFill(pumpkin_side_tile);
+    textures.set(.down, pumpkin_top_tile);
+    textures.set(.up, pumpkin_top_tile);
+    if (pumpkinFacing(metadata)) |facing| {
+        textures.set(facing, if (id == .jack_o_lantern) pumpkin_face_lit_tile else pumpkin_face_tile);
+    }
+    return textures;
+}
+
 const chest_top_tile: u8 = 25;
 const chest_side_tile: u8 = 26;
 const chest_front_tile: u8 = 27;
@@ -2186,6 +2210,38 @@ test "a furnace with no facing yet still shows its front, as GuiFurnace's item d
     try std.testing.expectEqual(@as(u8, 44), Block.furnace.faceTextures().get(.south));
     try std.testing.expectEqual(@as(u8, 61), Block.burning_furnace.faceTextures().get(.south));
     try std.testing.expectEqual(@as(u8, 45), Block.furnace.faceTextures().get(.north));
+}
+
+test "every pumpkin wears a carved face on the side its metadata names" {
+    const carved = pumpkinTextures(.pumpkin, 2);
+    try std.testing.expectEqual(@as(u8, 119), carved.get(.north));
+    try std.testing.expectEqual(@as(u8, 118), carved.get(.south));
+    try std.testing.expectEqual(@as(u8, 102), carved.get(.up));
+    try std.testing.expectEqual(@as(u8, 102), carved.get(.down));
+
+    const lit = pumpkinTextures(.jack_o_lantern, 3);
+    try std.testing.expectEqual(@as(u8, 120), lit.get(.east));
+    try std.testing.expectEqual(@as(u8, 118), lit.get(.west));
+
+    const texs = Block.pumpkin.faceTextures();
+    try std.testing.expectEqual(@as(u8, 119), texs.get(.south));
+    try std.testing.expectEqual(@as(u8, 118), texs.get(.north));
+    try std.testing.expectEqual(@as(u8, 120), Block.jack_o_lantern.faceTextures().get(.south));
+
+    const uncarved = pumpkinTextures(.pumpkin, 7);
+    try std.testing.expectEqual(@as(u8, 118), uncarved.get(.north));
+    try std.testing.expectEqual(@as(u8, 118), uncarved.get(.south));
+    try std.testing.expectEqual(@as(u8, 118), uncarved.get(.west));
+    try std.testing.expectEqual(@as(u8, 118), uncarved.get(.east));
+}
+
+test "a pumpkin turns its face towards the player who set it down" {
+    try std.testing.expectEqual(@as(u4, 2), pumpkinFacingFromYaw(0));
+    try std.testing.expectEqual(@as(u4, 3), pumpkinFacingFromYaw(90));
+    try std.testing.expectEqual(@as(u4, 0), pumpkinFacingFromYaw(180));
+    try std.testing.expectEqual(@as(u4, 1), pumpkinFacingFromYaw(270));
+    try std.testing.expectEqual(Side.north, pumpkinFacing(pumpkinFacingFromYaw(0)).?);
+    try std.testing.expectEqual(Side.south, pumpkinFacing(pumpkinFacingFromYaw(-180)).?);
 }
 
 test "both furnace states drop the idle block" {

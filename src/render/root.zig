@@ -18,6 +18,7 @@ pub const map_render = @import("map_render.zig");
 pub const menu = @import("menu.zig");
 pub const MeshBuilder = @import("MeshBuilder.zig");
 pub const mob_model = @import("mob_model.zig");
+pub const pumpkin_blur = @import("pumpkin_blur.zig");
 pub const screen = @import("screen.zig");
 pub const selection = @import("selection.zig");
 pub const Shader = @import("Shader.zig");

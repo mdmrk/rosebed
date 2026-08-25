@@ -829,6 +829,20 @@ pub fn appendBox(
     }
 }
 
+pub fn posedPoint(part: Part, pose: Pose, corner: [3]f32) [3]f32 {
+    var p = rotateZAxis(rotateY(rotateX(corner, part.rotate_x), part.rotate_y), part.rotate_z);
+    p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
+    const world_scale: [3]f32 = .{
+        p[0] * pixel_scale * pose.scale[0],
+        -p[1] * pixel_scale * pose.scale[1] + pose.lift,
+        p[2] * pixel_scale * pose.scale[2],
+    };
+    const swum = rotateX(rotateY(world_scale, -pose.spin), pose.pitch);
+    const rolled = rotateZ(swum[0], swum[1], pose.roll);
+    const xz = rotateYaw(rolled[0], swum[2], pose.yaw);
+    return .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
+}
+
 pub fn appendPart(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -840,17 +854,7 @@ pub fn appendPart(
     for (faceSpecs(part.box)) |face| {
         var positions: [4][3]f32 = undefined;
         for (face.corners, 0..) |c, i| {
-            var p = rotateZAxis(rotateY(rotateX(c, part.rotate_x), part.rotate_y), part.rotate_z);
-            p = .{ p[0] + part.pivot[0], p[1] + part.pivot[1], p[2] + part.pivot[2] };
-            const world_scale: [3]f32 = .{
-                p[0] * pixel_scale * pose.scale[0],
-                -p[1] * pixel_scale * pose.scale[1] + pose.lift,
-                p[2] * pixel_scale * pose.scale[2],
-            };
-            const swum = rotateX(rotateY(world_scale, -pose.spin), pose.pitch);
-            const rolled = rotateZ(swum[0], swum[1], pose.roll);
-            const xz = rotateYaw(rolled[0], swum[2], pose.yaw);
-            positions[i] = .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
+            positions[i] = posedPoint(part, pose, c);
         }
         var uvs = [4][2]f32{
             .{ face.rect[2] / tex_width, face.rect[1] / tex_height },

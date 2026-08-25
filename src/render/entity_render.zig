@@ -7,6 +7,7 @@ const world = @import("world");
 const Atlas = @import("Atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
 const Colorizer = @import("Colorizer.zig");
+const held_item = @import("held_item.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
@@ -428,20 +429,13 @@ pub fn appendPlayerArmor(
     return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible);
 }
 
-fn appendBiped(
-    mesh: *MeshBuilder,
-    gpa: std.mem.Allocator,
-    world_map: *const world.World,
+fn bipedParts(
+    model: mob_model.Model,
     player: game.Player,
     holding_item: bool,
     partial_ticks: f32,
-    model: mob_model.Model,
-    shown: []const bool,
-) !void {
-    const first_vertex = mesh.vertices.items.len;
-    const pos = player.base.renderPosition(partial_ticks);
-
-    const parts = mob_model.bipedPosed(model, .{
+) [mob_model.biped.parts.len]mob_model.Part {
+    return mob_model.bipedPosed(model, .{
         .limb_swing = player.limbSwingPhase(partial_ticks),
         .limb_swing_amount = player.limbSwingAmount(partial_ticks),
         .head_yaw = player.headYaw(partial_ticks),
@@ -450,9 +444,12 @@ fn appendBiped(
         .holding_item = holding_item,
         .sneaking = player.base.sneaking,
     });
+}
 
+fn bipedPose(world_map: *const world.World, player: game.Player, partial_ticks: f32) mob_model.Pose {
+    const pos = player.base.renderPosition(partial_ticks);
     const asleep = player.sleeping and !player.isDead();
-    const pose: mob_model.Pose = .{
+    return .{
         .position = .{
             @as(f32, @floatCast(pos.x)) + if (asleep) player.bed_offset[0] else 0,
             @floatCast(pos.y),
@@ -466,6 +463,57 @@ fn appendBiped(
         .spin = if (asleep) sleep_corpse_rotation else 0,
         .scale = @splat(player_scale),
     };
+}
+
+pub const head_block_size: f32 = 10.0 / 16.0;
+pub const head_block_lift: f32 = 0.25;
+
+fn headBlockCorner(corner: [3]f32) [3]f32 {
+    const pixels = head_block_size * 16.0;
+    return .{
+        -corner[0] * pixels,
+        -corner[1] * pixels - head_block_lift * 16.0,
+        -corner[2] * pixels,
+    };
+}
+
+pub fn appendPlayerHeadBlock(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: game.Player,
+    holding_item: bool,
+    partial_ticks: f32,
+    id: world.Block,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    try held_item.appendBlock(mesh, gpa, id, brightnessOf(world_map, player.base));
+
+    const parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
+    const head = parts[mob_model.biped.head_index];
+    const pose = bipedPose(world_map, player, partial_ticks);
+
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        const placed = mob_model.posedPoint(head, pose, headBlockCorner(.{ vertex.x, vertex.y, vertex.z }));
+        vertex.x = placed[0];
+        vertex.y = placed[1];
+        vertex.z = placed[2];
+    }
+}
+
+fn appendBiped(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    player: game.Player,
+    holding_item: bool,
+    partial_ticks: f32,
+    model: mob_model.Model,
+    shown: []const bool,
+) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const parts = bipedParts(model, player, holding_item, partial_ticks);
+    const pose = bipedPose(world_map, player, partial_ticks);
 
     for (parts, shown) |part, visible| {
         if (!visible) continue;
@@ -3117,6 +3165,52 @@ test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
         try std.testing.expect(@abs(reach[1]) < 0.5);
         try std.testing.expect(reach[0] / length * along[0] + reach[2] / length * along[2] > 0.8);
     }
+}
+
+fn quadTile(mesh: MeshBuilder, quad: usize) u8 {
+    var u: f32 = 0;
+    var v: f32 = 0;
+    for (mesh.vertices.items[quad * 4 ..][0..4]) |vertex| {
+        u += vertex.u / 4.0;
+        v += vertex.v / 4.0;
+    }
+    const column: u8 = @intFromFloat(u * Atlas.tiles_per_row);
+    const row: u8 = @intFromFloat(v * Atlas.tiles_per_row);
+    return row * Atlas.tiles_per_row + column;
+}
+
+test "a pumpkin worn on the head is a cube over the face, carved side forward" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+
+    var player = game.Player.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 });
+    player.base.prev_position = player.base.position;
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendPlayerHeadBlock(&mesh, gpa, &world_map, player, false, 0, .pumpkin);
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
+
+    const bounds = partBounds(mesh, 0);
+    const side = head_block_size * player_scale;
+    try std.testing.expectApproxEqAbs(side, bounds[1][0] - bounds[0][0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(side, bounds[1][1] - bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(side, bounds[1][2] - bounds[0][2], 1.0e-5);
+
+    try std.testing.expect(bounds[0][1] > 64.0 + 1.25);
+    try std.testing.expect(bounds[1][1] < 64.0 + 2.0);
+
+    var carved: usize = 0;
+    for (0..6) |quad| {
+        if (quadTile(mesh, quad) != 119) continue;
+        carved += 1;
+        for (mesh.vertices.items[quad * 4 ..][0..4]) |vertex| {
+            try std.testing.expectApproxEqAbs(bounds[1][2], vertex.z, 1.0e-5);
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), carved);
 }
 
 test "a ghast is a body cube with nine tentacles hanging under it" {

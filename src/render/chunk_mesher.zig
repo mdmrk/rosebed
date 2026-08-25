@@ -1664,6 +1664,8 @@ pub fn buildBlockAt(
         textures = world.block.furnaceTextures(id, metadata);
     } else if (id == .dispenser) {
         textures = world.block.dispenserTextures(metadata);
+    } else if (id == .pumpkin or id == .jack_o_lantern) {
+        textures = world.block.pumpkinTextures(id, metadata);
     } else if (id == .chest) {
         textures = world.block.chestTextures(chestRing(world_map, x, y, z));
     } else if (id == .grass) {

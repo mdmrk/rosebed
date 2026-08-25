@@ -2598,6 +2598,10 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
         try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
     }
+    if (placed == .pumpkin or placed == .jack_o_lantern) {
+        const facing = world.block.pumpkinFacingFromYaw(app_state.player.yaw);
+        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+    }
     try world.redstone.onBlockPlaced(
         &app_state.level.world_map,
         px,
@@ -3779,6 +3783,9 @@ fn drawPeers(app_state: *AppState, partial: f32) !void {
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
 
+    var heads: render.MeshBuilder = .{};
+    defer heads.deinit(app_state.frame);
+
     for (link.connection.peers.items) |*peer| {
         try render.entity_render.appendPlayer(
             &mesh,
@@ -3788,12 +3795,23 @@ fn drawPeers(app_state: *AppState, partial: f32) !void {
             false,
             partial,
         );
+        if (wornBlock(peer.player)) |id| {
+            try render.entity_render.appendPlayerHeadBlock(
+                &heads,
+                app_state.frame,
+                &app_state.level.world_map,
+                peer.player,
+                false,
+                partial,
+                id,
+            );
+        }
     }
 
-    if (mesh.vertices.items.len == 0) return;
     app_state.textures.char.bind();
     drawEntityMesh(&mesh);
     app_state.textures.terrain.bind();
+    drawEntityMesh(&heads);
 }
 
 fn drawPlayer(app_state: *AppState, partial: f32) !void {
@@ -3820,6 +3838,21 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
     }
 
     app_state.textures.terrain.bind();
+
+    if (wornBlock(player)) |id| {
+        var head_mesh: render.MeshBuilder = .{};
+        defer head_mesh.deinit(app_state.frame);
+        try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id);
+        drawEntityMesh(&head_mesh);
+    }
+}
+
+fn wornBlock(player: game.Player) ?world.Block {
+    const worn = player.inventory.armor[@intFromEnum(world.item.ArmorSlot.helmet)] orelse return null;
+    return switch (worn.id) {
+        .block => |id| if (id == .air) null else id,
+        .item => null,
+    };
 }
 
 fn drawMapPass(mesh: *render.MeshBuilder, texture: anytype) void {
@@ -4326,6 +4359,10 @@ pub fn iterate(
                 app_state.player.pitch,
                 world.light.brightnessAt(&app_state.level.world_map, sample[0], sample[1], sample[2], 0),
             );
+        }
+        const blurred = if (wornBlock(app_state.player)) |id| id == .pumpkin else false;
+        if (blurred and !app_state.third_person and !app_state.freecam.active) {
+            try render.pumpkin_blur.draw(app_state.frame, app_state.shader, app_state.textures.pumpkin_blur);
         }
         try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));

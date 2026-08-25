@@ -66,13 +66,16 @@ snow: Atlas,
 water: Atlas,
 map_background: Atlas,
 map_icons: Atlas,
+pumpkin_blur: Atlas,
 
 const Wrap = enum { clamp, repeat };
+const Filter = enum { nearest, blur };
 
 const Resource = struct {
     path: []const u8,
     bytes: []const u8,
     wrap: Wrap = .clamp,
+    filter: Filter = .nearest,
 };
 
 fn clamped(asset: assets.Asset) Resource {
@@ -81,6 +84,10 @@ fn clamped(asset: assets.Asset) Resource {
 
 fn repeated(asset: assets.Asset) Resource {
     return .{ .path = asset.path, .bytes = asset.bytes, .wrap = .repeat };
+}
+
+fn blurred(asset: assets.Asset) Resource {
+    return .{ .path = asset.path, .bytes = asset.bytes, .filter = .blur };
 }
 
 fn resourceFor(comptime field: []const u8) Resource {
@@ -143,26 +150,28 @@ fn resourceFor(comptime field: []const u8) Resource {
         .water => repeated(assets.misc.water_png),
         .map_background => clamped(assets.misc.mapbg_png),
         .map_icons => clamped(assets.misc.mapicons_png),
+        .pumpkin_blur => blurred(assets.misc.pumpkinblur_png),
     };
 }
 
 const Field = std.meta.FieldEnum(Textures);
 
-fn atlasFrom(bytes: []const u8, wrap: Wrap) !Atlas {
-    return switch (wrap) {
+fn atlasFrom(bytes: []const u8, resource: Resource) !Atlas {
+    if (resource.filter == .blur) return Atlas.loadBlurred(bytes);
+    return switch (resource.wrap) {
         .clamp => Atlas.load(bytes),
         .repeat => Atlas.loadRepeat(bytes),
     };
 }
 
 fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource) !Atlas {
-    const bytes = archive orelse return atlasFrom(resource.bytes, resource.wrap);
+    const bytes = archive orelse return atlasFrom(resource.bytes, resource);
 
     const overridden = texture_pack.readArchiveEntry(gpa, bytes, resource.path, texture_pack.max_resource_bytes) catch null;
-    const replacement = overridden orelse return atlasFrom(resource.bytes, resource.wrap);
+    const replacement = overridden orelse return atlasFrom(resource.bytes, resource);
     defer gpa.free(replacement);
 
-    return atlasFrom(replacement, resource.wrap) catch atlasFrom(resource.bytes, resource.wrap);
+    return atlasFrom(replacement, resource) catch atlasFrom(resource.bytes, resource);
 }
 
 pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8) !Textures {
@@ -232,4 +241,16 @@ test "only the tiling atlases ask for repeat wrapping" {
     try std.testing.expectEqual(Wrap.repeat, resourceFor("water").wrap);
     try std.testing.expectEqual(Wrap.clamp, resourceFor("terrain").wrap);
     try std.testing.expectEqual(Wrap.clamp, resourceFor("gui").wrap);
+}
+
+test "the pumpkin overlay is the one texture the original smooths" {
+    @setEvalBranchQuota(10000);
+    var blurring: usize = 0;
+    inline for (@typeInfo(Textures).@"struct".fields) |field| {
+        if (resourceFor(field.name).filter == .blur) {
+            blurring += 1;
+            try std.testing.expectEqualStrings("misc/pumpkinblur.png", resourceFor(field.name).path);
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), blurring);
 }

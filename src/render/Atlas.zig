@@ -16,11 +16,15 @@ texture: gl.uint,
 free_tiles: TileSet = TileSet.initEmpty(),
 
 pub fn load(data: []const u8) !Atlas {
-    return loadWrapped(data, gl.CLAMP_TO_EDGE);
+    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.NEAREST);
 }
 
 pub fn loadRepeat(data: []const u8) !Atlas {
-    return loadWrapped(data, gl.REPEAT);
+    return loadWrapped(data, gl.REPEAT, gl.NEAREST);
+}
+
+pub fn loadBlurred(data: []const u8) !Atlas {
+    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.LINEAR);
 }
 
 pub fn unusedTiles(pixels: []const u8, width: usize, height: usize) TileSet {
@@ -76,7 +80,7 @@ pub fn writeTile(self: Atlas, index: u8, rgba: []const u8) void {
     );
 }
 
-fn loadWrapped(data: []const u8, wrap: gl.int) !Atlas {
+fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int) !Atlas {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
 
@@ -90,8 +94,8 @@ fn loadWrapped(data: []const u8, wrap: gl.int) !Atlas {
     var texture: gl.uint = 0;
     gl.GenTextures(1, @ptrCast(&texture));
     gl.BindTexture(gl.TEXTURE_2D, texture);
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
     gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels.ptr);
