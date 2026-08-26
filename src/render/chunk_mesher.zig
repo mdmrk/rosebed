@@ -17,7 +17,7 @@ const FaceDir = struct {
     flip_v: bool = false,
 };
 
-const faces = [6]FaceDir{
+pub const faces = [6]FaceDir{
     .{ .side = .down, .shade = 0.5, .normal = .{ 0, -1, 0 }, .axis_u = 0, .axis_v = 2, .flip_v = true, .corners = .{
         .{ 1, 0, 0 }, .{ 1, 0, 1 }, .{ 0, 0, 1 }, .{ 0, 0, 0 },
     } },

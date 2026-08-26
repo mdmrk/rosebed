@@ -999,11 +999,10 @@ fn interactMinecart(self: *Session, gpa: std.mem.Allocator, level: *game.Level, 
     const player = self.player orelse return;
     switch (cart.kind) {
         .empty => {
-            if (cart.rider != game.Entity.no_id and cart.rider != player.base.id) return;
+            if (!level.entities.boardMinecart(cart, player.base.id)) return;
             player.riding = cart.base.id;
-            cart.rider = player.base.id;
         },
-        .chest => try self.openContainer(gpa, level, .{ .minecart = cart.base.id }, window_chest, "Minecart with chest"),
+        .chest => try self.openContainer(gpa, level, .{ .minecart = cart.base.id }, window_chest, game.Minecart.inventory_name),
         .furnace => {
             if (player.inventory.selectedStack()) |stack| {
                 if (stack.id.eql(.{ .item = .coal })) {

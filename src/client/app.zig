@@ -2358,9 +2358,8 @@ fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
     const cart = app_state.level.entities.minecartById(id) orelse return false;
     switch (cart.kind) {
         .empty => {
-            if (cart.rider != game.Entity.no_id and cart.rider != app_state.player.base.id) return true;
+            if (!app_state.level.entities.boardMinecart(cart, app_state.player.base.id)) return true;
             app_state.player.riding = cart.base.id;
-            cart.rider = app_state.player.base.id;
         },
         .chest => {
             app_state.minecart_open = cart.base.id;
@@ -3406,9 +3405,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var cart_mesh: render.MeshBuilder = .{};
     defer cart_mesh.deinit(app_state.frame);
+    var cargo_mesh: render.MeshBuilder = .{};
+    defer cargo_mesh.deinit(app_state.frame);
     for (app_state.level.entities.minecarts.items) |cart| {
         if (cart.dead) continue;
         try render.entity_render.appendMinecart(&cart_mesh, app_state.frame, &app_state.level.world_map, cart, partial);
+        try render.entity_render.appendMinecartCargo(&cargo_mesh, app_state.frame, &app_state.level.world_map, cart, partial);
     }
 
     var boat_mesh: render.MeshBuilder = .{};
@@ -3609,9 +3611,14 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.boat.bind();
         drawEntityMesh(&boat_mesh);
     }
+    if (cargo_mesh.vertices.items.len > 0) {
+        app_state.textures.terrain.bind();
+        drawEntityMesh(&cargo_mesh);
+    }
     if (cart_mesh.vertices.items.len > 0) {
         app_state.textures.cart.bind();
         drawEntityMesh(&cart_mesh);
+        app_state.textures.terrain.bind();
     }
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
@@ -3963,6 +3970,9 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     var transform = proj.mul(app_state.player.hurtMatrix(partial)).mul(bob);
     if (shape) |held| {
         transform = transform.mul(render.held_item.handMatrix(swing, equipped));
+        if (render.held_item.turnsAroundInHand(app_state.equip.shown)) {
+            transform = transform.mul(math.Mat4.rotationY(std.math.pi));
+        }
         switch (held) {
             .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness),
             .sprite => |sprite| {
@@ -4218,7 +4228,7 @@ fn drawFishLines(app_state: *AppState, partial: f32) !void {
 
     const player = &app_state.player;
     const angler: game.FishHook.Angler = .{
-        .position = player.base.renderPosition(partial),
+        .eye = player.renderEyePosition(partial),
         .yaw = player.prev_yaw + (player.yaw - player.prev_yaw) * partial,
         .pitch = player.prev_pitch + (player.pitch - player.prev_pitch) * partial,
         .body_yaw = player.prev_render_yaw + (player.render_yaw - player.prev_render_yaw) * partial,
@@ -4441,7 +4451,7 @@ pub fn iterate(
             ui,
             app_state.player.inventory,
             &cart.items,
-            "Minecart with Chest",
+            game.Minecart.inventory_name,
             app_state.held_stack,
         );
     } else if (app_state.workbench_open) {

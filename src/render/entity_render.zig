@@ -960,6 +960,81 @@ test "a lava ember samples a whole tile of the particle sheet" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), lowest_u, 1.0e-6);
 }
 
+test "a cargo cart carries its block above the cart floor and an empty one carries nothing" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var bare: MeshBuilder = .{};
+    defer bare.deinit(gpa);
+    try appendMinecartCargo(&bare, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .empty), 0);
+    try std.testing.expectEqual(@as(usize, 0), bare.vertices.items.len);
+
+    var cargo: MeshBuilder = .{};
+    defer cargo.deinit(gpa);
+    try appendMinecartCargo(&cargo, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .chest), 0);
+    try std.testing.expectEqual(@as(usize, 6 * 4), cargo.vertices.items.len);
+
+    var floor: MeshBuilder = .{};
+    defer floor.deinit(gpa);
+    try mob_model.appendPart(&floor, gpa, mob_model.minecart.parts[0], 64, 32, .{
+        .position = .{ 0, @floatCast(game.Minecart.y_offset), 0 },
+        .yaw = 0,
+    });
+
+    var min: [3]f32 = .{ 1000, 1000, 1000 };
+    var max: [3]f32 = .{ -1000, -1000, -1000 };
+    for (cargo.vertices.items) |v| {
+        min = .{ @min(min[0], v.x), @min(min[1], v.y), @min(min[2], v.z) };
+        max = .{ @max(max[0], v.x), @max(max[1], v.y), @max(max[2], v.z) };
+    }
+
+    const seat: f32 = @floatCast(game.Minecart.y_offset);
+    const tol: f32 = 1.0e-5;
+    try std.testing.expectApproxEqAbs(-cargo_scale / 2.0, min[0], tol);
+    try std.testing.expectApproxEqAbs(cargo_scale / 2.0, max[0], tol);
+    try std.testing.expectApproxEqAbs(-cargo_scale / 2.0, min[2], tol);
+    try std.testing.expectApproxEqAbs(cargo_scale / 2.0, max[2], tol);
+    try std.testing.expectApproxEqAbs(seat + cargo_scale * (cargo_lift - 0.5), min[1], tol);
+    try std.testing.expectApproxEqAbs(seat + cargo_scale * (cargo_lift + 0.5), max[1], tol);
+
+    var floor_top: f32 = -1000;
+    for (floor.vertices.items) |v| floor_top = @max(floor_top, v.y);
+    try std.testing.expect(min[1] > floor_top);
+}
+
+test "the chest cart turns the chest front onto one end of the cart, and a furnace cart shows the furnace" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var chest: MeshBuilder = .{};
+    defer chest.deinit(gpa);
+    try appendMinecartCargo(&chest, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .chest), 0);
+
+    const front = Atlas.tileUv(world.Block.chest.faceTextures().get(.south));
+    var facing: [3]f32 = .{ 0, 0, 0 };
+    for (0..6) |face| {
+        const quad = chest.vertices.items[face * 4 ..][0..4];
+        var carries_front = true;
+        for (quad) |v| {
+            if (v.u < front.u0 - 1.0e-6 or v.u > front.u1 + 1.0e-6) carries_front = false;
+            if (v.v < front.v0 - 1.0e-6 or v.v > front.v1 + 1.0e-6) carries_front = false;
+        }
+        if (!carries_front) continue;
+        for (quad) |v| facing = .{ facing[0] + v.x / 4.0, facing[1] + v.y / 4.0, facing[2] + v.z / 4.0 };
+    }
+    try std.testing.expectApproxEqAbs(-cargo_scale / 2.0, facing[0], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), facing[2], 1.0e-5);
+
+    var furnace: MeshBuilder = .{};
+    defer furnace.deinit(gpa);
+    try appendMinecartCargo(&furnace, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .furnace), 0);
+    try std.testing.expectEqual(chest.vertices.items.len, furnace.vertices.items.len);
+    try std.testing.expect(chest.vertices.items[0].u != furnace.vertices.items[0].u or
+        chest.vertices.items[0].v != furnace.vertices.items[0].v);
+}
+
 test "a dropped block renders as a small cube, not a flat cross" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
@@ -2888,7 +2963,7 @@ pub fn appendBoat(
             @floatCast(pos.z),
         },
         .yaw = yaw * to_radians,
-        .roll = boatRock(boat, partial_ticks) * to_radians,
+        .pitch = boatRock(boat, partial_ticks) * to_radians,
     };
 
     for (mob_model.boat.parts) |part| {
@@ -2912,6 +2987,42 @@ pub fn boatRock(boat: game.Boat, partial_ticks: f32) f32 {
     return @sin(since_hit) * since_hit * damage / 10.0 * @as(f32, @floatFromInt(boat.rock_direction));
 }
 
+const rail_lookahead: f64 = 0.3;
+const rail_pitch_scale: f64 = 73.0;
+
+fn minecartPose(world_map: *const world.World, cart: game.Minecart, partial_ticks: f32) mob_model.Pose {
+    const pos = cart.base.renderPosition(partial_ticks);
+    const centre = math.Vec3.init(pos.x, pos.y + game.Minecart.y_offset, pos.z);
+
+    var seat = centre;
+    var yaw = cart.prev_yaw + (cart.yaw - cart.prev_yaw) * partial_ticks;
+    var tilt = cart.prev_pitch + (cart.pitch - cart.prev_pitch) * partial_ticks;
+
+    if (game.Minecart.railAt(world_map, centre.x, centre.y, centre.z)) |under| {
+        const ahead = game.Minecart.railAhead(world_map, centre.x, centre.y, centre.z, rail_lookahead) orelse under;
+        const behind = game.Minecart.railAhead(world_map, centre.x, centre.y, centre.z, -rail_lookahead) orelse under;
+        seat = math.Vec3.init(under.x, (ahead.y + behind.y) / 2.0, under.z);
+
+        const run = behind.sub(ahead);
+        if (run.length() != 0.0) {
+            const along = run.normalize();
+            yaw = @floatCast(std.math.atan2(along.z, along.x) * 180.0 / std.math.pi);
+            tilt = @floatCast(std.math.atan(along.y) * rail_pitch_scale);
+        }
+    }
+
+    return .{
+        .position = .{
+            @floatCast(seat.x),
+            @floatCast(seat.y),
+            @floatCast(seat.z),
+        },
+        .yaw = yaw * to_radians,
+        .roll = tilt * to_radians,
+        .pitch = minecartRock(cart, partial_ticks) * to_radians,
+    };
+}
+
 pub fn appendMinecart(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -2920,18 +3031,7 @@ pub fn appendMinecart(
     partial_ticks: f32,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    const pos = cart.base.renderPosition(partial_ticks);
-    const yaw = cart.prev_yaw + (cart.yaw - cart.prev_yaw) * partial_ticks;
-
-    const pose: mob_model.Pose = .{
-        .position = .{
-            @floatCast(pos.x),
-            @floatCast(pos.y + game.Minecart.y_offset),
-            @floatCast(pos.z),
-        },
-        .yaw = yaw * to_radians,
-        .roll = minecartRock(cart, partial_ticks) * to_radians,
-    };
+    const pose = minecartPose(world_map, cart, partial_ticks);
 
     for (mob_model.minecart.parts) |part| {
         try mob_model.appendPart(
@@ -2942,6 +3042,54 @@ pub fn appendMinecart(
             mob_model.minecart.texture_height,
             pose,
         );
+    }
+
+    mesh.scaleColors(first_vertex, brightnessOf(world_map, cart.base));
+}
+
+const cargo_scale: f32 = 12.0 / 16.0;
+const cargo_lift: f32 = 5.0 / 16.0;
+
+fn cargoBlock(kind: game.Minecart.Kind) ?world.Block {
+    return switch (kind) {
+        .empty => null,
+        .chest => .chest,
+        .furnace => .furnace,
+    };
+}
+
+pub fn appendMinecartCargo(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    cart: game.Minecart,
+    partial_ticks: f32,
+) !void {
+    const carried = cargoBlock(cart.kind) orelse return;
+    const textures = carried.faceTextures();
+
+    const first_vertex = mesh.vertices.items.len;
+    const pose = minecartPose(world_map, cart, partial_ticks);
+
+    for (chunk_mesher.faces) |face| {
+        const uv = Atlas.tileUv(textures.get(face.side));
+        var positions: [4][3]f32 = undefined;
+        for (face.corners, 0..) |corner, i| {
+            const spun: [3]f32 = .{ corner[2] - 0.5, corner[1] - 0.5, 0.5 - corner[0] };
+            positions[i] = mob_model.posedOffset(pose, .{
+                -cargo_scale * spun[0],
+                cargo_scale * (spun[1] + cargo_lift),
+                cargo_scale * spun[2],
+            });
+        }
+        const v_far = if (face.flip_v) uv.v0 else uv.v1;
+        const v_near = if (face.flip_v) uv.v1 else uv.v0;
+        try mesh.quad(gpa, positions, .{
+            .{ uv.u1, v_far },
+            .{ uv.u1, v_near },
+            .{ uv.u0, v_near },
+            .{ uv.u0, v_far },
+        }, white);
     }
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, cart.base));

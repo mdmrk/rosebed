@@ -828,12 +828,17 @@ pub fn viewRotation(self: Player) math.Mat4 {
         .mul(math.Mat4.rotationY((self.yaw + 180.0) * degrees));
 }
 
-pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
-    const render_position = self.base.renderPosition(partial_ticks);
+pub fn renderEyePosition(self: Player, partial_ticks: f32) math.Vec3 {
+    const at = self.base.renderPosition(partial_ticks);
     const dip = self.prev_y_size + (self.y_size - self.prev_y_size) * @as(f64, partial_ticks);
-    const eye_x: f32 = @floatCast(render_position.x);
-    const eye_y: f32 = @floatCast(render_position.y + eye_height - dip);
-    const eye_z: f32 = @floatCast(render_position.z);
+    return .{ .x = at.x, .y = at.y + eye_height - dip, .z = at.z };
+}
+
+pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
+    const eye = self.renderEyePosition(partial_ticks);
+    const eye_x: f32 = @floatCast(eye.x);
+    const eye_y: f32 = @floatCast(eye.y);
+    const eye_z: f32 = @floatCast(eye.z);
     return self.viewRotation()
         .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
 }

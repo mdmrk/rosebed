@@ -155,6 +155,10 @@ pub fn isOffsetPositionInLiquid(self: Entity, world_map: *const world.World, dx:
 }
 
 pub fn move(self: *Entity, world_map: *const world.World) Moved {
+    return self.moveAmong(world_map, &.{});
+}
+
+pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []const math.Aabb) Moved {
     var dx = self.motion.x;
     var dz = self.motion.z;
     const sneak_stepping = self.sneaking and self.on_ground;
@@ -175,6 +179,7 @@ pub fn move(self: *Entity, world_map: *const world.World) Moved {
         self.on_ground,
         sneak_stepping,
         self.y_size,
+        obstacles,
     );
     self.y_size = result.y_size;
 

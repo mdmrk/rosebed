@@ -212,6 +212,14 @@ pub const Held = union(enum) {
     sprite: struct { tile: u8, atlas: enum { terrain, items } },
 };
 
+pub fn turnsAroundInHand(stack: ?game.Inventory.ItemStack) bool {
+    const held = stack orelse return false;
+    return switch (held.id) {
+        .item => |id| id == .fishing_rod,
+        .block => false,
+    };
+}
+
 pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
     const held = stack orelse return null;
     const id = switch (held.id) {
@@ -226,6 +234,13 @@ pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
         return .{ .sprite = .{ .tile = tile, .atlas = .terrain } };
     }
     return .{ .cube = id };
+}
+
+test "only the fishing rod is turned around in the hand" {
+    try std.testing.expect(turnsAroundInHand(.{ .id = .{ .item = .fishing_rod }, .count = 1 }));
+    try std.testing.expect(!turnsAroundInHand(.{ .id = .{ .item = .bow }, .count = 1 }));
+    try std.testing.expect(!turnsAroundInHand(.{ .id = .{ .block = .stone }, .count = 1 }));
+    try std.testing.expect(!turnsAroundInHand(null));
 }
 
 test "the equip animation dips to zero when the held stack changes, then climbs back" {

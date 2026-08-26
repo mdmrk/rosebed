@@ -30,6 +30,7 @@ pub const height: f64 = 0.7;
 pub const y_offset: f64 = height / 2.0;
 pub const mounted_offset: f64 = -0.3;
 pub const chest_slots = 27;
+pub const inventory_name = "Minecart";
 pub const chest_rows = 3;
 
 pub const damage_per_hit: i32 = 10;
@@ -119,11 +120,49 @@ pub fn railAt(world_map: *const world.World, x: f64, y: f64, z: f64) ?math.Vec3 
     return math.Vec3.init(ax + dx * along, out_y, az + dz * along);
 }
 
+pub fn railAhead(world_map: *const world.World, x: f64, y: f64, z: f64, offset: f64) ?math.Vec3 {
+    const cx = math.util.floorDouble(x);
+    var cy = math.util.floorDouble(y);
+    const cz = math.util.floorDouble(z);
+    if (world.block.isRail(world_map.getBlock(cx, cy - 1, cz))) cy -= 1;
+
+    const id = world_map.getBlock(cx, cy, cz);
+    if (!world.block.isRail(id)) return null;
+
+    const shape = world.block.railShape(id, world_map.getBlockMetadata(cx, cy, cz));
+    if (shape > 9) return null;
+
+    const rails = track[shape];
+    var dx: f64 = @floatFromInt(rails[1][0] - rails[0][0]);
+    var dz: f64 = @floatFromInt(rails[1][2] - rails[0][2]);
+    const span = @sqrt(dx * dx + dz * dz);
+    dx /= span;
+    dz /= span;
+
+    const ax = x + dx * offset;
+    const az = z + dz * offset;
+    var ay: f64 = @floatFromInt(cy);
+    if (world.block.railIsSloped(shape)) ay += 1.0;
+
+    if (rails[0][1] != 0 and math.util.floorDouble(ax) - cx == rails[0][0] and math.util.floorDouble(az) - cz == rails[0][2]) {
+        ay += @floatFromInt(rails[0][1]);
+    } else if (rails[1][1] != 0 and math.util.floorDouble(ax) - cx == rails[1][0] and math.util.floorDouble(az) - cz == rails[1][2]) {
+        ay += @floatFromInt(rails[1][1]);
+    }
+
+    return railAt(world_map, ax, ay, az);
+}
+
 pub const Step = struct {
     smoking: bool = false,
 };
 
-pub fn tick(self: *Minecart, world_map: *const world.World, has_rider: bool) Step {
+pub fn tick(
+    self: *Minecart,
+    world_map: *const world.World,
+    obstacles: []const math.Aabb,
+    has_rider: bool,
+) Step {
     if (self.time_since_hit > 0) self.time_since_hit -= 1;
     if (self.damage > 0) self.damage -= 1;
 
@@ -141,9 +180,9 @@ pub fn tick(self: *Minecart, world_map: *const world.World, has_rider: bool) Ste
 
     const id = world_map.getBlock(cx, cy, cz);
     if (world.block.isRail(id)) {
-        self.rideRail(world_map, id, cx, cy, cz, has_rider, &step);
+        self.rideRail(world_map, obstacles, id, cx, cy, cz, has_rider, &step);
     } else {
-        self.rollFree(world_map);
+        self.rollFree(world_map, obstacles);
     }
 
     self.pitch = 0;
@@ -154,6 +193,7 @@ pub fn tick(self: *Minecart, world_map: *const world.World, has_rider: bool) Ste
 fn rideRail(
     self: *Minecart,
     world_map: *const world.World,
+    obstacles: []const math.Aabb,
     id: world.Block,
     cx: i32,
     cy: i32,
@@ -240,8 +280,12 @@ fn rideRail(
 
     const carried = self.base.motion;
     self.base.motion = math.Vec3.init(travel_x, 0, travel_z);
-    _ = self.base.move(world_map);
-    self.base.motion = carried;
+    const moved = self.base.moveAmong(world_map, obstacles);
+    self.base.motion = math.Vec3.init(
+        if (moved.blocked_x) 0 else carried.x,
+        carried.y,
+        if (moved.blocked_z) 0 else carried.z,
+    );
 
     const now = self.base.position;
     if (rails[0][1] != 0 and math.util.floorDouble(now.x) - cx == rails[0][0] and math.util.floorDouble(now.z) - cz == rails[0][2]) {
@@ -335,7 +379,7 @@ fn rideRail(
     }
 }
 
-fn rollFree(self: *Minecart, world_map: *const world.World) void {
+fn rollFree(self: *Minecart, world_map: *const world.World, obstacles: []const math.Aabb) void {
     self.base.motion.x = std.math.clamp(self.base.motion.x, -speed_cap, speed_cap);
     self.base.motion.z = std.math.clamp(self.base.motion.z, -speed_cap, speed_cap);
 
@@ -345,7 +389,7 @@ fn rollFree(self: *Minecart, world_map: *const world.World) void {
         self.base.motion.z *= ground_drag;
     }
 
-    _ = self.base.move(world_map);
+    _ = self.base.moveAmong(world_map, obstacles);
 
     if (!self.base.on_ground) {
         self.base.motion.x *= air_drag;
@@ -563,7 +607,7 @@ test "a minecart on a straight rail is pulled onto the centre line" {
     defer w.deinit();
 
     var cart = Minecart.spawn(8.2, 12.0, 8.4, .empty);
-    _ = cart.tick(&w, false);
+    _ = cart.tick(&w, &.{}, false);
 
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), cart.base.position.z, 1.0e-9);
 }
@@ -575,11 +619,40 @@ test "a minecart rolls along the rail it was pushed down and stays on it" {
     var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
 
-    for (0..20) |_| _ = cart.tick(&w, false);
+    for (0..20) |_| _ = cart.tick(&w, &.{}, false);
 
     try std.testing.expect(cart.base.position.x > 7.5);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), cart.base.position.z, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 12.15), cart.base.position.y, 1.0e-9);
+}
+
+test "a minecart driven into a wall on the rails stops dead" {
+    var w = try railWorld(true);
+    defer w.deinit();
+    try w.setBlockWithNotify(9, 12, 8, .stone);
+
+    var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
+    cart.base.motion = math.Vec3.init(0.3, 0, 0);
+    for (0..20) |_| _ = cart.tick(&w, &.{}, false);
+
+    try std.testing.expect(cart.base.position.x < 9.0);
+    try std.testing.expectEqual(@as(f64, 0), cart.base.motion.x);
+}
+
+test "the rail lookahead reads the next rail's height, sloped or not" {
+    var w = try railWorld(true);
+    defer w.deinit();
+
+    const level = Minecart.railAhead(&w, 8.5, 12.5, 8.5, 0.3).?;
+    const flat = Minecart.railAt(&w, 8.5, 12.5, 8.5).?;
+    try std.testing.expectApproxEqAbs(flat.y, level.y, 1.0e-9);
+
+    try w.setBlockMetadataWithNotify(9, 12, 8, 3);
+    const climbing = Minecart.railAhead(&w, 8.5, 12.5, 8.5, 0.6).?;
+    try std.testing.expect(climbing.y > level.y);
+
+    const behind = Minecart.railAhead(&w, 8.5, 12.5, 8.5, -0.6).?;
+    try std.testing.expectApproxEqAbs(level.y, behind.y, 1.0e-9);
 }
 
 test "a minecart left alone on level track coasts to a halt" {
@@ -588,7 +661,7 @@ test "a minecart left alone on level track coasts to a halt" {
 
     var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
-    for (0..400) |_| _ = cart.tick(&w, false);
+    for (0..400) |_| _ = cart.tick(&w, &.{}, false);
 
     try std.testing.expect(@abs(cart.base.motion.x) < 0.01);
 }
@@ -602,7 +675,7 @@ test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
     var fast = Minecart.spawn(8.5, 12.0, 8.5, .empty);
     fast.base.motion = math.Vec3.init(0.1, 0, 0);
     const before = fast.base.motion.x;
-    _ = fast.tick(&boosted, false);
+    _ = fast.tick(&boosted, &.{}, false);
     try std.testing.expect(fast.base.motion.x > before);
 
     var braked = try railWorld(true);
@@ -612,7 +685,7 @@ test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
 
     var slow = Minecart.spawn(8.5, 12.0, 8.5, .empty);
     slow.base.motion = math.Vec3.init(0.1, 0, 0);
-    _ = slow.tick(&braked, false);
+    _ = slow.tick(&braked, &.{}, false);
     try std.testing.expect(slow.base.motion.x < 0.1);
 }
 
@@ -622,10 +695,10 @@ test "a minecart off the rails falls and drags along the ground" {
     defer w.deinit();
 
     var cart = Minecart.spawn(8.5, 16.0, 8.5, .empty);
-    _ = cart.tick(&w, false);
+    _ = cart.tick(&w, &.{}, false);
     try std.testing.expect(cart.base.motion.y < 0);
 
-    for (0..40) |_| _ = cart.tick(&w, false);
+    for (0..40) |_| _ = cart.tick(&w, &.{}, false);
     try std.testing.expectApproxEqAbs(@as(f64, 12.0), cart.base.position.y, 1.0e-6);
 }
 

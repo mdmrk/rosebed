@@ -1424,6 +1424,44 @@ fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?A
 
 const cactus_damage: i32 = 1;
 
+// EntityMinecart.getCollisionBox returns the other entity's box, so a cart is stopped by
+// every entity it runs into - mobs, players, even dropped items - while its own
+// getBoundingBox is null and it blocks nothing in return.
+const cart_obstacle_reach: f64 = 0.25;
+
+fn gatherObstacles(
+    self: *const Entities,
+    gpa: std.mem.Allocator,
+    out: *std.ArrayList(math.Aabb),
+    roster: []const *Player,
+    query: math.Aabb,
+    skip: Entity.Id,
+) !void {
+    out.clearRetainingCapacity();
+
+    inline for (.{ "items", "arrows", "fireballs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
+        for (@field(self, name).items) |entry| {
+            if (entry.base.id == skip) continue;
+            const box = entry.base.boundingBox();
+            if (box.intersects(query)) try out.append(gpa, box);
+        }
+    }
+
+    for (self.mobs.items) |entry| {
+        const box = entry.animal.base.boundingBox();
+        if (box.intersects(query)) try out.append(gpa, box);
+    }
+
+    for (self.paintings.items) |painting| {
+        if (painting.box.intersects(query)) try out.append(gpa, painting.box);
+    }
+
+    for (roster) |player| {
+        const box = player.base.boundingBox();
+        if (box.intersects(query)) try out.append(gpa, box);
+    }
+}
+
 pub fn tickMinecarts(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1431,10 +1469,23 @@ pub fn tickMinecarts(
     roster: []const *Player,
     rand: *world.JavaRandom,
 ) !void {
+    var obstacles: std.ArrayList(math.Aabb) = .empty;
+    defer obstacles.deinit(gpa);
+
     var index: usize = 0;
     while (index < self.minecarts.items.len) {
+        self.jostleBystanders(index, roster);
+
+        const reach = Minecart.speed_cap + cart_obstacle_reach;
+        const rolling = self.minecarts.items[index].base;
+        const swept = rolling
+            .boundingBox()
+            .addCoord(rolling.motion.x, rolling.motion.y, rolling.motion.z)
+            .expand(reach, cart_obstacle_reach, reach);
+        try self.gatherObstacles(gpa, &obstacles, roster, swept, rolling.id);
+
         const cart = &self.minecarts.items[index];
-        const step = cart.tick(world_map, cart.rider != Entity.no_id);
+        const step = cart.tick(world_map, obstacles.items, cart.rider != Entity.no_id);
         if (cart.base.remote == null and physics.touchesBlock(world_map, cart.base.boundingBox(), .cactus)) {
             _ = cart.hurt(cactus_damage);
         }
@@ -1452,7 +1503,6 @@ pub fn tickMinecarts(
 
         try world.redstone.onMinecartOverRail(world_map, cart.base.boundingBox());
         self.shoveMinecarts(index);
-        self.jostleBystanders(index, roster);
 
         if (cart.dead) {
             const wreck = cart.*;
@@ -1467,7 +1517,9 @@ pub fn tickMinecarts(
 
 // Vanilla runs this from each living entity's own tick, which reaches the cart through
 // EntityMinecart.applyEntityCollision. Driving it from the cart's tick instead touches the
-// same pairs once per tick and keeps the cart's override in one place.
+// same pairs once per tick and keeps the cart's override in one place. It has to run before
+// the cart moves: a cart is blocked by whatever it runs into, so by the time it is touching
+// a mob its speed is already zero and the scoop-up test would never pass.
 fn jostleBystanders(self: *Entities, index: usize, roster: []const *Player) void {
     const reach = Minecart.collision_reach;
     const box = self.minecarts.items[index].base.boundingBox().expand(reach, 0, reach);
@@ -1503,6 +1555,18 @@ fn shoveMinecarts(self: *Entities, index: usize) void {
         if (!self.minecarts.items[other].base.boundingBox().intersects(box)) continue;
         self.minecarts.items[other].collideWith(&self.minecarts.items[index]);
     }
+}
+
+pub fn boardMinecart(self: *Entities, cart: *Minecart, passenger: Entity.Id) bool {
+    if (cart.rider != Entity.no_id and cart.rider != passenger) {
+        const seated = self.mobById(cart.rider) orelse return false;
+        seated.animal.riding = Entity.no_id;
+    }
+    for (self.minecarts.items) |*other| {
+        if (other.rider == passenger) other.rider = Entity.no_id;
+    }
+    cart.rider = passenger;
+    return true;
 }
 
 pub fn releaseRider(self: *Entities, id: Entity.Id, mount: Entity) void {
@@ -3043,6 +3107,77 @@ test "a rolling empty cart scoops up a pig it runs into, and a chest cart does n
     const pig = entities.first(Pig, mob.pig).?;
     try std.testing.expectEqual(cart_id, pig.animal.riding);
     try std.testing.expectEqual(pig.animal.base.id, entities.minecartById(cart_id).?.rider);
+}
+
+fn railedWorld(gpa: std.mem.Allocator) !world.World {
+    var w = try world.testing.flatWorld(gpa, 12);
+    errdefer w.deinit();
+    var step: i32 = 4;
+    while (step <= 14) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+    return w;
+}
+
+test "a cart is stopped by whatever is standing on the track, not driven through it" {
+    const gpa = std.testing.allocator;
+    var w = try railedWorld(gpa);
+    defer w.deinit();
+    var rand = world.JavaRandom.init(3);
+
+    var clear: Entities = .{};
+    defer clear.deinit(gpa);
+    const rolling = try clear.spawnMinecart(gpa, 7.5, 12.5, 8.5, .chest);
+    clear.minecartById(rolling).?.base.motion = math.Vec3.init(0.3, 0, 0);
+    for (0..8) |_| try clear.tickMinecarts(gpa, &w, &.{}, &rand);
+    try std.testing.expect(clear.minecartById(rolling).?.base.position.x > 9.5);
+
+    var blocked: Entities = .{};
+    defer blocked.deinit(gpa);
+    var dropped = ItemEntity.spawn(math.Vec3.init(9.5, 12.15, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    dropped.base.motion = math.Vec3.init(0, 0, 0);
+    try blocked.items.append(gpa, dropped);
+    const halted = try blocked.spawnMinecart(gpa, 7.5, 12.5, 8.5, .chest);
+    blocked.minecartById(halted).?.base.motion = math.Vec3.init(0.3, 0, 0);
+    for (0..8) |_| try blocked.tickMinecarts(gpa, &w, &.{}, &rand);
+    try std.testing.expect(blocked.minecartById(halted).?.base.position.x < 9.0);
+}
+
+test "boarding a cart bumps a mob out of the seat but leaves another player's seat alone" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
+    const cart_id = try entities.spawnMinecart(gpa, 8.5, 12.5, 8.5, .empty);
+    const pig = entities.first(Pig, mob.pig).?;
+
+    const cart = entities.minecartById(cart_id).?;
+    cart.rider = pig.animal.base.id;
+    pig.animal.riding = cart_id;
+
+    const rider: Entity.Id = 4096;
+    try std.testing.expect(entities.boardMinecart(cart, rider));
+    try std.testing.expectEqual(rider, cart.rider);
+    try std.testing.expectEqual(Entity.no_id, pig.animal.riding);
+
+    try std.testing.expect(!entities.boardMinecart(cart, 4097));
+    try std.testing.expectEqual(rider, cart.rider);
+    try std.testing.expect(entities.boardMinecart(cart, rider));
+}
+
+test "boarding one cart empties the seat you left behind" {
+    const gpa = std.testing.allocator;
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    const first_cart = try entities.spawnMinecart(gpa, 8.5, 12.5, 8.5, .empty);
+    const second_cart = try entities.spawnMinecart(gpa, 10.5, 12.5, 8.5, .empty);
+
+    const rider: Entity.Id = 4096;
+    try std.testing.expect(entities.boardMinecart(entities.minecartById(first_cart).?, rider));
+    try std.testing.expect(entities.boardMinecart(entities.minecartById(second_cart).?, rider));
+
+    try std.testing.expectEqual(Entity.no_id, entities.minecartById(first_cart).?.rider);
+    try std.testing.expectEqual(rider, entities.minecartById(second_cart).?.rider);
 }
 
 test "a wrecked cart sets its passenger down on top of where it stood" {

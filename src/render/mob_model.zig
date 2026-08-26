@@ -837,7 +837,11 @@ pub fn posedPoint(part: Part, pose: Pose, corner: [3]f32) [3]f32 {
         -p[1] * pixel_scale * pose.scale[1] + pose.lift,
         p[2] * pixel_scale * pose.scale[2],
     };
-    const swum = rotateX(rotateY(world_scale, -pose.spin), pose.pitch);
+    return posedOffset(pose, world_scale);
+}
+
+pub fn posedOffset(pose: Pose, offset: [3]f32) [3]f32 {
+    const swum = rotateX(rotateY(offset, -pose.spin), pose.pitch);
     const rolled = rotateZ(swum[0], swum[1], pose.roll);
     const xz = rotateYaw(rolled[0], swum[2], pose.yaw);
     return .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };

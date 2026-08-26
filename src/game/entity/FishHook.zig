@@ -31,7 +31,7 @@ fn rotateAroundY(v: math.Vec3, angle: f32) math.Vec3 {
 }
 
 pub const Angler = struct {
-    position: math.Vec3,
+    eye: math.Vec3,
     yaw: f32,
     pitch: f32,
     body_yaw: f32,
@@ -47,9 +47,9 @@ pub fn rodTip(angler: Angler) math.Vec3 {
         const sin_body: f64 = math.util.sin(body);
         const cos_body: f64 = math.util.cos(body);
         return math.Vec3.init(
-            angler.position.x - cos_body * third_person_side - sin_body * third_person_reach,
-            angler.position.y - third_person_drop,
-            angler.position.z - sin_body * third_person_side + cos_body * third_person_reach,
+            angler.eye.x - cos_body * third_person_side - sin_body * third_person_reach,
+            angler.eye.y - third_person_drop,
+            angler.eye.z - sin_body * third_person_side + cos_body * third_person_reach,
         );
     }
 
@@ -60,9 +60,9 @@ pub fn rodTip(angler: Angler) math.Vec3 {
     offset = rotateAroundX(offset, -swing_bend * swing_pitch_scale);
 
     return math.Vec3.init(
-        angler.position.x + offset.x,
-        angler.position.y + offset.y,
-        angler.position.z + offset.z,
+        angler.eye.x + offset.x,
+        angler.eye.y + offset.y,
+        angler.eye.z + offset.z,
     );
 }
 
@@ -382,7 +382,7 @@ test "the line runs from the bobber to the rod tip and sags between" {
     hook.base.prev_position = hook.base.position;
 
     const angler: Angler = .{
-        .position = math.Vec3.init(8.5, 13.0, 8.5),
+        .eye = math.Vec3.init(8.5, 13.0, 8.5),
         .yaw = 0,
         .pitch = 0,
         .body_yaw = 0,
@@ -408,7 +408,7 @@ test "the line runs from the bobber to the rod tip and sags between" {
 
 test "the rod tip sits off the angler's hand and swings with the cast" {
     const facing: Angler = .{
-        .position = math.Vec3.init(8.5, 13.0, 8.5),
+        .eye = math.Vec3.init(8.5, 13.0, 8.5),
         .yaw = 0,
         .pitch = 0,
         .body_yaw = 0,

@@ -127,6 +127,17 @@ pub const MoveResult = struct {
 };
 
 pub fn moveEntity(world_map: *const world.World, aabb: math.Aabb, dx: f64, dy: f64, dz: f64) MoveResult {
+    return moveEntityAmong(world_map, aabb, dx, dy, dz, &.{});
+}
+
+pub fn moveEntityAmong(
+    world_map: *const world.World,
+    aabb: math.Aabb,
+    dx: f64,
+    dy: f64,
+    dz: f64,
+    obstacles: []const math.Aabb,
+) MoveResult {
     var box_buf: [max_colliding_boxes]math.Aabb = undefined;
     const broad = aabb.addCoord(dx, dy, dz);
     const count = collidingBoxes(world_map, broad, &box_buf);
@@ -136,14 +147,23 @@ pub fn moveEntity(world_map: *const world.World, aabb: math.Aabb, dx: f64, dy: f
 
     var moved_y = dy;
     for (boxes) |box| moved_y = box.calculateYOffset(result, moved_y);
+    for (obstacles) |box| {
+        if (box.intersects(broad)) moved_y = box.calculateYOffset(result, moved_y);
+    }
     result = result.offset(0, moved_y, 0);
 
     var moved_x = dx;
     for (boxes) |box| moved_x = box.calculateXOffset(result, moved_x);
+    for (obstacles) |box| {
+        if (box.intersects(broad)) moved_x = box.calculateXOffset(result, moved_x);
+    }
     result = result.offset(moved_x, 0, 0);
 
     var moved_z = dz;
     for (boxes) |box| moved_z = box.calculateZOffset(result, moved_z);
+    for (obstacles) |box| {
+        if (box.intersects(broad)) moved_z = box.calculateZOffset(result, moved_z);
+    }
     result = result.offset(0, 0, moved_z);
 
     return .{ .aabb = result, .dx = moved_x, .dy = moved_y, .dz = moved_z };
@@ -169,8 +189,9 @@ pub fn moveEntityStepping(
     on_ground: bool,
     sneaking: bool,
     y_size: f64,
+    obstacles: []const math.Aabb,
 ) StepResult {
-    const plain = moveEntity(world_map, aabb, dx, dy, dz);
+    const plain = moveEntityAmong(world_map, aabb, dx, dy, dz, obstacles);
     const flat: StepResult = .{
         .aabb = plain.aabb,
         .dx = plain.dx,
@@ -184,8 +205,8 @@ pub fn moveEntityStepping(
     const obstructed = dx != plain.dx or dz != plain.dz;
     if (step_height <= 0.0 or !landed or !unlocked or !obstructed) return flat;
 
-    const raised = moveEntity(world_map, aabb, dx, step_height, dz);
-    const settled = moveEntity(world_map, raised.aabb, 0, -step_height, 0);
+    const raised = moveEntityAmong(world_map, aabb, dx, step_height, dz, obstacles);
+    const settled = moveEntityAmong(world_map, raised.aabb, 0, -step_height, 0, obstacles);
 
     if (plain.dx * plain.dx + plain.dz * plain.dz >= raised.dx * raised.dx + raised.dz * raised.dz) return flat;
 
@@ -422,12 +443,12 @@ test "a single slab is half a block tall to walk onto, a double slab a whole one
     w.setBlock(2, 1, 0, .slab);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
-    const onto_slab = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    const onto_slab = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_slab.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_slab.aabb.min_y, 1.0e-9);
 
     w.setBlock(2, 1, 0, .slab_double);
-    const onto_double = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    const onto_double = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_double.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), onto_double.aabb.min_y, 1.0e-9);
 }
@@ -439,7 +460,7 @@ test "a stair's tread is walked onto while its tall half blocks the way" {
     w.setBlockMetadata(2, 1, 0, 0);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
-    const onto_tread = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    const onto_tread = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_tread.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_tread.aabb.min_y, 1.0e-9);
 
@@ -454,7 +475,7 @@ test "a rise of half a block is stepped over when the entity has step height" {
     w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
-    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
 
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), stepped.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), stepped.aabb.min_y, 1.0e-9);
@@ -466,7 +487,7 @@ test "the same rise stops an entity that cannot step" {
     w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
-    const blocked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0, true, false, 0);
+    const blocked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0, true, false, 0, &.{});
 
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), blocked.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.42), blocked.aabb.min_y, 1.0e-9);
@@ -478,10 +499,10 @@ test "a step that lands mid-block locks out stepping until the offset decays" {
     w.setBlock(2, 1, 0, .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
-    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0);
+    const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), stepped.y_size, 1.0e-9);
 
-    const locked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0.2);
+    const locked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0.2, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), locked.dx, 1.0e-9);
 }
 
