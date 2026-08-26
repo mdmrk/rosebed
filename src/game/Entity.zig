@@ -10,6 +10,8 @@ const Entity = @This();
 pub const Id = u32;
 pub const no_id: Id = 0;
 
+const block_touch_inset: f64 = 0.001;
+
 id: Id = no_id,
 position: math.Vec3,
 prev_position: math.Vec3,
@@ -204,7 +206,33 @@ pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []cons
     if (moved.blocked_y) self.motion.y = 0;
     if (moved.blocked_z) self.motion.z = 0;
 
+    self.collideWithBlocks(world_map);
+
     return moved;
+}
+
+fn collideWithBlocks(self: *Entity, world_map: *const world.World) void {
+    const box = self.boundingBox();
+    const min_x = math.util.floorDouble(box.min_x + block_touch_inset);
+    const min_y = math.util.floorDouble(box.min_y + block_touch_inset);
+    const min_z = math.util.floorDouble(box.min_z + block_touch_inset);
+    const max_x = math.util.floorDouble(box.max_x - block_touch_inset);
+    const max_y = math.util.floorDouble(box.max_y - block_touch_inset);
+    const max_z = math.util.floorDouble(box.max_z - block_touch_inset);
+
+    var x = min_x;
+    while (x <= max_x) : (x += 1) {
+        var y = min_y;
+        while (y <= max_y) : (y += 1) {
+            var z = min_z;
+            while (z <= max_z) : (z += 1) {
+                if (world_map.getBlock(x, y, z) == .soul_sand) {
+                    self.motion.x *= world.block.soul_sand_drag;
+                    self.motion.z *= world.block.soul_sand_drag;
+                }
+            }
+        }
+    }
 }
 
 pub fn renderPosition(self: Entity, partial_ticks: f32) math.Vec3 {
@@ -240,6 +268,34 @@ test "landing on a floor grounds the entity and zeroes its vertical motion" {
     try std.testing.expect(moved.blocked_y);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), entity.motion.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), entity.position.y, 1.0e-9);
+}
+
+test "walking on soul sand damps horizontal motion once per cell touched" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .soul_sand);
+
+    var entity = Entity.init(math.Vec3.init(8.5, 2.0 - 2.0 / 16.0, 8.5), 0.6, 1.8);
+    entity.motion = math.Vec3.init(0.2, 0, 0);
+    _ = entity.move(&w);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.08), entity.motion.x, 1.0e-9);
+
+    w.setBlock(9, 1, 8, .soul_sand);
+    var straddling = Entity.init(math.Vec3.init(9.0, 2.0 - 2.0 / 16.0, 8.5), 0.6, 1.8);
+    straddling.motion = math.Vec3.init(0, 0, 0.2);
+    _ = straddling.move(&w);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.032), straddling.motion.z, 1.0e-9);
+}
+
+test "an entity clear of soul sand keeps its motion" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .soul_sand);
+
+    var entity = Entity.init(math.Vec3.init(11.5, 1.0, 11.5), 0.6, 1.8);
+    entity.motion = math.Vec3.init(0.2, 0, 0);
+    _ = entity.move(&w);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), entity.motion.x, 1.0e-9);
 }
 
 test "unobstructed movement keeps the entity off the ground" {

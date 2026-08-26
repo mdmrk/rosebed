@@ -25,6 +25,11 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
         return 1;
     }
 
+    if (id == .soul_sand) {
+        out[0] = offsetBox(world.block.soul_sand_collision_bounds, x, y, z);
+        return 1;
+    }
+
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
@@ -578,6 +583,16 @@ test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
     const falling = math.Aabb.init(8.7, 3.0, 7.7, 9.3, 4.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -2.0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 1.0 / 16.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "soul sand is two sixteenths short, so an entity stands sunk into its cell" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .soul_sand);
+
+    const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
+    const landed = moveEntity(&w, falling, 0, -3.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 2.0 / 16.0), landed.aabb.min_y, 1.0e-9);
 }
 
 test "a box counts as touching the cell it barely overlaps, but not the one it only abuts" {

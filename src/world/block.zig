@@ -398,6 +398,15 @@ pub const cactus_collision_bounds: Bounds = .{
     .max = .{ 1.0 - cactus_inset, 1.0 - cactus_inset, 1.0 - cactus_inset },
 };
 
+pub const soul_sand_sink: f32 = 2.0 / 16.0;
+
+pub const soul_sand_collision_bounds: Bounds = .{
+    .min = .{ 0.0, 0.0, 0.0 },
+    .max = .{ 1.0, 1.0 - soul_sand_sink, 1.0 },
+};
+
+pub const soul_sand_drag: f64 = 0.4;
+
 pub const portal_thickness: f32 = 2.0 / 16.0;
 
 pub fn portalBounds(spans_x: bool) Bounds {
