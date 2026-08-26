@@ -10,8 +10,6 @@ const Entity = @This();
 pub const Id = u32;
 pub const no_id: Id = 0;
 
-const block_touch_inset: f64 = 0.001;
-
 id: Id = no_id,
 position: math.Vec3,
 prev_position: math.Vec3,
@@ -19,6 +17,7 @@ motion: math.Vec3 = math.Vec3.init(0, 0, 0),
 on_ground: bool = false,
 blocked_horizontally: bool = false,
 in_water: bool = false,
+in_web: bool = false,
 sneaking: bool = false,
 width: f64,
 height: f64,
@@ -162,7 +161,16 @@ pub fn move(self: *Entity, world_map: *const world.World) Moved {
 
 pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []const math.Aabb) Moved {
     var dx = self.motion.x;
+    var dy = self.motion.y;
     var dz = self.motion.z;
+    if (self.in_web) {
+        self.in_web = false;
+        dx *= world.block.web_drag;
+        dy *= world.block.web_vertical_drag;
+        dz *= world.block.web_drag;
+        self.motion = math.Vec3.init(0, 0, 0);
+    }
+
     const sneak_stepping = self.sneaking and self.on_ground;
     if (sneak_stepping) {
         const clamped = physics.clampToLedge(world_map, self.boundingBox(), dx, dz);
@@ -175,7 +183,7 @@ pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []cons
         world_map,
         self.boundingBox(),
         dx,
-        self.motion.y,
+        dy,
         dz,
         self.step_height,
         self.on_ground,
@@ -196,43 +204,25 @@ pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []cons
         .dy = result.dy,
         .dz = result.dz,
         .blocked_x = dx != result.dx,
-        .blocked_y = self.motion.y != result.dy,
+        .blocked_y = dy != result.dy,
         .blocked_z = dz != result.dz,
     };
 
-    self.on_ground = moved.blocked_y and self.motion.y < 0.0;
+    self.on_ground = moved.blocked_y and dy < 0.0;
     self.blocked_horizontally = moved.blocked_x or moved.blocked_z;
     if (moved.blocked_x) self.motion.x = 0;
     if (moved.blocked_y) self.motion.y = 0;
     if (moved.blocked_z) self.motion.z = 0;
 
-    self.collideWithBlocks(world_map);
+    if (physics.touchesBlock(world_map, self.boundingBox(), .web)) self.in_web = true;
+
+    var soul_sand = physics.countTouchedBlocks(world_map, self.boundingBox(), .soul_sand);
+    while (soul_sand > 0) : (soul_sand -= 1) {
+        self.motion.x *= world.block.soul_sand_drag;
+        self.motion.z *= world.block.soul_sand_drag;
+    }
 
     return moved;
-}
-
-fn collideWithBlocks(self: *Entity, world_map: *const world.World) void {
-    const box = self.boundingBox();
-    const min_x = math.util.floorDouble(box.min_x + block_touch_inset);
-    const min_y = math.util.floorDouble(box.min_y + block_touch_inset);
-    const min_z = math.util.floorDouble(box.min_z + block_touch_inset);
-    const max_x = math.util.floorDouble(box.max_x - block_touch_inset);
-    const max_y = math.util.floorDouble(box.max_y - block_touch_inset);
-    const max_z = math.util.floorDouble(box.max_z - block_touch_inset);
-
-    var x = min_x;
-    while (x <= max_x) : (x += 1) {
-        var y = min_y;
-        while (y <= max_y) : (y += 1) {
-            var z = min_z;
-            while (z <= max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z) == .soul_sand) {
-                    self.motion.x *= world.block.soul_sand_drag;
-                    self.motion.z *= world.block.soul_sand_drag;
-                }
-            }
-        }
-    }
 }
 
 pub fn renderPosition(self: Entity, partial_ticks: f32) math.Vec3 {
@@ -296,6 +286,43 @@ test "an entity clear of soul sand keeps its motion" {
     entity.motion = math.Vec3.init(0.2, 0, 0);
     _ = entity.move(&w);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), entity.motion.x, 1.0e-9);
+}
+
+test "a cobweb caught last tick throttles the next move and drops all momentum" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .web);
+
+    var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
+    entity.motion = math.Vec3.init(0.4, 0, 0);
+    _ = entity.move(&w);
+    try std.testing.expect(entity.in_web);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.9), entity.position.x, 1.0e-9);
+
+    entity.motion = math.Vec3.init(0.4, -0.4, 0);
+    const caught = entity.move(&w);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.1), caught.dx, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), entity.motion.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), entity.motion.z, 1.0e-9);
+    try std.testing.expect(entity.in_web);
+
+    entity.position = math.Vec3.init(12.5, 1.0, 12.5);
+    entity.motion = math.Vec3.init(0.4, 0, 0);
+    const freed = entity.move(&w);
+    try std.testing.expect(!entity.in_web);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.1), freed.dx, 1.0e-9);
+}
+
+test "a cobweb has no collision box to stand on" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .web);
+
+    var entity = Entity.init(math.Vec3.init(8.5, 4.0, 8.5), 0.6, 1.8);
+    entity.motion.y = -3.5;
+    _ = entity.move(&w);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), entity.position.y, 1.0e-9);
+    try std.testing.expect(entity.on_ground);
 }
 
 test "unobstructed movement keeps the entity off the ground" {

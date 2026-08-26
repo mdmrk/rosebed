@@ -580,7 +580,7 @@ pub const Item = enum(u16) {
 
     pub fn strVsBlock(self: Item, target: Block) f32 {
         if (self == .shears) return switch (target) {
-            .leaves => 15.0,
+            .leaves, .web => 15.0,
             .wool => 5.0,
             else => 1.0,
         };
@@ -589,12 +589,13 @@ pub const Item = enum(u16) {
     }
 
     pub fn canHarvestBlock(self: Item, target: Block) bool {
+        if (self == .shears) return target == .web;
         const t = self.tool() orelse return false;
         return t.canHarvestBlock(target);
     }
 
     pub fn blockDestroyedCost(self: Item, target: Block) u16 {
-        if (self == .shears) return if (target == .leaves) 1 else 0;
+        if (self == .shears) return if (target == .leaves or target == .web) 1 else 0;
         const t = self.tool() orelse return 0;
         return t.blockDestroyedCost();
     }
@@ -1041,6 +1042,7 @@ test "shears carry ItemShears' own durability, icon and name, without being a to
 
 test "shears cut leaves fastest and wool next, and swing at everything else bare-handed" {
     try std.testing.expectEqual(@as(f32, 15.0), Item.shears.strVsBlock(.leaves));
+    try std.testing.expectEqual(@as(f32, 15.0), Item.shears.strVsBlock(.web));
     try std.testing.expectEqual(@as(f32, 5.0), Item.shears.strVsBlock(.wool));
     try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.stone));
     try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.tall_grass));

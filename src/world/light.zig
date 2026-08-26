@@ -12,7 +12,7 @@ pub const Kind = enum { sky, block };
 pub fn opacity(id: Block) u8 {
     return switch (id) {
         .flowing_water, .stationary_water, .ice => 3,
-        .leaves => 1,
+        .leaves, .web => 1,
         .flowing_lava, .stationary_lava => 255,
         .stairs_wood, .stairs_cobblestone, .slab => 255,
         else => if (id.isOpaqueCube()) 255 else 0,

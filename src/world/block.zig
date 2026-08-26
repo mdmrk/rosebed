@@ -54,6 +54,7 @@ pub const Material = enum {
     circuits,
     cake,
     piston,
+    web,
 
     pub fn blocksGrass(self: Material) bool {
         return switch (self) {
@@ -83,7 +84,7 @@ pub const Material = enum {
 
     pub fn isHarvestable(self: Material) bool {
         return switch (self) {
-            .rock, .iron, .snow, .built_snow => false,
+            .rock, .iron, .snow, .built_snow, .web => false,
             else => true,
         };
     }
@@ -99,7 +100,7 @@ pub const Material = enum {
             .water => .water,
             .lava, .tnt => .tnt,
             .leaves, .plants, .cactus, .pumpkin => .foliage,
-            .sponge, .cloth => .cloth,
+            .sponge, .cloth, .web => .cloth,
             .sand => .sand,
             .ice => .ice,
             .snow, .built_snow => .snow,
@@ -407,6 +408,9 @@ pub const soul_sand_collision_bounds: Bounds = .{
 
 pub const soul_sand_drag: f64 = 0.4;
 
+pub const web_drag: f64 = 0.25;
+pub const web_vertical_drag: f64 = @as(f32, 0.05);
+
 pub const portal_thickness: f32 = 2.0 / 16.0;
 
 pub fn portalBounds(spans_x: bool) Bounds {
@@ -547,6 +551,7 @@ pub const Block = enum(u8) {
     rail_powered = 27,
     rail_detector = 28,
     piston_sticky = 29,
+    web = 30,
     tall_grass = 31,
     dead_bush = 32,
     piston = 33,
@@ -712,7 +717,7 @@ pub const Block = enum(u8) {
 
     fn vanillaShape(self: Block) Shape {
         return switch (self) {
-            .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed => .cross,
+            .sapling, .tall_grass, .dead_bush, .dandelion, .rose, .mushroom_brown, .mushroom_red, .reed, .web => .cross,
             .fire => .fire,
             .portal => .portal,
             .torch, .torch_redstone_off, .torch_redstone_on => .torch,
@@ -754,7 +759,7 @@ pub const Block = enum(u8) {
     }
 
     pub fn hasCollision(self: Block) bool {
-        if (self.shape() == .plate) return false;
+        if (self.shape() == .plate or self == .web) return false;
         return self.isSolid() and !self.isSign();
     }
 
@@ -829,6 +834,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .sign_post, .wall_sign => false,
+            .web => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
@@ -840,7 +846,7 @@ pub const Block = enum(u8) {
     pub fn mobility(self: Block) Mobility {
         return switch (self.material()) {
             .water, .lava, .leaves, .plants, .circuits => .fragile,
-            .snow, .cactus, .pumpkin, .cake, .fire => .fragile,
+            .snow, .cactus, .pumpkin, .cake, .fire, .web => .fragile,
             .piston => .immovable,
             else => .movable,
         };
@@ -1075,6 +1081,7 @@ pub const Block = enum(u8) {
                 else => 15,
             },
             .tall_grass => if (metadata == 2) 56 else 39,
+            .web => 11,
             .dead_bush => 55,
             .dandelion => 13,
             .rose => 12,
@@ -1155,6 +1162,7 @@ pub const Block = enum(u8) {
             .jukebox => 2.0,
             .netherrack => 0.4,
             .soul_sand => 0.5,
+            .web => 4.0,
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
             .cake => 0.5,
@@ -1307,6 +1315,7 @@ pub const Block = enum(u8) {
             .portal => "Portal",
             .netherrack => "Netherrack",
             .soul_sand => "Soul Sand",
+            .web => "Cobweb",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
@@ -1365,6 +1374,7 @@ pub const Block = enum(u8) {
             .clay => .{ .id = .{ .item = .clay_ball }, .count = 4 },
             .tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = .{ .item = .seeds }, .count = 1 } else null,
             .dead_bush => null,
+            .web => .{ .id = .{ .item = .string }, .count = 1 },
             .reed => .{ .id = .{ .item = .reed }, .count = 1 },
             .snow_layer => null,
             .snow_block => .{ .id = .{ .item = .snowball }, .count = 4 },
@@ -2754,6 +2764,22 @@ test "the head shaft reaches from the plate back to the base" {
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
 }
 
+test "a cobweb is a cross-rendered, hand-breakable snag that drops string" {
+    try std.testing.expectEqual(Shape.cross, Block.web.shape());
+    try std.testing.expectEqual(@as(u8, 11), Block.web.crossTile(0));
+    try std.testing.expectEqual(@as(f32, 4.0), Block.web.hardness());
+    try std.testing.expect(!Block.web.isOpaqueCube());
+    try std.testing.expect(!Block.web.hasCollision());
+    try std.testing.expectEqualStrings("Cobweb", Block.web.displayName(0));
+    try std.testing.expect(!Block.web.harvestableWith(null));
+    try std.testing.expect(Block.web.harvestableWith(.{ .id = .{ .item = .shears }, .count = 1 }));
+
+    var rand = JavaRandom.init(1);
+    const dropped = Block.web.drop(0, &rand).?;
+    try std.testing.expectEqual(Id{ .item = .string }, dropped.id);
+    try std.testing.expectEqual(@as(u8, 1), dropped.count);
+}
+
 test "what a piston can shove follows the material mobility the original gives it" {
     try std.testing.expectEqual(Mobility.movable, Block.stone.mobility());
     try std.testing.expectEqual(Mobility.movable, Block.wool.mobility());
@@ -3574,7 +3600,7 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
 
     try std.testing.expect(Block.stone.isVanilla());
     try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(30))).isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(65))).isVanilla());
 }
 
 test "a registered block answers to its own key without shadowing a vanilla one" {

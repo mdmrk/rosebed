@@ -7,11 +7,11 @@ const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
 const Inventory = @import("Inventory.zig");
 const Player = @import("Player.zig");
+const physics = @import("physics.zig");
 const spawner = @import("spawner.zig");
 
 const Level = @This();
 
-const block_touch_inset: f64 = 0.001;
 const mounted_fraction: f64 = 0.75;
 
 world_map: world.World,
@@ -256,40 +256,10 @@ fn tickFallingBlocks(self: *Level, gpa: std.mem.Allocator) !void {
 }
 
 fn collideWithBlocks(self: *Level, box: math.Aabb) !void {
-    var x = math.util.floorDouble(box.min_x);
-    const max_x = math.util.floorDouble(box.max_x);
-    const max_y = math.util.floorDouble(box.max_y);
-    const max_z = math.util.floorDouble(box.max_z);
-    while (x <= max_x) : (x += 1) {
-        var y = math.util.floorDouble(box.min_y);
-        while (y <= max_y) : (y += 1) {
-            var z = math.util.floorDouble(box.min_z);
-            while (z <= max_z) : (z += 1) {
-                try world.redstone.onEntityCollided(&self.world_map, x, y, z);
-            }
-        }
+    var cells = physics.touchedCells(box);
+    while (cells.next()) |cell| {
+        try world.redstone.onEntityCollided(&self.world_map, cell[0], cell[1], cell[2]);
     }
-}
-
-fn touchesPortal(world_map: *const world.World, box: math.Aabb) bool {
-    const min_x = math.util.floorDouble(box.min_x + block_touch_inset);
-    const min_y = math.util.floorDouble(box.min_y + block_touch_inset);
-    const min_z = math.util.floorDouble(box.min_z + block_touch_inset);
-    const max_x = math.util.floorDouble(box.max_x - block_touch_inset);
-    const max_y = math.util.floorDouble(box.max_y - block_touch_inset);
-    const max_z = math.util.floorDouble(box.max_z - block_touch_inset);
-
-    var x = min_x;
-    while (x <= max_x) : (x += 1) {
-        var y = min_y;
-        while (y <= max_y) : (y += 1) {
-            var z = min_z;
-            while (z <= max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z) == .portal) return true;
-            }
-        }
-    }
-    return false;
 }
 
 pub fn allPlayersFullyAsleep(self: *const Level) bool {
@@ -310,7 +280,7 @@ pub fn wakeUpAllPlayers(self: *Level) !void {
 pub fn standInPortals(self: *Level) void {
     for (self.occupants.items) |occupant| {
         if (!occupant.active) continue;
-        if (touchesPortal(&self.world_map, occupant.player.base.boundingBox())) occupant.player.setInPortal();
+        if (physics.touchesBlock(&self.world_map, occupant.player.base.boundingBox(), .portal)) occupant.player.setInPortal();
     }
 }
 

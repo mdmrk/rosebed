@@ -270,27 +270,61 @@ pub fn handleWaterMovement(world_map: *const world.World, box: math.Aabb) ?math.
 
 pub const collided_inset: f64 = 0.001;
 
-pub fn touchesBlock(world_map: *const world.World, box: math.Aabb, id: world.Block) bool {
-    const min_x = math.util.floorDouble(box.min_x + collided_inset);
-    const min_y = math.util.floorDouble(box.min_y + collided_inset);
-    const min_z = math.util.floorDouble(box.min_z + collided_inset);
-    const max_x = math.util.floorDouble(box.max_x - collided_inset);
-    const max_y = math.util.floorDouble(box.max_y - collided_inset);
-    const max_z = math.util.floorDouble(box.max_z - collided_inset);
+pub const TouchedCells = struct {
+    min: [3]i32,
+    max: [3]i32,
+    cursor: [3]i32,
+    exhausted: bool,
 
-    if (!world_map.chunksExist(min_x, min_y, min_z, max_x, max_y, max_z)) return false;
-
-    var x = min_x;
-    while (x <= max_x) : (x += 1) {
-        var y = min_y;
-        while (y <= max_y) : (y += 1) {
-            var z = min_z;
-            while (z <= max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z) == id) return true;
+    pub fn next(self: *TouchedCells) ?[3]i32 {
+        if (self.exhausted) return null;
+        const cell = self.cursor;
+        self.cursor[2] += 1;
+        if (self.cursor[2] > self.max[2]) {
+            self.cursor[2] = self.min[2];
+            self.cursor[1] += 1;
+            if (self.cursor[1] > self.max[1]) {
+                self.cursor[1] = self.min[1];
+                self.cursor[0] += 1;
+                if (self.cursor[0] > self.max[0]) self.exhausted = true;
             }
         }
+        return cell;
     }
-    return false;
+};
+
+pub fn touchedCells(box: math.Aabb) TouchedCells {
+    const min: [3]i32 = .{
+        math.util.floorDouble(box.min_x + collided_inset),
+        math.util.floorDouble(box.min_y + collided_inset),
+        math.util.floorDouble(box.min_z + collided_inset),
+    };
+    const max: [3]i32 = .{
+        math.util.floorDouble(box.max_x - collided_inset),
+        math.util.floorDouble(box.max_y - collided_inset),
+        math.util.floorDouble(box.max_z - collided_inset),
+    };
+    return .{
+        .min = min,
+        .max = max,
+        .cursor = min,
+        .exhausted = min[0] > max[0] or min[1] > max[1] or min[2] > max[2],
+    };
+}
+
+pub fn countTouchedBlocks(world_map: *const world.World, box: math.Aabb, id: world.Block) u32 {
+    var cells = touchedCells(box);
+    if (!world_map.chunksExist(cells.min[0], cells.min[1], cells.min[2], cells.max[0], cells.max[1], cells.max[2])) return 0;
+
+    var count: u32 = 0;
+    while (cells.next()) |cell| {
+        if (world_map.getBlock(cell[0], cell[1], cell[2]) == id) count += 1;
+    }
+    return count;
+}
+
+pub fn touchesBlock(world_map: *const world.World, box: math.Aabb, id: world.Block) bool {
+    return countTouchedBlocks(world_map, box, id) > 0;
 }
 
 pub fn isBoxInMaterial(world_map: *const world.World, box: math.Aabb, material: world.Material) bool {
