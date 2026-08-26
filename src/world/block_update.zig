@@ -185,6 +185,7 @@ pub fn placementMetadata(world_map: *World, x: i32, y: i32, z: i32, id: Block, f
     if (id == .trapdoor) return block.trapdoorFacingFromFace(face) orelse 0;
     if (id == .lever) return leverPlacementFacing(world_map, x, y, z, face) orelse 0;
     if (id == .button) return buttonPlacementFacing(world_map, x, y, z, face);
+    if (id == .ladder) return ladderPlacementFacing(world_map, x, y, z, face) orelse ladderAnySupport(world_map, x, y, z);
     if (!id.isTorch()) return metadata;
 
     const facing: u4 = switch (face) {
@@ -229,6 +230,41 @@ fn buttonPlacementFacing(world_map: *const World, x: i32, y: i32, z: i32, face: 
     if (world_map.getBlock(x, y, z - 1).isNormalCube()) return 3;
     if (world_map.getBlock(x, y, z + 1).isNormalCube()) return 4;
     return 1;
+}
+
+fn ladderPlacementFacing(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) ?u4 {
+    return switch (face) {
+        .north => if (world_map.getBlock(x, y, z + 1).isNormalCube()) 2 else null,
+        .south => if (world_map.getBlock(x, y, z - 1).isNormalCube()) 3 else null,
+        .west => if (world_map.getBlock(x + 1, y, z).isNormalCube()) 4 else null,
+        .east => if (world_map.getBlock(x - 1, y, z).isNormalCube()) 5 else null,
+        else => null,
+    };
+}
+
+fn ladderAnySupport(world_map: *const World, x: i32, y: i32, z: i32) u4 {
+    if (world_map.getBlock(x, y, z + 1).isNormalCube()) return 2;
+    if (world_map.getBlock(x, y, z - 1).isNormalCube()) return 3;
+    if (world_map.getBlock(x + 1, y, z).isNormalCube()) return 4;
+    if (world_map.getBlock(x - 1, y, z).isNormalCube()) return 5;
+    return 0;
+}
+
+fn ladderCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return switch (world_map.getBlockMetadata(x, y, z)) {
+        2 => world_map.getBlock(x, y, z + 1).isNormalCube(),
+        3 => world_map.getBlock(x, y, z - 1).isNormalCube(),
+        4 => world_map.getBlock(x + 1, y, z).isNormalCube(),
+        5 => world_map.getBlock(x - 1, y, z).isNormalCube(),
+        else => false,
+    };
+}
+
+fn ladderHasAnySupport(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    return world_map.getBlock(x - 1, y, z).isNormalCube() or
+        world_map.getBlock(x + 1, y, z).isNormalCube() or
+        world_map.getBlock(x, y, z - 1).isNormalCube() or
+        world_map.getBlock(x, y, z + 1).isNormalCube();
 }
 
 fn leverCanStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
@@ -283,6 +319,7 @@ pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) boo
         .button => buttonCanStay(world_map, x, y, z) and buttonHasAnySupport(world_map, x, y, z),
         .door_wood, .door_iron => doorCanStay(world_map, x, y, z, id),
         .trapdoor => trapdoorCanStay(world_map, x, y, z),
+        .ladder => ladderCanStay(world_map, x, y, z),
         .cake => world_map.getBlock(x, y - 1, z).material().isSolid(),
         .sign_post => world_map.getBlock(x, y - 1, z).material().isSolid(),
         .wall_sign => wallSignHangsOn(world_map, x, y, z),
@@ -420,6 +457,7 @@ pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bo
         .torch, .torch_redstone_off, .torch_redstone_on => torchAnySupport(world_map, x, y, z) != null,
         .lever => leverHasAnySupport(world_map, x, y, z),
         .button => buttonHasAnySupport(world_map, x, y, z),
+        .ladder => ladderHasAnySupport(world_map, x, y, z),
         else => canStayAt(world_map, x, y, z, id),
     };
 }
@@ -427,6 +465,7 @@ pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bo
 pub fn canPlaceOnSide(world_map: *const World, x: i32, y: i32, z: i32, id: Block, face: block.Side) bool {
     if (id == .lever) return leverCanPlaceOnSide(world_map, x, y, z, face);
     if (id == .button) return wallFacing(world_map, x, y, z, face) != null;
+    if (id == .ladder) return ladderHasAnySupport(world_map, x, y, z);
     if (id != .trapdoor) return canPlaceAt(world_map, x, y, z, id);
     const facing = block.trapdoorFacingFromFace(face) orelse return false;
     return trapdoorHolds(world_map, x, y, z, facing);
@@ -520,6 +559,35 @@ test "digging out the soil takes the sugar cane standing on it" {
 
     try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
+}
+
+test "a ladder takes the facing of the wall it was hung on" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+    w.setBlock(8, 12, 9, .stone);
+    w.setBlock(9, 12, 8, .stone);
+
+    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, 8, 12, 8, .ladder, .north, 0));
+    try std.testing.expectEqual(@as(u4, 4), placementMetadata(&w, 8, 12, 8, .ladder, .west, 0));
+
+    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, 8, 12, 8, .ladder, .up, 0));
+    try std.testing.expect(canPlaceAt(&w, 8, 12, 8, .ladder));
+    try std.testing.expect(!canPlaceAt(&w, 4, 12, 4, .ladder));
+}
+
+test "a ladder pops when the wall behind it is dug out" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+    w.setBlock(8, 12, 9, .stone);
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .ladder, 2);
+
+    try std.testing.expect(canStayAt(&w, 8, 12, 8, .ladder));
+
+    try w.setBlockWithNotify(8, 12, 9, .air);
+
+    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
+    try std.testing.expectEqual(.ladder, w.dropped.items[0].stack.id.block);
 }
 
 test "a flower pops and drops itself when the dirt under it is dug out" {

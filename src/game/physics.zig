@@ -34,6 +34,7 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
         .cake => world.block.cakeCollisionBounds(world_map.getBlockMetadata(x, y, z)),
+        .ladder => world.block.ladderBounds(world_map.getBlockMetadata(x, y, z)),
         .bed => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, world.block.bed_height, 1 } },
         .stairs => {
             for (world.block.stairsBoxes(world_map.getBlockMetadata(x, y, z)), out) |bounds, *box| {
@@ -627,6 +628,18 @@ test "soul sand is two sixteenths short, so an entity stands sunk into its cell"
     const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -3.0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 2.0 / 16.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "a ladder is a two-sixteenth panel that only blocks the wall it hangs on" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(9, 1, 8, .stone);
+    w.setBlock(8, 1, 8, .ladder);
+    w.setBlockMetadata(8, 1, 8, 4);
+
+    const walking = math.Aabb.init(7.2, 1.0, 7.7, 7.8, 2.8, 8.3);
+    const into = moveEntity(&w, walking, 1.5, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.0 - 2.0 / 16.0), into.aabb.max_x, 1.0e-9);
 }
 
 test "a box counts as touching the cell it barely overlaps, but not the one it only abuts" {

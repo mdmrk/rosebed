@@ -108,8 +108,6 @@ pub const death_ticks: i32 = 20;
 pub const default_move_speed: f32 = 0.7;
 pub const default_look_pitch_speed: f32 = 40.0;
 pub const default_death_max_rotation: f32 = 90.0;
-pub const climb_speed_cap: f64 = 0.15;
-pub const climb_lift: f64 = 0.2;
 pub const chase_path_range: f32 = 16.0;
 
 const wander_radius: f32 = 10.0;
@@ -258,8 +256,9 @@ pub fn faceYaw(self: *Animal, yaw: f32) void {
     self.prev_render_yaw = yaw;
 }
 
-pub fn isOnLadder(self: Animal) bool {
-    return self.climbs_walls and self.base.blocked_horizontally;
+pub fn isOnLadder(self: Animal, world_map: *const world.World) bool {
+    if (self.climbs_walls) return self.base.blocked_horizontally;
+    return self.base.isOnLadder(world_map);
 }
 
 pub fn isAlive(self: Animal) bool {
@@ -498,16 +497,17 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
     } else {
         self.moveFlying(strafe, forward, if (was_on_ground) ground_acceleration else air_acceleration);
 
-        if (self.isOnLadder()) {
-            self.base.motion.x = std.math.clamp(self.base.motion.x, -climb_speed_cap, climb_speed_cap);
-            self.base.motion.z = std.math.clamp(self.base.motion.z, -climb_speed_cap, climb_speed_cap);
+        if (self.isOnLadder(world_map)) {
+            const cap = world.block.ladder_climb_cap;
+            self.base.motion.x = std.math.clamp(self.base.motion.x, -cap, cap);
+            self.base.motion.z = std.math.clamp(self.base.motion.z, -cap, cap);
             self.fall_distance = 0;
-            self.base.motion.y = @max(self.base.motion.y, -climb_speed_cap);
+            self.base.motion.y = @max(self.base.motion.y, -cap);
         }
 
         const moved = self.base.move(world_map);
         self.updateFallState(moved.dy, rand);
-        if (self.base.blocked_horizontally and self.isOnLadder()) self.base.motion.y = climb_lift;
+        if (self.base.blocked_horizontally and self.isOnLadder(world_map)) self.base.motion.y = world.block.ladder_climb_lift;
 
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;

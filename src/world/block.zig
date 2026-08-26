@@ -161,6 +161,7 @@ pub const Shape = union(enum) {
     rail,
     lever,
     button,
+    ladder,
     plate,
     repeater,
     piston,
@@ -406,6 +407,21 @@ pub const soul_sand_collision_bounds: Bounds = .{
     .max = .{ 1.0, 1.0 - soul_sand_sink, 1.0 },
 };
 
+pub const ladder_thickness: f32 = 2.0 / 16.0;
+
+pub fn ladderBounds(metadata: u4) Bounds {
+    return switch (metadata) {
+        2 => .{ .min = .{ 0, 0, 1.0 - ladder_thickness }, .max = .{ 1, 1, 1 } },
+        3 => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, ladder_thickness } },
+        4 => .{ .min = .{ 1.0 - ladder_thickness, 0, 0 }, .max = .{ 1, 1, 1 } },
+        5 => .{ .min = .{ 0, 0, 0 }, .max = .{ ladder_thickness, 1, 1 } },
+        else => .{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
+    };
+}
+
+pub const ladder_climb_cap: f64 = @as(f32, 0.15);
+pub const ladder_climb_lift: f64 = 0.2;
+
 pub const soul_sand_drag: f64 = 0.4;
 
 pub const web_drag: f64 = 0.25;
@@ -552,6 +568,7 @@ pub const Block = enum(u8) {
     rail_detector = 28,
     piston_sticky = 29,
     web = 30,
+    ladder = 65,
     tall_grass = 31,
     dead_bush = 32,
     piston = 33,
@@ -657,7 +674,7 @@ pub const Block = enum(u8) {
             .planks, .log, .bookshelf, .torch, .chest, .workbench, .sign_post => .wood,
             .door_wood, .wall_sign, .lever, .pressure_plate_planks, .torch_redstone_off => .wood,
             .torch_redstone_on, .fire, .pumpkin, .jack_o_lantern, .repeater_off => .wood,
-            .repeater_on, .trapdoor => .wood,
+            .repeater_on, .trapdoor, .ladder => .wood,
             .dirt, .gravel, .clay => .gravel,
             .grass, .sapling, .leaves, .sponge, .tall_grass, .dead_bush, .dandelion => .grass,
             .rose, .mushroom_brown, .mushroom_red, .tnt, .reed => .grass,
@@ -703,7 +720,7 @@ pub const Block = enum(u8) {
             .cake => .cake,
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
-            .rail, .rail_powered, .rail_detector => .circuits,
+            .rail, .rail_powered, .rail_detector, .ladder => .circuits,
             .fire => .fire,
             .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
@@ -726,6 +743,7 @@ pub const Block = enum(u8) {
             .lever => .lever,
             .button => .button,
             .pressure_plate_stone, .pressure_plate_planks => .plate,
+            .ladder => .ladder,
             .repeater_off, .repeater_on => .repeater,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
@@ -760,6 +778,7 @@ pub const Block = enum(u8) {
 
     pub fn hasCollision(self: Block) bool {
         if (self.shape() == .plate or self == .web) return false;
+        if (self == .ladder) return true;
         return self.isSolid() and !self.isSign();
     }
 
@@ -834,7 +853,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .sign_post, .wall_sign => false,
-            .web => false,
+            .web, .ladder => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
@@ -934,6 +953,7 @@ pub const Block = enum(u8) {
             .repeater_off, .repeater_on => repeater_bounds,
             .door_wood, .door_iron => doorBounds(metadata),
             .trapdoor => trapdoorBounds(metadata),
+            .ladder => ladderBounds(metadata),
             .cake => cakeBounds(metadata),
             .bed => bed_bounds,
             .sign_post => sign_post_bounds,
@@ -1053,6 +1073,7 @@ pub const Block = enum(u8) {
             .snow_block => uniform(66),
             .jukebox => topAndSide(75, 74, 74),
             .netherrack => uniform(103),
+            .ladder => uniform(83),
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
             .portal => uniform(14),
@@ -1095,7 +1116,7 @@ pub const Block = enum(u8) {
     pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
-            .torch, .fire, .wire, .lever, .repeater, .rail => self.faceTextures().get(.down),
+            .torch, .fire, .wire, .lever, .repeater, .rail, .ladder => self.faceTextures().get(.down),
             else => null,
         };
     }
@@ -1163,6 +1184,7 @@ pub const Block = enum(u8) {
             .netherrack => 0.4,
             .soul_sand => 0.5,
             .web => 4.0,
+            .ladder => 0.4,
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
             .cake => 0.5,
@@ -1316,6 +1338,7 @@ pub const Block = enum(u8) {
             .netherrack => "Netherrack",
             .soul_sand => "Soul Sand",
             .web => "Cobweb",
+            .ladder => "Ladder",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
@@ -2764,6 +2787,35 @@ test "the head shaft reaches from the plate back to the base" {
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
 }
 
+test "a ladder is a thin wooden panel pinned to the wall its metadata names" {
+    try std.testing.expectEqual(Shape.ladder, Block.ladder.shape());
+    try std.testing.expectEqual(@as(u8, 83), Block.ladder.faceTextures().get(.down));
+    try std.testing.expectEqual(@as(f32, 0.4), Block.ladder.hardness());
+    try std.testing.expectEqual(StepSound.wood, Block.ladder.stepSound());
+    try std.testing.expect(!Block.ladder.isOpaqueCube());
+    try std.testing.expect(!Block.ladder.isNormalCube());
+    try std.testing.expectEqualStrings("Ladder", Block.ladder.displayName(0));
+
+    const against_south = ladderBounds(2);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 - 2.0 / 16.0), against_south.min[2], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), against_south.max[2], 1.0e-6);
+
+    const against_west = ladderBounds(5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), against_west.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0 / 16.0), against_west.max[0], 1.0e-6);
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expectEqual(Id{ .block = .ladder }, Block.ladder.drop(2, &rand).?.id);
+}
+
+test "a ladder keeps a collision box even though its material is not solid" {
+    try std.testing.expectEqual(Material.circuits, Block.ladder.material());
+    try std.testing.expect(!Block.ladder.isSolid());
+    try std.testing.expect(Block.ladder.hasCollision());
+    try std.testing.expect(!Block.rail.hasCollision());
+    try std.testing.expect(!Block.lever.hasCollision());
+}
+
 test "a cobweb is a cross-rendered, hand-breakable snag that drops string" {
     try std.testing.expectEqual(Shape.cross, Block.web.shape());
     try std.testing.expectEqual(@as(u8, 11), Block.web.crossTile(0));
@@ -3600,7 +3652,7 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
 
     try std.testing.expect(Block.stone.isVanilla());
     try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(65))).isVanilla());
+    try std.testing.expect(!(@as(Block, @enumFromInt(97))).isVanilla());
 }
 
 test "a registered block answers to its own key without shadowing a vanilla one" {

@@ -151,6 +151,13 @@ pub fn updateWaterState(self: *Entity, world_map: *const world.World) void {
     self.in_water = true;
 }
 
+pub fn isOnLadder(self: Entity, world_map: *const world.World) bool {
+    const x = math.util.floorDouble(self.position.x);
+    const y = math.util.floorDouble(self.boundingBox().min_y);
+    const z = math.util.floorDouble(self.position.z);
+    return world_map.getBlock(x, y, z) == .ladder;
+}
+
 pub fn isOffsetPositionInLiquid(self: Entity, world_map: *const world.World, dx: f64, dy: f64, dz: f64) bool {
     return physics.isOffsetPositionInLiquid(world_map, self.boundingBox(), dx, dy, dz);
 }
@@ -323,6 +330,22 @@ test "a cobweb has no collision box to stand on" {
     _ = entity.move(&w);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), entity.position.y, 1.0e-9);
     try std.testing.expect(entity.on_ground);
+}
+
+test "a ladder is only underfoot when it shares the cell the feet stand in" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .ladder);
+    w.setBlockMetadata(8, 1, 8, 4);
+
+    var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
+    try std.testing.expect(entity.isOnLadder(&w));
+
+    entity.position.y = 2.0;
+    try std.testing.expect(!entity.isOnLadder(&w));
+
+    entity.position = math.Vec3.init(9.5, 1.0, 8.5);
+    try std.testing.expect(!entity.isOnLadder(&w));
 }
 
 test "unobstructed movement keeps the entity off the ground" {

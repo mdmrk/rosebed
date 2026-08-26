@@ -240,11 +240,23 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     self.base.motion.x += @as(f64, dir[0]) * speed;
     self.base.motion.z += @as(f64, dir[2]) * speed;
 
+    if (self.base.isOnLadder(world_map)) {
+        const cap = world.block.ladder_climb_cap;
+        self.base.motion.x = std.math.clamp(self.base.motion.x, -cap, cap);
+        self.base.motion.z = std.math.clamp(self.base.motion.z, -cap, cap);
+        self.fall_distance = 0;
+        self.base.motion.y = @max(self.base.motion.y, -cap);
+        if (sneak and self.base.motion.y < 0) self.base.motion.y = 0;
+    }
+
     const before_x = self.base.position.x;
     const before_y = self.base.position.y;
     const before_z = self.base.position.z;
     const moved = self.base.move(world_map);
     self.updateFallState(moved.dy);
+    if (self.base.blocked_horizontally and self.base.isOnLadder(world_map)) {
+        self.base.motion.y = world.block.ladder_climb_lift;
+    }
     self.hurtOnCactus(world_map);
 
     const moved_x = self.base.position.x - before_x;
@@ -1127,6 +1139,46 @@ test "a cactus pricks the player perched on it" {
     spared.base.on_ground = true;
     spared.tick(&w, 0, 0, false, false);
     try std.testing.expectEqual(@as(i32, 20), spared.health);
+}
+
+test "a player pressed against a ladder climbs it instead of sliding down" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    for (1..9) |y| {
+        w.setBlock(8, @intCast(y), 9, .stone);
+        w.setBlock(8, @intCast(y), 8, .ladder);
+        w.setBlockMetadata(8, @intCast(y), 8, 2);
+    }
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+    for (0..30) |_| player.tick(&w, 0, 1, false, false);
+
+    try std.testing.expect(player.base.position.y > 3.0);
+    try std.testing.expect(player.base.blocked_horizontally);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
+}
+
+test "a sneaking player holds still on a ladder rather than sliding down it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    for (1..9) |y| {
+        w.setBlock(8, @intCast(y), 9, .stone);
+        w.setBlock(8, @intCast(y), 8, .ladder);
+        w.setBlockMetadata(8, @intCast(y), 8, 2);
+    }
+
+    var clinging = Player.spawn(math.Vec3.init(8, 3, 8));
+    for (0..5) |_| clinging.tick(&w, 0, 0, false, true);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), clinging.base.position.y, 1.0e-9);
+
+    var slipping = Player.spawn(math.Vec3.init(8, 3, 8));
+    for (0..5) |_| slipping.tick(&w, 0, 0, false, false);
+    try std.testing.expect(slipping.base.position.y < 3.0);
+
+    const before = slipping.base.position.y;
+    slipping.tick(&w, 0, 0, false, false);
+    try std.testing.expectApproxEqAbs(world.block.ladder_climb_cap, before - slipping.base.position.y, 1.0e-9);
 }
 
 test "gravity accelerates a falling player" {

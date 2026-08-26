@@ -162,6 +162,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
         b(.planks), b(.planks), b(.planks),
     }, .{ .block = .trapdoor }, 2),
+    shaped(3, 3, &.{
+        i(.stick), null,      i(.stick),
+        i(.stick), i(.stick), i(.stick),
+        i(.stick), null,      i(.stick),
+    }, .{ .block = .ladder }, 2),
     shaped(3, 2, &.{
         i(.ingot_iron), null,           i(.ingot_iron),
         null,           i(.ingot_iron), null,
@@ -868,6 +873,16 @@ test "a tool needs the full workbench, so the personal grid cannot make one" {
     grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
     grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
     try std.testing.expectEqual(@as(?Inventory.ItemStack, null), findMatch(&grid, player_grid_size));
+}
+
+test "seven sticks in a rail shape craft two ladders" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 0, 2, 3, 4, 5, 6, 8 }) |slot| {
+        grid[slot] = .{ .id = .{ .item = .stick }, .count = 1 };
+    }
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .ladder }, result.id);
+    try std.testing.expectEqual(@as(u8, 2), result.count);
 }
 
 test "coal over a stick crafts four torches" {

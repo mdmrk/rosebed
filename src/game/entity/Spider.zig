@@ -430,7 +430,7 @@ test "a spider walks up a wall it has run into" {
         self.animal.base.motion.x = wall_push;
         try self.tick(gpa, &w, .{}, &rand);
         if (self.animal.base.blocked_horizontally) {
-            try std.testing.expect(self.animal.isOnLadder());
+            try std.testing.expect(self.animal.isOnLadder(&w));
             climbed = true;
         }
     }
@@ -448,7 +448,7 @@ test "a mob that does not climb is unaffected by running into a wall" {
     defer animal.deinit(gpa);
     animal.base.blocked_horizontally = true;
 
-    try std.testing.expect(!animal.isOnLadder());
+    try std.testing.expect(!animal.isOnLadder(&w));
 }
 
 test "a dying spider drops nought to two string" {

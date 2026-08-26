@@ -838,6 +838,73 @@ const lever_stick_faces = [6][4]usize{
     .{ 0, 3, 7, 4 },
 };
 
+const ladder_offset: f32 = 0.05;
+
+fn buildLadder(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    tile: u8,
+    metadata: u4,
+    brightness: f32,
+    bx: f32,
+    by: f32,
+    bz: f32,
+) !void {
+    const uv = Atlas.tileUv(tile);
+    const color = shadeColor(brightness, Colorizer.white);
+
+    const west = bx;
+    const east = bx + 1.0;
+    const bottom = by;
+    const top = by + 1.0;
+    const north = bz;
+    const south = bz + 1.0;
+
+    const positions: [4][3]f32 = switch (metadata) {
+        2 => .{
+            .{ east, top, south - ladder_offset },
+            .{ east, bottom, south - ladder_offset },
+            .{ west, bottom, south - ladder_offset },
+            .{ west, top, south - ladder_offset },
+        },
+        3 => .{
+            .{ east, bottom, north + ladder_offset },
+            .{ east, top, north + ladder_offset },
+            .{ west, top, north + ladder_offset },
+            .{ west, bottom, north + ladder_offset },
+        },
+        4 => .{
+            .{ east - ladder_offset, bottom, south },
+            .{ east - ladder_offset, top, south },
+            .{ east - ladder_offset, top, north },
+            .{ east - ladder_offset, bottom, north },
+        },
+        else => .{
+            .{ west + ladder_offset, top, south },
+            .{ west + ladder_offset, bottom, south },
+            .{ west + ladder_offset, bottom, north },
+            .{ west + ladder_offset, top, north },
+        },
+    };
+
+    const uvs: [4][2]f32 = switch (metadata) {
+        3, 4 => .{
+            .{ uv.u1, uv.v1 },
+            .{ uv.u1, uv.v0 },
+            .{ uv.u0, uv.v0 },
+            .{ uv.u0, uv.v1 },
+        },
+        else => .{
+            .{ uv.u0, uv.v0 },
+            .{ uv.u0, uv.v1 },
+            .{ uv.u1, uv.v1 },
+            .{ uv.u1, uv.v0 },
+        },
+    };
+
+    try mesh.quad(gpa, positions, uvs, color);
+}
+
 fn buildLever(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -1562,6 +1629,11 @@ pub fn buildBlockAt(
 
     if (id.shape() == .rail) {
         try buildRail(target, gpa, world_map, id, metadata, x, y, z, origin, options);
+        return;
+    }
+
+    if (id.shape() == .ladder) {
+        try buildLadder(target, gpa, tileFor(options, id.faceTextures().get(.down)), metadata, own_brightness, bx, by, bz);
         return;
     }
 
