@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
@@ -104,6 +105,15 @@ pub fn till(world_map: *World, x: i32, y: i32, z: i32, face: block.Side) std.mem
         (target == .grass and face != .down and world_map.getBlock(x, y + 1, z) == .air);
     if (!tillable) return false;
 
+    const step_sound = Block.farmland.stepSound();
+    world_map.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        step_sound.walk(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
     try world_map.setBlockWithNotify(x, y, z, .farmland);
     return true;
 }
@@ -194,6 +204,41 @@ test "bare farmland under a crop stays farmland even when it dries out" {
     for (0..2000) |_| try tickFarmland(&w, 8, 11, 8, .farmland);
     try std.testing.expectEqual(.farmland, w.getBlock(8, 11, 8));
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 11, 8));
+}
+
+const HeardSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+        const self: *HeardSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *HeardSound) World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "tilling is heard as farmland's own footfall" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+    w.setBlock(8, 11, 8, .dirt);
+
+    var heard: HeardSound = .{};
+    w.sound_sink = heard.sink();
+
+    try std.testing.expect(try till(&w, 8, 11, 8, .up));
+
+    const step_sound = Block.farmland.stepSound();
+    try std.testing.expectEqualStrings(step_sound.walk().key, heard.key);
+    try std.testing.expectApproxEqAbs((step_sound.volume() + 1.0) / 2.0, heard.volume, 1.0e-6);
+    try std.testing.expectApproxEqAbs(step_sound.pitch() * 0.8, heard.pitch, 1.0e-6);
 }
 
 test "a hoe tills dirt from any side but only bare grass" {

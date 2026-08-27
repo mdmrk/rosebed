@@ -265,6 +265,7 @@ pub fn strikeFlintAtTarget(ctx: Context) !bool {
     if (target.y < 0 or target.y >= world.Chunk.height) return false;
 
     if (ctx.level.world_map.getBlock(target.x, target.y, target.z) == .air) {
+        ctx.level.world_map.playIgniteAt(target.x, target.y, target.z);
         try ctx.level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
         try ctx.applyBlockChanges();
     }

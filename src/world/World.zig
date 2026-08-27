@@ -588,6 +588,17 @@ pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
     if (self.access) |access| try access.updateAllRenderers(access.context);
 }
 
+pub fn playIgniteAt(self: *World, x: i32, y: i32, z: i32) void {
+    self.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + 0.5,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        assets.sounds.fire.ignite,
+        1.0,
+        self.rand.nextFloat() * 0.4 + 0.8,
+    );
+}
+
 pub fn playFizzAt(self: *World, x: i32, y: i32, z: i32) void {
     self.playSoundEffect(
         @as(f64, @floatFromInt(x)) + 0.5,
