@@ -52,9 +52,9 @@ jobs:
         run: |
           mkdir -p dist
           if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "dist/rosebed-${{ matrix.name }}.zip" ./zig-out/bin/*
+            7z a "dist/rosebed-${{ matrix.name }}.zip" ./zig-out/bin/rosebed.exe ./zig-out/bin/rosebed-server.exe
           else
-            tar -czf "dist/rosebed-${{ matrix.name }}.tar.gz" -C zig-out/bin .
+            tar -czf "dist/rosebed-${{ matrix.name }}.tar.gz" -C zig-out/bin rosebed rosebed-server
           fi
 
       - name: upload
