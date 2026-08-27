@@ -210,14 +210,14 @@ fn playerAtSpawn() game.Player {
 }
 
 fn starterInventory() game.Inventory {
-    var inv: game.Inventory = .{};
-    inv.slots[0] = .{ .id = .{ .block = .stone }, .count = 64 };
-    inv.slots[1] = .{ .id = .{ .item = .coal }, .count = 64 };
-    inv.slots[2] = .{ .id = .{ .block = .cobblestone }, .count = 64 };
-    inv.slots[3] = .{ .id = .{ .item = .stick }, .count = 64 };
-    inv.slots[4] = .{ .id = .{ .block = .workbench }, .count = 64 };
-    inv.slots[5] = .{ .id = .{ .block = .log }, .count = 64 };
-    inv.slots[6] = .{ .id = .{ .item = .ingot_iron }, .count = 64 };
+    const inv: game.Inventory = .{};
+    // inv.slots[0] = .{ .id = .{ .block = .stone }, .count = 64 };
+    // inv.slots[1] = .{ .id = .{ .item = .coal }, .count = 64 };
+    // inv.slots[2] = .{ .id = .{ .block = .cobblestone }, .count = 64 };
+    // inv.slots[3] = .{ .id = .{ .item = .stick }, .count = 64 };
+    // inv.slots[4] = .{ .id = .{ .block = .workbench }, .count = 64 };
+    // inv.slots[5] = .{ .id = .{ .block = .log }, .count = 64 };
+    // inv.slots[6] = .{ .id = .{ .item = .ingot_iron }, .count = 64 };
     return inv;
 }
 
