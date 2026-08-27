@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .sdl3 = .{
-            .url = "git+https://codeberg.org/7Games/zig-sdl3?ref=master#69cf1fba30b39fe0a140fc2139d403692e650d16",
-            .hash = "sdl3-0.2.2-NmT1Q0ZUKgCxQv6PXwCIbr_MKILJYAgDWv1YhClnS4XH",
+            .url = "git+https://codeberg.org/mdmrk/zig-sdl3#b0e15cef914f8b30075f2007d9a0af1ea2d18779",
+            .hash = "sdl3-0.2.2-NmT1Q6pUKgCqL8vpneKU0t4Hudb3Co83sVG4IuTapcjO",
         },
         .zigglgen = .{
             .url = "git+https://github.com/castholm/zigglgen.git#fdf06cc7ea9951203f91a27a5548f943cd6c1d59",
