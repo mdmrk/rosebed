@@ -40,7 +40,7 @@ pub const Type = struct {
     store: *const fn (*Animal, std.mem.Allocator) anyerror!world.nbt.Tag,
     load: *const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal,
     destroy: *const fn (*Animal, std.mem.Allocator) void,
-    hurt: *const fn (*Animal, i32, ?Animal.Attacker, *world.JavaRandom) bool = hurtBase,
+    hurt: *const fn (*Animal, *const world.World, i32, ?Animal.Attacker, *world.JavaRandom) bool = hurtBase,
     afterTick: *const fn (*Animal, Tick) anyerror!void = ignore,
     onDeath: *const fn (*Animal, Tick) anyerror!void = ignore,
     watch: *const fn (*const Animal, *Watched) void = watchNothing,
@@ -78,8 +78,8 @@ pub fn byWireId(id: u8) ?Id {
     return null;
 }
 
-fn hurtBase(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    return animal.hurt(amount, source, rand);
+fn hurtBase(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+    return animal.hurt(world_map, amount, source, rand);
 }
 
 pub const Id = u16;

@@ -126,8 +126,8 @@ pub fn takeShot(self: *Skeleton) ?Shot {
     return shot;
 }
 
-pub fn hurt(self: *Skeleton, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    if (!self.animal.hurt(amount, source, rand)) return false;
+pub fn hurt(self: *Skeleton, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) self.monster.target = from.player;
     }
@@ -224,9 +224,9 @@ fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
     return .{ .count = drops.count, .stack = drops.stack() };
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Skeleton = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -388,6 +388,8 @@ test "a skeleton that spots the player stands off and shoots rather than closing
 }
 
 test "a dying skeleton leaves both arrows and bones" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var seen_arrows = false;
     var seen_bones = false;
     var seen_empty = false;
@@ -396,7 +398,7 @@ test "a dying skeleton leaves both arrows and bones" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = Skeleton.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.animal.hurt(max_health, null, &rand);
+        _ = self.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!self.animal.isAlive());
 
         var arrows: u8 = 0;
@@ -421,10 +423,12 @@ test "a dying skeleton leaves both arrows and bones" {
 }
 
 test "a struck skeleton turns on the player who struck it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = Skeleton.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
+    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
     try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 

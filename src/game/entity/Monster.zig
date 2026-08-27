@@ -178,7 +178,7 @@ pub fn deliverAttack(self: *Monster, animal: *Animal, context: Mob.Tick) void {
 
     const player = context.playerById(self.target orelse return) orelse return;
     if (player.health <= 0) return;
-    player.hurtFrom(self.attack_strength, animal.base.position);
+    player.hurtFrom(context.world_map, self.attack_strength, animal.base.position);
 }
 
 test "a monster reaches only a player standing beside it, and then waits out its cooldown" {

@@ -72,12 +72,12 @@ pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     return if (rand.nextIntBound(500) == 0) pink else white;
 }
 
-pub fn hurt(self: *Sheep, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Sheep, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     if (source != null and !self.sheared) {
         self.sheared = true;
         self.pending_wool = min_wool + @as(u8, @intCast(rand.nextIntBound(wool_spread)));
     }
-    return self.animal.hurt(amount, source, rand);
+    return self.animal.hurt(world_map, amount, source, rand);
 }
 
 pub const Drops = struct {
@@ -131,11 +131,13 @@ test "a sheep is the size EntitySheep sets itself to" {
 }
 
 test "a hit from an attacker shears the sheep and drops one to three wool of its colour" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
     sheep.fleece_color = brown;
 
-    try std.testing.expect(sheep.hurt(2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
+    try std.testing.expect(sheep.hurt(&w, 2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
     try std.testing.expect(sheep.sheared);
 
     const drops = sheep.takeDrops().?;
@@ -160,44 +162,52 @@ test "shearing a sheep yields two to four wool of its colour, and only once" {
 }
 
 test "shearing does not queue the wool a killing blow would drop" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(7);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
     _ = sheep.shear(&rand).?;
     try std.testing.expect(sheep.takeDrops() == null);
 
-    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
 test "a sheared sheep has no more wool to give" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
     _ = sheep.takeDrops();
 
     sheep.animal.hurt_resistance = 0;
-    _ = sheep.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
 test "damage with no attacker behind it leaves the fleece on" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    try std.testing.expect(sheep.hurt(4, null, &rand));
+    try std.testing.expect(sheep.hurt(&w, 4, null, &rand));
 
     try std.testing.expect(!sheep.sheared);
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
 test "a sheep still takes the damage of the hit that shears it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    _ = sheep.hurt(3, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expectEqual(max_health - 3, sheep.animal.health);
     try std.testing.expect(sheep.animal.base.motion.x > 0.0);
@@ -288,9 +298,9 @@ fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
     self.sheared = fleece & sheared_bit != 0;
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Sheep = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {

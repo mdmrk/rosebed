@@ -867,10 +867,55 @@ test "hurting a mob shows as a hurt flash on the client" {
     const seen = pair.client_level.entities.first(game.Cow, game.mob.cow).?;
     try std.testing.expectEqual(@as(i32, 0), seen.animal.hurt_time);
 
-    _ = cow.animal.hurt(3, null, &pair.server_level.world_map.rand);
+    _ = cow.animal.hurt(&pair.server_level.world_map, 3, null, &pair.server_level.world_map.rand);
     try pair.trackWorld(1);
 
     try std.testing.expect(seen.animal.hurt_time > 0);
+}
+
+const SoundLog = struct {
+    const Sound = std.meta.Child(@FieldType(game.Animal, "hurt_sound"));
+
+    key: []const u8 = "",
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+        const self: *SoundLog = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *SoundLog) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "the hurt and death a server reports are heard on the client" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    var heard: SoundLog = .{};
+    pair.client_level.world_map.sound_sink = heard.sink();
+
+    const zombie = try spawnServerMob(&pair, game.Zombie, game.mob.zombie);
+    try pair.trackWorld(1);
+    try std.testing.expectEqual(@as(usize, 0), heard.count);
+
+    const server_map = &pair.server_level.world_map;
+    _ = zombie.animal.hurt(server_map, 3, null, &server_map.rand);
+    try pair.trackWorld(1);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings(zombie.animal.hurt_sound.?.key, heard.key);
+
+    zombie.animal.hurt_resistance = 0;
+    _ = zombie.animal.hurt(server_map, zombie.animal.max_health, null, &server_map.rand);
+    try pair.trackWorld(1);
+    try std.testing.expectEqualStrings(zombie.animal.death_sound.?.key, heard.key);
 }
 
 test "an item a player scoops up is taken off every other screen" {

@@ -128,8 +128,8 @@ fn updateActionState(
     try self.monster.updateActionState(animal, gpa, world_map, players, rand, true);
 }
 
-pub fn hurt(self: *Creeper, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    if (!self.animal.hurt(amount, source, rand)) return false;
+pub fn hurt(self: *Creeper, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) self.monster.target = from.player;
     }
@@ -266,9 +266,9 @@ fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
     return .{ .count = drops.count, .stack = drops.stack() };
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Creeper = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -465,6 +465,8 @@ test "a fusing creeper stands its ground instead of walking on" {
 }
 
 test "a creeper a skeleton killed leaves one of the two records behind its gunpowder" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var saw_13 = false;
     var saw_cat = false;
 
@@ -472,7 +474,7 @@ test "a creeper a skeleton killed leaves one of the two records behind its gunpo
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = Creeper.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.hurt(max_health, .{
+        _ = self.hurt(&w, max_health, .{
             .position = math.Vec3.init(6, 1, 8),
             .mob = 11,
             .mob_type = Mob.skeleton,
@@ -500,14 +502,16 @@ test "a creeper a skeleton killed leaves one of the two records behind its gunpo
 }
 
 test "only a skeleton's kill leaves a record, and a stale attacker cannot conjure one" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
     var by_player = Creeper.spawn(math.Vec3.init(8, 1, 8));
-    _ = by_player.hurt(max_health, .{ .position = math.Vec3.init(6, 1, 8), .player = 3 }, &rand);
+    _ = by_player.hurt(&w, max_health, .{ .position = math.Vec3.init(6, 1, 8), .player = 3 }, &rand);
     try std.testing.expect(by_player.pending_record == null);
 
     var drowned = Creeper.spawn(math.Vec3.init(8, 1, 8));
-    _ = drowned.hurt(1, .{
+    _ = drowned.hurt(&w, 1, .{
         .position = math.Vec3.init(6, 1, 8),
         .mob = 11,
         .mob_type = Mob.skeleton,
@@ -515,12 +519,15 @@ test "only a skeleton's kill leaves a record, and a stale attacker cannot conjur
     try std.testing.expect(drowned.animal.isAlive());
 
     drowned.animal.hurt_resistance = 0;
-    _ = drowned.animal.hurt(max_health, null, &rand);
+    _ = drowned.animal.hurt(&w, max_health, null, &rand);
     try std.testing.expect(!drowned.animal.isAlive());
     try std.testing.expect(drowned.pending_record == null);
 }
 
 test "a dying creeper drops nought to two gunpowder, but one that detonates leaves nothing" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -528,7 +535,7 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = Creeper.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.animal.hurt(max_health, null, &rand);
+        _ = self.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!self.animal.isAlive());
 
         if (self.takeDrops()) |drops| {
@@ -543,9 +550,6 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
     try std.testing.expect(dropped_nothing);
     try std.testing.expect(dropped_something);
 
-    const gpa = std.testing.allocator;
-    var w = try world.testing.flatWorld(gpa, 1);
-    defer w.deinit();
     var blast_rand = world.JavaRandom.init(0);
     var blown = Creeper.spawn(math.Vec3.init(8, 1, 8));
     blown.fuse = fuse_ticks - 1;
@@ -561,10 +565,12 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
 }
 
 test "a struck creeper turns on the player who struck it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = Creeper.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
+    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
     try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 

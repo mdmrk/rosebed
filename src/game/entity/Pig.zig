@@ -89,6 +89,8 @@ pub fn fromRecord(record: world.entity_nbt.Pig) Pig {
 }
 
 test "a dying pig drops nought to two porkchops" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -96,7 +98,7 @@ test "a dying pig drops nought to two porkchops" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var pig = Pig.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = pig.animal.hurt(max_health, null, &rand);
+        _ = pig.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!pig.animal.isAlive());
 
         if (pig.takeDrops()) |drops| {
@@ -115,11 +117,13 @@ test "a dying pig drops nought to two porkchops" {
 }
 
 test "a pig that burned to death drops its porkchops cooked" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var pig = Pig.spawn(math.Vec3.init(8, 1, 8));
     pig.animal.fire = 5;
 
-    _ = pig.animal.hurt(max_health, null, &rand);
+    _ = pig.animal.hurt(&w, max_health, null, &rand);
     pig.pending_drops = 1;
 
     try std.testing.expectEqual(world.Item.pork_cooked, pig.takeDrops().?.id);

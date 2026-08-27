@@ -120,13 +120,13 @@ fn throwEntities(
 
     for (entities.mobs.items) |entry| {
         const impact = impactOn(world_map, at, reach, entry.animal.base) orelse continue;
-        _ = entry.animal.hurt(impactDamage(impact.strength, reach), null, rand);
+        _ = entry.animal.hurt(world_map, impactDamage(impact.strength, reach), null, rand);
         pushBack(&entry.animal.base, impact);
     }
 
     for (roster) |player| {
         const impact = impactOn(world_map, at, reach, player.base) orelse continue;
-        player.hurt(impactDamage(impact.strength, reach));
+        player.hurt(world_map, impactDamage(impact.strength, reach));
         pushBack(&player.base, impact);
     }
 }

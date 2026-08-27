@@ -375,11 +375,13 @@ test "a squid out of water stops swimming, sinks and rolls onto its side" {
 }
 
 test "a dying squid drops one to three ink sacs" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     for (0..20) |seed| {
         var rand = world.JavaRandom.init(@intCast(seed));
         var squid = Squid.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-        _ = squid.animal.hurt(squid.animal.max_health, null, &rand);
+        _ = squid.animal.hurt(&w, squid.animal.max_health, null, &rand);
         try std.testing.expect(!squid.animal.isAlive());
 
         const drops = squid.takeDrops().?;

@@ -286,11 +286,13 @@ test "resizing a slime resets its health to the square of its size" {
 }
 
 test "only the smallest slime leaves slimeballs behind" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
     var big = Slime.spawn(math.Vec3.init(8, 1, 8), &rand);
     big.setSize(4);
-    _ = big.animal.hurt(big.animal.max_health, null, &rand);
+    _ = big.animal.hurt(&w, big.animal.max_health, null, &rand);
     try std.testing.expect(big.takeDrops() == null);
 
     var dropped_nothing = false;
@@ -300,7 +302,7 @@ test "only the smallest slime leaves slimeballs behind" {
         var small = Slime.spawn(math.Vec3.init(8, 1, 8), &seeded);
         small.setSize(1);
 
-        _ = small.animal.hurt(small.animal.max_health, null, &seeded);
+        _ = small.animal.hurt(&w, small.animal.max_health, null, &seeded);
         if (small.takeDrops()) |drops| {
             try std.testing.expect(drops.count >= 1 and drops.count <= 2);
             try std.testing.expectEqual(world.Id{ .item = .slime_ball }, drops.stack().id);
@@ -315,23 +317,25 @@ test "only the smallest slime leaves slimeballs behind" {
 }
 
 test "a slime killed outright splits, one killed by overkill does not" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
     var halved = Slime.spawn(math.Vec3.init(8, 1, 8), &rand);
     halved.setSize(2);
-    _ = halved.animal.hurt(4, null, &rand);
+    _ = halved.animal.hurt(&w, 4, null, &rand);
     try std.testing.expectEqual(@as(i32, 0), halved.animal.health);
     try std.testing.expect(halved.splitsApart());
 
     var overkilled = Slime.spawn(math.Vec3.init(8, 1, 8), &rand);
     overkilled.setSize(2);
-    _ = overkilled.animal.hurt(9, null, &rand);
+    _ = overkilled.animal.hurt(&w, 9, null, &rand);
     try std.testing.expect(overkilled.animal.health < 0);
     try std.testing.expect(!overkilled.splitsApart());
 
     var smallest = Slime.spawn(math.Vec3.init(8, 1, 8), &rand);
     smallest.setSize(1);
-    _ = smallest.animal.hurt(1, null, &rand);
+    _ = smallest.animal.hurt(&w, 1, null, &rand);
     try std.testing.expect(!smallest.splitsApart());
 }
 
@@ -651,7 +655,7 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
 
         const view = tick_context.players.byId(player.base.id) orelse continue;
         if (self.attackDamage(tick_context.world_map, view)) |damage| {
-            player.hurtFrom(damage, self.animal.base.position);
+            player.hurtFrom(tick_context.world_map, damage, self.animal.base.position);
         }
     }
 }

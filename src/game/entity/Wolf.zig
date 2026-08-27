@@ -359,9 +359,9 @@ fn updateActionState(
     if (animal.base.in_water) self.sitting = false;
 }
 
-pub fn hurt(self: *Wolf, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Wolf, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     self.sitting = false;
-    if (!self.animal.hurt(amount, source, rand)) return false;
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
     if (source == null) return true;
 
     const attacker = source.?.player;
@@ -547,9 +547,9 @@ fn mobTakeDrops(_: *Animal) ?Mob.Drops {
     return null;
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Wolf = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -660,12 +660,12 @@ fn bite(self: *Wolf, entities: anytype, context: Mob.Tick, damage: i32) void {
         .player => |id| {
             const player = context.playerById(id) orelse return;
             if (player.health <= 0) return;
-            player.hurtFrom(damage, self.animal.base.position);
+            player.hurtFrom(context.world_map, damage, self.animal.base.position);
         },
         .prey => |hunted| {
             for (entities.mobs.items) |entry| {
                 if (entry.animal != hunted) continue;
-                _ = Mob.get(entry.type_id).hurt(hunted, damage, .{ .position = self.animal.base.position }, context.rand);
+                _ = Mob.get(entry.type_id).hurt(hunted, context.world_map, damage, .{ .position = self.animal.base.position }, context.rand);
                 return;
             }
         },
@@ -716,10 +716,12 @@ test "a wolf is the size and speed EntityWolf sets itself to" {
 }
 
 test "a wolf leaves nothing behind when it dies" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
 
-    _ = wolf.hurt(max_health, null, &rand);
+    _ = wolf.hurt(&w, max_health, null, &rand);
 
     try std.testing.expect(!wolf.animal.isAlive() or wolf.animal.health <= 0);
     try std.testing.expect(mobTakeDrops(&wolf.animal) == null);
@@ -803,11 +805,13 @@ test "a tamed wolf sits and stands on a bare hand, and eats pork when hurt" {
 }
 
 test "hitting an untamed wolf angers it at the player and rouses the pack" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
     wolf.sitting = true;
 
-    try std.testing.expect(wolf.hurt(1, .{ .position = math.Vec3.init(6, 1, 8), .player = 7 }, &rand));
+    try std.testing.expect(wolf.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8), .player = 7 }, &rand));
 
     try std.testing.expect(wolf.angry);
     try std.testing.expect(!wolf.sitting);
@@ -816,23 +820,27 @@ test "hitting an untamed wolf angers it at the player and rouses the pack" {
 }
 
 test "a tamed wolf never turns on the hand that feeds it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
     wolf.tamed = true;
     wolf.animal.max_health = tamed_health;
     wolf.animal.health = tamed_health;
 
-    try std.testing.expect(wolf.hurt(2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
+    try std.testing.expect(wolf.hurt(&w, 2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
 
     try std.testing.expect(!wolf.angry);
     try std.testing.expect(wolf.target == null);
 }
 
 test "damage with no attacker leaves the wolf calm" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(wolf.hurt(1, null, &rand));
+    try std.testing.expect(wolf.hurt(&w, 1, null, &rand));
 
     try std.testing.expect(!wolf.angry);
     try std.testing.expect(wolf.target == null);
@@ -1194,10 +1202,12 @@ test "a wall between the wolf and the player hides the player from it" {
 }
 
 test "a struck wolf turns on the player who struck it, not the nearest one" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(wolf.hurt(1, .{ .position = math.Vec3.init(30, 1, 8), .player = 42 }, &rand));
+    try std.testing.expect(wolf.hurt(&w, 1, .{ .position = math.Vec3.init(30, 1, 8), .player = 42 }, &rand));
 
     try std.testing.expect(wolf.angry);
     try std.testing.expectEqual(@as(Animal.Entity.Id, 42), wolf.target.?.player);

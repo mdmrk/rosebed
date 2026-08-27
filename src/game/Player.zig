@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -133,6 +134,7 @@ const lava_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
 const hurt_resistance_ticks: i32 = 20;
 const hurt_animation_ticks: i32 = 10;
+const hurt_sound_volume: f32 = 1.0;
 const knockback_strength: f64 = 0.4;
 
 pub const safe_fall_distance: f32 = 3.0;
@@ -254,7 +256,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     const before_y = self.base.position.y;
     const before_z = self.base.position.z;
     const moved = self.base.move(world_map);
-    self.updateFallState(moved.dy);
+    self.updateFallState(world_map, moved.dy);
     if (self.base.blocked_horizontally and self.base.isOnLadder(world_map)) {
         self.base.motion.y = world.block.ladder_climb_lift;
     }
@@ -302,7 +304,7 @@ pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) vo
     self.base.in_water = game_physics.isBoxInMaterial(world_map, self.base.boundingBox().expand(0, -0.4, 0), .water);
     self.updateFire(world_map);
     self.updateAir(world_map);
-    self.updateFallState(dy);
+    self.updateFallState(world_map, dy);
     self.hurtOnCactus(world_map);
     if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
@@ -397,19 +399,19 @@ pub fn isEyeInLava(self: Player, world_map: *const world.World) bool {
 
 fn updateFire(self: *Player, world_map: *const world.World) void {
     if (self.fire > 0) {
-        if (@rem(self.fire, 20) == 0) self.hurt(burn_damage);
+        if (@rem(self.fire, 20) == 0) self.hurt(world_map, burn_damage);
         self.fire -= 1;
     }
 
     self.in_lava = game_physics.isInLava(world_map, self.base.boundingBox());
     if (self.in_lava) {
-        self.hurt(lava_damage);
+        self.hurt(world_map, lava_damage);
         self.fire = lava_fire_ticks;
     }
 }
 
 fn hurtOnCactus(self: *Player, world_map: *const world.World) void {
-    if (game_physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.hurt(cactus_damage);
+    if (game_physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.hurt(world_map, cactus_damage);
 }
 
 fn updateAir(self: *Player, world_map: *const world.World) void {
@@ -418,7 +420,7 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
         if (self.air == -20) {
             self.air = 0;
             self.drowned = true;
-            self.hurt(drown_damage);
+            self.hurt(world_map, drown_damage);
         }
         self.fire = 0;
         return;
@@ -426,18 +428,18 @@ fn updateAir(self: *Player, world_map: *const world.World) void {
     self.air = max_air;
 }
 
-fn fall(self: *Player, distance: f32) void {
+fn fall(self: *Player, world_map: *const world.World, distance: f32) void {
     if (distance >= recorded_fall_distance) self.distance_fallen += distance;
 
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
-    self.hurt(damage);
+    self.hurt(world_map, damage);
 }
 
-fn updateFallState(self: *Player, dy: f64) void {
+fn updateFallState(self: *Player, world_map: *const world.World, dy: f64) void {
     if (self.base.on_ground) {
         if (self.fall_distance > 0.0) {
-            self.fall(self.fall_distance);
+            self.fall(world_map, self.fall_distance);
             self.fall_distance = 0.0;
         }
     } else if (dy < 0.0) {
@@ -450,19 +452,19 @@ pub fn absorbsHit(self: Player, amount: i32) bool {
     return self.hurt_resistance > @divTrunc(hurt_resistance_ticks, 2) and amount <= self.last_damage;
 }
 
-pub fn hurt(self: *Player, amount: i32) void {
-    self.damageFrom(amount, null);
+pub fn hurt(self: *Player, world_map: *const world.World, amount: i32) void {
+    self.damageFrom(world_map, amount, null);
 }
 
 pub fn tp(self: *Player, pos: math.Vec3) void {
     self.base.position = pos;
 }
 
-pub fn hurtFrom(self: *Player, amount: i32, source: math.Vec3) void {
-    self.damageFrom(amount, source);
+pub fn hurtFrom(self: *Player, world_map: *const world.World, amount: i32, source: math.Vec3) void {
+    self.damageFrom(world_map, amount, source);
 }
 
-fn damageFrom(self: *Player, amount: i32, source: ?math.Vec3) void {
+fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
     if (self.health <= 0 or amount == 0) return;
     if (self.sleeping) self.wake_pending = true;
     self.damage_taken += amount;
@@ -482,19 +484,31 @@ fn damageFrom(self: *Player, amount: i32, source: ?math.Vec3) void {
     self.hurt_time = hurt_animation_ticks;
     self.max_hurt_time = hurt_animation_ticks;
 
-    const from = source orelse {
+    if (source) |from| {
+        var dx = from.x - self.base.position.x;
+        var dz = from.z - self.base.position.z;
+        while (dx * dx + dz * dz < 1.0e-4) {
+            dx = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
+            dz = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
+        }
+        self.attacked_at_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - self.yaw;
+        self.knockBack(dx, dz);
+    } else {
         self.attacked_at_yaw = @floatFromInt(@as(i32, @intFromFloat(self.hurt_rand.nextDouble() * 2.0)) * 180);
-        return;
-    };
-
-    var dx = from.x - self.base.position.x;
-    var dz = from.z - self.base.position.z;
-    while (dx * dx + dz * dz < 1.0e-4) {
-        dx = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
-        dz = (self.hurt_rand.nextDouble() - self.hurt_rand.nextDouble()) * 0.01;
     }
-    self.attacked_at_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - self.yaw;
-    self.knockBack(dx, dz);
+
+    self.playHurtSound(world_map);
+}
+
+pub fn playHurtSound(self: *Player, world_map: *const world.World) void {
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        assets.sounds.random.hurt,
+        hurt_sound_volume,
+        (self.hurt_rand.nextFloat() - self.hurt_rand.nextFloat()) * 0.2 + 1.0,
+    );
 }
 
 fn knockBack(self: *Player, dx: f64, dz: f64) void {
@@ -1405,11 +1419,13 @@ test "the drowning flag is raised only on the tick the lungs give out" {
 }
 
 test "a fall costs half a heart for every block past the third" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 20, 8));
-    player.updateFallState(-2.0);
-    player.updateFallState(-3.5);
+    player.updateFallState(&w, -2.0);
+    player.updateFallState(&w, -3.5);
     player.base.on_ground = true;
-    player.updateFallState(0);
+    player.updateFallState(&w, 0);
 
     try std.testing.expectEqual(@as(i32, 17), player.health);
     try std.testing.expectEqual(@as(i32, 3), player.damage_taken);
@@ -1417,26 +1433,30 @@ test "a fall costs half a heart for every block past the third" {
 }
 
 test "a three block drop is walked away from unhurt" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 20, 8));
-    player.updateFallState(-3.0);
+    player.updateFallState(&w, -3.0);
     player.base.on_ground = true;
-    player.updateFallState(0);
+    player.updateFallState(&w, 0);
 
     try std.testing.expectEqual(@as(i32, 20), player.health);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.fall_distance, 1.0e-6);
 }
 
 test "a fall of two blocks or more is counted as distance fallen" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(8, 20, 8));
-    player.updateFallState(-1.5);
+    player.updateFallState(&w, -1.5);
     player.base.on_ground = true;
-    player.updateFallState(0);
+    player.updateFallState(&w, 0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.distance_fallen, 1.0e-6);
 
     player.base.on_ground = false;
-    player.updateFallState(-2.5);
+    player.updateFallState(&w, -2.5);
     player.base.on_ground = true;
-    player.updateFallState(0);
+    player.updateFallState(&w, 0);
     try std.testing.expectApproxEqAbs(@as(f32, 2.5), player.distance_fallen, 1.0e-6);
 }
 
@@ -1505,6 +1525,8 @@ test "hitting water cancels the fall instead of hurting" {
 }
 
 test "a full diamond suit soaks four fifths of a hit and wears down doing it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
     inline for (.{ .helmet, .chestplate, .leggings, .boots }, .{
         world.Item.helmet_diamond,
@@ -1516,7 +1538,7 @@ test "a full diamond suit soaks four fifths of a hit and wears down doing it" {
     }
     try std.testing.expectEqual(@as(i32, 20), player.inventory.totalArmorValue());
 
-    player.hurt(10);
+    player.hurt(&w, 10);
     try std.testing.expectEqual(@as(i32, 18), player.health);
     try std.testing.expectEqual(@as(u16, 10), player.inventory.armorSlot(.helmet).*.?.meta);
 }
@@ -1535,15 +1557,17 @@ test "the twenty-fifths armour rounds away carry into the next hit" {
 }
 
 test "a second hit inside the resistance window is shrugged off unless it is harder" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
 
-    player.hurt(4);
+    player.hurt(&w, 4);
     try std.testing.expectEqual(@as(i32, 16), player.health);
 
-    player.hurt(4);
+    player.hurt(&w, 4);
     try std.testing.expectEqual(@as(i32, 16), player.health);
 
-    player.hurt(6);
+    player.hurt(&w, 6);
     try std.testing.expectEqual(@as(i32, 14), player.health);
 }
 
@@ -1754,9 +1778,54 @@ test "healing tops out at full health and never revives the dead" {
     try std.testing.expectEqual(@as(i32, 0), player.health);
 }
 
-test "taking a hit starts a ten tick hurt animation and remembers the health before it" {
+const HurtSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+        const self: *HurtSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *HurtSound) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "a hit that lands cries out, and one shrugged off inside the resistance window stays quiet" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var heard: HurtSound = .{};
+    w.sound_sink = heard.sink();
+
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(4);
+    player.hurt(&w, 4);
+
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings(assets.sounds.random.hurt.key, heard.key);
+    try std.testing.expectEqual(hurt_sound_volume, heard.volume);
+    try std.testing.expect(heard.pitch >= 0.8 and heard.pitch <= 1.2);
+
+    player.hurt(&w, 4);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+
+    player.hurt(&w, 6);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+}
+
+test "taking a hit starts a ten tick hurt animation and remembers the health before it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    var player = Player.spawn(math.Vec3.init(0, 64, 0));
+    player.hurt(&w, 4);
 
     try std.testing.expectEqual(@as(i32, 20), player.prev_health);
     try std.testing.expectEqual(@as(i32, 16), player.health);
@@ -1766,10 +1835,12 @@ test "taking a hit starts a ten tick hurt animation and remembers the health bef
 }
 
 test "a hit shrugged off inside the resistance window does not restart the animation" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(4);
+    player.hurt(&w, 4);
     player.hurt_time = 3;
-    player.hurt(6);
+    player.hurt(&w, 6);
 
     try std.testing.expectEqual(@as(i32, 20), player.prev_health);
     try std.testing.expectEqual(@as(i32, 14), player.health);
@@ -1777,8 +1848,10 @@ test "a hit shrugged off inside the resistance window does not restart the anima
 }
 
 test "healing halves the resistance window so the hearts stop flashing" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(4);
+    player.hurt(&w, 4);
     try std.testing.expectEqual(@as(i32, hurt_resistance_ticks), player.hurt_resistance);
 
     player.heal(2);
@@ -1786,8 +1859,10 @@ test "healing halves the resistance window so the hearts stop flashing" {
 }
 
 test "the hurt camera rolls out and back over the animation" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(4);
+    player.hurt(&w, 4);
     player.attacked_at_yaw = 0;
 
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), player.hurtMatrix(0.0).m[1], 1.0e-3);
@@ -1805,8 +1880,10 @@ test "the hurt camera rolls out and back over the animation" {
 }
 
 test "the attacked yaw flips which way the camera rolls" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(4);
+    player.hurt(&w, 4);
     player.hurt_time = 5;
 
     player.attacked_at_yaw = 0;

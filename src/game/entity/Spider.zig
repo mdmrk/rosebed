@@ -108,8 +108,8 @@ fn updateActionState(
     try self.monster.updateActionState(animal, gpa, world_map, players, rand, hunts);
 }
 
-pub fn hurt(self: *Spider, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    if (!self.animal.hurt(amount, source, rand)) return false;
+pub fn hurt(self: *Spider, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) self.monster.target = from.player;
     }
@@ -197,9 +197,9 @@ fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
     return .{ .count = drops.count, .stack = drops.stack() };
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Spider = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -452,6 +452,8 @@ test "a mob that does not climb is unaffected by running into a wall" {
 }
 
 test "a dying spider drops nought to two string" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -459,7 +461,7 @@ test "a dying spider drops nought to two string" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = Spider.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.animal.hurt(max_health, null, &rand);
+        _ = self.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!self.animal.isAlive());
 
         if (self.takeDrops()) |drops| {
@@ -488,10 +490,12 @@ test "a spider rolls all the way over when it dies, not onto its side" {
 }
 
 test "a struck spider turns on the player who struck it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = Spider.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
+    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
     try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 

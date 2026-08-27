@@ -583,8 +583,10 @@ fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, statu
             status_hurt => {
                 peer.player.hurt_time = hurt_flash_ticks;
                 peer.player.limb_swing_amount = 1.5;
+                peer.player.playHurtSound(&level.world_map);
             },
             status_death => {
+                peer.player.playHurtSound(&level.world_map);
                 peer.player.health = 0;
                 peer.player.death_time = 1;
             },
@@ -598,8 +600,10 @@ fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, statu
         status_hurt => {
             entry.animal.hurt_time = hurt_flash_ticks;
             entry.animal.limb_swing_amount = 1.5;
+            entry.animal.playDamageSound(&level.world_map, entry.animal.hurt_sound, &level.world_map.rand);
         },
         status_death => {
+            entry.animal.playDamageSound(&level.world_map, entry.animal.death_sound, &level.world_map.rand);
             entry.animal.health = 0;
             entry.animal.death_time = 1;
         },

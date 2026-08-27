@@ -89,8 +89,8 @@ fn updateActionState(
     try self.monster.updateActionState(animal, gpa, world_map, players, rand, true);
 }
 
-pub fn hurt(self: *Zombie, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    if (!self.animal.hurt(amount, source, rand)) return false;
+pub fn hurt(self: *Zombie, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) self.monster.target = from.player;
     }
@@ -178,9 +178,9 @@ fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
     return .{ .count = drops.count, .stack = drops.stack() };
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *Zombie = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -348,6 +348,8 @@ test "a zombie at night is left alone by the sun" {
 }
 
 test "a dying zombie drops nought to two feathers" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -355,7 +357,7 @@ test "a dying zombie drops nought to two feathers" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = Zombie.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.animal.hurt(max_health, null, &rand);
+        _ = self.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!self.animal.isAlive());
 
         if (self.takeDrops()) |drops| {
@@ -373,11 +375,56 @@ test "a dying zombie drops nought to two feathers" {
     try std.testing.expect(dropped_something);
 }
 
+const HurtSounds = struct {
+    keys: [4][]const u8 = @splat(""),
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+        const self: *HurtSounds = @ptrCast(@alignCast(context));
+        if (self.count == self.keys.len) return;
+        self.keys[self.count] = sound.key;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *HurtSounds) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "a wounded zombie groans, a dying one cries out, and a shrugged-off hit is silent" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+
+    var heard: HurtSounds = .{};
+    w.sound_sink = heard.sink();
+
+    var rand = world.JavaRandom.init(0);
+    var self = Zombie.spawn(math.Vec3.init(8, 1, 8));
+    defer self.deinit(std.testing.allocator);
+
+    try std.testing.expect(self.hurt(&w, 3, null, &rand));
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings(assets.sounds.mob.zombiehurt.key, heard.keys[0]);
+
+    try std.testing.expect(self.hurt(&w, 4, null, &rand));
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+
+    self.animal.hurt_resistance = 0;
+    try std.testing.expect(self.hurt(&w, max_health, null, &rand));
+    try std.testing.expect(!self.animal.isAlive());
+    try std.testing.expectEqual(@as(usize, 2), heard.count);
+    try std.testing.expectEqualStrings(assets.sounds.mob.zombiedeath.key, heard.keys[1]);
+}
+
 test "a struck zombie turns on the player who struck it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = Zombie.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
+    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
     try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 

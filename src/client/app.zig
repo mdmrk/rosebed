@@ -495,7 +495,7 @@ fn attackEntity(app_state: *AppState, target: game.Entities.Target) !void {
 
     if (target == .painting) return game.interact.breakPainting(interactContext(app_state), target.painting);
 
-    _ = app_state.level.entities.hurtTarget(target, damage, .{
+    _ = app_state.level.entities.hurtTarget(&app_state.level.world_map, target, damage, .{
         .position = app_state.player.base.position,
         .player = app_state.player.base.id,
     }, &app_state.level.world_map.rand);

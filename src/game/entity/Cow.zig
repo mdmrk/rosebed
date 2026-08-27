@@ -94,6 +94,8 @@ test "a cow is the size EntityCow sets itself to" {
 }
 
 test "a dying cow drops nought to two hides" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -101,7 +103,7 @@ test "a dying cow drops nought to two hides" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var cow = Cow.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = cow.animal.hurt(max_health, null, &rand);
+        _ = cow.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!cow.animal.isAlive());
 
         if (cow.takeDrops()) |drops| {
@@ -120,11 +122,13 @@ test "a dying cow drops nought to two hides" {
 }
 
 test "a cow that burned to death still leaves plain leather" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var cow = Cow.spawn(math.Vec3.init(8, 1, 8));
     cow.animal.fire = 5;
 
-    _ = cow.animal.hurt(max_health, null, &rand);
+    _ = cow.animal.hurt(&w, max_health, null, &rand);
     cow.pending_drops = 1;
 
     try std.testing.expectEqual(world.Id{ .item = .leather }, cow.takeDrops().?.stack().id);

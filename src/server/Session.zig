@@ -1104,7 +1104,7 @@ fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: gam
         var damage = heldDamage(player);
         if (damage <= 0) return;
         if (player.base.motion.y < 0.0) damage += 1;
-        struck.hurtFrom(damage, player.base.position);
+        struck.hurtFrom(&level.world_map, damage, player.base.position);
         try self.award(gpa, .{ .general = .damage_dealt }, damage);
         return;
     }
@@ -1128,7 +1128,7 @@ fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: gam
     if (damage <= 0) return;
     if (player.base.motion.y < 0.0) damage += 1;
 
-    const landed = level.entities.hurtTarget(target, damage, .{
+    const landed = level.entities.hurtTarget(&level.world_map, target, damage, .{
         .position = player.base.position,
         .player = player.base.id,
     }, &level.world_map.rand);

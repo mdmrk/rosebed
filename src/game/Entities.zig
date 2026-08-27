@@ -482,11 +482,11 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
     return found;
 }
 
-pub fn hurtTarget(self: *Entities, target: Target, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+pub fn hurtTarget(self: *Entities, world_map: *const world.World, target: Target, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     return switch (target) {
         .mob => |id| {
             const entry = self.mobById(id) orelse return false;
-            const hit = mob.get(entry.type_id).hurt(entry.animal, amount, source, rand);
+            const hit = mob.get(entry.type_id).hurt(entry.animal, world_map, amount, source, rand);
             if (hit and entry.animal.isAlive()) {
                 if (source) |from| Wolf.alertOwned(self, from, entry.animal, true);
             }
@@ -1690,11 +1690,11 @@ pub fn tickArrows(
             if (if (owned_here) self.arrowStrike(arrow.*, roster, limit) else null) |strike| {
                 const source = self.arrowShooter(arrow.*, roster);
                 const landed = switch (strike) {
-                    .mob => |target| self.hurtTarget(target, Arrow.damage, source, rand),
+                    .mob => |target| self.hurtTarget(world_map, target, Arrow.damage, source, rand),
                     .player => |id| blk: {
                         const struck = playerById(roster, id) orelse break :blk false;
                         const absorbed = struck.absorbsHit(Arrow.damage);
-                        struck.hurt(Arrow.damage);
+                        struck.hurt(world_map, Arrow.damage);
                         break :blk !absorbed;
                     },
                 };
@@ -1814,7 +1814,7 @@ pub fn tickFireballs(
             // The direct hit lands for nothing; every point of damage comes from the blast.
             if (strike) |target| {
                 if (target == .mob) {
-                    _ = self.hurtTarget(target.mob, 0, .{ .position = ball.base.position }, rand);
+                    _ = self.hurtTarget(world_map, target.mob, 0, .{ .position = ball.base.position }, rand);
                 }
             }
             try explosion.detonate(
@@ -2069,7 +2069,7 @@ pub fn tickLightning(
 
         if (bolt.isVisible()) {
             world_map.weather.flash = world.Weather.flash_ticks;
-            if (owned_here) try self.shockEntities(gpa, bolt.*, roster, rand);
+            if (owned_here) try self.shockEntities(gpa, world_map, bolt.*, roster, rand);
         }
 
         if (bolt.dead) {
@@ -2083,6 +2083,7 @@ pub fn tickLightning(
 fn shockEntities(
     self: *Entities,
     gpa: std.mem.Allocator,
+    world_map: *const world.World,
     bolt: Lightning,
     roster: []const *Player,
     rand: *world.JavaRandom,
@@ -2091,7 +2092,7 @@ fn shockEntities(
 
     for (roster) |player| {
         if (!player.base.boundingBox().intersects(box)) continue;
-        player.hurt(Lightning.fire_damage);
+        player.hurt(world_map, Lightning.fire_damage);
         if (player.fire == 0) player.fire = Lightning.burn_ticks;
     }
 
@@ -2110,7 +2111,7 @@ fn shockEntities(
             continue;
         }
 
-        _ = mob.get(entry.type_id).hurt(entry.animal, Lightning.fire_damage, null, rand);
+        _ = mob.get(entry.type_id).hurt(entry.animal, world_map, Lightning.fire_damage, null, rand);
         if (entry.animal.fire == 0) entry.animal.fire = Lightning.burn_ticks;
         if (entry.type_id == mob.creeper) {
             const charged: *Creeper = @fieldParentPtr("animal", entry.animal);
@@ -2288,7 +2289,7 @@ pub fn tickMobs(
 
         try kind.tick(entry.animal, gpa, world_map, players, rand);
         if (physics.touchesBlock(world_map, entry.animal.base.boundingBox(), .cactus)) {
-            _ = kind.hurt(entry.animal, cactus_damage, null, rand);
+            _ = kind.hurt(entry.animal, world_map, cactus_damage, null, rand);
         }
         self.pushNeighbours(entry.animal);
         try kind.afterTick(entry.animal, context);
@@ -2874,7 +2875,7 @@ test "a cow killed by the world leaves its hide behind" {
 fn killedSlime(gpa: std.mem.Allocator, entities: *Entities, w: *world.World, size: u8, rand: *world.JavaRandom) !void {
     try entities.spawnSlime(gpa, math.Vec3.init(8.5, 1, 8.5), rand);
     entities.first(Slime, mob.slime).?.setSize(size);
-    _ = entities.first(Slime, mob.slime).?.animal.hurt(entities.first(Slime, mob.slime).?.animal.max_health, null, rand);
+    _ = entities.first(Slime, mob.slime).?.animal.hurt(w, entities.first(Slime, mob.slime).?.animal.max_health, null, rand);
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
     for (0..Animal.death_ticks + 1) |_| {
@@ -2999,7 +3000,7 @@ test "the wool a punched sheep loses is left on the ground in its own colour" {
     var rand = world.JavaRandom.init(2);
     try entities.spawnSheep(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
     entities.first(Sheep, mob.sheep).?.fleece_color = 12;
-    _ = entities.first(Sheep, mob.sheep).?.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = entities.first(Sheep, mob.sheep).?.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
     try soloTick(&entities, gpa, &w, &player, &rand);
@@ -3662,6 +3663,8 @@ test "a dead animal is no longer picked" {
 }
 
 test "a hit takes health off the animal the crosshair found" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     const gpa = std.testing.allocator;
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3671,11 +3674,13 @@ test "a hit takes health off the animal the crosshair found" {
     const before = entities.first(Cow, mob.cow).?.animal.health;
 
     const cow = entities.first(Cow, mob.cow).?.animal.base.id;
-    _ = entities.hurtTarget(.{ .mob = cow }, 4, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
+    _ = entities.hurtTarget(&w, .{ .mob = cow }, 4, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
     try std.testing.expectEqual(before - 4, entities.first(Cow, mob.cow).?.animal.health);
 }
 
 test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     const gpa = std.testing.allocator;
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3685,7 +3690,7 @@ test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
     try std.testing.expect(!entities.first(Sheep, mob.sheep).?.sheared);
 
     const sheep = entities.first(Sheep, mob.sheep).?.animal.base.id;
-    _ = entities.hurtTarget(.{ .mob = sheep }, 1, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
+    _ = entities.hurtTarget(&w, .{ .mob = sheep }, 1, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
     try std.testing.expect(entities.first(Sheep, mob.sheep).?.sheared);
 }
 
@@ -3848,7 +3853,7 @@ test "killing a monster earns Monster Hunter, killing an animal does not" {
         player.base.id = 7;
 
         const animal = try entities.spawnMob(gpa, case.type_id, math.Vec3.init(10.5, 1, 8.5), &rand);
-        _ = animal.hurt(animal.max_health, .{ .position = player.base.position, .player = player.base.id }, &rand);
+        _ = animal.hurt(&w, animal.max_health, .{ .position = player.base.position, .player = player.base.id }, &rand);
         animal.dead = true;
 
         try soloTick(&entities, gpa, &w, &player, &rand);
@@ -3887,7 +3892,7 @@ test "a monster that dies with nobody to blame earns nothing" {
     player.base.id = 7;
 
     const animal = try entities.spawnMob(gpa, mob.zombie, math.Vec3.init(10.5, 1, 8.5), &rand);
-    _ = animal.hurt(animal.max_health, null, &rand);
+    _ = animal.hurt(&w, animal.max_health, null, &rand);
     animal.dead = true;
 
     try soloTick(&entities, gpa, &w, &player, &rand);
@@ -4006,7 +4011,7 @@ test "hitting one wolf of a pack turns the whole pack on the player" {
     try entities.spawnWolf(gpa, math.Vec3.init(60.5, 1, 8.5), &rand);
 
     const struck = entities.mobs.items[0].animal;
-    try std.testing.expect(entities.hurtTarget(.{ .mob = struck.base.id }, 1, .{ .position = math.Vec3.init(6, 1, 8.5) }, &rand));
+    try std.testing.expect(entities.hurtTarget(&w, .{ .mob = struck.base.id }, 1, .{ .position = math.Vec3.init(6, 1, 8.5) }, &rand));
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
     try soloTick(&entities, gpa, &w, &player, &rand);
@@ -4045,7 +4050,7 @@ test "a tamed wolf sets on whatever its owner strikes, unless it is sitting" {
     seated.sitting = true;
 
     const struck = entities.mobs.items[0].animal;
-    try std.testing.expect(entities.hurtTarget(.{ .mob = struck.base.id }, 1, .{ .position = math.Vec3.init(8.5, 1, 8.5) }, &rand));
+    try std.testing.expect(entities.hurtTarget(&w, .{ .mob = struck.base.id }, 1, .{ .position = math.Vec3.init(8.5, 1, 8.5) }, &rand));
 
     try std.testing.expectEqual(struck, standing.target.?.prey);
     try std.testing.expect(!standing.sitting);
@@ -4173,7 +4178,7 @@ test "a target still names the same animal after an earlier one is removed" {
     try std.testing.expectEqual(watched, entities.mobAt(target).?.animal);
 
     const before = watched.health;
-    try std.testing.expect(entities.hurtTarget(target, 3, .{ .position = math.Vec3.init(0, 1, 0) }, &rand));
+    try std.testing.expect(entities.hurtTarget(&w, target, 3, .{ .position = math.Vec3.init(0, 1, 0) }, &rand));
     try std.testing.expectEqual(before - 3, watched.health);
     try std.testing.expectEqual(middle_health, middle.health);
 }
@@ -4198,7 +4203,7 @@ test "a target naming an animal that has gone hits nothing at all" {
 
     try std.testing.expectEqual(@as(usize, 0), entities.mobs.items.len);
     try std.testing.expect(entities.mobAt(stale) == null);
-    try std.testing.expect(!entities.hurtTarget(stale, 3, .{ .position = math.Vec3.init(0, 1, 0) }, &rand));
+    try std.testing.expect(!entities.hurtTarget(&w, stale, 3, .{ .position = math.Vec3.init(0, 1, 0) }, &rand));
 }
 
 test "an id is never handed out twice, even after the holder is gone" {
@@ -4366,6 +4371,7 @@ test "a wolf roused by one player's blow leaves the other player alone" {
 
     const struck = entities.mobs.items[0].animal;
     try std.testing.expect(entities.hurtTarget(
+        &w,
         .{ .mob = struck.base.id },
         1,
         .{ .position = attacker.base.position, .player = attacker.base.id },
@@ -4433,6 +4439,7 @@ test "hitting one pig zombie turns the whole horde within thirty-two blocks on t
 
     const struck = entities.mobs.items[0].animal.base.id;
     try std.testing.expect(entities.hurtTarget(
+        &w,
         .{ .mob = struck },
         1,
         .{ .position = player.base.position, .player = player.base.id },
@@ -4630,7 +4637,7 @@ test "a creeper killed before its fuse runs out leaves its gunpowder behind" {
     try entities.spawnCreeper(gpa, math.Vec3.init(8.5, 1, 8.5));
     const id = entities.mobs.items[0].animal.base.id;
 
-    _ = entities.hurtTarget(.{ .mob = id }, Creeper.max_health, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = entities.hurtTarget(&w, .{ .mob = id }, Creeper.max_health, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
     entities.first(Creeper, mob.creeper).?.pending_drops = 2;
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));

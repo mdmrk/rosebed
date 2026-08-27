@@ -86,7 +86,7 @@ pub fn becomeAngryAt(self: *PigZombie, player: Animal.Entity.Id, rand: *world.Ja
     self.anger_level = anger_base + rand.nextIntBound(anger_spread);
 }
 
-pub fn hurt(self: *PigZombie, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *PigZombie, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) {
             self.rouses_horde = from.player;
@@ -94,7 +94,7 @@ pub fn hurt(self: *PigZombie, amount: i32, source: ?Animal.Attacker, rand: *worl
         }
     }
 
-    if (!self.animal.hurt(amount, source, rand)) return false;
+    if (!self.animal.hurt(world_map, amount, source, rand)) return false;
 
     if (source) |from| {
         if (from.player != Animal.Entity.no_id) self.monster.target = from.player;
@@ -185,9 +185,9 @@ fn mobTakeDrops(animal: *Animal) ?Mob.Drops {
     return .{ .count = drops.count, .stack = drops.stack() };
 }
 
-fn mobHurt(animal: *Animal, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
+fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
     const self: *PigZombie = @fieldParentPtr("animal", animal);
-    return self.hurt(amount, source, rand);
+    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobStore(animal: *Animal, gpa: std.mem.Allocator) anyerror!world.nbt.Tag {
@@ -340,10 +340,12 @@ test "a calm pig zombie keeps to the slower of its two paces" {
 }
 
 test "a hit from a player angers the pig zombie at whoever struck it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = PigZombie.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
+    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
 
     try std.testing.expect(self.anger_level > 0);
     try std.testing.expectEqual(@as(Animal.Entity.Id, 11), self.monster.target.?);
@@ -351,17 +353,21 @@ test "a hit from a player angers the pig zombie at whoever struck it" {
 }
 
 test "damage from no player leaves the pig zombie calm" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var self = PigZombie.spawn(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(self.hurt(1, null, &rand));
-    try std.testing.expect(self.hurt(4, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
+    try std.testing.expect(self.hurt(&w, 1, null, &rand));
+    try std.testing.expect(self.hurt(&w, 4, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
 
     try std.testing.expectEqual(@as(i32, 0), self.anger_level);
     try std.testing.expect(self.monster.target == null);
 }
 
 test "a dying pig zombie drops nought to two cooked porkchops" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -369,7 +375,7 @@ test "a dying pig zombie drops nought to two cooked porkchops" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var self = PigZombie.spawn(math.Vec3.init(8, 1, 8));
 
-        _ = self.animal.hurt(max_health, null, &rand);
+        _ = self.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!self.animal.isAlive());
 
         if (self.takeDrops()) |drops| {

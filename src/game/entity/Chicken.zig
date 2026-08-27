@@ -152,6 +152,8 @@ test "a chicken is the size EntityChicken sets itself to, and as frail" {
 }
 
 test "a dying chicken drops nought to two feathers" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var dropped_nothing = false;
     var dropped_something = false;
 
@@ -159,7 +161,7 @@ test "a dying chicken drops nought to two feathers" {
         var rand = world.JavaRandom.init(@intCast(seed));
         var chicken = Chicken.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-        _ = chicken.animal.hurt(max_health, null, &rand);
+        _ = chicken.animal.hurt(&w, max_health, null, &rand);
         try std.testing.expect(!chicken.animal.isAlive());
 
         if (chicken.takeDrops()) |drops| {

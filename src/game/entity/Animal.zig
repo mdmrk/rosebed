@@ -240,6 +240,18 @@ pub fn playSound(self: *const Animal, world_map: *const world.World, sound: asse
     );
 }
 
+pub fn playDamageSound(self: *const Animal, world_map: *const world.World, sound: ?assets.Sound, rand: *world.JavaRandom) void {
+    const pitch = (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0;
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        sound orelse return,
+        self.sound_volume,
+        pitch,
+    );
+}
+
 fn playLivingSound(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
     const name = if (self.living_sound_of) |pick| pick(self, rand) else self.living_sound;
     self.playSound(world_map, name orelse return, rand);
@@ -355,7 +367,7 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
 }
 
-pub fn hurt(self: *Animal, amount: i32, source: ?Attacker, rand: *world.JavaRandom) bool {
+pub fn hurt(self: *Animal, world_map: *const world.World, amount: i32, source: ?Attacker, rand: *world.JavaRandom) bool {
     if (self.base.remote != null) return false;
     self.entity_age = 0;
     if (self.health <= 0) return false;
@@ -392,8 +404,11 @@ pub fn hurt(self: *Animal, amount: i32, source: ?Attacker, rand: *world.JavaRand
     }
 
     if (self.health <= 0) {
+        if (reacts) self.playDamageSound(world_map, self.death_sound, rand);
         self.killer = source;
         self.on_death(self, rand);
+    } else if (reacts) {
+        self.playDamageSound(world_map, self.hurt_sound, rand);
     }
     return true;
 }
@@ -409,17 +424,17 @@ fn knockBack(self: *Animal, dx: f64, dz: f64) void {
     if (self.base.motion.y > knockback_strength) self.base.motion.y = knockback_strength;
 }
 
-fn fall(self: *Animal, distance: f32, rand: *world.JavaRandom) void {
+fn fall(self: *Animal, world_map: *const world.World, distance: f32, rand: *world.JavaRandom) void {
     if (!self.takes_fall_damage) return;
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
-    if (damage > 0) _ = self.hurt(damage, null, rand);
+    if (damage > 0) _ = self.hurt(world_map, damage, null, rand);
 }
 
-fn updateFallState(self: *Animal, dy: f64, rand: *world.JavaRandom) void {
+fn updateFallState(self: *Animal, world_map: *const world.World, dy: f64, rand: *world.JavaRandom) void {
     if (self.base.on_ground) {
         if (self.fall_distance > 0.0) {
             self.last_fall = self.fall_distance;
-            self.fall(self.fall_distance, rand);
+            self.fall(world_map, self.fall_distance, rand);
             self.fall_distance = 0.0;
         }
     } else if (dy < 0.0) {
@@ -457,7 +472,7 @@ fn flyWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, for
 
     self.moveFlying(strafe, forward, acceleration);
     const moved = self.base.move(world_map);
-    self.updateFallState(moved.dy, rand);
+    self.updateFallState(world_map, moved.dy, rand);
 
     self.base.motion.x *= drag;
     self.base.motion.y *= drag;
@@ -466,7 +481,7 @@ fn flyWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, for
 
 fn driftWithHeading(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
     const moved = self.base.move(world_map);
-    self.updateFallState(moved.dy, rand);
+    self.updateFallState(world_map, moved.dy, rand);
 }
 
 fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, forward: f32, rand: *world.JavaRandom) void {
@@ -481,7 +496,7 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
         const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
         self.moveFlying(strafe, forward, liquid_acceleration);
         const moved = self.base.move(world_map);
-        self.updateFallState(moved.dy, rand);
+        self.updateFallState(world_map, moved.dy, rand);
 
         self.base.motion.x *= drag;
         self.base.motion.y *= drag;
@@ -506,7 +521,7 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
         }
 
         const moved = self.base.move(world_map);
-        self.updateFallState(moved.dy, rand);
+        self.updateFallState(world_map, moved.dy, rand);
         if (self.base.blocked_horizontally and self.isOnLadder(world_map)) self.base.motion.y = world.block.ladder_climb_lift;
 
         self.base.motion.y -= gravity;
@@ -703,18 +718,18 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
         if (self.immune_to_fire) {
             self.fire = @max(self.fire - fireproof_cooling, 0);
         } else {
-            if (@rem(self.fire, 20) == 0) _ = self.hurt(burn_damage, null, rand);
+            if (@rem(self.fire, 20) == 0) _ = self.hurt(world_map, burn_damage, null, rand);
             self.fire -= 1;
         }
     }
 
     self.in_lava = physics.isInLava(world_map, self.base.boundingBox());
     if (self.in_lava and !self.immune_to_fire) {
-        _ = self.hurt(lava_damage, null, rand);
+        _ = self.hurt(world_map, lava_damage, null, rand);
         self.fire = lava_fire_ticks;
     }
 
-    if (self.base.position.y < void_floor) _ = self.hurt(void_damage, null, rand);
+    if (self.base.position.y < void_floor) _ = self.hurt(world_map, void_damage, null, rand);
 }
 
 fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
@@ -724,7 +739,7 @@ fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.Ja
         if (self.air == -20) {
             self.air = 0;
             self.drowned = true;
-            _ = self.hurt(drown_damage, null, rand);
+            _ = self.hurt(world_map, drown_damage, null, rand);
         }
         self.fire = 0;
         return;
@@ -778,7 +793,7 @@ pub fn tick(
     self.updateFireAndWater(world_map, rand);
 
     if (self.isAlive() and self.isInsideOpaqueBlock(world_map)) {
-        _ = self.hurt(suffocation_damage, null, rand);
+        _ = self.hurt(world_map, suffocation_damage, null, rand);
     }
     self.updateBreathing(world_map, rand);
 
@@ -968,31 +983,37 @@ test "a wandering animal walks along the surface rather than sinking or floating
 }
 
 test "damage inside the invulnerability window only counts what exceeds the last hit" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
 
-    try std.testing.expect(animal.hurt(3, null, &rand));
+    try std.testing.expect(animal.hurt(&w, 3, null, &rand));
     try std.testing.expectEqual(@as(i32, 7), animal.health);
     try std.testing.expectEqual(@as(i32, 10), animal.hurt_time);
 
-    try std.testing.expect(!animal.hurt(2, null, &rand));
+    try std.testing.expect(!animal.hurt(&w, 2, null, &rand));
     try std.testing.expectEqual(@as(i32, 7), animal.health);
 
-    try std.testing.expect(animal.hurt(5, null, &rand));
+    try std.testing.expect(animal.hurt(&w, 5, null, &rand));
     try std.testing.expectEqual(@as(i32, 5), animal.health);
 }
 
 test "a hit from a known source knocks the animal away from it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
 
-    _ = animal.hurt(1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = animal.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expect(animal.base.motion.x > 0.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), animal.base.motion.y, 1.0e-9);
 }
 
 test "the death hook runs once, on the hit that empties the health bar" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     const Counter = struct {
         var deaths: u32 = 0;
         fn count(_: *Animal, _: *world.JavaRandom) void {
@@ -1005,15 +1026,15 @@ test "the death hook runs once, on the hit that empties the health bar" {
     animal.on_death = Counter.count;
     Counter.deaths = 0;
 
-    _ = animal.hurt(4, null, &rand);
+    _ = animal.hurt(&w, 4, null, &rand);
     try std.testing.expectEqual(@as(u32, 0), Counter.deaths);
 
     animal.hurt_resistance = 0;
-    _ = animal.hurt(default_max_health, null, &rand);
+    _ = animal.hurt(&w, default_max_health, null, &rand);
     try std.testing.expectEqual(@as(u32, 1), Counter.deaths);
 
     animal.hurt_resistance = 0;
-    _ = animal.hurt(4, null, &rand);
+    _ = animal.hurt(&w, 4, null, &rand);
     try std.testing.expectEqual(@as(u32, 1), Counter.deaths);
 }
 
@@ -1026,7 +1047,7 @@ test "a killed animal lingers for twenty ticks before it is removed" {
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
     defer animal.deinit(gpa);
 
-    _ = animal.hurt(animal.max_health, null, &rand);
+    _ = animal.hurt(&w, animal.max_health, null, &rand);
     for (0..death_ticks) |_| {
         try animal.tick(gpa, &w, .{}, &rand);
         try std.testing.expect(!animal.dead);
@@ -1318,10 +1339,12 @@ test "a taller animal needs the headroom its own height asks for" {
 }
 
 test "the limb swing amount saturates at one however hard the animal is hit" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
 
-    _ = animal.hurt(1, null, &rand);
+    _ = animal.hurt(&w, 1, null, &rand);
     try std.testing.expectApproxEqAbs(@as(f32, 1.5), animal.limb_swing_amount, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), animal.limbSwingAmount(1.0), 1.0e-6);
 }
