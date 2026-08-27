@@ -90,6 +90,15 @@ jobs:
             -Doptimize=ReleaseFast \
             --sysroot "$(em-config CACHE)/sysroot" \
             --zig-lib-dir ziglib
+      - name: package
+        run: |
+          mkdir -p dist
+          tar -czf dist/rosebed-wasm32-emscripten.tar.gz -C zig-out/www .
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosebed-wasm32-emscripten
+          path: dist/*
       - name: upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -110,7 +119,7 @@ jobs:
         uses: actions/deploy-pages@v5
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    needs: build
+    needs: [build, web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,6 +130,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: rosebed-*
           merge-multiple: true
       - name: publish prerelease
         env:
@@ -135,7 +145,7 @@ jobs:
           gh release upload nightly dist/* --clobber
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -146,6 +156,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: rosebed-*
           merge-multiple: true
       - name: publish release
         env:
