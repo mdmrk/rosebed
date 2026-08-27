@@ -27,7 +27,7 @@ jobs:
         shell: bash
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
@@ -62,13 +62,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
       - name: setup emsdk
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
@@ -106,7 +106,7 @@ jobs:
     steps:
       - name: deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: build
@@ -115,7 +115,7 @@ jobs:
       contents: write
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -139,7 +139,7 @@ jobs:
       contents: write
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: download artifacts
         uses: actions/download-artifact@v4
         with:
