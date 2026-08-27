@@ -15,8 +15,9 @@ Includes a client and a dedicated server. Both speak the Beta 1.7.3 network prot
 | Linux x86_64 | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz) |
 | Windows x86_64 | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip) | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip) |
 | macOS aarch64 | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz) |
+| Web wasm32 | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
 
-All builds are on the [releases page](https://github.com/mdmrk/rosebed/releases). Nightlies are built from the latest commit; the `nightly` tag is replaced on every build.
+All builds are on the [releases page](https://github.com/mdmrk/rosebed/releases). Nightlies are built from the latest commit; the assets on the `nightly` release are replaced on every build.
 
 Run `rosebed` for the client, `rosebed-server` for the dedicated server.
 
