@@ -99,6 +99,7 @@ pub const AppState = struct {
     mouse_y: f32 = 0,
     screen: Screen = .title,
     splash: []const u8 = splashes[0],
+    github_icon: ?render.Atlas = null,
     mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
     sign_edit: ?render.screen.edit_sign.State = null,
@@ -333,6 +334,7 @@ fn markMeshableAround(app_state: *AppState, coord: world.World.ChunkCoord) !void
 }
 
 const persist_root = "/rosebed";
+const repository_url = "https://github.com/mdmrk/rosebed";
 
 extern fn rosebed_persist() void;
 
@@ -434,6 +436,9 @@ pub fn init(
     app_state.textures = try render.Textures.load(gpa, null);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
+
+    if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"));
+    errdefer if (app_state.github_icon) |icon| icon.deinit();
 
     app_state.colorizer = try render.Colorizer.load(gpa);
     errdefer app_state.colorizer.deinit(gpa);
@@ -1428,6 +1433,10 @@ fn freeTexturePacks(app_state: *AppState) void {
 
     render.texture_pack.deinitAll(app_state.gpa, app_state.packs);
     app_state.packs = &.{};
+}
+
+fn openRepository() void {
+    sdl3.openURL(repository_url) catch |err| std.log.warn("could not open {s}: {t}", .{ repository_url, err });
 }
 
 fn openMultiplayer(app_state: *AppState) !void {
@@ -4415,7 +4424,7 @@ pub fn iterate(
             inventoryKeyName(app_state),
         );
     } else if (app_state.screen == .title) {
-        try render.screen.title.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit());
+        try render.screen.title.draw(ui, app_state.splash, sdl3.timer.getMillisecondsSinceInit(), app_state.github_icon);
     } else if (app_state.screen == .select_world) {
         app_state.list_scroll = render.screen.select_world.clampScroll(gui, app_state.summaries.len, app_state.list_scroll);
         try render.screen.select_world.draw(ui, app_state.summaries, app_state.selected_world, app_state.list_scroll);
@@ -4724,6 +4733,7 @@ pub fn event(
                         .multiplayer => try openMultiplayer(app_state),
                         .texture_packs => try openTexturePacks(app_state),
                         .options => try openOptions(app_state, .title),
+                        .github => openRepository(),
                         .quit => return .success,
                     }
                 }
@@ -4810,6 +4820,7 @@ pub fn quit(
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();
         state.textures.deinit();
+        if (state.github_icon) |icon| icon.deinit();
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();

@@ -1,11 +1,15 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const gl = @import("gl");
 const math = @import("math");
 
+const Atlas = @import("../Atlas.zig");
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
+
+const wasm = builtin.cpu.arch.isWasm();
 
 const logo_texture_size: f32 = 256;
 const logo_piece_width: f32 = 155;
@@ -18,8 +22,10 @@ const splash_color: [4]u8 = .{ 255, 255, 0, 255 };
 const splash_offset_x: f32 = 90;
 const splash_y: f32 = 70;
 const splash_rotation: f32 = -20.0 * std.math.pi / 180.0;
+const github_gap: f32 = 4;
+const github_icon_size: f32 = 16;
 
-pub const Action = enum { singleplayer, multiplayer, texture_packs, options, quit };
+pub const Action = enum { singleplayer, multiplayer, texture_packs, options, quit, github };
 
 const Entry = struct { button: button.Button, action: ?Action };
 
@@ -35,12 +41,24 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
     };
 }
 
+fn githubButton(scaled_width: f32, scaled_height: f32) button.Button {
+    const options = entries(scaled_width, scaled_height)[3].button;
+    return .{
+        .x = options.x - button.height - github_gap,
+        .y = options.y,
+        .w = button.height,
+        .label = "",
+        .enabled = true,
+    };
+}
+
 pub fn actionAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (entries(res.width, res.height)) |entry| {
         if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.action;
     }
+    if (wasm and button.contains(githubButton(res.width, res.height), gx, gy)) return .github;
     return null;
 }
 
@@ -48,6 +66,7 @@ pub fn draw(
     ui: gui.Ui,
     splash: []const u8,
     time_ms: u64,
+    github_icon: ?Atlas,
 ) !void {
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
@@ -75,6 +94,12 @@ pub fn draw(
         try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
     }
 
+    const github: ?button.Button = if (wasm) githubButton(ui.res.width, ui.res.height) else null;
+    if (github) |entry| {
+        const state: f32 = if (button.contains(entry, gx, gy)) 2 else 1;
+        try button.appendBackground(&backgrounds, ui.gpa, entry.x, entry.y, entry.w, state, ui.res);
+    }
+
     const splash_width: f32 = @floatFromInt(ui.font.stringWidth(splash));
     const pulse: f32 = @floatFromInt(time_ms % 1000);
     const throb = 1.8 - @abs(math.util.sin(pulse / 1000.0 * std.math.pi * 2.0) * 0.1);
@@ -95,6 +120,15 @@ pub fn draw(
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
+    if (github) |entry| if (github_icon) |atlas| {
+        var mark: MeshBuilder = .{};
+        defer mark.deinit(ui.gpa);
+        const inset = @floor((entry.w - github_icon_size) / 2.0);
+        const uv = gui.pixelUv(0, 0, github_icon_size, github_icon_size, github_icon_size, github_icon_size);
+        try gui.appendRect(&mark, ui.gpa, entry.x + inset, entry.y + inset, github_icon_size, github_icon_size, uv, ui.res);
+        try gui.drawTexturedMesh(&mark, ui.shader, atlas);
+    };
+
     gl.Disable(gl.BLEND);
     gl.Enable(gl.DEPTH_TEST);
 }
@@ -105,6 +139,15 @@ test "singleplayer is clickable and enters the world" {
 
 test "quit game is clickable" {
     try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, gui.scaledResolution(640, 480, 1000)));
+}
+
+test "the github button is a square sitting left of options" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const options = entries(res.width, res.height)[3].button;
+    const entry = githubButton(res.width, res.height);
+    try std.testing.expectEqual(button.height, entry.w);
+    try std.testing.expectEqual(options.y, entry.y);
+    try std.testing.expectEqual(options.x - github_gap, entry.x + entry.w);
 }
 
 test "multiplayer sits between singleplayer and the texture packs" {
