@@ -59,6 +59,7 @@ jobs:
           name: rosebed-${{ matrix.name }}
           path: dist/*
   web:
+    name: web (ubuntu-latest, wasm32-emscripten)
     runs-on: ubuntu-latest
     steps:
       - name: checkout
