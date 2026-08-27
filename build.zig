@@ -301,6 +301,12 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.game_mod })).step);
 }
 
+fn webBuildId(b: *std.Build) []const u8 {
+    var code: u8 = undefined;
+    const revision = b.runAllowFail(&.{ "git", "rev-parse", "--short", "HEAD" }, &code, .ignore) catch return "dev";
+    return std.mem.trim(u8, revision, " \r\n");
+}
+
 fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
     const debug = optimize == .Debug;
     const lto: std.zig.LtoMode = if (!debug) .full else .none;
@@ -400,6 +406,11 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         \\    });
         \\});
     )));
+    run_emcc.addArg("--pre-js");
+    run_emcc.addFileArg(b.addWriteFiles().add("cache.js", b.fmt(
+        \\Module['locateFile'] = (path, prefix) => prefix + path + '?v={s}';
+        \\
+    , .{webBuildId(b)})));
     run_emcc.addArg("--js-library");
     run_emcc.addFileArg(b.addWriteFiles().add("persist.js", (
         \\addToLibrary({
