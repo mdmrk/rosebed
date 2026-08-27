@@ -1780,6 +1780,8 @@ pub fn buildBlockAt(
         textures = world.block.pumpkinTextures(id, metadata);
     } else if (id == .chest) {
         textures = world.block.chestTextures(chestRing(world_map, x, y, z));
+    } else if (id == .locked_chest) {
+        textures = world.block.lockedChestTextures(chestRing(world_map, x, y, z));
     } else if (id == .grass) {
         const above = world_map.getBlock(x, y + 1, z);
         const side_tile = world.block.grassSideTile(above);

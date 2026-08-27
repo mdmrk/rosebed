@@ -1856,6 +1856,22 @@ test "a neighbour hook that removes its own block stops the support check runnin
     try std.testing.expect(hook_hits >= 1);
 }
 
+test "a locked chest rots away the first time a random tick lands on it" {
+    var w = try loadedWorld(std.testing.allocator);
+    defer w.deinit();
+
+    const chunk = w.getChunk(0, 0).?;
+    @memset(&chunk.blocks, .locked_chest);
+
+    try w.tickRandomBlocks(0, 0);
+
+    var vanished: usize = 0;
+    for (chunk.blocks) |id| {
+        if (id == .air) vanished += 1;
+    }
+    try std.testing.expect(vanished >= 1);
+}
+
 test "a registered block's random tick hook runs when the sampler lands on it" {
     defer Block.resetRegistry();
     hook_hits = 0;

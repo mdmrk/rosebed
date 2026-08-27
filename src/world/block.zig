@@ -288,6 +288,7 @@ fn vanillaDefs() [256]Def {
             .piston_base = self.vanillaPistonBase(),
             .flammable = self.vanillaFlammable(),
             .replaceable = self.vanillaReplaceable(),
+            .on_random_tick = self.vanillaRandomTick(),
         };
     }
     return out;
@@ -596,6 +597,7 @@ pub const Block = enum(u8) {
     ladder = 65,
     tall_grass = 31,
     fence = 85,
+    locked_chest = 95,
     dead_bush = 32,
     piston = 33,
     piston_head = 34,
@@ -700,7 +702,7 @@ pub const Block = enum(u8) {
             .planks, .log, .bookshelf, .torch, .chest, .workbench, .sign_post => .wood,
             .door_wood, .wall_sign, .lever, .pressure_plate_planks, .torch_redstone_off => .wood,
             .torch_redstone_on, .fire, .pumpkin, .jack_o_lantern, .repeater_off => .wood,
-            .repeater_on, .trapdoor, .ladder, .fence => .wood,
+            .repeater_on, .trapdoor, .ladder, .fence, .locked_chest => .wood,
             .dirt, .gravel, .clay => .gravel,
             .grass, .sapling, .leaves, .sponge, .tall_grass, .dead_bush, .dandelion => .grass,
             .rose, .mushroom_brown, .mushroom_red, .tnt, .reed => .grass,
@@ -747,7 +749,7 @@ pub const Block = enum(u8) {
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
             .rail, .rail_powered, .rail_detector, .ladder => .circuits,
-            .fence => .wood,
+            .fence, .locked_chest => .wood,
             .fire => .fire,
             .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
@@ -955,6 +957,13 @@ pub const Block = enum(u8) {
         return self.def().replaceable;
     }
 
+    fn vanillaRandomTick(self: Block) ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void {
+        return switch (self) {
+            .locked_chest => rotAway,
+            else => null,
+        };
+    }
+
     fn vanillaReplaceable(self: Block) bool {
         return self == .air or self.vanillaMaterial().isLiquid() or self == .snow_layer;
     }
@@ -1091,7 +1100,7 @@ pub const Block = enum(u8) {
             }),
             .furnace, .burning_furnace => furnaceTextures(self, furnace_default_facing),
             .dispenser => dispenserTextures(dispenser_default_facing),
-            .chest => chestItemTextures(),
+            .chest, .locked_chest => chestItemTextures(),
             .door_wood => uniform(door_bottom_tile),
             .door_iron => uniform(door_bottom_tile + 1),
             .trapdoor => uniform(trapdoor_tile),
@@ -1372,6 +1381,7 @@ pub const Block = enum(u8) {
             .web => "Cobweb",
             .ladder => "Ladder",
             .fence => "Fence",
+            .locked_chest => "Locked chest",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
@@ -2016,6 +2026,10 @@ const chest_front_tile: u8 = 27;
 const chest_large_front_tile: u8 = 42;
 const chest_large_back_tile: u8 = 58;
 
+fn rotAway(world_map: *World, x: i32, y: i32, z: i32, _: Block) std.mem.Allocator.Error!void {
+    try world_map.setBlockWithNotify(x, y, z, .air);
+}
+
 pub const ChestRing = struct {
     north: Block = .air,
     south: Block = .air,
@@ -2035,6 +2049,23 @@ fn chestItemTextures() FaceTextures {
     return textures;
 }
 
+fn loneChestFront(ring: ChestRing) Side {
+    var front: Side = .south;
+    if (ring.north.isOpaqueCube() and !ring.south.isOpaqueCube()) front = .south;
+    if (ring.south.isOpaqueCube() and !ring.north.isOpaqueCube()) front = .north;
+    if (ring.west.isOpaqueCube() and !ring.east.isOpaqueCube()) front = .east;
+    if (ring.east.isOpaqueCube() and !ring.west.isOpaqueCube()) front = .west;
+    return front;
+}
+
+pub fn lockedChestTextures(ring: ChestRing) FaceTextures {
+    var textures = FaceTextures.initFill(chest_side_tile);
+    textures.set(.down, chest_top_tile);
+    textures.set(.up, chest_top_tile);
+    textures.set(loneChestFront(ring), chest_front_tile);
+    return textures;
+}
+
 fn chestTile(ring: ChestRing, side: Side) u8 {
     if (side == .up or side == .down) return chest_top_tile;
 
@@ -2045,12 +2076,7 @@ fn chestTile(ring: ChestRing, side: Side) u8 {
 
     if (!paired_north and !paired_south) {
         if (!paired_west and !paired_east) {
-            var front: Side = .south;
-            if (ring.north.isOpaqueCube() and !ring.south.isOpaqueCube()) front = .south;
-            if (ring.south.isOpaqueCube() and !ring.north.isOpaqueCube()) front = .north;
-            if (ring.west.isOpaqueCube() and !ring.east.isOpaqueCube()) front = .east;
-            if (ring.east.isOpaqueCube() and !ring.west.isOpaqueCube()) front = .west;
-            return if (side == front) chest_front_tile else chest_side_tile;
+            return if (side == loneChestFront(ring)) chest_front_tile else chest_side_tile;
         }
 
         if (side != .west and side != .east) {
@@ -2825,6 +2851,29 @@ test "the head shaft reaches from the plate back to the base" {
     const east = pistonHeadShaftBounds(pistonFacingValue(.east));
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), east.min[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
+}
+
+test "a locked chest is a lit chest lookalike that never opens" {
+    try std.testing.expectEqual(Material.wood, Block.locked_chest.material());
+    try std.testing.expectEqual(@as(f32, 0.0), Block.locked_chest.hardness());
+    try std.testing.expectEqual(StepSound.wood, Block.locked_chest.stepSound());
+    try std.testing.expect(Block.locked_chest.isOpaqueCube());
+    try std.testing.expectEqualStrings("Locked chest", Block.locked_chest.displayName(0));
+
+    const open = lockedChestTextures(.{});
+    try std.testing.expectEqual(chest_top_tile, open.get(.up));
+    try std.testing.expectEqual(chest_top_tile, open.get(.down));
+    try std.testing.expectEqual(chest_front_tile, open.get(.south));
+    try std.testing.expectEqual(chest_side_tile, open.get(.north));
+
+    const walled_south = lockedChestTextures(.{ .south = .stone });
+    try std.testing.expectEqual(chest_front_tile, walled_south.get(.north));
+    try std.testing.expectEqual(chest_side_tile, walled_south.get(.south));
+
+    const beside_a_chest = lockedChestTextures(.{ .west = .chest });
+    try std.testing.expectEqual(chest_front_tile, beside_a_chest.get(.east));
+    try std.testing.expectEqual(chest_side_tile, beside_a_chest.get(.south));
+    try std.testing.expectEqual(chest_side_tile, beside_a_chest.get(.west));
 }
 
 test "a fence is a wooden post whose rails reach out only to other fences" {

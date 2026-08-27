@@ -31,7 +31,7 @@ pub fn columnSkyLight(world_map: *const World, x: i32, y: i32, z: i32) i32 {
 
 pub fn emission(id: Block) u4 {
     return switch (id) {
-        .flowing_lava, .stationary_lava, .glowstone, .fire => 15,
+        .flowing_lava, .stationary_lava, .glowstone, .fire, .locked_chest => 15,
         .torch => 14,
         .portal => 11,
         .burning_furnace => 13,
