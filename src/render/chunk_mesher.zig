@@ -248,31 +248,48 @@ fn buildCross(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, tint: [3]u8,
     const y0 = by;
     const y1 = by + 1;
 
-    const facing = [4][2]f32{
+    const uvs = [4][2]f32{
         .{ uv.u0, uv.v0 },
         .{ uv.u0, uv.v1 },
         .{ uv.u1, uv.v1 },
         .{ uv.u1, uv.v0 },
-    };
-    const mirrored = [4][2]f32{
-        .{ uv.u1, uv.v0 },
-        .{ uv.u1, uv.v1 },
-        .{ uv.u0, uv.v1 },
-        .{ uv.u0, uv.v0 },
     };
 
     try mesh.quad(gpa, .{
         .{ x0, y1, z0 }, .{ x0, y0, z0 }, .{ x1, y0, z1 }, .{ x1, y1, z1 },
-    }, facing, color);
+    }, uvs, color);
     try mesh.quad(gpa, .{
         .{ x1, y1, z1 }, .{ x1, y0, z1 }, .{ x0, y0, z0 }, .{ x0, y1, z0 },
-    }, mirrored, color);
+    }, uvs, color);
     try mesh.quad(gpa, .{
         .{ x0, y1, z1 }, .{ x0, y0, z1 }, .{ x1, y0, z0 }, .{ x1, y1, z0 },
-    }, facing, color);
+    }, uvs, color);
     try mesh.quad(gpa, .{
         .{ x1, y1, z0 }, .{ x1, y0, z0 }, .{ x0, y0, z1 }, .{ x0, y1, z1 },
-    }, mirrored, color);
+    }, uvs, color);
+}
+
+test "each cross plane repeats its texture on the reversed back face" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try buildCross(&mesh, gpa, 12, Colorizer.white, 1.0, 0, 0, 0);
+    try std.testing.expectEqual(@as(usize, 16), mesh.vertices.items.len);
+
+    for ([_]usize{ 0, 8 }) |plane| {
+        const front = mesh.vertices.items[plane..][0..4];
+        const back = mesh.vertices.items[plane + 4 ..][0..4];
+        for (0..4) |i| {
+            const opposite = front[3 - i];
+            try std.testing.expectApproxEqAbs(opposite.x, back[i].x, 1.0e-6);
+            try std.testing.expectApproxEqAbs(opposite.y, back[i].y, 1.0e-6);
+            try std.testing.expectApproxEqAbs(opposite.z, back[i].z, 1.0e-6);
+
+            try std.testing.expectApproxEqAbs(front[i].u, back[i].u, 1.0e-6);
+            try std.testing.expectApproxEqAbs(front[i].v, back[i].v, 1.0e-6);
+        }
+    }
 }
 
 const fire_height: f32 = 1.4;
