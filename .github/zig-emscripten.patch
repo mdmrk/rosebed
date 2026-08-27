@@ -1,0 +1,110 @@
+--- a/std/os/emscripten.zig
++++ b/std/os/emscripten.zig
+@@ -211,7 +211,7 @@
+     pub fn TERMSIG(s: u32) SIG {
+         return @enumFromInt(s & 0x7f);
+     }
+-    pub fn STOPSIG(s: u32) u32 {
++    pub fn STOPSIG(s: u32) SIG {
+         return @enumFromInt(EXITSTATUS(s));
+     }
+     pub fn IFEXITED(s: u32) bool {
+--- a/std/Io/Threaded.zig
++++ b/std/Io/Threaded.zig
+@@ -5440,6 +5440,7 @@
+     .haiku => dirReadHaiku,
+     .windows => dirReadWindows,
+     .wasi => dirReadWasi,
++    .emscripten => dirReadEmscripten,
+     else => dirReadUnimplemented,
+ };
+ 
+@@ -5538,6 +5539,88 @@
+         };
+         buffer_index += 1;
+     }
++    return buffer_index;
++}
++
++// Emscripten exposes the Linux getdents64 record layout through this syscall shim,
++// so the parsing below matches dirReadLinux.
++extern fn __syscall_getdents64(fd: i32, dirp: ?*anyopaque, count: usize) i32;
++
++fn dirReadEmscripten(userdata: ?*anyopaque, dr: *Dir.Reader, buffer: []Dir.Entry) Dir.Reader.Error!usize {
++    const linux = std.os.linux;
++    const t: *Threaded = @ptrCast(@alignCast(userdata));
++    _ = t;
++    var buffer_index: usize = 0;
++    while (buffer.len - buffer_index != 0) {
++        if (dr.end - dr.index == 0) {
++            if (buffer_index != 0) break;
++            if (dr.state == .reset) {
++                posixSeekTo(dr.dir.handle, 0) catch |err| switch (err) {
++                    error.Unseekable => return error.Unexpected,
++                    else => |e| return e,
++                };
++                dr.state = .reading;
++            }
++            const syscall: Syscall = try .start();
++            const n = while (true) {
++                const rc = __syscall_getdents64(dr.dir.handle, dr.buffer.ptr, dr.buffer.len);
++                if (rc >= 0) {
++                    syscall.finish();
++                    break @as(usize, @intCast(rc));
++                }
++                switch (@as(posix.E, @enumFromInt(@as(u16, @intCast(-rc))))) {
++                    .INTR => {
++                        try syscall.checkCancel();
++                        continue;
++                    },
++                    else => |e| {
++                        syscall.finish();
++                        switch (e) {
++                            .BADF, .FAULT, .NOTDIR => |err| return errnoBug(err),
++                            // Match other platforms: a directory deleted mid-iteration ends iteration.
++                            .NOENT => {
++                                dr.state = .finished;
++                                return 0;
++                            },
++                            .INVAL => return error.Unexpected,
++                            .ACCES => return error.AccessDenied,
++                            else => |err| return posix.unexpectedErrno(err),
++                        }
++                    },
++                }
++            };
++            if (n == 0) {
++                dr.state = .finished;
++                return 0;
++            }
++            dr.index = 0;
++            dr.end = n;
++        }
++        const entry: *align(1) linux.dirent64 = @ptrCast(&dr.buffer[dr.index]);
++        dr.index += entry.reclen;
++        const name_ptr: [*]u8 = &entry.name;
++        const padded_name = name_ptr[0 .. entry.reclen - @offsetOf(linux.dirent64, "name")];
++        const name_len = std.mem.findScalar(u8, padded_name, 0).?;
++        const name = name_ptr[0..name_len :0];
++
++        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
++
++        buffer[buffer_index] = .{
++            .name = name,
++            .kind = switch (entry.type) {
++                linux.DT.BLK => .block_device,
++                linux.DT.CHR => .character_device,
++                linux.DT.DIR => .directory,
++                linux.DT.FIFO => .named_pipe,
++                linux.DT.LNK => .sym_link,
++                linux.DT.REG => .file,
++                linux.DT.SOCK => .unix_domain_socket,
++                else => .unknown,
++            },
++            .inode = entry.ino,
++        };
++        buffer_index += 1;
++    }
+     return buffer_index;
+ }
+ 

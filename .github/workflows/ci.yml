@@ -1,10 +1,10 @@
 name: ci
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: "0 4 * * *"
   workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
@@ -58,6 +58,55 @@ jobs:
         with:
           name: rosebed-${{ matrix.name }}
           path: dist/*
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: setup emsdk
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - name: patch zig std for emscripten
+        run: |
+          lib_dir=$(zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$/\1/p')
+          cp -r "$lib_dir" ziglib
+          chmod -R u+w ziglib
+          patch -p1 -d ziglib < .github/zig-emscripten.patch
+      - name: seed freetype tarball
+        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: fetch assets
+        run: zig build fetch-assets
+      - name: build
+        run: |
+          zig build \
+            -Dtarget=wasm32-emscripten \
+            -Doptimize=ReleaseFast \
+            --sysroot "$(em-config CACHE)/sysroot" \
+            --zig-lib-dir ziglib
+      - name: upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: zig-out/www
+  pages:
+    if: github.event_name != 'pull_request'
+    needs: web
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: build
