@@ -162,6 +162,7 @@ pub const Shape = union(enum) {
     lever,
     button,
     ladder,
+    fence,
     plate,
     repeater,
     piston,
@@ -407,6 +408,30 @@ pub const soul_sand_collision_bounds: Bounds = .{
     .max = .{ 1.0, 1.0 - soul_sand_sink, 1.0 },
 };
 
+pub const fence_post_bounds: Bounds = .{
+    .min = .{ 6.0 / 16.0, 0.0, 6.0 / 16.0 },
+    .max = .{ 10.0 / 16.0, 1.0, 10.0 / 16.0 },
+};
+
+pub const fence_collision_bounds: Bounds = .{
+    .min = .{ 0.0, 0.0, 0.0 },
+    .max = .{ 1.0, 1.5, 1.0 },
+};
+
+pub fn fenceRailBounds(upper: bool, along_x: bool, links_low: bool, links_high: bool) Bounds {
+    const bottom: f32 = if (upper) 12.0 / 16.0 else 6.0 / 16.0;
+    const top: f32 = bottom + 3.0 / 16.0;
+    const low: f32 = if (links_low) 0.0 else 7.0 / 16.0;
+    const high: f32 = if (links_high) 1.0 else 9.0 / 16.0;
+    return if (along_x) .{
+        .min = .{ low, bottom, 7.0 / 16.0 },
+        .max = .{ high, top, 9.0 / 16.0 },
+    } else .{
+        .min = .{ 7.0 / 16.0, bottom, low },
+        .max = .{ 9.0 / 16.0, top, high },
+    };
+}
+
 pub const ladder_thickness: f32 = 2.0 / 16.0;
 
 pub fn ladderBounds(metadata: u4) Bounds {
@@ -570,6 +595,7 @@ pub const Block = enum(u8) {
     web = 30,
     ladder = 65,
     tall_grass = 31,
+    fence = 85,
     dead_bush = 32,
     piston = 33,
     piston_head = 34,
@@ -674,7 +700,7 @@ pub const Block = enum(u8) {
             .planks, .log, .bookshelf, .torch, .chest, .workbench, .sign_post => .wood,
             .door_wood, .wall_sign, .lever, .pressure_plate_planks, .torch_redstone_off => .wood,
             .torch_redstone_on, .fire, .pumpkin, .jack_o_lantern, .repeater_off => .wood,
-            .repeater_on, .trapdoor, .ladder => .wood,
+            .repeater_on, .trapdoor, .ladder, .fence => .wood,
             .dirt, .gravel, .clay => .gravel,
             .grass, .sapling, .leaves, .sponge, .tall_grass, .dead_bush, .dandelion => .grass,
             .rose, .mushroom_brown, .mushroom_red, .tnt, .reed => .grass,
@@ -721,6 +747,7 @@ pub const Block = enum(u8) {
             .torch, .torch_redstone_off, .torch_redstone_on => .circuits,
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
             .rail, .rail_powered, .rail_detector, .ladder => .circuits,
+            .fence => .wood,
             .fire => .fire,
             .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
@@ -744,6 +771,7 @@ pub const Block = enum(u8) {
             .button => .button,
             .pressure_plate_stone, .pressure_plate_planks => .plate,
             .ladder => .ladder,
+            .fence => .fence,
             .repeater_off, .repeater_on => .repeater,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
@@ -853,7 +881,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .sign_post, .wall_sign => false,
-            .web, .ladder => false,
+            .web, .ladder, .fence => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
@@ -914,7 +942,7 @@ pub const Block = enum(u8) {
 
     fn vanillaFlammable(self: Block) bool {
         return switch (self) {
-            .planks, .stairs_wood, .log, .leaves, .bookshelf, .tnt, .tall_grass, .wool => true,
+            .planks, .stairs_wood, .log, .leaves, .bookshelf, .tnt, .tall_grass, .wool, .fence => true,
             else => false,
         };
     }
@@ -976,6 +1004,7 @@ pub const Block = enum(u8) {
             .button => &button_item_boxes,
             .pressure_plate_stone, .pressure_plate_planks => &plate_item_boxes,
             .stairs_wood, .stairs_cobblestone => &stairs_item_boxes,
+            .fence => &fence_item_boxes,
             else => &full_cube_box,
         };
     }
@@ -1074,6 +1103,7 @@ pub const Block = enum(u8) {
             .jukebox => topAndSide(75, 74, 74),
             .netherrack => uniform(103),
             .ladder => uniform(83),
+            .fence => uniform(4),
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
             .portal => uniform(14),
@@ -1185,6 +1215,7 @@ pub const Block = enum(u8) {
             .soul_sand => 0.5,
             .web => 4.0,
             .ladder => 0.4,
+            .fence => 2.0,
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
             .cake => 0.5,
@@ -1218,6 +1249,7 @@ pub const Block = enum(u8) {
             => 6.0,
             .planks,
             .stairs_wood,
+            .fence,
             .block_lapis,
             .ore_gold,
             .ore_iron,
@@ -1339,6 +1371,7 @@ pub const Block = enum(u8) {
             .soul_sand => "Soul Sand",
             .web => "Cobweb",
             .ladder => "Ladder",
+            .fence => "Fence",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
             .cake => "Cake",
@@ -1644,6 +1677,13 @@ pub fn stairsFacingFromYaw(yaw: f32) u4 {
         3 => 0,
     };
 }
+
+const fence_item_boxes = [4]Bounds{
+    .{ .min = .{ 0.5 - 2.0 / 16.0, 0.0, 0.0 }, .max = .{ 0.5 + 2.0 / 16.0, 1.0, 4.0 / 16.0 } },
+    .{ .min = .{ 0.5 - 2.0 / 16.0, 0.0, 1.0 - 4.0 / 16.0 }, .max = .{ 0.5 + 2.0 / 16.0, 1.0, 1.0 } },
+    .{ .min = .{ 0.5 - 1.0 / 16.0, 1.0 - 3.0 / 16.0, -2.0 / 16.0 }, .max = .{ 0.5 + 1.0 / 16.0, 1.0 - 1.0 / 16.0, 1.0 + 2.0 / 16.0 } },
+    .{ .min = .{ 0.5 - 1.0 / 16.0, 0.5 - 3.0 / 16.0, -2.0 / 16.0 }, .max = .{ 0.5 + 1.0 / 16.0, 0.5 - 1.0 / 16.0, 1.0 + 2.0 / 16.0 } },
+};
 
 const slab_item_boxes = [1]Bounds{.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 0.5, 1 } }};
 
@@ -2785,6 +2825,37 @@ test "the head shaft reaches from the plate back to the base" {
     const east = pistonHeadShaftBounds(pistonFacingValue(.east));
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), east.min[0], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), east.max[0], 1.0e-6);
+}
+
+test "a fence is a wooden post whose rails reach out only to other fences" {
+    try std.testing.expectEqual(Shape.fence, Block.fence.shape());
+    try std.testing.expectEqual(@as(u8, 4), Block.fence.faceTextures().get(.down));
+    try std.testing.expectEqual(@as(f32, 2.0), Block.fence.hardness());
+    try std.testing.expectEqual(@as(f32, 3.0), Block.fence.explosionResistance());
+    try std.testing.expectEqual(StepSound.wood, Block.fence.stepSound());
+    try std.testing.expect(Block.fence.isFlammable());
+    try std.testing.expect(!Block.fence.isOpaqueCube());
+    try std.testing.expect(!Block.fence.isNormalCube());
+    try std.testing.expectEqualStrings("Fence", Block.fence.displayName(0));
+
+    const lone = fenceRailBounds(true, true, false, false);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.0 / 16.0), lone.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0 / 16.0), lone.max[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), lone.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 15.0 / 16.0), lone.max[1], 1.0e-6);
+
+    const reaching = fenceRailBounds(false, true, true, true);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), reaching.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), reaching.max[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 6.0 / 16.0), reaching.min[1], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0 / 16.0), reaching.max[1], 1.0e-6);
+
+    const across_z = fenceRailBounds(true, false, true, false);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.0 / 16.0), across_z.min[0], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), across_z.min[2], 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0 / 16.0), across_z.max[2], 1.0e-6);
+
+    try std.testing.expectEqual(@as(usize, 4), Block.fence.itemRenderBoxes().len);
 }
 
 test "a ladder is a thin wooden panel pinned to the wall its metadata names" {

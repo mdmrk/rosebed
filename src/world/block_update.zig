@@ -232,6 +232,11 @@ fn buttonPlacementFacing(world_map: *const World, x: i32, y: i32, z: i32, face: 
     return 1;
 }
 
+fn fenceStandsOn(world_map: *const World, x: i32, y: i32, z: i32) bool {
+    const below = world_map.getBlock(x, y - 1, z);
+    return below == .fence or below.material().isSolid();
+}
+
 fn ladderPlacementFacing(world_map: *const World, x: i32, y: i32, z: i32, face: block.Side) ?u4 {
     return switch (face) {
         .north => if (world_map.getBlock(x, y, z + 1).isNormalCube()) 2 else null,
@@ -458,6 +463,7 @@ pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bo
         .lever => leverHasAnySupport(world_map, x, y, z),
         .button => buttonHasAnySupport(world_map, x, y, z),
         .ladder => ladderHasAnySupport(world_map, x, y, z),
+        .fence => fenceStandsOn(world_map, x, y, z),
         else => canStayAt(world_map, x, y, z, id),
     };
 }
@@ -559,6 +565,22 @@ test "digging out the soil takes the sugar cane standing on it" {
 
     try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
     try std.testing.expectEqual(.air, w.getBlock(8, 13, 8));
+}
+
+test "a fence needs solid ground or another fence under it, and never pops afterwards" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 12);
+    defer w.deinit();
+
+    try std.testing.expect(canPlaceAt(&w, 8, 12, 8, .fence));
+    try std.testing.expect(!canPlaceAt(&w, 8, 14, 8, .fence));
+
+    try w.setBlockWithNotify(8, 12, 8, .fence);
+    try std.testing.expect(canPlaceAt(&w, 8, 13, 8, .fence));
+
+    try w.setBlockWithNotify(8, 11, 8, .air);
+
+    try std.testing.expectEqual(.fence, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 }
 
 test "a ladder takes the facing of the wall it was hung on" {

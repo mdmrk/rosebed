@@ -30,6 +30,11 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
         return 1;
     }
 
+    if (id == .fence) {
+        out[0] = offsetBox(world.block.fence_collision_bounds, x, y, z);
+        return 1;
+    }
+
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
@@ -72,7 +77,7 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
 fn collidingBoxes(world_map: *const world.World, query: math.Aabb, out: *[max_colliding_boxes]math.Aabb) usize {
     const min_x = math.util.floorDouble(query.min_x);
     const max_x = math.util.floorDouble(query.max_x);
-    const min_y = std.math.clamp(math.util.floorDouble(query.min_y), 0, world.Chunk.height - 1);
+    const min_y = std.math.clamp(math.util.floorDouble(query.min_y) - 1, 0, world.Chunk.height - 1);
     const max_y = std.math.clamp(math.util.floorDouble(query.max_y), 0, world.Chunk.height - 1);
     const min_z = math.util.floorDouble(query.min_z);
     const max_z = math.util.floorDouble(query.max_z);
@@ -628,6 +633,27 @@ test "soul sand is two sixteenths short, so an entity stands sunk into its cell"
     const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -3.0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 2.0 / 16.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "a fence stands half a block taller than its own cell" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .fence);
+
+    const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
+    const landed = moveEntity(&w, falling, 0, -4.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), landed.aabb.min_y, 1.0e-9);
+}
+
+test "a fence blocks a walker whose feet are already above the fence's cell" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(7, 1, 8, .stone);
+    w.setBlock(8, 1, 8, .fence);
+
+    const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
+    const into = moveEntity(&w, walking, 1.0, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), into.aabb.max_x, 1.0e-9);
 }
 
 test "a ladder is a two-sixteenth panel that only blocks the wall it hangs on" {

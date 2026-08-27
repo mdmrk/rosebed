@@ -838,6 +838,40 @@ const lever_stick_faces = [6][4]usize{
     .{ 0, 3, 7, 4 },
 };
 
+fn buildFence(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.ChunkView,
+    id: world.Block,
+    x: i32,
+    y: i32,
+    z: i32,
+    origin: [3]f32,
+    options: Options,
+) !void {
+    const textures = id.faceTextures();
+    try buildBoundedBox(mesh, gpa, world_map, id, world.block.fence_post_bounds, textures, x, y, z, origin, options);
+
+    const west = world_map.getBlock(x - 1, y, z) == id;
+    const east = world_map.getBlock(x + 1, y, z) == id;
+    const north = world_map.getBlock(x, y, z - 1) == id;
+    const south = world_map.getBlock(x, y, z + 1) == id;
+
+    const along_z = north or south;
+    const along_x = west or east or !along_z;
+
+    for ([_]bool{ true, false }) |upper| {
+        if (along_x) {
+            const bounds = world.block.fenceRailBounds(upper, true, west, east);
+            try buildBoundedBox(mesh, gpa, world_map, id, bounds, textures, x, y, z, origin, options);
+        }
+        if (along_z) {
+            const bounds = world.block.fenceRailBounds(upper, false, north, south);
+            try buildBoundedBox(mesh, gpa, world_map, id, bounds, textures, x, y, z, origin, options);
+        }
+    }
+}
+
 const ladder_offset: f32 = 0.05;
 
 fn buildLadder(
@@ -1054,6 +1088,7 @@ fn reachesFace(bounds: world.block.Bounds, side: world.Side) bool {
 const BoxQuad = struct { positions: [4][3]f32, uvs: [4][2]f32 };
 
 fn tileFraction(bounds: world.block.Bounds, axis: u2, corner: f32, far: bool) f32 {
+    if (bounds.min[axis] < 0.0 or bounds.max[axis] > 1.0) return if (far) 1.0 else 0.0;
     const inset = if (corner == 0) bounds.min[axis] else 1.0 - bounds.max[axis];
     return if (far) 1.0 - inset else inset;
 }
@@ -1629,6 +1664,11 @@ pub fn buildBlockAt(
 
     if (id.shape() == .rail) {
         try buildRail(target, gpa, world_map, id, metadata, x, y, z, origin, options);
+        return;
+    }
+
+    if (id.shape() == .fence) {
+        try buildFence(target, gpa, world_map, id, x, y, z, origin, options);
         return;
     }
 

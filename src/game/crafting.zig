@@ -168,6 +168,10 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         i(.stick), null,      i(.stick),
     }, .{ .block = .ladder }, 2),
     shaped(3, 2, &.{
+        i(.stick), i(.stick), i(.stick),
+        i(.stick), i(.stick), i(.stick),
+    }, .{ .block = .fence }, 2),
+    shaped(3, 2, &.{
         i(.ingot_iron), null,           i(.ingot_iron),
         null,           i(.ingot_iron), null,
     }, .{ .item = .bucket }, 1),
@@ -873,6 +877,14 @@ test "a tool needs the full workbench, so the personal grid cannot make one" {
     grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
     grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
     try std.testing.expectEqual(@as(?Inventory.ItemStack, null), findMatch(&grid, player_grid_size));
+}
+
+test "six sticks in two rows craft two fences" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..6) |slot| grid[slot] = .{ .id = .{ .item = .stick }, .count = 1 };
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .fence }, result.id);
+    try std.testing.expectEqual(@as(u8, 2), result.count);
 }
 
 test "seven sticks in a rail shape craft two ladders" {

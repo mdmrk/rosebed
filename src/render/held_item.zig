@@ -328,6 +328,24 @@ test "the sprite samples only its own tile" {
     }
 }
 
+test "a held fence samples only its own tile, overhanging rails included" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendBlock(&mesh, gpa, .fence, 1.0);
+
+    const tile = world.Block.fence.faceTextures().get(.down);
+    const column: f32 = @floatFromInt(@as(u32, tile % 16) * 16);
+    const row: f32 = @floatFromInt(@as(u32, tile / 16) * 16);
+    for (mesh.vertices.items) |v| {
+        try std.testing.expect(v.u >= column / 256.0 - 1.0e-6);
+        try std.testing.expect(v.u <= (column + 16.0) / 256.0 + 1.0e-6);
+        try std.testing.expect(v.v >= row / 256.0 - 1.0e-6);
+        try std.testing.expect(v.v <= (row + 16.0) / 256.0 + 1.0e-6);
+    }
+}
+
 test "each held stack picks the shape and atlas the original gives it" {
     const stone = heldShape(.{ .id = .{ .block = .stone }, .count = 1 }).?;
     try std.testing.expectEqual(.stone, stone.cube);
