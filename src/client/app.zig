@@ -755,6 +755,12 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         if (dropped) |d| {
             try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
+        if (!lit_tnt) {
+            var extra: [3]world.block.Stack = undefined;
+            for (block_id.bonusDrops(meta, &app_state.level.world_map.rand, &extra)) |d| {
+                try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+            }
+        }
     }
 }
 
@@ -2531,6 +2537,10 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         .item => |held| blk: {
             if (held.bucketFill()) |fill| return game.interact.useBucket(interactContext(app_state), held, fill);
             if (held == .flint_and_steel) return game.interact.strikeFlintAtTarget(interactContext(app_state));
+            if (held == .seeds) return game.interact.plantSeedsAtTarget(interactContext(app_state));
+            if (held.tool()) |tool| {
+                if (tool.kind == .hoe) return game.interact.tillWithHoe(interactContext(app_state), held);
+            }
             if (held == .painting) return game.interact.hangPaintingAtTarget(interactContext(app_state));
             if (held == .bed) return game.interact.placeBedAtTarget(interactContext(app_state));
             if (held == .sign) return placeSignAtTarget(app_state);

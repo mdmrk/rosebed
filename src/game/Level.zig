@@ -284,6 +284,15 @@ pub fn standInPortals(self: *Level) void {
     }
 }
 
+fn walkOnBlocks(self: *Level) !void {
+    for (self.occupants.items) |occupant| {
+        const stepped = occupant.player.stepped_on orelse continue;
+        occupant.player.stepped_on = null;
+        if (!occupant.active) continue;
+        try world.farming.trample(&self.world_map, stepped[0], stepped[1], stepped[2]);
+    }
+}
+
 fn pressPressurePlates(self: *Level) !void {
     for (self.occupants.items) |occupant| {
         if (occupant.active) try self.collideWithBlocks(occupant.player.base.boundingBox());
@@ -341,6 +350,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     }
     self.world_map.clearStrikes();
     try self.entities.tickLightning(gpa, &self.world_map, self.roster.items, rand);
+    try self.walkOnBlocks();
     try self.pressPressurePlates();
     self.standInPortals();
     try self.world_map.tickUpdates();

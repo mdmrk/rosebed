@@ -36,6 +36,7 @@ pub const item = @import("item.zig");
 pub const Item = item.Item;
 pub const JavaRandom = @import("JavaRandom.zig");
 pub const jukebox = @import("jukebox.zig");
+pub const farming = @import("farming.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const light = @import("light.zig");
 pub const map = @import("map.zig");
@@ -91,6 +92,7 @@ test {
     _ = lakes;
     _ = springs;
     _ = fluid;
+    _ = farming;
     _ = leaf_decay;
     _ = block_update;
     _ = dungeons;

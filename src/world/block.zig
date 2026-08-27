@@ -5,6 +5,7 @@ const assets = @import("assets");
 const item = @import("item.zig");
 const Item = item.Item;
 const JavaRandom = @import("JavaRandom.zig");
+const farming = @import("farming.zig");
 const World = @import("World.zig");
 
 pub const Side = enum(u3) {
@@ -163,6 +164,7 @@ pub const Shape = union(enum) {
     button,
     ladder,
     fence,
+    crops,
     plate,
     repeater,
     piston,
@@ -289,6 +291,7 @@ fn vanillaDefs() [256]Def {
             .flammable = self.vanillaFlammable(),
             .replaceable = self.vanillaReplaceable(),
             .on_random_tick = self.vanillaRandomTick(),
+            .on_neighbor_change = self.vanillaNeighborChange(),
         };
     }
     return out;
@@ -408,6 +411,24 @@ pub const soul_sand_collision_bounds: Bounds = .{
     .min = .{ 0.0, 0.0, 0.0 },
     .max = .{ 1.0, 1.0 - soul_sand_sink, 1.0 },
 };
+
+pub const dirt_tile: u8 = 2;
+
+pub const crops_base_tile: u8 = 88;
+pub const crops_ripe: u4 = 7;
+
+pub fn cropsTile(metadata: u4) u8 {
+    return crops_base_tile + @as(u8, metadata);
+}
+
+pub const farmland_dry_tile: u8 = 87;
+pub const farmland_wet_tile: u8 = 86;
+
+pub fn farmlandTextures(metadata: u4) FaceTextures {
+    var textures = FaceTextures.initFill(dirt_tile);
+    textures.set(.up, if (metadata > 0) farmland_wet_tile else farmland_dry_tile);
+    return textures;
+}
 
 pub const fence_post_bounds: Bounds = .{
     .min = .{ 6.0 / 16.0, 0.0, 6.0 / 16.0 },
@@ -596,6 +617,8 @@ pub const Block = enum(u8) {
     web = 30,
     ladder = 65,
     tall_grass = 31,
+    crops = 59,
+    farmland = 60,
     fence = 85,
     locked_chest = 95,
     dead_bush = 32,
@@ -703,9 +726,9 @@ pub const Block = enum(u8) {
             .door_wood, .wall_sign, .lever, .pressure_plate_planks, .torch_redstone_off => .wood,
             .torch_redstone_on, .fire, .pumpkin, .jack_o_lantern, .repeater_off => .wood,
             .repeater_on, .trapdoor, .ladder, .fence, .locked_chest => .wood,
-            .dirt, .gravel, .clay => .gravel,
+            .dirt, .gravel, .clay, .farmland => .gravel,
             .grass, .sapling, .leaves, .sponge, .tall_grass, .dead_bush, .dandelion => .grass,
-            .rose, .mushroom_brown, .mushroom_red, .tnt, .reed => .grass,
+            .rose, .mushroom_brown, .mushroom_red, .tnt, .reed, .crops => .grass,
             .rail_powered, .rail_detector, .block_gold, .block_iron, .mob_spawner => .metal,
             .rail, .door_iron, .block_diamond => .metal,
             .glass, .ice, .glowstone, .portal => .glass,
@@ -750,6 +773,8 @@ pub const Block = enum(u8) {
             .redstone_wire, .lever, .button, .repeater_off, .repeater_on => .circuits,
             .rail, .rail_powered, .rail_detector, .ladder => .circuits,
             .fence, .locked_chest => .wood,
+            .crops => .plants,
+            .farmland => .ground,
             .fire => .fire,
             .portal => .portal,
             .piston, .piston_sticky, .piston_head, .piston_moving => .piston,
@@ -774,6 +799,8 @@ pub const Block = enum(u8) {
             .pressure_plate_stone, .pressure_plate_planks => .plate,
             .ladder => .ladder,
             .fence => .fence,
+            .crops => .crops,
+            .farmland => .{ .partial = 15.0 / 16.0 },
             .repeater_off, .repeater_on => .repeater,
             .door_wood, .door_iron => .door,
             .trapdoor => .trapdoor,
@@ -883,7 +910,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
             .sign_post, .wall_sign => false,
-            .web, .ladder, .fence => false,
+            .web, .ladder, .fence, .crops, .farmland => false,
             .stairs_wood, .stairs_cobblestone => false,
             .slab => false,
             .pressure_plate_stone, .pressure_plate_planks => false,
@@ -960,6 +987,15 @@ pub const Block = enum(u8) {
     fn vanillaRandomTick(self: Block) ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void {
         return switch (self) {
             .locked_chest => rotAway,
+            .crops => farming.tickCrops,
+            .farmland => farming.tickFarmland,
+            else => null,
+        };
+    }
+
+    fn vanillaNeighborChange(self: Block) ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void {
+        return switch (self) {
+            .farmland => farming.onFarmlandNeighborChange,
             else => null,
         };
     }
@@ -1042,7 +1078,7 @@ pub const Block = enum(u8) {
         return switch (self) {
             .stone => uniform(1),
             .grass => topAndSide(0, 2, 3),
-            .dirt => uniform(2),
+            .dirt => uniform(dirt_tile),
             .planks => uniform(4),
             .bedrock => uniform(17),
             .flowing_water, .stationary_water => topAndSide(205, 205, 206),
@@ -1113,6 +1149,8 @@ pub const Block = enum(u8) {
             .netherrack => uniform(103),
             .ladder => uniform(83),
             .fence => uniform(4),
+            .crops => uniform(crops_base_tile),
+            .farmland => farmlandTextures(0),
             .soul_sand => uniform(104),
             .glowstone => uniform(105),
             .portal => uniform(14),
@@ -1155,7 +1193,7 @@ pub const Block = enum(u8) {
     pub fn flatItemTile(self: Block, metadata: u4) ?u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
-            .torch, .fire, .wire, .lever, .repeater, .rail, .ladder => self.faceTextures().get(.down),
+            .torch, .fire, .wire, .lever, .repeater, .rail, .ladder, .crops => self.faceTextures().get(.down),
             else => null,
         };
     }
@@ -1163,6 +1201,7 @@ pub const Block = enum(u8) {
     pub fn particleTile(self: Block, metadata: u4) u8 {
         return switch (self.shape()) {
             .cross => self.crossTile(metadata),
+            .crops => cropsTile(metadata),
             else => self.faceTextures().get(.down),
         };
     }
@@ -1225,6 +1264,7 @@ pub const Block = enum(u8) {
             .web => 4.0,
             .ladder => 0.4,
             .fence => 2.0,
+            .farmland => 0.6,
             .glowstone => 0.3,
             .jack_o_lantern => 1.0,
             .cake => 0.5,
@@ -1381,6 +1421,8 @@ pub const Block = enum(u8) {
             .web => "Cobweb",
             .ladder => "Ladder",
             .fence => "Fence",
+            .crops => "Crops",
+            .farmland => "Farmland",
             .locked_chest => "Locked chest",
             .glowstone => "Glowstone",
             .jack_o_lantern => "Jack 'o' Lantern",
@@ -1394,6 +1436,19 @@ pub const Block = enum(u8) {
     pub fn drop(self: Block, meta: u4, rand: *JavaRandom) ?Stack {
         if (self.def().drop) |hook| return hook(self, meta, rand);
         return self.vanillaDrop(meta, rand);
+    }
+
+    pub fn bonusDrops(self: Block, meta: u4, rand: *JavaRandom, out: *[3]Stack) []const Stack {
+        if (self != .crops) return out[0..0];
+
+        var count: usize = 0;
+        for (0..3) |_| {
+            if (rand.nextIntBound(15) <= meta) {
+                out[count] = .{ .id = .{ .item = .seeds }, .count = 1 };
+                count += 1;
+            }
+        }
+        return out[0..count];
     }
 
     pub fn harvestDrop(self: Block, meta: u4, held: ?Stack, rand: *JavaRandom) ?Stack {
@@ -1440,6 +1495,8 @@ pub const Block = enum(u8) {
             .clay => .{ .id = .{ .item = .clay_ball }, .count = 4 },
             .tall_grass => if (rand.nextIntBound(8) == 0) .{ .id = .{ .item = .seeds }, .count = 1 } else null,
             .dead_bush => null,
+            .crops => if (meta == crops_ripe) .{ .id = .{ .item = .wheat }, .count = 1 } else null,
+            .farmland => .{ .id = .{ .block = .dirt }, .count = 1 },
             .web => .{ .id = .{ .item = .string }, .count = 1 },
             .reed => .{ .id = .{ .item = .reed }, .count = 1 },
             .snow_layer => null,
@@ -2874,6 +2931,58 @@ test "a locked chest is a lit chest lookalike that never opens" {
     try std.testing.expectEqual(chest_front_tile, beside_a_chest.get(.east));
     try std.testing.expectEqual(chest_side_tile, beside_a_chest.get(.south));
     try std.testing.expectEqual(chest_side_tile, beside_a_chest.get(.west));
+}
+
+test "crops step through eight sprites and only yield wheat when ripe" {
+    try std.testing.expectEqual(Shape.crops, Block.crops.shape());
+    try std.testing.expectEqual(@as(u8, 88), cropsTile(0));
+    try std.testing.expectEqual(@as(u8, 95), cropsTile(crops_ripe));
+    try std.testing.expectEqual(@as(f32, 0.0), Block.crops.hardness());
+    try std.testing.expect(!Block.crops.isOpaqueCube());
+    try std.testing.expect(!Block.crops.hasCollision());
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expect(Block.crops.drop(0, &rand) == null);
+    try std.testing.expect(Block.crops.drop(6, &rand) == null);
+    try std.testing.expectEqual(Id{ .item = .wheat }, Block.crops.drop(crops_ripe, &rand).?.id);
+}
+
+test "a crop scatters more seeds the riper it is" {
+    var out: [3]Stack = undefined;
+    var rand = JavaRandom.init(7);
+
+    var unripe: usize = 0;
+    var ripe: usize = 0;
+    for (0..400) |_| unripe += Block.crops.bonusDrops(0, &rand, &out).len;
+    for (0..400) |_| ripe += Block.crops.bonusDrops(crops_ripe, &rand, &out).len;
+
+    try std.testing.expect(ripe > unripe);
+    try std.testing.expectEqual(@as(usize, 0), Block.stone.bonusDrops(crops_ripe, &rand, &out).len);
+
+    for (Block.crops.bonusDrops(crops_ripe, &rand, &out)) |seed| {
+        try std.testing.expectEqual(Id{ .item = .seeds }, seed.id);
+        try std.testing.expectEqual(@as(u8, 1), seed.count);
+    }
+}
+
+test "farmland is a shaved cube that darkens when watered and drops plain dirt" {
+    try std.testing.expectEqual(Material.ground, Block.farmland.material());
+    try std.testing.expectApproxEqAbs(@as(f32, 15.0 / 16.0), Block.farmland.shape().heightScale(), 1.0e-6);
+    try std.testing.expectEqual(@as(f32, 0.6), Block.farmland.hardness());
+    try std.testing.expectEqual(StepSound.gravel, Block.farmland.stepSound());
+    try std.testing.expect(!Block.farmland.isOpaqueCube());
+
+    const dry = farmlandTextures(0);
+    try std.testing.expectEqual(farmland_dry_tile, dry.get(.up));
+    try std.testing.expectEqual(dirt_tile, dry.get(.north));
+    try std.testing.expectEqual(dirt_tile, dry.get(.down));
+
+    const wet = farmlandTextures(7);
+    try std.testing.expectEqual(farmland_wet_tile, wet.get(.up));
+    try std.testing.expectEqual(dirt_tile, wet.get(.north));
+
+    var rand = JavaRandom.init(1);
+    try std.testing.expectEqual(Id{ .block = .dirt }, Block.farmland.drop(3, &rand).?.id);
 }
 
 test "a fence is a wooden post whose rails reach out only to other fences" {

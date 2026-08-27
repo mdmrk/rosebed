@@ -35,6 +35,11 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
         return 1;
     }
 
+    if (id == .farmland) {
+        out[0] = offsetBox(.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }, x, y, z);
+        return 1;
+    }
+
     const bounds = switch (id.shape()) {
         .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
         .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
@@ -633,6 +638,27 @@ test "soul sand is two sixteenths short, so an entity stands sunk into its cell"
     const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -3.0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 2.0 / 16.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "farmland is walked on as a whole cube even though it renders shaved" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .farmland);
+
+    const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
+    const landed = moveEntity(&w, falling, 0, -4.0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), landed.aabb.min_y, 1.0e-9);
+}
+
+test "a crop is walked straight through" {
+    var w = try testWorldWithFloor(1);
+    defer w.deinit();
+    w.setBlock(8, 1, 8, .farmland);
+    w.setBlock(8, 2, 8, .crops);
+
+    const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
+    const into = moveEntity(&w, walking, 2.0, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 9.3), into.aabb.max_x, 1.0e-9);
 }
 
 test "a fence stands half a block taller than its own cell" {

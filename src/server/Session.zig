@@ -1683,6 +1683,16 @@ fn digBlock(
             .meta = dropped.meta,
         });
     }
+    if (harvested) {
+        var extra: [3]world.block.Stack = undefined;
+        for (broken.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
+            try level.dropStackAt(gpa, x, height, z, .{
+                .id = dropped.id,
+                .count = dropped.count,
+                .meta = dropped.meta,
+            });
+        }
+    }
 }
 
 fn holdingFlintAndSteel(player: *const game.Player) bool {

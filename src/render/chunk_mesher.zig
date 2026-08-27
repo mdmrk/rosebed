@@ -838,6 +838,58 @@ const lever_stick_faces = [6][4]usize{
     .{ 0, 3, 7, 4 },
 };
 
+const crops_drop: f32 = 1.0 / 16.0;
+const crops_offset: f32 = 0.25;
+
+fn buildCrops(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, brightness: f32, bx: f32, by: f32, bz: f32) !void {
+    const uv = Atlas.tileUv(tile);
+    const color = shadeColor(brightness, Colorizer.white);
+
+    const bottom = by - crops_drop;
+    const top = bottom + 1.0;
+
+    const uvs = [4][2]f32{
+        .{ uv.u0, uv.v0 },
+        .{ uv.u0, uv.v1 },
+        .{ uv.u1, uv.v1 },
+        .{ uv.u1, uv.v0 },
+    };
+
+    for ([_]f32{ bx + 0.5 - crops_offset, bx + 0.5 + crops_offset }, 0..) |plane_x, index| {
+        const near = if (index == 0) bz else bz + 1.0;
+        const far = if (index == 0) bz + 1.0 else bz;
+        try mesh.quad(gpa, .{
+            .{ plane_x, top, near },
+            .{ plane_x, bottom, near },
+            .{ plane_x, bottom, far },
+            .{ plane_x, top, far },
+        }, uvs, color);
+        try mesh.quad(gpa, .{
+            .{ plane_x, top, far },
+            .{ plane_x, bottom, far },
+            .{ plane_x, bottom, near },
+            .{ plane_x, top, near },
+        }, uvs, color);
+    }
+
+    for ([_]f32{ bz + 0.5 - crops_offset, bz + 0.5 + crops_offset }, 0..) |plane_z, index| {
+        const near = if (index == 0) bx else bx + 1.0;
+        const far = if (index == 0) bx + 1.0 else bx;
+        try mesh.quad(gpa, .{
+            .{ near, top, plane_z },
+            .{ near, bottom, plane_z },
+            .{ far, bottom, plane_z },
+            .{ far, top, plane_z },
+        }, uvs, color);
+        try mesh.quad(gpa, .{
+            .{ far, top, plane_z },
+            .{ far, bottom, plane_z },
+            .{ near, bottom, plane_z },
+            .{ near, top, plane_z },
+        }, uvs, color);
+    }
+}
+
 fn buildFence(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -1667,6 +1719,11 @@ pub fn buildBlockAt(
         return;
     }
 
+    if (id.shape() == .crops) {
+        try buildCrops(target, gpa, tileFor(options, world.block.cropsTile(metadata)), own_brightness, bx, by, bz);
+        return;
+    }
+
     if (id.shape() == .fence) {
         try buildFence(target, gpa, world_map, id, x, y, z, origin, options);
         return;
@@ -1782,6 +1839,8 @@ pub fn buildBlockAt(
         textures = world.block.chestTextures(chestRing(world_map, x, y, z));
     } else if (id == .locked_chest) {
         textures = world.block.lockedChestTextures(chestRing(world_map, x, y, z));
+    } else if (id == .farmland) {
+        textures = world.block.farmlandTextures(metadata);
     } else if (id == .grass) {
         const above = world_map.getBlock(x, y + 1, z);
         const side_tile = world.block.grassSideTile(above);

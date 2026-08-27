@@ -303,6 +303,26 @@ pub fn useBucket(ctx: Context, held: world.Item, fill: world.item.Fill) !bool {
     return true;
 }
 
+pub fn tillWithHoe(ctx: Context, held: world.Item) !bool {
+    const hit = ctx.pickedBlock() orelse return false;
+    if (!try world.farming.till(&ctx.level.world_map, hit.x, hit.y, hit.z, hit.face)) return false;
+
+    try ctx.stats.use(ctx.gpa, .{ .item = held });
+    try ctx.damageHeldItem(1);
+    try ctx.applyBlockChanges();
+    return true;
+}
+
+pub fn plantSeedsAtTarget(ctx: Context) !bool {
+    const hit = ctx.pickedBlock() orelse return false;
+    if (!try world.farming.plant(&ctx.level.world_map, hit.x, hit.y, hit.z, hit.face)) return false;
+
+    try ctx.stats.use(ctx.gpa, .{ .item = .seeds });
+    ctx.consumeSelectedStack();
+    try ctx.applyBlockChanges();
+    return true;
+}
+
 pub fn placeDoorAtTarget(ctx: Context, held: world.Item) !bool {
     const placed: world.Block = switch (held) {
         .door_wood => .door_wood,

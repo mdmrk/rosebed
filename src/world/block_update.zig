@@ -16,7 +16,8 @@ fn plantGrowsOn(id: Block, below: Block) bool {
     return switch (id) {
         .dead_bush => below == .sand,
         .mushroom_brown, .mushroom_red => below.isOpaqueCube(),
-        else => below == .grass or below == .dirt,
+        .crops => below == .farmland,
+        else => below == .grass or below == .dirt or below == .farmland,
     };
 }
 
@@ -309,7 +310,7 @@ fn buttonHasAnySupport(world_map: *const World, x: i32, y: i32, z: i32) bool {
 
 pub fn canStayAt(world_map: *const World, x: i32, y: i32, z: i32, id: Block) bool {
     return switch (id) {
-        .sapling, .dandelion, .rose, .tall_grass, .dead_bush => (light.levelAt(world_map, x, y, z) >= 8 or
+        .sapling, .dandelion, .rose, .tall_grass, .dead_bush, .crops => (light.levelAt(world_map, x, y, z) >= 8 or
             world_map.canBlockSeeTheSky(x, y, z)) and plantGrowsOn(id, world_map.getBlock(x, y - 1, z)),
         .mushroom_brown, .mushroom_red => light.levelAt(world_map, x, y, z) <= 13 and
             plantGrowsOn(id, world_map.getBlock(x, y - 1, z)),
@@ -485,6 +486,10 @@ pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) std.mem.Alloc
         if (world_map.getBlock(x, y, z) != id) return;
     }
 
+    try popIfUnsupported(world_map, x, y, z, id);
+}
+
+pub fn popIfUnsupported(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
     if (canStayAt(world_map, x, y, z, id)) return;
 
     if (id.drop(world_map.getBlockMetadata(x, y, z), &world_map.rand)) |stack| {

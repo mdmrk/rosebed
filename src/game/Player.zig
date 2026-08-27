@@ -63,6 +63,7 @@ last_damage: i32 = 0,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
+stepped_on: ?[3]i32 = null,
 distance_fallen: f32 = 0,
 earned: std.EnumSet(achievements.Id) = .initEmpty(),
 minecart_start: ?[3]i32 = null,
@@ -793,6 +794,7 @@ fn playStepSound(self: *Player, world_map: *const world.World) void {
     if (self.distance_walked <= @as(f32, @floatFromInt(self.next_step_distance)) or stepped_on == .air) return;
 
     self.next_step_distance += 1;
+    self.stepped_on = .{ x, y, z };
     const covered = world_map.getBlock(x, y + 1, z) == .snow_layer;
     if (!covered and stepped_on.material().isLiquid()) return;
 
