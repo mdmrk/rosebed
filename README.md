@@ -1,4 +1,4 @@
-# rosebed
+# Rosebed
 
 A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and OpenGL 3.3 core.
 
