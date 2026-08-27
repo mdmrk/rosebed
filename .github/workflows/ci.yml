@@ -1,5 +1,4 @@
 name: ci
-
 on:
   push:
     tags: ['v*']
@@ -7,11 +6,9 @@ on:
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build:
     strategy:
@@ -31,39 +28,36 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-
       - name: seed freetype tarball
         run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
-
       - name: fetch assets
         run: zig build fetch-assets
-
       - name: test
         run: zig build test
-
       - name: build
-        run: zig build -Doptimize=ReleaseFast
-
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            zig build -Doptimize=ReleaseFast
+          else
+            zig build -Doptimize=ReleaseFast -Dcpu=x86_64_v3
+          fi
       - name: package
         run: |
           mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
             7z a "dist/rosebed-${{ matrix.name }}.zip" ./zig-out/bin/rosebed.exe ./zig-out/bin/rosebed-server.exe
           else
             tar -czf "dist/rosebed-${{ matrix.name }}.tar.gz" -C zig-out/bin rosebed rosebed-server
           fi
-
       - name: upload
         uses: actions/upload-artifact@v4
         with:
           name: rosebed-${{ matrix.name }}
           path: dist/*
-
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: build
@@ -73,13 +67,11 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
       - name: download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
       - name: publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,7 +82,6 @@ jobs:
             --target "$GITHUB_SHA" \
             --title nightly \
             --notes "nightly build of ${GITHUB_SHA:0:7}"
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -100,13 +91,11 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
       - name: download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
       - name: publish release
         env:
           GH_TOKEN: ${{ github.token }}
