@@ -34,17 +34,17 @@
 +    const linux = std.os.linux;
 +    const t: *Threaded = @ptrCast(@alignCast(userdata));
 +    _ = t;
++    if (dr.state == .reset) {
++        posixSeekTo(dr.dir.handle, 0) catch |err| switch (err) {
++            error.Unseekable => return error.Unexpected,
++            else => |e| return e,
++        };
++        dr.state = .reading;
++    }
 +    var buffer_index: usize = 0;
 +    while (buffer.len - buffer_index != 0) {
 +        if (dr.end - dr.index == 0) {
 +            if (buffer_index != 0) break;
-+            if (dr.state == .reset) {
-+                posixSeekTo(dr.dir.handle, 0) catch |err| switch (err) {
-+                    error.Unseekable => return error.Unexpected,
-+                    else => |e| return e,
-+                };
-+                dr.state = .reading;
-+            }
 +            const syscall: Syscall = try .start();
 +            const n = while (true) {
 +                const rc = __syscall_getdents64(dr.dir.handle, dr.buffer.ptr, dr.buffer.len);
