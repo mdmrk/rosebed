@@ -67,6 +67,7 @@ water: Atlas,
 map_background: Atlas,
 map_icons: Atlas,
 pumpkin_blur: Atlas,
+shadow: Atlas,
 
 const Wrap = enum { clamp, repeat };
 const Filter = enum { nearest, blur };
@@ -151,6 +152,7 @@ fn resourceFor(comptime field: []const u8) Resource {
         .map_background => clamped(assets.misc.mapbg_png),
         .map_icons => clamped(assets.misc.mapicons_png),
         .pumpkin_blur => blurred(assets.misc.pumpkinblur_png),
+        .shadow => clamped(assets.misc.shadow_png),
     };
 }
 

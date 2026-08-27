@@ -906,6 +906,11 @@ pub const Block = enum(u8) {
         return self.def().opaque_cube;
     }
 
+    pub fn renderAsNormalBlock(self: Block) bool {
+        if (self == .cactus or self.isLiquid()) return false;
+        return self.shape() == .cube;
+    }
+
     fn vanillaOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,

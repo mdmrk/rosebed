@@ -3355,8 +3355,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     var atlas_mesh: render.MeshBuilder = .{};
     defer atlas_mesh.deinit(app_state.frame);
+    var shadow_mesh: render.MeshBuilder = .{};
+    defer shadow_mesh.deinit(app_state.frame);
     for (app_state.level.entities.items.items) |item| {
         try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.level.world_map, item, partial);
+        if (app_state.settings.fancy_graphics) {
+            try render.entity_render.appendItemShadow(&shadow_mesh, app_state.frame, &app_state.level.world_map, item, camera_eye, partial);
+        }
     }
     for (app_state.level.entities.pickups.items) |fx| {
         const swallowed = fx.swallowed(&app_state.player, partial);
@@ -3405,6 +3410,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
     }
     drawEntityMesh(&atlas_mesh);
+    if (shadow_mesh.vertices.items.len > 0) {
+        app_state.textures.shadow.bind();
+        gl.Enable(gl.BLEND);
+        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.DepthMask(gl.FALSE);
+        drawEntityMesh(&shadow_mesh);
+        gl.DepthMask(gl.TRUE);
+        gl.Disable(gl.BLEND);
+        app_state.textures.terrain.bind();
+    }
     try drawPrimedTntFlash(app_state, partial);
     if (particle_mesh.vertices.items.len > 0) {
         app_state.textures.particles.bind();

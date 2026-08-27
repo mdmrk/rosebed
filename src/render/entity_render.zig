@@ -195,6 +195,86 @@ pub fn appendItemIcon(
     try appendCopies(mesh, gpa, world_map, item, (180.0 - view_yaw) * degrees, 0.3, partial_ticks, Billboard.build);
 }
 
+pub const item_shadow_size: f32 = 0.15;
+pub const item_shadow_opacity: f32 = 12.0 / 16.0;
+
+pub fn appendItemShadow(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    item: game.ItemEntity,
+    viewer: math.Vec3,
+    partial_ticks: f32,
+) !void {
+    const eye_offset = math.Vec3.init(
+        item.base.position.x,
+        item.base.position.y + game.ItemEntity.height / 2.0,
+        item.base.position.z,
+    ).sub(viewer);
+    const fade: f32 = @floatCast((1.0 - eye_offset.lengthSquared() / 256.0) * item_shadow_opacity);
+    if (fade <= 0.0) return;
+
+    const rendered = item.base.renderPosition(partial_ticks);
+    const center = math.Vec3.init(rendered.x, rendered.y + game.ItemEntity.height, rendered.z);
+    const max_x = math.util.floorDouble(center.x + item_shadow_size);
+    const max_y = math.util.floorDouble(center.y);
+    const max_z = math.util.floorDouble(center.z + item_shadow_size);
+
+    var x = math.util.floorDouble(center.x - item_shadow_size);
+    while (x <= max_x) : (x += 1) {
+        var y = math.util.floorDouble(center.y - item_shadow_size);
+        while (y <= max_y) : (y += 1) {
+            var z = math.util.floorDouble(center.z - item_shadow_size);
+            while (z <= max_z) : (z += 1) {
+                const below = world_map.getBlock(x, y - 1, z);
+                if (below == .air or !below.renderAsNormalBlock()) continue;
+                if (world.light.levelAt(world_map, x, y, z) <= 3) continue;
+                try appendShadowOnBlock(mesh, gpa, world_map, center, item_shadow_size, fade, x, y, z);
+            }
+        }
+    }
+}
+
+fn appendShadowOnBlock(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    center: math.Vec3,
+    size: f32,
+    fade: f32,
+    x: i32,
+    y: i32,
+    z: i32,
+) !void {
+    const plane_y: f64 = @floatFromInt(y);
+    const brightness = world.light.brightnessAt(world_map, x, y, z, 0);
+    const strength = (fade - (center.y - plane_y) / 2.0) * 0.5 * brightness;
+    if (strength < 0.0) return;
+
+    const alpha: u8 = @intFromFloat(@min(strength, 1.0) * 255.0);
+    const west: f32 = @floatFromInt(x);
+    const north: f32 = @floatFromInt(z);
+    const east = west + 1.0;
+    const south = north + 1.0;
+    const top = @as(f32, @floatCast(plane_y)) + 1.0 / 64.0;
+    const u_west = @as(f32, @floatCast(center.x - west)) / 2.0 / size + 0.5;
+    const u_east = @as(f32, @floatCast(center.x - east)) / 2.0 / size + 0.5;
+    const v_north = @as(f32, @floatCast(center.z - north)) / 2.0 / size + 0.5;
+    const v_south = @as(f32, @floatCast(center.z - south)) / 2.0 / size + 0.5;
+
+    try mesh.quad(gpa, .{
+        .{ west, top, north },
+        .{ west, top, south },
+        .{ east, top, south },
+        .{ east, top, north },
+    }, .{
+        .{ u_west, v_north },
+        .{ u_west, v_south },
+        .{ u_east, v_south },
+        .{ u_east, v_north },
+    }, .{ 255, 255, 255, alpha });
+}
+
 pub fn appendMovingPiston(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -1143,6 +1223,46 @@ test "a true item stack has no world geometry yet" {
     const item = game.ItemEntity.spawn(.{ .x = 0, .y = 0, .z = 0 }, .{ .id = .{ .item = .coal }, .count = 1 }, &rand);
     try appendItem(&mesh, gpa, &world_map, item, 0);
 
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+}
+
+test "an item resting on a lit block lays its shadow on the surface below it" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+    world_map.setBlockLight(8, 64, 8, 15);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var rand = world.JavaRandom.init(0);
+    const item = game.ItemEntity.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    try appendItemShadow(&mesh, gpa, &world_map, item, .init(8.5, 66, 8.5), 0);
+
+    try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
+    for (mesh.vertices.items) |vertex| {
+        try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 1.0 / 64.0), vertex.y, 1.0e-6);
+        try std.testing.expect(vertex.color[3] > 0);
+    }
+
+    try appendItemShadow(&mesh, gpa, &world_map, item, .init(8.5, 82, 8.5), 0);
+    try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
+}
+
+test "an item casts no shadow in the dark or with nothing solid under it" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+    world_map.setBlockLight(8, 70, 8, 15);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    var rand = world.JavaRandom.init(0);
+    const grounded = game.ItemEntity.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    try appendItemShadow(&mesh, gpa, &world_map, grounded, .init(8.5, 66, 8.5), 0);
+    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
+
+    const airborne = game.ItemEntity.spawn(.{ .x = 8.5, .y = 70, .z = 8.5 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    try appendItemShadow(&mesh, gpa, &world_map, airborne, .init(8.5, 72, 8.5), 0);
     try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
 
