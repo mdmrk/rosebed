@@ -2,9 +2,10 @@ name: ci
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -63,8 +64,8 @@ jobs:
           name: rosebed-${{ matrix.name }}
           path: dist/*
 
-  prerelease:
-    if: github.ref == 'refs/heads/main'
+  nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -83,12 +84,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete dev --cleanup-tag --yes || true
-          gh release create dev dist/* \
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly dist/* \
             --prerelease \
             --target "$GITHUB_SHA" \
-            --title dev \
-            --notes "build of ${GITHUB_SHA:0:7}"
+            --title nightly \
+            --notes "nightly build of ${GITHUB_SHA:0:7}"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
