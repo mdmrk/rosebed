@@ -39,6 +39,9 @@ jobs:
       - name: seed freetype tarball
         run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
 
+      - name: fetch assets
+        run: zig build fetch-assets
+
       - name: test
         run: zig build test
 
