@@ -1274,9 +1274,22 @@ pub fn tickParticles(
 pub fn spawnWaterSplash(
     self: *Entities,
     gpa: std.mem.Allocator,
+    world_map: *const world.World,
     base: Entity,
     rand: *world.JavaRandom,
 ) !void {
+    const impact: f32 = @floatCast(@sqrt(base.motion.x * base.motion.x * 0.2 +
+        base.motion.y * base.motion.y +
+        base.motion.z * base.motion.z * 0.2));
+    world_map.playSoundEffect(
+        base.position.x,
+        base.position.y,
+        base.position.z,
+        assets.sounds.random.splash,
+        @min(impact * 0.2, 1.0),
+        1.0 + (rand.nextFloat() - rand.nextFloat()) * 0.4,
+    );
+
     const surface: f64 = @floatFromInt(math.util.floorDouble(base.boundingBox().min_y) + 1);
 
     var bubbled: f64 = 0;
@@ -3450,13 +3463,15 @@ test "a young lava ember sheds a smoke puff as it flies" {
 
 test "wading into water throws a ring of bubbles and splash droplets at the surface" {
     const gpa = std.testing.allocator;
+    var w = world.World.init(gpa);
+    defer w.deinit();
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(6);
     var base = Entity.init(math.Vec3.init(8, 4.4, 8), 0.6, 1.8);
     base.motion = math.Vec3.init(0, -0.3, 0);
-    try entities.spawnWaterSplash(gpa, base, &rand);
+    try entities.spawnWaterSplash(gpa, &w, base, &rand);
 
     try std.testing.expectEqual(@as(usize, 26), entities.particles.items.len);
     for (entities.particles.items, 0..) |droplet, i| {
@@ -3465,6 +3480,53 @@ test "wading into water throws a ring of bubbles and splash droplets at the surf
         try std.testing.expectApproxEqAbs(@as(f64, 5.0), droplet.base.position.y, 1.0e-9);
         try std.testing.expect(@abs(droplet.base.position.x - 8.0) <= 0.6);
     }
+}
+
+const SplashSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+        const self: *SplashSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *SplashSound) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "hitting the water is heard, and the loudest a fall can splash is full volume" {
+    const gpa = std.testing.allocator;
+    var w = world.World.init(gpa);
+    defer w.deinit();
+
+    var heard: SplashSound = .{};
+    w.sound_sink = heard.sink();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(6);
+    var base = Entity.init(math.Vec3.init(8, 4.4, 8), 0.6, 1.8);
+    base.motion = math.Vec3.init(0, -0.3, 0);
+    try entities.spawnWaterSplash(gpa, &w, base, &rand);
+
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings(assets.sounds.random.splash.key, heard.key);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.06), heard.volume, 1.0e-5);
+    try std.testing.expect(heard.pitch >= 0.6 and heard.pitch <= 1.4);
+
+    base.motion = math.Vec3.init(0, -30.0, 0);
+    try entities.spawnWaterSplash(gpa, &w, base, &rand);
+    try std.testing.expectEqual(@as(f32, 1.0), heard.volume);
 }
 
 test "drowning coughs up eight bubbles around the entity" {

@@ -2869,7 +2869,7 @@ fn tick(app_state: *AppState) !void {
     try recordPlayerTick(app_state, before_move);
     if (app_state.player.isDead() and !app_state.dead) try killPlayer(app_state);
     if (!was_in_water and app_state.player.base.in_water and app_state.level.tick_count > 0) {
-        try app_state.level.entities.spawnWaterSplash(app_state.gpa, app_state.player.base, &app_state.level.world_map.rand);
+        try app_state.level.entities.spawnWaterSplash(app_state.gpa, &app_state.level.world_map, app_state.player.base, &app_state.level.world_map.rand);
     }
     if (app_state.player.drowned) {
         try app_state.level.entities.spawnDrowningBubbles(
