@@ -7,6 +7,13 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 
 Includes a client and a dedicated server. Both speak the Beta 1.7.3 network protocol (version 14).
 
+- [Play in the browser](#play-in-the-browser)
+- [Download](#download)
+- [Server](#server)
+- [Build](#build)
+  - [Web](#web)
+- [License](#license)
+
 ## Play in the browser
 
 [mdmrk.github.io/rosebed](https://mdmrk.github.io/rosebed/) is the client built for WebAssembly. Worlds are saved in browser storage. Needs WebGL2.
