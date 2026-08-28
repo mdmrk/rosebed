@@ -29,16 +29,23 @@ pub const Action = enum { singleplayer, multiplayer, texture_packs, options, qui
 
 const Entry = struct { button: button.Button, action: ?Action };
 
-fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
+const hide_quit = wasm;
+const menu_len = if (hide_quit) 4 else 5;
+
+fn entries(scaled_width: f32, scaled_height: f32) [menu_len]Entry {
     const cx = @floor(scaled_width / 2.0);
     const top = @floor(scaled_height / 4.0) + 48.0;
-    return .{
-        .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer },
-        .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = !wasm }, .action = .multiplayer },
-        .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = true }, .action = .texture_packs },
-        .{ .button = .{ .x = cx - 100, .y = top + 84, .w = 98, .label = "Options...", .enabled = true }, .action = .options },
-        .{ .button = .{ .x = cx + 2, .y = top + 84, .w = 98, .label = "Quit Game", .enabled = true }, .action = .quit },
-    };
+    const bottom_row = if (hide_quit) top + 72 else top + 84;
+
+    var list: [menu_len]Entry = undefined;
+    list[0] = .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer };
+    list[1] = .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = !wasm }, .action = .multiplayer };
+    list[2] = .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = true }, .action = .texture_packs };
+    list[3] = .{ .button = .{ .x = cx - 100, .y = bottom_row, .w = if (hide_quit) 200 else 98, .label = "Options...", .enabled = true }, .action = .options };
+    if (!hide_quit) {
+        list[4] = .{ .button = .{ .x = cx + 2, .y = bottom_row, .w = 98, .label = "Quit Game", .enabled = true }, .action = .quit };
+    }
+    return list;
 }
 
 fn githubButton(scaled_width: f32, scaled_height: f32) button.Button {
