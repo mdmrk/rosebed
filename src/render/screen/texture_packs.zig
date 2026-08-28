@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const gl = @import("gl");
 
@@ -7,6 +8,8 @@ const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 const texture_pack = @import("../texture_pack.zig");
+
+const wasm = builtin.cpu.arch.isWasm();
 
 const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
@@ -60,7 +63,7 @@ fn buttons(res: gui.Scaled) [2]struct { button: button.Button, hit: Hit } {
     const cx = @floor(res.width / 2.0);
     const y = res.height - 48;
     return .{
-        .{ .button = .{ .x = cx - 154, .y = y, .w = 150, .label = "Open texture pack folder", .enabled = true }, .hit = .open_folder },
+        .{ .button = .{ .x = cx - 154, .y = y, .w = 150, .label = "Open texture pack folder", .enabled = !wasm }, .hit = .open_folder },
         .{ .button = .{ .x = cx + 4, .y = y, .w = 150, .label = "Done", .enabled = true }, .hit = .done },
     };
 }
@@ -70,7 +73,7 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
     const gy = mouse_y / res.factor;
 
     for (buttons(res)) |entry| {
-        if (button.contains(entry.button, gx, gy)) return entry.hit;
+        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
     }
 
     const cx = @floor(res.width / 2.0);
