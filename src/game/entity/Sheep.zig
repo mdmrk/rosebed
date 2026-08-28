@@ -35,12 +35,13 @@ const light_gray: u4 = 8;
 const brown: u4 = 12;
 const black: u4 = 15;
 
-const min_wool: u8 = 1;
 const sheared_min_wool: u8 = 2;
 const wool_spread: i32 = 3;
 
 fn init(position: math.Vec3) Sheep {
-    return .{ .animal = Animal.spawn(position, spec) };
+    var sheep: Sheep = .{ .animal = Animal.spawn(position, spec) };
+    sheep.animal.on_death = dropFewItems;
+    return sheep;
 }
 
 pub fn spawn(position: math.Vec3, rand: *world.JavaRandom) Sheep {
@@ -72,12 +73,9 @@ pub fn randomFleeceColor(rand: *world.JavaRandom) u4 {
     return if (rand.nextIntBound(500) == 0) pink else white;
 }
 
-pub fn hurt(self: *Sheep, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    if (source != null and !self.sheared) {
-        self.sheared = true;
-        self.pending_wool = min_wool + @as(u8, @intCast(rand.nextIntBound(wool_spread)));
-    }
-    return self.animal.hurt(world_map, amount, source, rand);
+fn dropFewItems(animal: *Animal, _: *world.JavaRandom) void {
+    const self: *Sheep = @fieldParentPtr("animal", animal);
+    if (!self.sheared) self.pending_wool = 1;
 }
 
 pub const Drops = struct {
@@ -130,19 +128,15 @@ test "a sheep is the size EntitySheep sets itself to" {
     try std.testing.expectEqual(max_health, sheep.animal.health);
 }
 
-test "a hit from an attacker shears the sheep and drops one to three wool of its colour" {
+test "hitting a sheep neither shears it nor knocks any wool loose" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
-    sheep.fleece_color = brown;
 
-    try std.testing.expect(sheep.hurt(&w, 2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
-    try std.testing.expect(sheep.sheared);
+    try std.testing.expect(sheep.animal.hurt(&w, 2, .{ .position = math.Vec3.init(6, 1, 8) }, &rand));
 
-    const drops = sheep.takeDrops().?;
-    try std.testing.expect(drops.count >= 1 and drops.count <= 3);
-    try std.testing.expectEqual(brown, drops.color);
+    try std.testing.expect(!sheep.sheared);
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
@@ -161,7 +155,7 @@ test "shearing a sheep yields two to four wool of its colour, and only once" {
     try std.testing.expect(sheep.shear(&rand) == null);
 }
 
-test "shearing does not queue the wool a killing blow would drop" {
+test "a sheep shorn before it died leaves nothing behind" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     var rand = world.JavaRandom.init(7);
@@ -170,50 +164,24 @@ test "shearing does not queue the wool a killing blow would drop" {
     _ = sheep.shear(&rand).?;
     try std.testing.expect(sheep.takeDrops() == null);
 
-    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.animal.hurt(&w, max_health, null, &rand);
+    try std.testing.expect(!sheep.animal.isAlive());
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
-test "a sheared sheep has no more wool to give" {
+test "a sheep takes the damage and the knockback of a hit" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
     var rand = world.JavaRandom.init(3);
     var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
 
-    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
-    _ = sheep.takeDrops();
-
-    sheep.animal.hurt_resistance = 0;
-    _ = sheep.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
-
-    try std.testing.expect(sheep.takeDrops() == null);
-}
-
-test "damage with no attacker behind it leaves the fleece on" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(3);
-    var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
-
-    try std.testing.expect(sheep.hurt(&w, 4, null, &rand));
-
-    try std.testing.expect(!sheep.sheared);
-    try std.testing.expect(sheep.takeDrops() == null);
-}
-
-test "a sheep still takes the damage of the hit that shears it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(3);
-    var sheep = Sheep.spawn(math.Vec3.init(8, 1, 8), &rand);
-
-    _ = sheep.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = sheep.animal.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     try std.testing.expectEqual(max_health - 3, sheep.animal.health);
     try std.testing.expect(sheep.animal.base.motion.x > 0.0);
 }
 
-test "a sheep killed outright drops no wool of its own" {
+test "a sheep that dies with its fleece on drops a single wool of its colour" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
@@ -221,6 +189,7 @@ test "a sheep killed outright drops no wool of its own" {
     var rand = world.JavaRandom.init(0);
     var sheep = Sheep.spawn(math.Vec3.init(8.5, 90, 8.5), &rand);
     defer sheep.deinit(gpa);
+    sheep.fleece_color = black;
 
     for (0..200) |_| {
         try sheep.animal.tick(gpa, &w, .{}, &rand);
@@ -228,6 +197,9 @@ test "a sheep killed outright drops no wool of its own" {
     }
 
     try std.testing.expect(!sheep.animal.isAlive());
+    const drops = sheep.takeDrops().?;
+    try std.testing.expectEqual(@as(u8, 1), drops.count);
+    try std.testing.expectEqual(black, drops.color);
     try std.testing.expect(sheep.takeDrops() == null);
 }
 
@@ -280,7 +252,6 @@ pub const mob_type: Mob.Type = .{
     .store = mobStore,
     .load = mobLoad,
     .destroy = mobDestroy,
-    .hurt = mobHurt,
     .watch = mobWatch,
     .adopt = mobAdopt,
 };
@@ -296,11 +267,6 @@ fn mobAdopt(animal: *Animal, metadata: Mob.Metadata) void {
     const fleece = metadata.byteAt(watched_fleece) orelse return;
     self.fleece_color = @intCast(fleece & 15);
     self.sheared = fleece & sheared_bit != 0;
-}
-
-fn mobHurt(animal: *Animal, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {
-    const self: *Sheep = @fieldParentPtr("animal", animal);
-    return self.hurt(world_map, amount, source, rand);
 }
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
