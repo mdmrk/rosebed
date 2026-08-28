@@ -465,6 +465,7 @@ pub fn hurtFrom(self: *Player, world_map: *const world.World, amount: i32, sourc
 }
 
 fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
+    if (world_map.remote) return;
     if (self.health <= 0 or amount == 0) return;
     if (self.sleeping) self.wake_pending = true;
     self.damage_taken += amount;
@@ -567,6 +568,22 @@ pub fn tickPortal(self: *Player) PortalStep {
 
 pub fn portalOverlay(self: Player, partial: f32) f32 {
     return self.prev_time_in_portal + (self.time_in_portal - self.prev_time_in_portal) * partial;
+}
+
+pub fn setHealth(self: *Player, health: i32) void {
+    const taken = self.health - health;
+    if (taken <= 0) {
+        self.health = health;
+        if (taken < 0) self.hurt_resistance = @divTrunc(hurt_resistance_ticks, 2);
+        return;
+    }
+
+    self.last_damage = taken;
+    self.prev_health = self.health;
+    self.hurt_resistance = hurt_resistance_ticks;
+    self.applyDamage(taken);
+    self.hurt_time = hurt_animation_ticks;
+    self.max_hurt_time = hurt_animation_ticks;
 }
 
 pub fn heal(self: *Player, amount: i32) void {

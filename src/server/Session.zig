@@ -23,6 +23,8 @@ player: ?*game.Player = null,
 outbox: std.ArrayList(u8) = .empty,
 sent_chunks: std.AutoHashMapUnmanaged(world.World.ChunkCoord, void) = .{},
 tracked: std.AutoHashMapUnmanaged(game.Entity.Id, Tracked) = .{},
+own_hurt_time: i32 = 0,
+own_alive: bool = true,
 sent_health: i16 = std.math.maxInt(i16),
 sent_bed: ?[3]i32 = null,
 pending_chat: ?ChatLine = null,
@@ -299,6 +301,8 @@ pub fn trackPeers(self: *Session, gpa: std.mem.Allocator, peers: []const Peer) !
     if (self.state != .playing) return;
     const mine = self.player orelse return;
 
+    try self.reportOwnStatus(gpa, mine);
+
     var entries = self.tracked.iterator();
     while (entries.next()) |entry| entry.value_ptr.seen = false;
 
@@ -554,6 +558,25 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
 fn heldNumericId(player: *const game.Player) i16 {
     const held = player.inventory.selectedStack() orelse return 0;
     return held.id.numeric();
+}
+
+fn reportOwnStatus(self: *Session, gpa: std.mem.Allocator, mine: *const game.Player) !void {
+    if (mine.hurt_time > self.own_hurt_time) {
+        try self.send(gpa, .{ .entity_status = .{
+            .entity_id = @bitCast(mine.base.id),
+            .status = status_hurt,
+        } });
+    }
+    self.own_hurt_time = mine.hurt_time;
+
+    const alive_now = mine.health > 0;
+    if (self.own_alive and !alive_now) {
+        try self.send(gpa, .{ .entity_status = .{
+            .entity_id = @bitCast(mine.base.id),
+            .status = status_death,
+        } });
+    }
+    self.own_alive = alive_now;
 }
 
 fn reportStatus(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Tracked) !void {

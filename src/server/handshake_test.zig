@@ -67,6 +67,7 @@ const Pair = struct {
         self.server_level.world_map.note_sink = .{ .context = self, .playNote = playNote };
         self.server_level.spawn = .{ 8, 70, 8 };
         self.client_level.attach();
+        self.client_level.world_map.remote = true;
         try self.client_level.enter(self.gpa, &self.client_player);
         try self.connection.begin(self.gpa, username);
     }
@@ -891,6 +892,52 @@ const SoundLog = struct {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
     }
 };
+
+test "the hurt a server deals its player is felt and heard on the client, never predicted there" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    try pair.session.reportHealth(gpa);
+    _ = try pair.pumpToClient();
+
+    var heard: SoundLog = .{};
+    pair.client_level.world_map.sound_sink = heard.sink();
+
+    pair.client_player.hurt(&pair.client_level.world_map, 4);
+    try std.testing.expectEqual(@as(i32, 20), pair.client_player.health);
+    try std.testing.expectEqual(@as(i32, 0), pair.client_player.hurt_time);
+    try std.testing.expectEqual(@as(usize, 0), heard.count);
+
+    const server_map = &pair.server_level.world_map;
+    pair.session.player.?.hurt(server_map, 4);
+    try pair.session.reportHealth(gpa);
+    try pair.trackWorld(1);
+
+    try std.testing.expectEqual(@as(i32, 16), pair.client_player.health);
+    try std.testing.expectEqual(@as(i32, 20), pair.client_player.prev_health);
+    try std.testing.expect(pair.client_player.hurt_time > 0);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+
+    pair.session.player.?.hurt_resistance = 0;
+    pair.session.player.?.hurt(server_map, 4);
+    try pair.session.reportHealth(gpa);
+    try pair.trackWorld(1);
+
+    try std.testing.expectEqual(@as(i32, 12), pair.client_player.health);
+    try std.testing.expectEqual(@as(i32, 16), pair.client_player.prev_health);
+    try std.testing.expectEqual(@as(i32, 4), pair.client_player.last_damage);
+    try std.testing.expect(pair.client_player.hurt_resistance > 0);
+
+    pair.session.player.?.health = 18;
+    try pair.session.reportHealth(gpa);
+    _ = try pair.pumpToClient();
+
+    try std.testing.expectEqual(@as(i32, 18), pair.client_player.health);
+    try std.testing.expectEqual(@as(i32, 16), pair.client_player.prev_health);
+}
 
 test "the hurt and death a server reports are heard on the client" {
     const gpa = std.testing.allocator;

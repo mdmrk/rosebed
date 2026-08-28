@@ -1467,6 +1467,7 @@ fn connectToServer(app_state: *AppState) !void {
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
+    app_state.level.world_map.remote = true;
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1696,6 +1697,7 @@ fn dropLink(app_state: *AppState) void {
 
 fn closeWorld(app_state: *AppState) void {
     dropLink(app_state);
+    app_state.level.world_map.remote = false;
     app_state.freecam.leave();
     app_state.dimension = .overworld;
     app_state.pending_portal = false;
@@ -2888,7 +2890,6 @@ fn tick(app_state: *AppState) !void {
     try digStep(app_state);
 
     if (app_state.link) |link| {
-        app_state.player.health = link.connection.health;
         app_state.level.standInPortals();
         _ = app_state.player.tickPortal();
         try tickRemote(app_state, link);

@@ -64,6 +64,7 @@ outbox: std.ArrayList(u8) = .empty,
 disconnect: ?Disconnect = null,
 loaded_chunks: usize = 0,
 health: i32 = 20,
+health_seen: bool = false,
 peers: std.ArrayList(Peer) = .empty,
 chat: std.ArrayList(ChatLine) = .empty,
 awarded: std.ArrayList(Awarded) = .empty,
@@ -164,7 +165,11 @@ fn handlePlaying(
         .update_time => |body| level.world_map.time = body.time,
         .update_health => |body| {
             self.health = body.health;
-            if (level.occupants.items.len > 0) level.occupants.items[0].player.health = body.health;
+            if (level.occupants.items.len > 0) {
+                const player = level.occupants.items[0].player;
+                if (self.health_seen) player.setHealth(body.health) else player.health = body.health;
+                self.health_seen = true;
+            }
         },
         .respawn => |body| {
             const target: world.Dimension = @enumFromInt(body.dimension);
@@ -578,17 +583,17 @@ fn outfitPeer(self: *Connection, body: anytype) void {
 }
 
 fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, status: i8) void {
-    if (self.peerById(id)) |peer| {
+    if (self.playerById(level, id)) |player| {
         switch (status) {
             status_hurt => {
-                peer.player.hurt_time = hurt_flash_ticks;
-                peer.player.limb_swing_amount = 1.5;
-                peer.player.playHurtSound(&level.world_map);
+                player.hurt_time = hurt_flash_ticks;
+                player.limb_swing_amount = 1.5;
+                player.playHurtSound(&level.world_map);
             },
             status_death => {
-                peer.player.playHurtSound(&level.world_map);
-                peer.player.health = 0;
-                peer.player.death_time = 1;
+                player.playHurtSound(&level.world_map);
+                player.health = 0;
+                player.death_time = 1;
             },
             else => {},
         }
