@@ -6,10 +6,10 @@
 A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and OpenGL 3.3. Client and dedicated server, both speaking the b1.7.3 protocol (version 14).
 
 > [!NOTE]
-> **The goal** is a standalone b1.7.3 you can actually play: same behavior, same world out of the same seed, same packets on the wire. One native binary, no Java, and nothing beyond b1.7.3.
+> **The goal** is a standalone b1.7.3 you can actually play: same behavior, same world out of the same seed, same packets on the wire. One native binary, and nothing beyond b1.7.3.
 
 > [!IMPORTANT]
-> **Work in progress.** Most of the game is playable, so what's left is the fine detail. Anything that behaves differently than it does in the real b1.7.3 counts as a bug: terrain, block or mob behavior, a sound, a wrong pixel in the GUI. If you spot one, [open an issue](https://github.com/mdmrk/rosebed/issues) with what you did and what the original does instead.
+> **Work in progress.** Most of the game is playable, so what's left is the fine detail. Anything that behaves differently than it does in the real b1.7.3 counts as a bug: terrain, block or mob behavior, a sound, a wrong pixel somewhere. If you spot one, [open an issue](https://github.com/mdmrk/rosebed/issues) with what you did and what the original does instead.
 
 ## Play
 
