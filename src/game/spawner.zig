@@ -112,10 +112,10 @@ const wooded_creatures = base_creatures ++ [_]Creature{
 };
 
 const overworld_monsters = [_]Horror{
-    .{ .weight = 10, .monster = .zombie },
-    .{ .weight = 10, .monster = .creeper },
-    .{ .weight = 10, .monster = .skeleton },
     .{ .weight = 10, .monster = .spider },
+    .{ .weight = 10, .monster = .zombie },
+    .{ .weight = 10, .monster = .skeleton },
+    .{ .weight = 10, .monster = .creeper },
     .{ .weight = 10, .monster = .slime },
 };
 
@@ -372,9 +372,10 @@ fn spawnInChunk(
                             try entities.adopt(gpa, mob.pig, pig);
                         },
                         .sheep => {
-                            var sheep = Sheep.spawn(position, rand);
+                            var sheep = Sheep.init(position);
                             sheep.animal.faceYaw(rand.nextFloat() * 360.0);
                             if (!sheep.animal.canSpawnHere(world_map)) continue;
+                            sheep.fleece_color = Sheep.randomFleeceColor(rand);
                             try entities.adopt(gpa, mob.sheep, sheep);
                         },
                         .cow => {
@@ -1107,6 +1108,7 @@ fn placeNightSpawn(
             spawned.animal.faceYaw(0);
             spawned.animal.base.position = landing;
             spawned.animal.base.prev_position = landing;
+            spawned.animal.playLivingSound(world_map, rand);
             try entities.adopt(gpa, type_id, spawned);
         },
     }

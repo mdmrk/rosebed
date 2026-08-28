@@ -252,7 +252,7 @@ pub fn playDamageSound(self: *const Animal, world_map: *const world.World, sound
     );
 }
 
-fn playLivingSound(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+pub fn playLivingSound(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
     const name = if (self.living_sound_of) |pick| pick(self, rand) else self.living_sound;
     self.playSound(world_map, name orelse return, rand);
 }

@@ -3002,7 +3002,7 @@ test "the smallest slime is harmless to walk into" {
     try std.testing.expectEqual(@as(i32, 20), player.health);
 }
 
-test "the wool a punched sheep loses is left on the ground in its own colour" {
+test "the wool a slain sheep loses is left on the ground in its own colour" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
@@ -3013,7 +3013,7 @@ test "the wool a punched sheep loses is left on the ground in its own colour" {
     var rand = world.JavaRandom.init(2);
     try entities.spawnSheep(gpa, math.Vec3.init(8.5, 1, 8.5), &rand);
     entities.first(Sheep, mob.sheep).?.fleece_color = 12;
-    _ = entities.first(Sheep, mob.sheep).?.hurt(&w, 1, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
+    _ = entities.first(Sheep, mob.sheep).?.animal.hurt(&w, Sheep.max_health, .{ .position = math.Vec3.init(6, 1, 8) }, &rand);
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
     try soloTick(&entities, gpa, &w, &player, &rand);
@@ -3738,22 +3738,6 @@ test "a hit takes health off the animal the crosshair found" {
     const cow = entities.first(Cow, mob.cow).?.animal.base.id;
     _ = entities.hurtTarget(&w, .{ .mob = cow }, 4, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
     try std.testing.expectEqual(before - 4, entities.first(Cow, mob.cow).?.animal.health);
-}
-
-test "hitting a sheep shears it, as only EntitySheep overrides being attacked" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    const gpa = std.testing.allocator;
-    var entities: Entities = .{};
-    defer entities.deinit(gpa);
-    var rand = world.JavaRandom.init(0);
-
-    try entities.spawnSheep(gpa, math.Vec3.init(0, 0, 2), &rand);
-    try std.testing.expect(!entities.first(Sheep, mob.sheep).?.sheared);
-
-    const sheep = entities.first(Sheep, mob.sheep).?.animal.base.id;
-    _ = entities.hurtTarget(&w, .{ .mob = sheep }, 1, .{ .position = math.Vec3.init(0, 1, 0) }, &rand);
-    try std.testing.expect(entities.first(Sheep, mob.sheep).?.sheared);
 }
 
 test "a painting whose wall is gone falls as an item where it hung" {

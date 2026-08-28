@@ -38,7 +38,7 @@ const black: u4 = 15;
 const sheared_min_wool: u8 = 2;
 const wool_spread: i32 = 3;
 
-fn init(position: math.Vec3) Sheep {
+pub fn init(position: math.Vec3) Sheep {
     var sheep: Sheep = .{ .animal = Animal.spawn(position, spec) };
     sheep.animal.on_death = dropFewItems;
     return sheep;
