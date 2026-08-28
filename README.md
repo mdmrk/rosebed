@@ -39,22 +39,27 @@ rosebed-server [--port 25565] [--world world] [--seed <n>] [--ticks <n>]
 
 Requires [Zig 0.16.0](https://ziglang.org/download/). SDL3 and the GL bindings come from the package manager, nothing else to install.
 
-Assets aren't in the repo. **Fetch them first**:
-
 ```
-zig build fetch-assets
-```
-
-That downloads the official b1.7.3 client jar, checks its SHA-1 and unpacks it. Textures, lang files and short sounds land in `src/assets/` and get embedded into the binary; music and records land in `zig-out/bin/resources/`.
-
-```
-zig build run
-zig build run-server
-zig build test
-zig build -Doptimize=ReleaseFast
+zig build fetch-assets            # once, before anything else
+zig build -Doptimize=ReleaseFast  # binaries into zig-out/bin
 ```
 
-Anything after `--` goes to the program: `zig build run-server -- --port 25566 --world test`.
+Assets aren't in the repo, so `fetch-assets` has to run first. It downloads the official b1.7.3 client jar, checks its SHA-1 and unpacks it: textures, lang files and short sounds into `src/assets/`, where they get embedded into the binary, music and records into `zig-out/bin/resources/`.
+
+The rest of the steps:
+
+```
+zig build             # debug build
+zig build run         # build and run the client
+zig build run-server  # build and run the dedicated server
+zig build test        # run the unit tests
+```
+
+Anything after `--` is passed to the program:
+
+```
+zig build run-server -- --port 25566 --world test
+```
 
 ### Web
 
