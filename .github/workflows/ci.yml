@@ -4,7 +4,7 @@ on:
     tags: ["v*"]
   pull_request:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "37 5 * * *"
   workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
