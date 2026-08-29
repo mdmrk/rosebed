@@ -3413,6 +3413,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendFireball(&fireball_mesh, app_state.frame, fireball, basis, partial);
         try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
     }
+    for (app_state.level.entities.mobs.items) |mob| {
+        if (mob.animal.fire <= 0) continue;
+        try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, mob.animal.base, basis, partial);
+    }
     drawEntityMesh(&atlas_mesh);
     if (shadow_mesh.vertices.items.len > 0) {
         app_state.textures.shadow.bind();
@@ -3538,9 +3542,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     }
     var skeleton_mesh: render.MeshBuilder = .{};
     defer skeleton_mesh.deinit(app_state.frame);
+    var bow_mesh: render.MeshBuilder = .{};
+    defer bow_mesh.deinit(app_state.frame);
     var skeletons = app_state.level.entities.of(game.Skeleton, game.mob.skeleton);
     while (skeletons.next()) |skeleton| {
         try render.entity_render.appendSkeleton(&skeleton_mesh, app_state.frame, &app_state.level.world_map, skeleton.*, partial);
+        try render.entity_render.appendSkeletonBow(&bow_mesh, app_state.frame, &app_state.level.world_map, skeleton.*, partial);
     }
     var creeper_mesh: render.MeshBuilder = .{};
     defer creeper_mesh.deinit(app_state.frame);
@@ -3737,6 +3744,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (skeleton_mesh.vertices.items.len > 0) {
         app_state.textures.skeleton.bind();
         drawEntityMesh(&skeleton_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    if (bow_mesh.vertices.items.len > 0) {
+        app_state.textures.items.bind();
+        drawEntityMesh(&bow_mesh);
         app_state.textures.terrain.bind();
     }
 

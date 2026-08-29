@@ -542,6 +542,8 @@ const biped_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, -8, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -24, 0 } },
 };
 
+pub const biped_part_count = biped_parts.len;
+
 pub const biped: Model = .{
     .parts = &biped_parts,
     .head_index = 5,
@@ -562,7 +564,7 @@ pub const BipedPose = struct {
 const body_index: usize = 0;
 const right_leg_index: usize = 1;
 const left_leg_index: usize = 2;
-const right_arm_index: usize = 3;
+pub const right_arm_index: usize = 3;
 const left_arm_index: usize = 4;
 
 pub fn bipedPosed(model: Model, pose: BipedPose) [biped_parts.len]Part {

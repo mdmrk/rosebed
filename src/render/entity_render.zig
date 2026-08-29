@@ -766,6 +766,20 @@ fn whiten(mesh: *MeshBuilder, first_vertex: usize, amount: f32) void {
     }
 }
 
+fn zombieShapedParts(
+    animal: game.Animal,
+    model: mob_model.Model,
+    age: f32,
+    partial_ticks: f32,
+) [mob_model.biped_part_count]mob_model.Part {
+    return mob_model.zombiePosed(model, .{
+        .limb_swing = animal.limbSwingPhase(partial_ticks),
+        .limb_swing_amount = animal.limbSwingAmount(partial_ticks),
+        .head_yaw = animal.headYaw(partial_ticks),
+        .head_pitch = animal.headPitch(partial_ticks),
+    }, age);
+}
+
 fn appendZombieShaped(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -775,17 +789,80 @@ fn appendZombieShaped(
     age: f32,
     partial_ticks: f32,
 ) !void {
-    const parts = mob_model.zombiePosed(model, .{
-        .limb_swing = animal.limbSwingPhase(partial_ticks),
-        .limb_swing_amount = animal.limbSwingAmount(partial_ticks),
-        .head_yaw = animal.headYaw(partial_ticks),
-        .head_pitch = animal.headPitch(partial_ticks),
-    }, age);
+    const parts = zombieShapedParts(animal, model, age, partial_ticks);
 
     return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, model, .{
         .posed = &parts,
     });
 }
+
+pub const bow_tile: u8 = 1 * 16 + 5;
+
+fn bipedHeldSpriteMatrix() math.Mat4 {
+    return math.Mat4.translation(-1.0 / 16.0, 7.0 / 16.0, 1.0 / 16.0)
+        .mul(math.Mat4.translation(0.25, 3.0 / 16.0, -3.0 / 16.0))
+        .mul(math.Mat4.scale(6.0 / 16.0, 6.0 / 16.0, 6.0 / 16.0))
+        .mul(math.Mat4.rotationZ(60.0 * to_radians))
+        .mul(math.Mat4.rotationX(-90.0 * to_radians))
+        .mul(math.Mat4.rotationZ(20.0 * to_radians))
+        .mul(held_item.spriteMatrix());
+}
+
+fn placedBy(transform: math.Mat4, point: [3]f32) [3]f32 {
+    const cells: [16]f32 = transform.m;
+    const homogeneous: [4]f32 = .{ point[0], point[1], point[2], 1 };
+    var out: [3]f32 = .{ 0, 0, 0 };
+    for (0..4) |col| {
+        for (0..3) |row| out[row] += cells[col * 4 + row] * homogeneous[col];
+    }
+    return out;
+}
+
+fn heldSpriteOrient(arm: mob_model.Part, pose: mob_model.Pose, held: math.Mat4) [3][3]f32 {
+    const held_orient = item_lighting.orientOf(held);
+    var orient: [3][3]f32 = undefined;
+    for (0..3) |axis| {
+        var local: [3]f32 = .{ 0, 0, 0 };
+        local[axis] = 1;
+        const turned = item_lighting.normalized(item_lighting.turned(held_orient, local));
+        const placed = mob_model.posedNormal(arm, pose, turned);
+        for (0..3) |row| orient[row][axis] = placed[row];
+    }
+    return orient;
+}
+
+pub fn appendSkeletonBow(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    skeleton: game.Skeleton,
+    partial_ticks: f32,
+) !void {
+    const animal = skeleton.animal;
+    const parts = zombieShapedParts(animal, mob_model.skeleton, skeleton.renderAge(partial_ticks), partial_ticks);
+    const arm = parts[mob_model.right_arm_index];
+    const pose = animalPose(animal, partial_ticks, .{ 1, 1, 1 });
+    const held = bipedHeldSpriteMatrix();
+
+    const first_vertex = mesh.vertices.items.len;
+    try held_item.appendSprite(mesh, gpa, bow_tile, .{
+        .orient = heldSpriteOrient(arm, pose, held),
+        .material = item_lighting.material(brightnessOf(world_map, animal.base), untinted),
+    });
+
+    for (mesh.vertices.items[first_vertex..]) |*vertex| {
+        const offset = placedBy(held, .{ vertex.x, vertex.y, vertex.z });
+        const placed = mob_model.posedPoint(arm, pose, .{
+            offset[0] * 16.0,
+            offset[1] * 16.0,
+            offset[2] * 16.0,
+        });
+        vertex.x = placed[0];
+        vertex.y = placed[1];
+        vertex.z = placed[2];
+    }
+}
+
 
 pub fn appendSkeleton(
     mesh: *MeshBuilder,
@@ -856,6 +933,16 @@ const Trim = struct {
     posed: ?[]const mob_model.Part = null,
 };
 
+fn animalPose(animal: game.Animal, partial_ticks: f32, scale: [3]f32) mob_model.Pose {
+    const pos = animal.base.renderPosition(partial_ticks);
+    return .{
+        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
+        .yaw = animal.renderYaw(partial_ticks) * to_radians,
+        .roll = animal.deathTilt(partial_ticks) * to_radians,
+        .scale = scale,
+    };
+}
+
 fn appendAnimal(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -865,14 +952,7 @@ fn appendAnimal(
     model: mob_model.Model,
     trim: Trim,
 ) !void {
-    const pos = animal.base.renderPosition(partial_ticks);
-
-    const pose: mob_model.Pose = .{
-        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
-        .yaw = animal.renderYaw(partial_ticks) * to_radians,
-        .roll = animal.deathTilt(partial_ticks) * to_radians,
-        .scale = trim.scale,
-    };
+    const pose = animalPose(animal, partial_ticks, trim.scale);
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
     const brightness = brightnessOf(world_map, animal.base);
@@ -3440,6 +3520,72 @@ pub fn appendEntityFire(
         lean += fire_overlay_layer_gap;
         layer += 1;
     }
+}
+
+test "a burning entity is wrapped in a stack of tapering flame billboards" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    const base = game.Entity.init(
+        math.Vec3.init(0, 64, 0),
+        game.Skeleton.width,
+        game.Skeleton.height,
+    );
+    try appendEntityFire(&mesh, gpa, base, CameraBasis.fromLook(0, 0), 0);
+
+    const scale: f32 = @as(f32, @floatCast(game.Skeleton.width)) * fire_overlay_spread;
+    var layers: usize = 0;
+    var left: f32 = @as(f32, @floatCast(game.Skeleton.height)) / scale;
+    while (left > 0.0) : (left -= fire_overlay_rise) layers += 1;
+    try std.testing.expectEqual(layers * 4, mesh.vertices.items.len);
+
+    var lowest: f32 = std.math.floatMax(f32);
+    var previous: f32 = std.math.floatMax(f32);
+    for (0..layers) |layer| {
+        const corners = mesh.vertices.items[layer * 4 ..][0..4];
+        var width: f32 = 0;
+        for (corners) |corner| {
+            width = @max(width, @abs(corner.x));
+            lowest = @min(lowest, corner.y);
+        }
+        try std.testing.expect(width < previous);
+        previous = width;
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0), lowest, 1.0e-5);
+}
+
+test "a skeleton's bow is drawn in its right hand" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+
+    const skeleton = game.Skeleton.spawn(math.Vec3.init(8.5, 64, 8.5));
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+    try appendSkeletonBow(&mesh, gpa, &world_map, skeleton, 0);
+
+    const quads = 2 + 4 * held_item.sprite_slices;
+    try std.testing.expectEqual(quads * 4, mesh.vertices.items.len);
+
+    var centre: [3]f32 = .{ 0, 0, 0 };
+    for (mesh.vertices.items) |vertex| {
+        centre[0] += vertex.x;
+        centre[1] += vertex.y;
+        centre[2] += vertex.z;
+    }
+    const count: f32 = @floatFromInt(mesh.vertices.items.len);
+    for (&centre) |*axis| axis.* /= count;
+
+    const parts = zombieShapedParts(skeleton.animal, mob_model.skeleton, 0, 0);
+    const hand = mob_model.posedPoint(
+        parts[mob_model.right_arm_index],
+        animalPose(skeleton.animal, 0, .{ 1, 1, 1 }),
+        .{ -1, 10, 0 },
+    );
+
+    for (0..3) |axis| try std.testing.expect(@abs(centre[axis] - hand[axis]) < 0.4);
 }
 
 pub const line_color: [4]u8 = .{ 0, 0, 0, 255 };
