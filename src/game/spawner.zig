@@ -54,6 +54,10 @@ pub const Category = enum {
             .water_creature => .water,
         };
     }
+
+    pub fn spawnsUnder(self: Category, difficulty: world.Difficulty) bool {
+        return self != .monster or difficulty.atLeast(.easy);
+    }
 };
 
 pub const Kind = enum {
@@ -253,6 +257,7 @@ pub fn performSpawning(
 
     var spawned: u32 = 0;
     for (std.enums.values(Category)) |category| {
+        if (!category.spawnsUnder(world_map.difficulty)) continue;
         if (liveCount(entities, category) > populationCap(category, eligible.items.len)) continue;
 
         for (eligible.items) |coord| {
@@ -337,7 +342,7 @@ fn spawnInChunk(
                         .slime => {
                             var slime = Slime.spawn(position, rand);
                             slime.animal.faceYaw(rand.nextFloat() * 360.0);
-                            if (!slime.canSpawnHere(world_seed, rand)) continue;
+                            if (!slime.canSpawnHere(world_map, world_seed, rand)) continue;
                             try entities.adopt(gpa, mob.slime, slime);
                         },
                         .spider => {

@@ -103,6 +103,8 @@ pub fn hurt(self: *PigZombie, world_map: *const world.World, amount: i32, source
 }
 
 pub fn canSpawnHere(self: PigZombie, world_map: *const world.World) bool {
+    if (!world_map.difficulty.atLeast(.easy)) return false;
+
     const box = self.animal.base.boundingBox();
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
 }
@@ -152,6 +154,7 @@ pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.pig_zombie_id,
     .wire_id = wire_id,
     .monster = true,
+    .vanishes_on_peaceful = true,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

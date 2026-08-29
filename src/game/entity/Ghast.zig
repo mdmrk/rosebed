@@ -265,7 +265,8 @@ pub fn canSpawnHere(self: Ghast, world_map: *const world.World, rand: *world.Jav
     if (rand.nextIntBound(spawn_roll) != 0) return false;
 
     const box = self.animal.base.boundingBox();
-    return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
+    return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box) and
+        world_map.difficulty.atLeast(.easy);
 }
 
 fn dropFewItems(animal: *Animal, rand: *world.JavaRandom) void {
@@ -320,6 +321,7 @@ pub const watched_attacking: u5 = 16;
 pub const mob_type: Mob.Type = .{
     .name = world.entity_nbt.ghast_id,
     .wire_id = wire_id,
+    .vanishes_on_peaceful = true,
     .spawn = mobSpawn,
     .tick = mobTick,
     .takeDrops = mobTakeDrops,

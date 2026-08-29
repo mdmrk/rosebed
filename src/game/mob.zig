@@ -34,6 +34,7 @@ pub const Type = struct {
     name: []const u8,
     wire_id: ?u8 = null,
     monster: bool = false,
+    vanishes_on_peaceful: bool = false,
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
     tick: *const fn (*Animal, std.mem.Allocator, *const world.World, Animal.Players, *world.JavaRandom) anyerror!void,
     takeDrops: *const fn (*Animal) ?Drops,

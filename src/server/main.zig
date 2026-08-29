@@ -16,11 +16,16 @@ pub const outgoing_high_water: usize = 4 * 1024 * 1024;
 pub const autosave_interval_ticks: u64 = 900;
 pub const save_chunks_per_pass: usize = 64;
 
+// Vanilla's dedicated server has no difficulty setting of its own: it derives one from
+// spawn-monsters, landing on easy or peaceful and never anything harder.
+pub const default_difficulty: world.Difficulty = .easy;
+
 pub const Options = struct {
     port: u16 = default_port,
     folder: []const u8 = "world",
     seed: ?i64 = null,
     ticks: ?u64 = null,
+    difficulty: world.Difficulty = default_difficulty,
 };
 
 pub fn parseArgs(args: []const [:0]const u8) !Options {
@@ -40,6 +45,10 @@ pub fn parseArgs(args: []const [:0]const u8) !Options {
         } else if (std.mem.eql(u8, arg, "--ticks") and index + 1 < args.len) {
             index += 1;
             options.ticks = try std.fmt.parseInt(u64, args[index], 10);
+        } else if (std.mem.eql(u8, arg, "--difficulty") and index + 1 < args.len) {
+            index += 1;
+            options.difficulty = std.meta.stringToEnum(world.Difficulty, args[index]) orelse
+                return error.UnknownArgument;
         } else {
             return error.UnknownArgument;
         }
@@ -541,6 +550,7 @@ pub fn main(init: std.process.Init) !void {
         dim.level.world_map.note_sink = noteSink(dim);
         dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
         dim.level.world_map.has_sky = dim.dimension.hasSky();
+        dim.level.world_map.difficulty = options.difficulty;
     }
     server.dimOf(.nether).level.entities.next_entity_id = nether_id_base;
 

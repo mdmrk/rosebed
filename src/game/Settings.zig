@@ -1,24 +1,8 @@
 const std = @import("std");
 
-pub const Difficulty = enum(u2) {
-    peaceful,
-    easy,
-    normal,
-    hard,
+const world = @import("world");
 
-    pub fn label(self: Difficulty) []const u8 {
-        return switch (self) {
-            .peaceful => "Peaceful",
-            .easy => "Easy",
-            .normal => "Normal",
-            .hard => "Hard",
-        };
-    }
-
-    pub fn next(self: Difficulty) Difficulty {
-        return @enumFromInt(@intFromEnum(self) +% 1);
-    }
-};
+pub const Difficulty = world.Difficulty;
 
 pub const RenderDistance = enum(u2) {
     far,

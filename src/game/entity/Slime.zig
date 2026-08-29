@@ -223,7 +223,13 @@ pub fn chunkSeed(chunk_x: i32, chunk_z: i32, world_seed: i64, salt: i64) i64 {
     return mixed ^ salt;
 }
 
-pub fn canSpawnHere(self: Slime, world_seed: i64, rand: *world.JavaRandom) bool {
+pub fn canSpawnHere(
+    self: Slime,
+    world_map: *const world.World,
+    world_seed: i64,
+    rand: *world.JavaRandom,
+) bool {
+    if (self.size != 1 and !world_map.difficulty.atLeast(.easy)) return false;
     if (rand.nextIntBound(10) != 0) return false;
 
     const chunk_x = @divFloor(math.util.floorDouble(self.animal.base.position.x), world.Chunk.width);
@@ -518,6 +524,8 @@ test "the slime chunk seed matches the vanilla chunk mix" {
 }
 
 test "slimes only spawn low down, and only in one chunk in ten" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
     var high = Slime.spawn(math.Vec3.init(8.5, 40, 8.5), &rand);
@@ -525,7 +533,7 @@ test "slimes only spawn low down, and only in one chunk in ten" {
 
     var allowed = false;
     for (0..400) |_| {
-        if (high.canSpawnHere(1, &rand)) allowed = true;
+        if (high.canSpawnHere(&w, 1, &rand)) allowed = true;
     }
     try std.testing.expect(!allowed);
 
@@ -537,7 +545,7 @@ test "slimes only spawn low down, and only in one chunk in ten" {
 
         var attempts: u32 = 0;
         while (attempts < 200) : (attempts += 1) {
-            if (low.canSpawnHere(1, &rand)) {
+            if (low.canSpawnHere(&w, 1, &rand)) {
                 chunks_allowing += 1;
                 break;
             }

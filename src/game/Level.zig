@@ -387,7 +387,9 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     self.seatMobRiders();
 
     if (self.allPlayersFullyAsleep()) {
-        if (!try spawner.performSleepSpawning(gpa, &self.entities, &self.world_map, self.roster.items, rand)) {
+        const disturbed = self.world_map.difficulty.atLeast(.easy) and
+            try spawner.performSleepSpawning(gpa, &self.entities, &self.world_map, self.roster.items, rand);
+        if (!disturbed) {
             self.world_map.skipToDawn();
             try self.wakeUpAllPlayers();
         }

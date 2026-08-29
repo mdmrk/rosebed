@@ -94,6 +94,39 @@ pub const ScheduledTick = struct {
     pub const Key = struct { pos: BlockPos, id: Block };
 };
 
+pub const Difficulty = enum(u2) {
+    peaceful,
+    easy,
+    normal,
+    hard,
+
+    pub fn label(self: Difficulty) []const u8 {
+        return switch (self) {
+            .peaceful => "Peaceful",
+            .easy => "Easy",
+            .normal => "Normal",
+            .hard => "Hard",
+        };
+    }
+
+    pub fn next(self: Difficulty) Difficulty {
+        return @enumFromInt(@intFromEnum(self) +% 1);
+    }
+
+    pub fn atLeast(self: Difficulty, floor: Difficulty) bool {
+        return @intFromEnum(self) >= @intFromEnum(floor);
+    }
+
+    pub fn scaleHostileDamage(self: Difficulty, amount: i32) i32 {
+        return switch (self) {
+            .peaceful => 0,
+            .easy => @divTrunc(amount, 3) + 1,
+            .normal => amount,
+            .hard => @divTrunc(amount * 3, 2),
+        };
+    }
+};
+
 allocator: std.mem.Allocator,
 chunks: std.AutoHashMapUnmanaged(ChunkCoord, *Chunk) = .{},
 decorated: std.AutoHashMapUnmanaged(ChunkCoord, void) = .{},
@@ -107,6 +140,7 @@ primed: std.ArrayList(PrimedTnt) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 update_lcg: i32 = 0,
 time: i64 = 0,
+difficulty: Difficulty = .normal,
 skylight_subtracted: u4 = 0,
 scheduled_updates_are_immediate: bool = false,
 editing_blocks: bool = false,

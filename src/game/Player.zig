@@ -70,6 +70,7 @@ earned: std.EnumSet(achievements.Id) = .initEmpty(),
 minecart_start: ?[3]i32 = null,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
+ticks_existed: i32 = 0,
 
 pub fn earn(self: *Player, id: achievements.Id) void {
     self.earned.insert(id);
@@ -123,6 +124,8 @@ const liquid_jump: f64 = 0.04;
 const liquid_climb_out: f64 = 0.3;
 
 pub const max_air: i32 = 300;
+pub const max_health: i32 = 20;
+pub const peaceful_heal_period: i32 = 20;
 pub const portal_cooldown: i32 = 20;
 pub const portal_reentry_cooldown: i32 = 10;
 const portal_fade_in: f32 = 0.0125;
@@ -300,6 +303,13 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
 }
 
 pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) void {
+    self.ticks_existed +%= 1;
+    if (world_map.difficulty == .peaceful and self.health < max_health and
+        @rem(self.ticks_existed, peaceful_heal_period) == 0)
+    {
+        self.heal(1);
+    }
+
     self.drowned = false;
     self.base.in_water = game_physics.isBoxInMaterial(world_map, self.base.boundingBox().expand(0, -0.4, 0), .water);
     self.updateFire(world_map);
@@ -464,6 +474,10 @@ pub fn hurtFrom(self: *Player, world_map: *const world.World, amount: i32, sourc
     self.damageFrom(world_map, amount, source);
 }
 
+pub fn hurtByHostile(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
+    self.damageFrom(world_map, world_map.difficulty.scaleHostileDamage(amount), source);
+}
+
 fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
     if (world_map.remote) return;
     if (self.health <= 0 or amount == 0) return;
@@ -588,7 +602,7 @@ pub fn setHealth(self: *Player, health: i32) void {
 
 pub fn heal(self: *Player, amount: i32) void {
     if (self.health <= 0) return;
-    self.health = @min(20, self.health + amount);
+    self.health = @min(max_health, self.health + amount);
     self.hurt_resistance = @divTrunc(hurt_resistance_ticks, 2);
 }
 

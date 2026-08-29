@@ -1717,7 +1717,7 @@ pub fn tickArrows(
                     .player => |id| blk: {
                         const struck = playerById(roster, id) orelse break :blk false;
                         const absorbed = struck.absorbsHit(Arrow.damage);
-                        struck.hurt(world_map, Arrow.damage);
+                        struck.hurtByHostile(world_map, Arrow.damage, null);
                         break :blk !absorbed;
                     },
                 };
@@ -2328,6 +2328,12 @@ pub fn tickMobs(
             for (0..drops.count) |_| {
                 try self.items.append(gpa, ItemEntity.spawn(position, drops.stack, rand));
             }
+        }
+
+        if (kind.vanishes_on_peaceful and world_map.difficulty == .peaceful) {
+            _ = self.mobs.orderedRemove(index);
+            kind.destroy(entry.animal, gpa);
+            continue;
         }
 
         if (entry.animal.dead) {

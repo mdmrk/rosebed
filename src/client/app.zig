@@ -2889,6 +2889,9 @@ fn tick(app_state: *AppState) !void {
     app_state.equip.tick(app_state.player.inventory.selectedStack());
     try digStep(app_state);
 
+    app_state.level.world_map.difficulty =
+        if (app_state.link != null) .hard else app_state.settings.difficulty;
+
     if (app_state.link) |link| {
         app_state.level.standInPortals();
         _ = app_state.player.tickPortal();

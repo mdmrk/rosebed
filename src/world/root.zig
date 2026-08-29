@@ -55,6 +55,7 @@ pub const testing = @import("testing.zig");
 pub const tnt = @import("tnt.zig");
 pub const Weather = @import("Weather.zig");
 pub const World = @import("World.zig");
+pub const Difficulty = World.Difficulty;
 
 test {
     _ = Chunk;

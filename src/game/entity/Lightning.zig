@@ -35,6 +35,8 @@ pub fn strike(at: math.Vec3, rand: *world.JavaRandom) Lightning {
 }
 
 pub fn scorch(self: *const Lightning, world_map: *world.World, rand: *world.JavaRandom) !void {
+    if (!world_map.difficulty.atLeast(.normal)) return;
+
     const x = math.util.floorDouble(self.base.position.x);
     const y = math.util.floorDouble(self.base.position.y);
     const z = math.util.floorDouble(self.base.position.z);
