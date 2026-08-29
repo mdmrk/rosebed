@@ -158,28 +158,28 @@ fn resourceFor(comptime field: []const u8) Resource {
 
 const Field = std.meta.FieldEnum(Textures);
 
-fn atlasFrom(bytes: []const u8, resource: Resource) !Atlas {
-    if (resource.filter == .blur) return Atlas.loadBlurred(bytes);
+fn atlasFrom(bytes: []const u8, resource: Resource, desaturate: bool) !Atlas {
+    if (resource.filter == .blur) return Atlas.loadBlurred(bytes, desaturate);
     return switch (resource.wrap) {
-        .clamp => Atlas.load(bytes),
-        .repeat => Atlas.loadRepeat(bytes),
+        .clamp => Atlas.load(bytes, desaturate),
+        .repeat => Atlas.loadRepeat(bytes, desaturate),
     };
 }
 
-fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource) !Atlas {
-    const bytes = archive orelse return atlasFrom(resource.bytes, resource);
+fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource, desaturate: bool) !Atlas {
+    const bytes = archive orelse return atlasFrom(resource.bytes, resource, desaturate);
 
     const overridden = texture_pack.readArchiveEntry(gpa, bytes, resource.path, texture_pack.max_resource_bytes) catch null;
-    const replacement = overridden orelse return atlasFrom(resource.bytes, resource);
+    const replacement = overridden orelse return atlasFrom(resource.bytes, resource, desaturate);
     defer gpa.free(replacement);
 
-    return atlasFrom(replacement, resource) catch atlasFrom(resource.bytes, resource);
+    return atlasFrom(replacement, resource, desaturate) catch atlasFrom(resource.bytes, resource, desaturate);
 }
 
-pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8) !Textures {
+pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8, desaturate: bool) !Textures {
     var loaded: Textures = undefined;
     inline for (@typeInfo(Textures).@"struct".fields) |field| {
-        @field(loaded, field.name) = try loadOne(gpa, archive, resourceFor(field.name));
+        @field(loaded, field.name) = try loadOne(gpa, archive, resourceFor(field.name), desaturate);
     }
     return loaded;
 }

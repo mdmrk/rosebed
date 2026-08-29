@@ -5,6 +5,7 @@ const math = @import("math");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
+const anaglyph = @import("anaglyph.zig");
 const Atlas = @import("Atlas.zig");
 
 const TextureFx = @This();
@@ -406,31 +407,34 @@ pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64) void {
     self.portal.tick();
 }
 
-fn uploadTile(image: []const u8, index: u8, span: gl.int) void {
+fn uploadTile(image: *const [cells * 4]u8, index: u8, span: gl.int, desaturate: bool) void {
+    var converted = image.*;
+    anaglyph.pixels(desaturate, &converted);
+
     const x: gl.int = @as(gl.int, index % Atlas.tiles_per_row) * tile;
     const y: gl.int = @as(gl.int, index / Atlas.tiles_per_row) * tile;
     var dx: gl.int = 0;
     while (dx < span) : (dx += 1) {
         var dy: gl.int = 0;
         while (dy < span) : (dy += 1) {
-            gl.TexSubImage2D(gl.TEXTURE_2D, 0, x + dx * tile, y + dy * tile, tile, tile, gl.RGBA, gl.UNSIGNED_BYTE, image.ptr);
+            gl.TexSubImage2D(gl.TEXTURE_2D, 0, x + dx * tile, y + dy * tile, tile, tile, gl.RGBA, gl.UNSIGNED_BYTE, &converted);
         }
     }
 }
 
-pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas) void {
+pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas, desaturate: bool) void {
     terrain.bind();
-    uploadTile(&self.water.image, waterStillTile(), 1);
-    uploadTile(&self.water_flow.image, waterFlowTile(), 2);
-    uploadTile(&self.lava.image, lavaStillTile(), 1);
-    uploadTile(&self.lava_flow.image, lavaFlowTile(), 2);
-    uploadTile(&self.flames.image, fire_tile, 1);
-    uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1);
-    uploadTile(&self.portal.image, portal_tile, 1);
+    uploadTile(&self.water.image, waterStillTile(), 1, desaturate);
+    uploadTile(&self.water_flow.image, waterFlowTile(), 2, desaturate);
+    uploadTile(&self.lava.image, lavaStillTile(), 1, desaturate);
+    uploadTile(&self.lava_flow.image, lavaFlowTile(), 2, desaturate);
+    uploadTile(&self.flames.image, fire_tile, 1, desaturate);
+    uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1, desaturate);
+    uploadTile(&self.portal.image, portal_tile, 1, desaturate);
 
     items.bind();
-    uploadTile(&self.compass.image, compass_tile, 1);
-    uploadTile(&self.clock.image, clock_tile, 1);
+    uploadTile(&self.compass.image, compass_tile, 1, desaturate);
+    uploadTile(&self.clock.image, clock_tile, 1, desaturate);
 }
 
 test "the animated tiles are the ones the fluid blocks draw with" {

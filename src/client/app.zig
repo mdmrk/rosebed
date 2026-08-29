@@ -115,6 +115,7 @@ pub const AppState = struct {
     controls_open: bool = false,
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
+    anaglyph_pass: render.anaglyph.Pass = null,
     third_person: bool = false,
     freecam: game.Freecam = .{},
     frames_this_second: u32 = 0,
@@ -434,17 +435,17 @@ pub fn init(
     app_state.level.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
     app_state.splash = pickSplash(&app_state.level.world_map.rand);
 
-    app_state.textures = try render.Textures.load(gpa, null);
+    app_state.textures = try render.Textures.load(gpa, null, app_state.settings.anaglyph);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
 
-    if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"));
+    if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"), app_state.settings.anaglyph);
     errdefer if (app_state.github_icon) |icon| icon.deinit();
 
     app_state.colorizer = try render.Colorizer.load(gpa);
     errdefer app_state.colorizer.deinit(gpa);
 
-    app_state.font = try render.Font.load(font_png);
+    app_state.font = try render.Font.load(font_png, app_state.settings.anaglyph);
     errdefer app_state.font.deinit();
 
     try app_state.texture_fx.loadSprites(assets.gui.items_png.bytes, assets.misc.dial_png.bytes);
@@ -1521,14 +1522,29 @@ fn openTexturePacks(app_state: *AppState) !void {
     const thumbnails = try app_state.gpa.alloc(render.Atlas, app_state.packs.len);
     for (app_state.packs, thumbnails) |pack, *thumbnail| {
         const fallback = if (render.texture_pack.isDefault(pack)) assets.pack_png.bytes else assets.gui.unknown_pack_png.bytes;
-        thumbnail.* = render.Atlas.load(pack.thumbnail orelse fallback) catch
-            try render.Atlas.load(assets.gui.unknown_pack_png.bytes);
+        thumbnail.* = render.Atlas.load(pack.thumbnail orelse fallback, app_state.settings.anaglyph) catch
+            try render.Atlas.load(assets.gui.unknown_pack_png.bytes, app_state.settings.anaglyph);
     }
     app_state.pack_thumbnails = thumbnails;
 
     app_state.pack_scroll = 0;
     app_state.screen = .texture_packs;
     try updateMouseMode(app_state);
+}
+
+fn refreshTextures(app_state: *AppState) !void {
+    const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, app_state.selected_pack.text());
+    defer if (archive) |bytes| app_state.gpa.free(bytes);
+
+    const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
+    app_state.textures.deinit();
+    app_state.textures = reloaded;
+
+    const font = try render.Font.load(font_png, app_state.settings.anaglyph);
+    app_state.font.deinit();
+    app_state.font = font;
+
+    try app_state.chunks.markAllDirty(app_state.gpa);
 }
 
 fn selectTexturePack(app_state: *AppState, index: usize) !void {
@@ -1538,7 +1554,7 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, name);
     defer if (archive) |bytes| app_state.gpa.free(bytes);
 
-    const reloaded = try render.Textures.load(app_state.gpa, archive);
+    const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
     app_state.selected_pack.set(name);
@@ -2179,6 +2195,7 @@ fn videoClick(app_state: *AppState) !void {
         render.screen.video_settings.cycle(&app_state.settings, hit);
         switch (hit) {
             .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
+            .anaglyph => try refreshTextures(app_state),
             else => {},
         }
     }
@@ -3257,7 +3274,7 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
         );
     };
 
-    return render.sky.dimmed(near, fogBrightness(app_state));
+    return render.anaglyph.color(app_state.settings.anaglyph, render.sky.dimmed(near, fogBrightness(app_state)));
 }
 
 fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
@@ -3293,11 +3310,15 @@ fn updateListener(app_state: *AppState) void {
 }
 
 fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
+    const pass = app_state.anaglyph_pass;
     updateListener(app_state);
-    app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.level.world_map, app_state.colorizer, .{
-        .smooth = app_state.settings.ambient_occlusion,
-        .fancy = app_state.settings.fancy_graphics,
-    }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_end_ns));
+    if (pass == null or pass.? == 0) {
+        app_state.chunk_updates_this_second += try app_state.chunks.flush(app_state.gpa, &app_state.level.world_map, app_state.colorizer, .{
+            .smooth = app_state.settings.ambient_occlusion,
+            .fancy = app_state.settings.fancy_graphics,
+            .anaglyph = app_state.settings.anaglyph,
+        }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_end_ns));
+    }
 
     const px = drawableSize(app_state);
     const aspect: f32 = @as(f32, @floatFromInt(px.w)) / @as(f32, @floatFromInt(px.h));
@@ -3305,7 +3326,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         underwater_fov_degrees * std.math.pi / 180.0
     else
         fov_y_radians;
-    const proj = math.Mat4.perspective(fov, aspect, near_plane, far_plane);
+    const proj = render.anaglyph.projection(pass, math.Mat4.perspective(fov, aspect, near_plane, far_plane));
     const partial = app_state.timer.render_partial_ticks;
     const eye_view = app_state.player.viewMatrix(partial);
     const camera = if (app_state.freecam.active)
@@ -3318,12 +3339,12 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     } else eye_view;
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const view = if (app_state.freecam.active)
+    const view = render.anaglyph.view(pass, if (app_state.freecam.active)
         camera
     else if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(camera)
     else
-        hurt.mul(warp).mul(camera);
+        hurt.mul(warp).mul(camera));
     const view_proj = proj.mul(view);
     const eye = app_state.player.base.renderPosition(partial);
     const camera_eye = if (app_state.freecam.active)
@@ -3354,7 +3375,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.shader,
         frustum,
         .{ .x = camera_eye.x, .y = camera_eye.y, .z = camera_eye.z },
-        app_state.settings.advanced_opengl,
+        app_state.settings.advanced_opengl and pass == null,
         app_state.cloud_offset,
     );
 
@@ -3840,7 +3861,7 @@ fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
 
         const tile: u8 = render.TextureFx.fire_tile + @as(u8, @intCast(quad)) * render.Atlas.tiles_per_row;
         try render.held_item.appendFire(&mesh, app_state.frame, tile);
-        app_state.shader.setMat4(.u_view_proj, proj.mul(render.held_item.fireMatrix(quad)).m);
+        app_state.shader.setMat4(.u_view_proj, proj.mul(render.anaglyph.view(app_state.anaglyph_pass, render.held_item.fireMatrix(quad))).m);
 
         var gpu = render.GpuMesh.upload(&mesh);
         defer gpu.deinit();
@@ -3969,9 +3990,9 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
 
     const brightness = handBrightness(app_state);
 
-    const placed = app_state.player.hurtMatrix(partial)
+    const placed = render.anaglyph.view(app_state.anaglyph_pass, app_state.player.hurtMatrix(partial)
         .mul(bob)
-        .mul(render.map_render.baseMatrix(swing, equipped, pitch));
+        .mul(render.map_render.baseMatrix(swing, equipped, pitch)));
     const base = proj.mul(placed);
     const lit = handLightRotation(app_state.player, partial).mul(placed);
 
@@ -4007,7 +4028,7 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     try render.map_render.appendBackground(&background, app_state.frame);
     drawMapPass(&background, app_state.textures.map_background);
 
-    app_state.map_surface.upload(&data.colors);
+    app_state.map_surface.upload(&data.colors, app_state.settings.anaglyph);
     var face: render.MeshBuilder = .{};
     defer face.deinit(app_state.frame);
     try render.map_render.appendFace(&face, app_state.frame);
@@ -4049,7 +4070,7 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     }
     const shape = render.held_item.heldShape(app_state.equip.shown);
 
-    const placed = app_state.player.hurtMatrix(partial).mul(bob);
+    const placed = render.anaglyph.view(app_state.anaglyph_pass, app_state.player.hurtMatrix(partial).mul(bob));
     const lamps = handLightRotation(app_state.player, partial).mul(placed);
     var transform = proj.mul(placed);
     if (shape) |held| {
@@ -4219,10 +4240,10 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     const eye = app_state.player.base.renderPosition(partial);
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const rotation = if (app_state.settings.view_bobbing)
+    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
-        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map));
+        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map)));
 
     const ticks: f64 = @floatFromInt(app_state.cloud_offset);
     try render.SkyRenderer.drawClouds(.{
@@ -4233,7 +4254,7 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
         .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
         .color = render.sky.cloudColor(angle),
-    }, app_state.settings.fancy_graphics);
+    }, app_state.settings.fancy_graphics, app_state.anaglyph_pass);
 }
 
 fn portalWarp(app_state: *const AppState, partial: f32) math.Mat4 {
@@ -4264,10 +4285,10 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
     ));
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const rotation = if (app_state.settings.view_bobbing)
+    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
-        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map));
+        hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map)));
 
     try app_state.sky.draw(.{
         .shader = app_state.shader,
@@ -4280,6 +4301,7 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
         .fog_color = horizon,
         .far_plane_distance = render.sky.farPlaneDistance(render_distance),
         .fog_density = cameraFogDensity(app_state),
+        .pass = app_state.anaglyph_pass,
     });
 }
 
@@ -4437,7 +4459,7 @@ pub fn iterate(
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state), clockAngle(app_state));
-        app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items);
+        app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items, app_state.settings.anaglyph);
     }
 
     if (app_state.screen == .loading) try stepLoading(app_state);
@@ -4445,13 +4467,25 @@ pub fn iterate(
     const horizon = horizonColor(app_state);
     gl.Enable(gl.DEPTH_TEST);
     gl.ClearColor(horizon[0], horizon[1], horizon[2], 1.0);
-    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     if (app_state.third_person and app_state.player.isInsideOpaqueBlock(&app_state.level.world_map)) {
         app_state.third_person = false;
     }
 
-    if (app_state.screen == .playing) try renderWorld(app_state, horizon);
+    if (app_state.settings.anaglyph and app_state.screen == .playing) {
+        for (0..2) |eye| {
+            app_state.anaglyph_pass = @intCast(eye);
+            render.anaglyph.beginPass(app_state.anaglyph_pass);
+            gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            try renderWorld(app_state, horizon);
+        }
+        app_state.anaglyph_pass = null;
+        render.anaglyph.endPasses();
+    } else {
+        render.anaglyph.beginPass(null);
+        gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        if (app_state.screen == .playing) try renderWorld(app_state, horizon);
+    }
     app_state.frame_end_ns = sdl3.timer.getNanosecondsSinceInit();
 
     const ui = uiContext(app_state, gui);

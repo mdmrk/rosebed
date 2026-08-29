@@ -3,6 +3,7 @@ const std = @import("std");
 const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
+const anaglyph = @import("anaglyph.zig");
 const Atlas = @import("Atlas.zig");
 
 const Font = @This();
@@ -41,7 +42,7 @@ fn scanCharWidth(pixels: []const u8, tex_width: usize, c: usize) u8 {
     return @intCast(rightmost + 2);
 }
 
-pub fn load(data: []const u8) !Font {
+pub fn load(data: []const u8, desaturate: bool) !Font {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
 
@@ -55,6 +56,7 @@ pub fn load(data: []const u8) !Font {
 
     var char_width: [256]u8 = undefined;
     for (0..256) |c| char_width[c] = scanCharWidth(pixels, width_usize, c);
+    anaglyph.pixels(desaturate, pixels);
 
     var texture: gl.uint = 0;
     gl.GenTextures(1, @ptrCast(&texture));

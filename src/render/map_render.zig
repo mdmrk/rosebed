@@ -4,6 +4,7 @@ const gl = @import("gl");
 const math = @import("math");
 const world = @import("world");
 
+const anaglyph = @import("anaglyph.zig");
 const Font = @import("Font.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
@@ -59,8 +60,8 @@ pub const Surface = struct {
         gl.BindTexture(gl.TEXTURE_2D, self.texture);
     }
 
-    pub fn upload(self: *Surface, colors: []const u8) void {
-        paint(&self.pixels, colors);
+    pub fn upload(self: *Surface, colors: []const u8, desaturate: bool) void {
+        paint(&self.pixels, colors, desaturate);
         self.bind();
         gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
         gl.TexSubImage2D(
@@ -77,7 +78,7 @@ pub const Surface = struct {
     }
 };
 
-pub fn paint(pixels: []u8, colors: []const u8) void {
+pub fn paint(pixels: []u8, colors: []const u8, desaturate: bool) void {
     const stride: usize = @intFromFloat(face_size);
     for (colors, 0..) |shaded, index| {
         const tone = shaded / 4;
@@ -93,12 +94,12 @@ pub fn paint(pixels: []u8, colors: []const u8) void {
             0 => shade_dark,
             else => shade_flat,
         };
-        out.* = .{
+        const shaded_rgb = anaglyph.tint(desaturate, .{
             @intCast((rgb >> 16 & 255) * shade / 255),
             @intCast((rgb >> 8 & 255) * shade / 255),
             @intCast((rgb & 255) * shade / 255),
-            255,
-        };
+        });
+        out.* = .{ shaded_rgb[0], shaded_rgb[1], shaded_rgb[2], 255 };
     }
 }
 

@@ -3,6 +3,7 @@ const std = @import("std");
 const gl = @import("gl");
 const math = @import("math");
 
+const anaglyph = @import("anaglyph.zig");
 const GpuMesh = @import("GpuMesh.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 const Shader = @import("Shader.zig");
@@ -80,6 +81,7 @@ pub const Frame = struct {
     fog_color: sky.Color,
     far_plane_distance: f32,
     fog_density: ?f32 = null,
+    pass: anaglyph.Pass = null,
 };
 
 pub fn voidPlaneColor(sky_color: sky.Color) [4]f32 {
@@ -93,6 +95,7 @@ pub fn voidPlaneColor(sky_color: sky.Color) [4]f32 {
 
 pub fn draw(self: SkyRenderer, frame: Frame) !void {
     const view_proj = frame.projection.mul(frame.view_rotation);
+    const sky_color = anaglyph.color(frame.pass != null, frame.sky_color);
 
     gl.DepthMask(gl.FALSE);
     frame.shader.use();
@@ -111,7 +114,7 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
         frame.shader.setFloat(.u_fog_start, 0.0);
         frame.shader.setFloat(.u_fog_end, frame.far_plane_distance * 0.8);
     }
-    frame.shader.setVec4(.u_tint, .{ frame.sky_color[0], frame.sky_color[1], frame.sky_color[2], 1.0 });
+    frame.shader.setVec4(.u_tint, .{ sky_color[0], sky_color[1], sky_color[2], 1.0 });
     self.dome.draw();
     frame.shader.setInt(.u_fog_enabled, 0);
 
@@ -119,9 +122,13 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
         gl.Enable(gl.BLEND);
         gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
+        const glow_color = anaglyph.color(frame.pass != null, .{ sunrise.color[0], sunrise.color[1], sunrise.color[2] });
         var glow: MeshBuilder = .{};
         defer glow.deinit(frame.gpa);
-        try sky.appendSunriseGlow(&glow, frame.gpa, sunrise);
+        try sky.appendSunriseGlow(&glow, frame.gpa, .{
+            .color = .{ glow_color[0], glow_color[1], glow_color[2], sunrise.color[3] },
+            .angle = sunrise.angle,
+        });
 
         const flip: f32 = if (frame.celestial_angle > 0.5) 180.0 else 0.0;
         const oriented = view_proj
@@ -160,7 +167,7 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
 
     frame.shader.setMat4(.u_view_proj, view_proj.m);
     frame.shader.setInt(.u_fog_enabled, 1);
-    frame.shader.setVec4(.u_tint, voidPlaneColor(frame.sky_color));
+    frame.shader.setVec4(.u_tint, voidPlaneColor(sky_color));
     self.void_plane.draw();
 
     frame.shader.setInt(.u_fog_enabled, 0);
@@ -181,13 +188,14 @@ pub const Clouds = struct {
     color: sky.Color,
 };
 
-pub fn drawClouds(frame: Clouds, fancy: bool) !void {
+pub fn drawClouds(frame: Clouds, fancy: bool, pass: anaglyph.Pass) !void {
+    const color = anaglyph.color(pass != null, frame.color);
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(frame.gpa);
     if (fancy) {
-        try sky.appendFancyClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+        try sky.appendFancyClouds(&mesh, frame.gpa, frame.eye, frame.scroll, color);
     } else {
-        try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, frame.color);
+        try sky.appendClouds(&mesh, frame.gpa, frame.eye, frame.scroll, color);
     }
 
     gl.Enable(gl.BLEND);
@@ -208,7 +216,7 @@ pub fn drawClouds(frame: Clouds, fancy: bool) !void {
     if (fancy) {
         gl.ColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.FALSE);
         gpu.draw();
-        gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
+        anaglyph.restoreMask(pass);
         gpu.draw();
     } else {
         gpu.draw();

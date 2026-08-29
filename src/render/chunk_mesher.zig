@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const anaglyph = @import("anaglyph.zig");
 const Atlas = @import("Atlas.zig");
 const Colorizer = @import("Colorizer.zig");
 const item_lighting = @import("item_lighting.zig");
@@ -144,6 +145,7 @@ fn smoothBrightness(
 pub const Options = struct {
     smooth: bool = false,
     fancy: bool = false,
+    anaglyph: bool = false,
     override_tile: ?u8 = null,
     all_faces: bool = false,
 };
@@ -1712,7 +1714,7 @@ pub fn buildBlockAt(
     const own_brightness = world.light.brightnessAt(world_map, x, y, z, emitted);
 
     if (id.isCross()) {
-        const tint = blockTint(colorizer, id, metadata, world.Side.up, climate.temperature, climate.humidity);
+        const tint = anaglyph.tint(options.anaglyph, blockTint(colorizer, id, metadata, world.Side.up, climate.temperature, climate.humidity));
         try buildCross(target, gpa, tileFor(options, id.crossTile(metadata)), tint, own_brightness, bx, by, bz);
         return;
     }
@@ -1895,10 +1897,10 @@ pub fn buildBlockAt(
         }
         const uvs = faceUvs(tile, face.side, height_scale);
 
-        const tint = blockTint(colorizer, id, metadata, face.side, climate.temperature, climate.humidity);
+        const tint = anaglyph.tint(options.anaglyph, blockTint(colorizer, id, metadata, face.side, climate.temperature, climate.humidity));
         const overlaid = options.fancy and id == .grass and tile == world.block.grass_side_tile;
         const overlay_uvs = faceUvs(world.block.grass_side_overlay_tile, face.side, height_scale);
-        const overlay_tint = colorizer.grassColor(climate.temperature, climate.humidity);
+        const overlay_tint = anaglyph.tint(options.anaglyph, colorizer.grassColor(climate.temperature, climate.humidity));
 
         if (options.smooth) {
             const corner_brightness = smoothBrightness(world_map, face, x, y, z, emitted);

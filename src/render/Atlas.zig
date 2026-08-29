@@ -3,6 +3,8 @@ const std = @import("std");
 const gl = @import("gl");
 const sdl3 = @import("sdl3");
 
+const anaglyph = @import("anaglyph.zig");
+
 const Atlas = @This();
 
 pub const tiles_per_row = 16;
@@ -15,16 +17,16 @@ pub const TileSet = std.StaticBitSet(tile_count);
 texture: gl.uint,
 free_tiles: TileSet = TileSet.initEmpty(),
 
-pub fn load(data: []const u8) !Atlas {
-    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.NEAREST);
+pub fn load(data: []const u8, desaturate: bool) !Atlas {
+    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.NEAREST, desaturate);
 }
 
-pub fn loadRepeat(data: []const u8) !Atlas {
-    return loadWrapped(data, gl.REPEAT, gl.NEAREST);
+pub fn loadRepeat(data: []const u8, desaturate: bool) !Atlas {
+    return loadWrapped(data, gl.REPEAT, gl.NEAREST, desaturate);
 }
 
-pub fn loadBlurred(data: []const u8) !Atlas {
-    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.LINEAR);
+pub fn loadBlurred(data: []const u8, desaturate: bool) !Atlas {
+    return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.LINEAR, desaturate);
 }
 
 pub fn unusedTiles(pixels: []const u8, width: usize, height: usize) TileSet {
@@ -80,7 +82,7 @@ pub fn writeTile(self: Atlas, index: u8, rgba: []const u8) void {
     );
 }
 
-fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int) !Atlas {
+fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int, desaturate: bool) !Atlas {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
 
@@ -90,6 +92,7 @@ fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int) !Atlas {
     const width: gl.sizei = @intCast(converted.getWidth());
     const height: gl.sizei = @intCast(converted.getHeight());
     const pixels = converted.getPixels() orelse return error.SurfaceNotAccessible;
+    anaglyph.pixels(desaturate, pixels);
 
     var texture: gl.uint = 0;
     gl.GenTextures(1, @ptrCast(&texture));

@@ -1,4 +1,5 @@
 pub const achievement_toast = @import("achievement_toast.zig");
+pub const anaglyph = @import("anaglyph.zig");
 pub const Atlas = @import("Atlas.zig");
 pub const button = @import("button.zig");
 pub const chat = @import("chat.zig");
@@ -36,6 +37,7 @@ pub const underwater = @import("underwater.zig");
 pub const weather = @import("weather.zig");
 
 test {
+    _ = anaglyph;
     _ = screen;
     _ = sign_render;
     _ = Atlas;
