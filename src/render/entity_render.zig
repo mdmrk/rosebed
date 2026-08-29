@@ -894,7 +894,6 @@ pub fn appendSkeletonBow(
     }
 }
 
-
 pub fn appendSkeleton(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
