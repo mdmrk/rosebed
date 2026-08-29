@@ -3680,6 +3680,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         drawEntityMesh(&cart_mesh);
         app_state.textures.terrain.bind();
     }
+    gl.Disable(gl.CULL_FACE);
     if (pig_mesh.vertices.items.len > 0) {
         app_state.textures.pig.bind();
         drawEntityMesh(&pig_mesh);
@@ -3798,6 +3799,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
 
     try drawPeers(app_state, partial);
     if (app_state.third_person or app_state.player.sleeping or app_state.freecam.active) try drawPlayer(app_state, partial);
+    gl.Enable(gl.CULL_FACE);
     try drawFishLines(app_state, partial);
 
     try drawSelectionOutline(app_state);
