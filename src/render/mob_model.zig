@@ -737,6 +737,8 @@ pub fn bipedArmor(slot: world.item.ArmorSlot) ArmorLayer {
 
 const pixel_scale: f32 = 1.0 / 16.0;
 
+pub const living_lift: f32 = 1.0 / 128.0;
+
 fn rotateX(p: [3]f32, angle: f32) [3]f32 {
     if (angle == 0) return p;
     const c = @cos(angle);

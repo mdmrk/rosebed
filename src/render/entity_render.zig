@@ -215,6 +215,53 @@ pub fn appendItemIcon(
 
 pub const item_shadow_size: f32 = 0.15;
 pub const item_shadow_opacity: f32 = 12.0 / 16.0;
+pub const shadow_opacity: f32 = 1.0;
+
+pub fn mobShadowSize(type_id: game.mob.Id) f32 {
+    return switch (type_id) {
+        game.mob.spider => 1.0,
+        game.mob.pig, game.mob.sheep, game.mob.cow, game.mob.squid => 0.7,
+        game.mob.chicken => 0.3,
+        game.mob.slime => 0.25,
+        else => 0.5,
+    };
+}
+
+pub fn appendEntityShadow(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    base: game.Entity,
+    size: f32,
+    opacity: f32,
+    viewer: math.Vec3,
+    partial_ticks: f32,
+) !void {
+    if (size <= 0.0) return;
+
+    const fade: f32 = @floatCast((1.0 - base.position.sub(viewer).lengthSquared() / 256.0) * opacity);
+    if (fade <= 0.0) return;
+
+    const rendered = base.renderPosition(partial_ticks);
+    const center = math.Vec3.init(rendered.x, rendered.y + base.height / 2.0, rendered.z);
+    const max_x = math.util.floorDouble(center.x + size);
+    const max_y = math.util.floorDouble(center.y);
+    const max_z = math.util.floorDouble(center.z + size);
+
+    var x = math.util.floorDouble(center.x - size);
+    while (x <= max_x) : (x += 1) {
+        var y = math.util.floorDouble(center.y - size);
+        while (y <= max_y) : (y += 1) {
+            var z = math.util.floorDouble(center.z - size);
+            while (z <= max_z) : (z += 1) {
+                const below = world_map.getBlock(x, y - 1, z);
+                if (below == .air or !below.renderAsNormalBlock()) continue;
+                if (world.light.levelAt(world_map, x, y, z) <= 3) continue;
+                try appendShadowOnBlock(mesh, gpa, world_map, center, size, fade, x, y, z);
+            }
+        }
+    }
+}
 
 pub fn appendItemShadow(
     mesh: *MeshBuilder,
@@ -224,33 +271,16 @@ pub fn appendItemShadow(
     viewer: math.Vec3,
     partial_ticks: f32,
 ) !void {
-    const eye_offset = math.Vec3.init(
-        item.base.position.x,
-        item.base.position.y + game.ItemEntity.height / 2.0,
-        item.base.position.z,
-    ).sub(viewer);
-    const fade: f32 = @floatCast((1.0 - eye_offset.lengthSquared() / 256.0) * item_shadow_opacity);
-    if (fade <= 0.0) return;
-
-    const rendered = item.base.renderPosition(partial_ticks);
-    const center = math.Vec3.init(rendered.x, rendered.y + game.ItemEntity.height, rendered.z);
-    const max_x = math.util.floorDouble(center.x + item_shadow_size);
-    const max_y = math.util.floorDouble(center.y);
-    const max_z = math.util.floorDouble(center.z + item_shadow_size);
-
-    var x = math.util.floorDouble(center.x - item_shadow_size);
-    while (x <= max_x) : (x += 1) {
-        var y = math.util.floorDouble(center.y - item_shadow_size);
-        while (y <= max_y) : (y += 1) {
-            var z = math.util.floorDouble(center.z - item_shadow_size);
-            while (z <= max_z) : (z += 1) {
-                const below = world_map.getBlock(x, y - 1, z);
-                if (below == .air or !below.renderAsNormalBlock()) continue;
-                if (world.light.levelAt(world_map, x, y, z) <= 3) continue;
-                try appendShadowOnBlock(mesh, gpa, world_map, center, item_shadow_size, fade, x, y, z);
-            }
-        }
-    }
+    return appendEntityShadow(
+        mesh,
+        gpa,
+        world_map,
+        item.base,
+        item_shadow_size,
+        item_shadow_opacity,
+        viewer,
+        partial_ticks,
+    );
 }
 
 fn appendShadowOnBlock(
@@ -559,6 +589,7 @@ fn bipedPose(world_map: *const world.World, player: game.Player, partial_ticks: 
             player.renderYaw(partial_ticks) * to_radians,
         .roll = if (asleep) sleep_corpse_rotation else 0,
         .spin = if (asleep) sleep_corpse_rotation else 0,
+        .lift = mob_model.living_lift * player_scale,
         .scale = @splat(player_scale),
     };
 }
@@ -670,7 +701,7 @@ pub fn appendSquid(
         .yaw = squid.animal.renderYaw(partial_ticks) * to_radians,
         .pitch = squid.renderTilt(partial_ticks) * to_radians,
         .spin = squid.renderSpin(partial_ticks) * to_radians,
-        .lift = squid_lift,
+        .lift = squid_lift + mob_model.living_lift,
     };
 
     const brightness = brightnessOf(world_map, squid.animal.base);
@@ -939,6 +970,7 @@ fn animalPose(animal: game.Animal, partial_ticks: f32, scale: [3]f32) mob_model.
         .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
         .yaw = animal.renderYaw(partial_ticks) * to_radians,
         .roll = animal.deathTilt(partial_ticks) * to_radians,
+        .lift = mob_model.living_lift * scale[1],
         .scale = scale,
     };
 }
@@ -1388,6 +1420,61 @@ test "an item resting on a lit block lays its shadow on the surface below it" {
     try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
 }
 
+test "every mob lays a shadow the size RenderManager gave its renderer" {
+    try std.testing.expectEqual(@as(f32, 0.3), mobShadowSize(game.mob.chicken));
+    try std.testing.expectEqual(@as(f32, 0.7), mobShadowSize(game.mob.pig));
+    try std.testing.expectEqual(@as(f32, 0.7), mobShadowSize(game.mob.cow));
+    try std.testing.expectEqual(@as(f32, 1.0), mobShadowSize(game.mob.spider));
+    try std.testing.expectEqual(@as(f32, 0.25), mobShadowSize(game.mob.slime));
+    try std.testing.expectEqual(@as(f32, 0.5), mobShadowSize(game.mob.skeleton));
+}
+
+test "a chicken on a lit block lays a shadow, and a smaller one than a cow" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+    world_map.setBlockLight(8, 64, 8, 15);
+
+    const viewer = math.Vec3.init(8.5, 66, 8.5);
+    const standing = math.Vec3.init(8.5, 64, 8.5);
+
+    var chicken: MeshBuilder = .{};
+    defer chicken.deinit(gpa);
+    try appendEntityShadow(
+        &chicken,
+        gpa,
+        &world_map,
+        game.Entity.init(standing, game.Chicken.width, game.Chicken.height),
+        mobShadowSize(game.mob.chicken),
+        shadow_opacity,
+        viewer,
+        0,
+    );
+
+    try std.testing.expectEqual(@as(usize, 4), chicken.vertices.items.len);
+    for (chicken.vertices.items) |vertex| {
+        try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 1.0 / 64.0), vertex.y, 1.0e-6);
+        try std.testing.expect(vertex.color[3] > 0);
+    }
+
+    var cow: MeshBuilder = .{};
+    defer cow.deinit(gpa);
+    try appendEntityShadow(
+        &cow,
+        gpa,
+        &world_map,
+        game.Entity.init(standing, game.Cow.width, game.Cow.height),
+        mobShadowSize(game.mob.cow),
+        shadow_opacity,
+        viewer,
+        0,
+    );
+
+    const chicken_span = @abs(chicken.vertices.items[0].u - chicken.vertices.items[2].u);
+    const cow_span = @abs(cow.vertices.items[0].u - cow.vertices.items[2].u);
+    try std.testing.expect(cow_span < chicken_span);
+}
+
 test "an item casts no shadow in the dark or with nothing solid under it" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
@@ -1618,7 +1705,7 @@ test "the pig model stands on its own feet instead of hanging below them" {
     try appendPig(&mesh, gpa, &world_map, pig, 0);
 
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
     try std.testing.expect(bounds[1][1] > 64.0);
     try std.testing.expect(bounds[1][1] < 64.0 + 1.2);
 }
@@ -1831,7 +1918,7 @@ test "a sheep is drawn taller than a pig and stands on its own feet" {
 
     const sheep_bounds = meshBounds(body);
     const pig_bounds = meshBounds(pig);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), sheep_bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), sheep_bounds[0][1], 1.0e-5);
     try std.testing.expect(sheep_bounds[1][1] > pig_bounds[1][1]);
     try std.testing.expect(sheep_bounds[1][1] < 64.0 + game.Sheep.height + 0.2);
 }
@@ -1862,9 +1949,10 @@ test "a slime is a body with two eyes and a mouth, inside a shell of its own" {
 
     const body_bounds = meshBounds(body);
     const shell_bounds = meshBounds(shell);
+    const slime_lift = mob_model.living_lift * slimeScale(slime, 0)[1];
 
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), shell_bounds[0][1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.5), shell_bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + slime_lift), shell_bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.5 + slime_lift), shell_bounds[1][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, -0.25), shell_bounds[0][0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0.25), shell_bounds[1][0], 1.0e-5);
 
@@ -2065,8 +2153,8 @@ test "a cow renders its head, both horns, its body, its udder and four legs" {
     // The cow stands on its own feet, and — as in the original — its horns reach above the
     // collision box it walks around in.
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 25.0 / 16.0), bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 25.0 / 16.0 + mob_model.living_lift), bounds[1][1], 1.0e-5);
     try std.testing.expect(bounds[1][1] > 64.0 + game.Cow.height);
 }
 
@@ -2195,7 +2283,7 @@ test "a chicken renders its head, bill, chin, body, two legs and two wings" {
     try std.testing.expectEqual(@as(usize, 8 * 6 * 4), mesh.vertices.items.len);
 
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
     try std.testing.expect(bounds[1][1] > 64.0 + game.Chicken.height);
 }
 
@@ -2669,8 +2757,8 @@ test "a pig zombie renders a whole biped standing on the ground it was placed on
     try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
 
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0), bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0 + mob_model.living_lift), bounds[1][1], 1.0e-5);
 }
 
 const creeper_head = 0;
@@ -2690,8 +2778,8 @@ test "a creeper renders a head, a body and four legs standing on the ground" {
 
     // ModelCreeper's legs stop at 22 px, not 24, so the feet sit two pixels off the floor.
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0 / 16.0), bounds[0][1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 28.0 / 16.0), bounds[1][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0 / 16.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 28.0 / 16.0 + mob_model.living_lift), bounds[1][1], 1.0e-5);
 
     const head = partBounds(mesh, creeper_head);
     const body = partBounds(mesh, creeper_body);
@@ -2908,7 +2996,7 @@ test "a skeleton is drawn thinner in the limbs than a zombie, and the same in he
     }
 
     const bounds = meshBounds(skeleton);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
 }
 
 test "a skeleton holds its arms out ahead like the zombie it is posed as" {
@@ -3080,7 +3168,7 @@ test "a wolf renders head, body, four legs, two ears, snout, tail and mane, stan
     try std.testing.expectEqual(@as(usize, 11 * 6 * 4), mesh.vertices.items.len);
 
     const bounds = meshBounds(mesh);
-    try std.testing.expectApproxEqAbs(@as(f32, 64.0), bounds[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
     try std.testing.expect(bounds[1][1] > 64.0 + game.Wolf.height);
 }
 
@@ -3728,9 +3816,10 @@ test "a ghast is a body cube with nine tentacles hanging under it" {
     try std.testing.expectEqual(@as(usize, 10 * 6 * 4), mesh.vertices.items.len);
 
     const body = partBounds(mesh, 0);
+    const ghast_lift = mob_model.living_lift * ghastScale(ghast, 0)[1];
     try std.testing.expectApproxEqAbs(@as(f32, 4.5), body[1][0] - body[0][0], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 4.5), body[1][1] - body[0][1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 66.25), body[0][1], 1.0e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 66.25 + ghast_lift), body[0][1], 1.0e-5);
 
     for (1..10) |tentacle| {
         const bounds = partBounds(mesh, tentacle);

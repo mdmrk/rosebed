@@ -3368,6 +3368,20 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendItemShadow(&shadow_mesh, app_state.frame, &app_state.level.world_map, item, camera_eye, partial);
         }
     }
+    if (app_state.settings.fancy_graphics) {
+        for (app_state.level.entities.mobs.items) |mob| {
+            try render.entity_render.appendEntityShadow(
+                &shadow_mesh,
+                app_state.frame,
+                &app_state.level.world_map,
+                mob.animal.base,
+                render.entity_render.mobShadowSize(mob.type_id),
+                render.entity_render.shadow_opacity,
+                camera_eye,
+                partial,
+            );
+        }
+    }
     for (app_state.level.entities.pickups.items) |fx| {
         const swallowed = fx.swallowed(&app_state.player, partial);
         try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.level.world_map, swallowed, partial);
