@@ -121,15 +121,23 @@ pub const Binding = enum {
 
 pub const KeyBindings = std.EnumArray(Binding, u32);
 
-pub const LastServer = struct {
-    bytes: [128]u8 = undefined,
+pub const default_skin = "Default";
+
+pub const Name = struct {
+    bytes: [128]u8 = @splat(0),
     len: usize = 0,
 
-    pub fn text(self: *const LastServer) []const u8 {
+    pub fn init(value: []const u8) Name {
+        var name: Name = .{};
+        name.set(value);
+        return name;
+    }
+
+    pub fn text(self: *const Name) []const u8 {
         return self.bytes[0..self.len];
     }
 
-    pub fn set(self: *LastServer, value: []const u8) void {
+    pub fn set(self: *Name, value: []const u8) void {
         self.len = @min(value.len, self.bytes.len);
         @memcpy(self.bytes[0..self.len], value[0..self.len]);
     }
@@ -153,7 +161,8 @@ anaglyph: bool = false,
 view_bobbing: bool = true,
 gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
-last_server: LastServer = .{},
+skin: Name = .init(default_skin),
+last_server: Name = .{},
 keys: KeyBindings = .init(.{
     .forward = 'w',
     .left = 'a',

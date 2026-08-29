@@ -43,6 +43,7 @@ pub const raycast = @import("raycast.zig");
 pub const Settings = @import("Settings.zig");
 pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
+pub const options_file = @import("options_file.zig");
 pub const stats_file = @import("stats_file.zig");
 pub const Window = @import("Window.zig");
 
@@ -91,6 +92,7 @@ test {
     _ = crafting;
     _ = Settings;
     _ = stats;
+    _ = options_file;
     _ = stats_file;
     _ = commands;
 }

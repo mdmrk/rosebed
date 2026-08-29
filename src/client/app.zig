@@ -137,7 +137,6 @@ pub const AppState = struct {
     packs_dir: std.Io.Dir,
     packs: []render.texture_pack.Pack = &.{},
     pack_thumbnails: []render.Atlas = &.{},
-    selected_pack: NameBuffer = .{},
     pack_scroll: f32 = 0,
     save_handle: ?world.save.Save = null,
     open_folder: NameBuffer = .{},
@@ -424,7 +423,7 @@ pub fn init(
         .saves_dir = saves_dir,
         .packs_dir = packs_dir,
     };
-    app_state.selected_pack.set(render.texture_pack.default_name);
+    app_state.settings = game.options_file.load(gpa, io, base_dir);
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
     gl.DepthFunc(gl.LEQUAL);
@@ -435,7 +434,9 @@ pub fn init(
     app_state.level.world_map.rand.setSeed(@bitCast(sdl3.timer.getNanosecondsSinceInit()));
     app_state.splash = pickSplash(&app_state.level.world_map.rand);
 
-    app_state.textures = try render.Textures.load(gpa, null, app_state.settings.anaglyph);
+    const startup_pack = render.Textures.openArchive(gpa, io, packs_dir, app_state.settings.skin.text());
+    defer if (startup_pack) |bytes| gpa.free(bytes);
+    app_state.textures = try render.Textures.load(gpa, startup_pack, app_state.settings.anaglyph);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
 
@@ -1462,6 +1463,7 @@ fn connectToServer(app_state: *AppState) !void {
     var stored: [128]u8 = undefined;
     const typed = app_state.multiplayer_state.address.text();
     app_state.settings.last_server.set(render.screen.multiplayer.storedName(typed, &stored));
+    saveOptions(app_state);
 
     const address = render.screen.multiplayer.parseAddress(typed);
 
@@ -1532,8 +1534,14 @@ fn openTexturePacks(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn saveOptions(app_state: *AppState) void {
+    game.options_file.save(app_state.gpa, app_state.io, app_state.base_dir, &app_state.settings) catch |err| {
+        std.log.warn("could not save {s}: {t}", .{ game.options_file.file_name, err });
+    };
+}
+
 fn refreshTextures(app_state: *AppState) !void {
-    const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, app_state.selected_pack.text());
+    const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, app_state.settings.skin.text());
     defer if (archive) |bytes| app_state.gpa.free(bytes);
 
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
@@ -1549,7 +1557,7 @@ fn refreshTextures(app_state: *AppState) !void {
 
 fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const name = app_state.packs[index].name;
-    if (std.mem.eql(u8, name, app_state.selected_pack.text())) return;
+    if (std.mem.eql(u8, name, app_state.settings.skin.text())) return;
 
     const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, name);
     defer if (archive) |bytes| app_state.gpa.free(bytes);
@@ -1557,7 +1565,8 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
-    app_state.selected_pack.set(name);
+    app_state.settings.skin.set(name);
+    saveOptions(app_state);
 }
 
 fn texturePacksClick(app_state: *AppState) !void {
@@ -1952,6 +1961,7 @@ fn openOptions(app_state: *AppState, parent: OptionsParent) !void {
 }
 
 fn closeOptions(app_state: *AppState) !void {
+    saveOptions(app_state);
     app_state.options_open = false;
     app_state.video_open = false;
     app_state.controls_open = false;
@@ -2177,8 +2187,14 @@ fn optionsClick(app_state: *AppState) !void {
             app_state.dragging_slider = s;
             setSlider(app_state, s, render.screen.options.sliderValueAt(s, app_state.mouse_x, gui));
         },
-        .toggle_invert => app_state.settings.invert_mouse = !app_state.settings.invert_mouse,
-        .cycle_difficulty => app_state.settings.difficulty = app_state.settings.difficulty.next(),
+        .toggle_invert => {
+            app_state.settings.invert_mouse = !app_state.settings.invert_mouse;
+            saveOptions(app_state);
+        },
+        .cycle_difficulty => {
+            app_state.settings.difficulty = app_state.settings.difficulty.next();
+            saveOptions(app_state);
+        },
         .video => app_state.video_open = true,
         .controls => app_state.controls_open = true,
         .done => try closeOptions(app_state),
@@ -2198,6 +2214,7 @@ fn videoClick(app_state: *AppState) !void {
             .anaglyph => try refreshTextures(app_state),
             else => {},
         }
+        saveOptions(app_state);
     }
 }
 
@@ -4552,7 +4569,7 @@ pub fn iterate(
             ui,
             app_state.packs,
             app_state.pack_thumbnails,
-            render.texture_pack.indexOf(app_state.packs, app_state.selected_pack.text()),
+            render.texture_pack.indexOf(app_state.packs, app_state.settings.skin.text()),
             app_state.pack_scroll,
         );
     } else if (app_state.screen == .confirm_delete) {
@@ -4700,6 +4717,7 @@ pub fn event(
             if (app_state.rebinding) |binding| {
                 if (k.key) |key| {
                     app_state.settings.keys.set(binding, @intFromEnum(key));
+                    saveOptions(app_state);
                     app_state.rebinding = null;
                 }
             } else if (k.key == .escape) {
@@ -4896,6 +4914,7 @@ pub fn event(
             .left => {
                 app_state.mouse_left_down = false;
                 app_state.missed_click_cooldown = 0;
+                if (app_state.dragging_slider != null) saveOptions(app_state);
                 app_state.dragging_slider = null;
                 app_state.dragging_scrollbar = false;
                 app_state.stats_view.pressed = null;
