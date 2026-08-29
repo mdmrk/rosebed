@@ -134,6 +134,7 @@ pub const Tracked = struct {
     since_resync: u32 = 0,
     hurt_time: i32 = 0,
     alive: bool = true,
+    riding: game.Entity.Id = game.Entity.no_id,
     motion: math.Vec3 = math.Vec3.init(0, 0, 0),
     watched: Snapshot = .{},
     seen: bool = true,
@@ -166,6 +167,13 @@ fn peerAlive(peer: Peer) bool {
         .player => |who| who.player.health > 0,
         .mob => |entry| entry.animal.health > 0,
         else => true,
+    };
+}
+
+fn peerRiding(peer: Peer) game.Entity.Id {
+    return switch (peer.body) {
+        .mob => |entry| entry.animal.riding,
+        else => game.Entity.no_id,
     };
 }
 
@@ -350,6 +358,7 @@ fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
     entry.value_ptr.seen = true;
     if (peer.body == .mob) try self.reportWatched(gpa, peer, entry.value_ptr);
     try self.reportStatus(gpa, peer, entry.value_ptr);
+    try self.reportRiding(gpa, peer, entry.value_ptr);
 
     entry.value_ptr.since_resync += 1;
     entry.value_ptr.updates += 1;
@@ -617,6 +626,17 @@ fn reportVelocity(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Tr
         .motion_x = encodeVelocity(motion.x),
         .motion_y = encodeVelocity(motion.y),
         .motion_z = encodeVelocity(motion.z),
+    } });
+}
+
+fn reportRiding(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Tracked) !void {
+    const mount = peerRiding(peer);
+    if (mount == entry.riding) return;
+
+    entry.riding = mount;
+    try self.send(gpa, .{ .attach_entity = .{
+        .entity_id = @bitCast(peer.id),
+        .vehicle_id = if (mount == game.Entity.no_id) -1 else @bitCast(mount),
     } });
 }
 
@@ -2814,4 +2834,49 @@ test "a block change only reaches a player who has been sent that chunk" {
     try std.testing.expectEqual(@as(u8, 63), change.y);
     try std.testing.expectEqual(@intFromEnum(world.Block.stone), change.block);
     try std.testing.expectEqual(@as(u8, 5), change.metadata);
+}
+
+test "a jockey riding its spider is attached to it on the wire" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    const spider = try level.entities.spawnMob(gpa, game.mob.spider, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+    const jockey = try level.entities.spawnMob(gpa, game.mob.skeleton, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+    jockey.riding = spider.base.id;
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+
+    // The first pass only introduces the pair; the attachment follows once both are known.
+    try session.trackPeers(gpa, peers.items);
+    const introductions = try session.takeOutbox(gpa);
+    defer gpa.free(introductions);
+
+    try session.trackPeers(gpa, peers.items);
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqual(@as(i32, @bitCast(jockey.base.id)), replies.items[0].attach_entity.entity_id);
+    try std.testing.expectEqual(@as(i32, @bitCast(spider.base.id)), replies.items[0].attach_entity.vehicle_id);
+
+    jockey.riding = game.Entity.no_id;
+    try session.trackPeers(gpa, peers.items);
+
+    var loosed: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &loosed);
+    try drain(gpa, &session, &loosed);
+
+    try std.testing.expectEqual(@as(usize, 1), loosed.items.len);
+    try std.testing.expectEqual(@as(i32, -1), loosed.items[0].attach_entity.vehicle_id);
 }

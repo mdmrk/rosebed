@@ -195,6 +195,26 @@ fn dropStaleRides(self: *Level) void {
     }
 }
 
+fn seatMobRiders(self: *Level) void {
+    for (self.entities.mobs.items) |entry| {
+        const mount_id = entry.animal.riding;
+        if (mount_id == Animal.Entity.no_id) continue;
+        if (self.entities.minecartById(mount_id) != null) continue;
+
+        const mount = self.entities.mobById(mount_id) orelse {
+            entry.animal.riding = Animal.Entity.no_id;
+            continue;
+        };
+        if (!mount.animal.isAlive()) {
+            entry.animal.riding = Animal.Entity.no_id;
+            continue;
+        }
+
+        entry.animal.base.position = mountedSeat(mount.animal);
+        entry.animal.base.motion = math.Vec3.init(0, 0, 0);
+    }
+}
+
 fn mountedSeat(animal: *const Animal) math.Vec3 {
     return math.Vec3.init(
         animal.base.position.x,
@@ -364,6 +384,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.applyBlockChanges(gpa, scratch);
     self.refreshViews();
     try self.entities.tickMobs(gpa, &self.world_map, self.roster.items, self.players(), rand);
+    self.seatMobRiders();
 
     if (self.allPlayersFullyAsleep()) {
         if (!try spawner.performSleepSpawning(gpa, &self.entities, &self.world_map, self.roster.items, rand)) {
@@ -842,4 +863,53 @@ test "the nether spawns none of the overworld's animals" {
     for (0..200) |_| try level.tick(gpa, arena.allocator());
 
     try std.testing.expectEqual(@as(usize, 0), level.entities.animalCount());
+}
+
+test "a jockey's skeleton is carried on its spider's back every tick" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
+    try level.entities.spawnSkeleton(gpa, math.Vec3.init(4.5, 6, 4.5));
+
+    const spider = level.entities.mobs.items[0].animal;
+    const skeleton = level.entities.mobs.items[1].animal;
+    skeleton.riding = spider.base.id;
+
+    for (0..10) |_| {
+        try level.tick(gpa, arena.allocator());
+        try std.testing.expectEqual(mountedSeat(spider), skeleton.base.position);
+    }
+}
+
+test "a jockey steps off when its spider dies, and stays where it was let down" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
+    try level.entities.spawnSkeleton(gpa, math.Vec3.init(4.5, 6, 4.5));
+
+    const spider = level.entities.mobs.items[0].animal;
+    const skeleton = level.entities.mobs.items[1].animal;
+    skeleton.riding = spider.base.id;
+    try level.tick(gpa, arena.allocator());
+
+    const seat = skeleton.base.position;
+    spider.health = 0;
+    try level.tick(gpa, arena.allocator());
+
+    try std.testing.expectEqual(Animal.Entity.no_id, skeleton.riding);
+    try std.testing.expect(skeleton.base.position.y <= seat.y);
 }

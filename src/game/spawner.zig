@@ -33,6 +33,7 @@ pub const spawn_clearance_squared: f32 = 576.0;
 const pack_attempts: usize = 3;
 const placement_attempts: usize = 4;
 const pack_spread: i32 = 6;
+const jockey_odds: i32 = 100;
 
 pub const Category = enum {
     monster,
@@ -140,6 +141,22 @@ pub fn monsterList(dimension: world.Dimension) []const Horror {
         .overworld => &overworld_monsters,
         .nether => &nether_monsters,
     };
+}
+
+fn mountJockey(
+    gpa: std.mem.Allocator,
+    entities: *Entities,
+    rand: *world.JavaRandom,
+    mount: Animal.Entity.Id,
+    at: math.Vec3,
+    yaw: f32,
+) !void {
+    if (rand.nextIntBound(jockey_odds) != 0) return;
+
+    var skeleton = Skeleton.spawn(at);
+    skeleton.animal.faceYaw(yaw);
+    skeleton.animal.riding = mount;
+    try entities.adopt(gpa, mob.skeleton, skeleton);
 }
 
 fn pickWeighted(comptime T: type, list: []const T, rand: *world.JavaRandom) T {
@@ -310,8 +327,9 @@ fn spawnInChunk(
             const from_spawn = from_spawn_x * from_spawn_x + from_spawn_y * from_spawn_y + from_spawn_z * from_spawn_z;
             if (from_spawn < spawn_clearance_squared) continue;
 
-            // The mob is built first (a sheep rolls its fleece there, a chicken its first clutch),
-            // then turned, then asked whether it can stand where it was put.
+            // The mob is built first (a chicken rolls its first clutch there), then turned,
+            // then asked whether it can stand where it was put. What vanilla leaves until
+            // after the mob has joined — a sheep's fleece, a spider's jockey — waits too.
             const position = math.Vec3.init(at_x, at_y, at_z);
             switch (chosen) {
                 .monster => |monster| {
@@ -326,7 +344,9 @@ fn spawnInChunk(
                             var spider = Spider.spawn(position);
                             spider.animal.faceYaw(rand.nextFloat() * 360.0);
                             if (!spider.canSpawnHere(world_map, rand)) continue;
-                            try entities.adopt(gpa, mob.spider, spider);
+                            const mount = entities.takeId();
+                            try entities.adoptAs(gpa, mob.spider, spider, mount);
+                            try mountJockey(gpa, entities, rand, mount, position, spider.animal.yaw);
                         },
                         .skeleton => {
                             var skeleton = Skeleton.spawn(position);
@@ -1108,8 +1128,11 @@ fn placeNightSpawn(
             spawned.animal.faceYaw(0);
             spawned.animal.base.position = landing;
             spawned.animal.base.prev_position = landing;
+
+            const mount = entities.takeId();
+            try entities.adoptAs(gpa, type_id, spawned, mount);
+            if (tag == .spider) try mountJockey(gpa, entities, rand, mount, landing, 0);
             spawned.animal.playLivingSound(world_map, rand);
-            try entities.adopt(gpa, type_id, spawned);
         },
     }
     return true;
@@ -1171,4 +1194,61 @@ pub fn performSleepSpawning(
     }
 
     return spawned_any;
+}
+
+test "one spider in a hundred rides out of the spawner carrying a skeleton" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(11);
+    const rolls: usize = 20_000;
+    for (0..rolls) |_| {
+        try mountJockey(gpa, &entities, &rand, 1, math.Vec3.init(0, 0, 0), 0);
+    }
+
+    const jockeys = entities.countOf(mob.skeleton);
+    try std.testing.expect(jockeys > rolls / jockey_odds * 9 / 10);
+    try std.testing.expect(jockeys < rolls / jockey_odds * 11 / 10);
+}
+
+test "the jockey's skeleton takes the spider's own bearing and rides its id" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(11);
+    const mount: Animal.Entity.Id = 7;
+    while (entities.countOf(mob.skeleton) == 0) {
+        try mountJockey(gpa, &entities, &rand, mount, math.Vec3.init(4.5, 9, 2.5), 131.0);
+    }
+
+    const jockey = entities.first(Skeleton, mob.skeleton).?;
+    try std.testing.expectEqual(mount, jockey.animal.riding);
+    try std.testing.expectEqual(@as(f32, 131.0), jockey.animal.yaw);
+    try std.testing.expectEqual(math.Vec3.init(4.5, 9, 2.5), jockey.animal.base.position);
+}
+
+test "a spider the spawner rejects never rolls for a jockey" {
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..4000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+    }
+
+    // Broad daylight on the plateau: no spider gets in, so no jockey can be riding one.
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.spider));
+    var walk = entities.of(Skeleton, mob.skeleton);
+    while (walk.next()) |skeleton| {
+        try std.testing.expectEqual(Animal.Entity.no_id, skeleton.animal.riding);
+    }
 }

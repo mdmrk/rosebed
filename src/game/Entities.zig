@@ -371,10 +371,20 @@ pub fn removeById(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
 }
 
 pub fn adopt(self: *Entities, gpa: std.mem.Allocator, type_id: mob.Id, value: anytype) !void {
+    return self.adoptAs(gpa, type_id, value, self.takeId());
+}
+
+pub fn adoptAs(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    type_id: mob.Id,
+    value: anytype,
+    id: Entity.Id,
+) !void {
     const held = try gpa.create(@TypeOf(value));
     errdefer gpa.destroy(held);
     held.* = value;
-    try self.adoptMob(gpa, type_id, &held.animal);
+    try self.adoptMobAs(gpa, type_id, &held.animal, id);
 }
 
 pub const entity_reach: f64 = 3.0;
@@ -2274,6 +2284,7 @@ fn pushNeighbours(self: *Entities, animal: *Animal) void {
     const reach = animal.base.boundingBox().expand(mob_push_reach, 0, mob_push_reach);
     for (self.mobs.items) |entry| {
         if (entry.animal == animal) continue;
+        if (entry.animal.riding == animal.base.id or animal.riding == entry.animal.base.id) continue;
         if (!entry.animal.base.boundingBox().intersects(reach)) continue;
         pushApart(entry.animal, animal);
     }
@@ -4973,4 +4984,29 @@ test "fire with nothing to burn beside it makes no smoke" {
     try entities.spawnFireParticles(gpa, &world_map, 8, 65, 8, &rand);
 
     try std.testing.expectEqual(@as(usize, 0), entities.particles.items.len);
+}
+
+test "a mob and the one riding it are the one pair that never shoves itself apart" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnSpider(gpa, math.Vec3.init(8.5, 1, 8.5));
+    try entities.spawnSkeleton(gpa, math.Vec3.init(8.8, 1, 8.5));
+
+    const spider = entities.mobs.items[0].animal;
+    const skeleton = entities.mobs.items[1].animal;
+
+    entities.pushNeighbours(spider);
+    try std.testing.expect(spider.base.motion.x != 0);
+    try std.testing.expect(skeleton.base.motion.x != 0);
+
+    spider.base.motion = math.Vec3.init(0, 0, 0);
+    skeleton.base.motion = math.Vec3.init(0, 0, 0);
+    skeleton.riding = spider.base.id;
+
+    entities.pushNeighbours(spider);
+    try std.testing.expectEqual(math.Vec3.init(0, 0, 0), spider.base.motion);
+    try std.testing.expectEqual(math.Vec3.init(0, 0, 0), skeleton.base.motion);
 }
