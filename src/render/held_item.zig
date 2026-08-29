@@ -5,6 +5,7 @@ const math = @import("math");
 const world = @import("world");
 
 const chunk_mesher = @import("chunk_mesher.zig");
+const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
@@ -63,8 +64,7 @@ pub fn handMatrix(swing: f32, equipped: f32) math.Mat4 {
     return transform.mul(math.Mat4.scale(0.4, 0.4, 0.4));
 }
 
-pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, brightness: f32) !void {
-    const first_vertex = mesh.vertices.items.len;
+pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, lit: item_lighting.Lit) !void {
     for (id.itemRenderBoxes()) |bounds| {
         try chunk_mesher.buildBoxCube(
             mesh,
@@ -74,9 +74,9 @@ pub fn appendBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, 
             bounds,
             id.faceTextures(),
             id.sideInset(),
+            lit,
         );
     }
-    mesh.scaleColors(first_vertex, brightness);
 }
 
 pub const sprite_thickness: f32 = 1.0 / 16.0;
@@ -92,9 +92,13 @@ pub fn spriteMatrix() math.Mat4 {
         .mul(math.Mat4.translation(-15.0 / 16.0, -1.0 / 16.0, 0));
 }
 
-pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, brightness: f32) !void {
-    const first_vertex = mesh.vertices.items.len;
-    const white: [4]u8 = .{ 255, 255, 255, 255 };
+pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, lit: item_lighting.Lit) !void {
+    const front_color = item_lighting.faceColor(lit, .{ 0, 0, 1 });
+    const back_color = item_lighting.faceColor(lit, .{ 0, 0, -1 });
+    const left_color = item_lighting.faceColor(lit, .{ -1, 0, 0 });
+    const right_color = item_lighting.faceColor(lit, .{ 1, 0, 0 });
+    const top_color = item_lighting.faceColor(lit, .{ 0, 1, 0 });
+    const bottom_color = item_lighting.faceColor(lit, .{ 0, -1, 0 });
     const back = -sprite_thickness;
 
     const column: f32 = @floatFromInt(@as(u32, tile % 16) * 16);
@@ -106,11 +110,11 @@ pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bright
 
     try mesh.quad(gpa, .{
         .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 1, 1, 0 }, .{ 0, 1, 0 },
-    }, .{ .{ right, bottom }, .{ left, bottom }, .{ left, top }, .{ right, top } }, white);
+    }, .{ .{ right, bottom }, .{ left, bottom }, .{ left, top }, .{ right, top } }, front_color);
 
     try mesh.quad(gpa, .{
         .{ 0, 1, back }, .{ 1, 1, back }, .{ 1, 0, back }, .{ 0, 0, back },
-    }, .{ .{ right, top }, .{ left, top }, .{ left, bottom }, .{ right, bottom } }, white);
+    }, .{ .{ right, top }, .{ left, top }, .{ left, bottom }, .{ right, bottom } }, back_color);
 
     for (0..sprite_slices) |slice| {
         const along: f32 = @as(f32, @floatFromInt(slice)) / 16.0;
@@ -121,22 +125,20 @@ pub fn appendSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, bright
 
         try mesh.quad(gpa, .{
             .{ near, 0, back }, .{ near, 0, 0 }, .{ near, 1, 0 }, .{ near, 1, back },
-        }, .{ .{ u, bottom }, .{ u, bottom }, .{ u, top }, .{ u, top } }, white);
+        }, .{ .{ u, bottom }, .{ u, bottom }, .{ u, top }, .{ u, top } }, left_color);
 
         try mesh.quad(gpa, .{
             .{ far, 1, back }, .{ far, 1, 0 }, .{ far, 0, 0 }, .{ far, 0, back },
-        }, .{ .{ u, top }, .{ u, top }, .{ u, bottom }, .{ u, bottom } }, white);
+        }, .{ .{ u, top }, .{ u, top }, .{ u, bottom }, .{ u, bottom } }, right_color);
 
         try mesh.quad(gpa, .{
             .{ 0, far, 0 }, .{ 1, far, 0 }, .{ 1, far, back }, .{ 0, far, back },
-        }, .{ .{ right, v }, .{ left, v }, .{ left, v }, .{ right, v } }, white);
+        }, .{ .{ right, v }, .{ left, v }, .{ left, v }, .{ right, v } }, top_color);
 
         try mesh.quad(gpa, .{
             .{ 1, near, 0 }, .{ 0, near, 0 }, .{ 0, near, back }, .{ 1, near, back },
-        }, .{ .{ left, v }, .{ right, v }, .{ right, v }, .{ left, v } }, white);
+        }, .{ .{ left, v }, .{ right, v }, .{ right, v }, .{ left, v } }, bottom_color);
     }
-
-    mesh.scaleColors(first_vertex, brightness);
 }
 
 pub const fire_quads = 2;
@@ -201,10 +203,11 @@ pub fn armMatrix(swing: f32, equipped: f32) math.Mat4 {
     return transform.mul(math.Mat4.translation(5.6, 0, 0));
 }
 
-pub fn appendArm(mesh: *MeshBuilder, gpa: std.mem.Allocator, brightness: f32) !void {
-    const first_vertex = mesh.vertices.items.len;
-    try mob_model.appendBox(mesh, gpa, arm_box, arm_pivot, arm_scale, mob_model.biped.texture_width, mob_model.biped.texture_height);
-    mesh.scaleColors(first_vertex, brightness);
+pub fn appendArm(mesh: *MeshBuilder, gpa: std.mem.Allocator, brightness: f32, orient: [3][3]f32) !void {
+    try mob_model.appendBox(mesh, gpa, arm_box, arm_pivot, arm_scale, mob_model.biped.texture_width, mob_model.biped.texture_height, .{
+        .orient = orient,
+        .material = item_lighting.material(brightness, .{ 1, 1, 1 }),
+    });
 }
 
 pub const Held = union(enum) {
@@ -285,10 +288,27 @@ test "the extruded sprite is two faces plus four strips of sixteen slices" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendSprite(&mesh, gpa, 7, 1.0);
+    try appendSprite(&mesh, gpa, 7, .{});
 
     const quads = 2 + 4 * sprite_slices;
     try std.testing.expectEqual(@as(usize, quads * 4), mesh.vertices.items.len);
+}
+
+test "the extruded sprite carries ItemRenderer's six normal groups" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendSprite(&mesh, gpa, 7, .{});
+
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ 0, 0, 1 }), mesh.vertices.items[0].color);
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ 0, 0, -1 }), mesh.vertices.items[4].color);
+
+    const slice = mesh.vertices.items[8..];
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ -1, 0, 0 }), slice[0].color);
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ 1, 0, 0 }), slice[4].color);
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ 0, 1, 0 }), slice[8].color);
+    try std.testing.expectEqual(item_lighting.faceColor(.{}, .{ 0, -1, 0 }), slice[12].color);
 }
 
 test "the sprite has depth and stays inside a unit square" {
@@ -296,7 +316,7 @@ test "the sprite has depth and stays inside a unit square" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendSprite(&mesh, gpa, 7, 1.0);
+    try appendSprite(&mesh, gpa, 7, .{});
 
     var nearest: f32 = std.math.floatMax(f32);
     var furthest: f32 = -std.math.floatMax(f32);
@@ -316,7 +336,7 @@ test "the sprite samples only its own tile" {
     defer mesh.deinit(gpa);
 
     const tile: u8 = 3 * 16 + 5;
-    try appendSprite(&mesh, gpa, tile, 1.0);
+    try appendSprite(&mesh, gpa, tile, .{});
 
     const column: f32 = @floatFromInt(@as(u32, tile % 16) * 16);
     const row: f32 = @floatFromInt(@as(u32, tile / 16) * 16);
@@ -333,7 +353,7 @@ test "a held fence samples only its own tile, overhanging rails included" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendBlock(&mesh, gpa, .fence, 1.0);
+    try appendBlock(&mesh, gpa, .fence, .{});
 
     const tile = world.Block.fence.faceTextures().get(.down);
     const column: f32 = @floatFromInt(@as(u32, tile % 16) * 16);
@@ -366,7 +386,7 @@ test "the arm is one box of ModelBiped's right arm dimensions" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendArm(&mesh, gpa, 1.0);
+    try appendArm(&mesh, gpa, 1.0, item_lighting.unrotated);
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
 
     var lowest: [3]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };

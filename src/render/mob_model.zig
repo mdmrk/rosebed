@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 const world = @import("world");
 
+const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
 pub const Box = struct {
@@ -771,6 +772,7 @@ fn rotateYaw(x: f32, z: f32, yaw: f32) [2]f32 {
 const FaceSpec = struct {
     corners: [4][3]f32,
     rect: [4]f32,
+    normal: [3]f32,
 };
 
 fn faceSpecs(box: Box) [6]FaceSpec {
@@ -786,14 +788,15 @@ fn faceSpecs(box: Box) [6]FaceSpec {
     const z2 = box.origin[2] + d + box.inflate;
     const tu = box.tex_u;
     const tv = box.tex_v;
+    const mx: f32 = if (box.mirror) -1 else 1;
 
     return .{
-        .{ .corners = .{ .{ x2, y1, z2 }, .{ x2, y1, z1 }, .{ x2, y2, z1 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv + d, tu + 2 * d + w, tv + d + h } },
-        .{ .corners = .{ .{ x1, y1, z1 }, .{ x1, y1, z2 }, .{ x1, y2, z2 }, .{ x1, y2, z1 } }, .rect = .{ tu, tv + d, tu + d, tv + d + h } },
-        .{ .corners = .{ .{ x2, y1, z2 }, .{ x1, y1, z2 }, .{ x1, y1, z1 }, .{ x2, y1, z1 } }, .rect = .{ tu + d, tv, tu + d + w, tv + d } },
-        .{ .corners = .{ .{ x2, y2, z1 }, .{ x1, y2, z1 }, .{ x1, y2, z2 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv, tu + 2 * w + d, tv + d } },
-        .{ .corners = .{ .{ x2, y1, z1 }, .{ x1, y1, z1 }, .{ x1, y2, z1 }, .{ x2, y2, z1 } }, .rect = .{ tu + d, tv + d, tu + d + w, tv + d + h } },
-        .{ .corners = .{ .{ x1, y1, z2 }, .{ x2, y1, z2 }, .{ x2, y2, z2 }, .{ x1, y2, z2 } }, .rect = .{ tu + 2 * d + w, tv + d, tu + 2 * d + 2 * w, tv + d + h } },
+        .{ .corners = .{ .{ x2, y1, z2 }, .{ x2, y1, z1 }, .{ x2, y2, z1 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv + d, tu + 2 * d + w, tv + d + h }, .normal = .{ mx, 0, 0 } },
+        .{ .corners = .{ .{ x1, y1, z1 }, .{ x1, y1, z2 }, .{ x1, y2, z2 }, .{ x1, y2, z1 } }, .rect = .{ tu, tv + d, tu + d, tv + d + h }, .normal = .{ -mx, 0, 0 } },
+        .{ .corners = .{ .{ x2, y1, z2 }, .{ x1, y1, z2 }, .{ x1, y1, z1 }, .{ x2, y1, z1 } }, .rect = .{ tu + d, tv, tu + d + w, tv + d }, .normal = .{ 0, -1, 0 } },
+        .{ .corners = .{ .{ x2, y2, z1 }, .{ x1, y2, z1 }, .{ x1, y2, z2 }, .{ x2, y2, z2 } }, .rect = .{ tu + d + w, tv, tu + 2 * w + d, tv + d }, .normal = .{ 0, 1, 0 } },
+        .{ .corners = .{ .{ x2, y1, z1 }, .{ x1, y1, z1 }, .{ x1, y2, z1 }, .{ x2, y2, z1 } }, .rect = .{ tu + d, tv + d, tu + d + w, tv + d + h }, .normal = .{ 0, 0, -1 } },
+        .{ .corners = .{ .{ x1, y1, z2 }, .{ x2, y1, z2 }, .{ x2, y2, z2 }, .{ x1, y2, z2 } }, .rect = .{ tu + 2 * d + w, tv + d, tu + 2 * d + 2 * w, tv + d + h }, .normal = .{ 0, 0, 1 } },
     };
 }
 
@@ -805,6 +808,7 @@ pub fn appendBox(
     scale: f32,
     tex_width: f32,
     tex_height: f32,
+    lit: item_lighting.Lit,
 ) !void {
     for (faceSpecs(box)) |face| {
         var positions: [4][3]f32 = undefined;
@@ -825,7 +829,7 @@ pub fn appendBox(
             std.mem.reverse([3]f32, &positions);
             std.mem.reverse([2]f32, &uvs);
         }
-        try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+        try mesh.quad(gpa, positions, uvs, item_lighting.faceColor(lit, face.normal));
     }
 }
 
@@ -847,6 +851,19 @@ pub fn posedOffset(pose: Pose, offset: [3]f32) [3]f32 {
     return .{ xz[0] + pose.position[0], rolled[1] + pose.position[1], xz[1] + pose.position[2] };
 }
 
+pub fn posedNormal(part: Part, pose: Pose, normal: [3]f32) [3]f32 {
+    const spun = rotateZAxis(rotateY(rotateX(normal, part.rotate_x), part.rotate_y), part.rotate_z);
+    const flipped: [3]f32 = .{
+        spun[0] / pose.scale[0],
+        -spun[1] / pose.scale[1],
+        spun[2] / pose.scale[2],
+    };
+    const swum = rotateX(rotateY(flipped, -pose.spin), pose.pitch);
+    const rolled = rotateZ(swum[0], swum[1], pose.roll);
+    const xz = rotateYaw(rolled[0], swum[2], pose.yaw);
+    return item_lighting.normalized(.{ xz[0], rolled[1], xz[1] });
+}
+
 pub fn appendPart(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -854,6 +871,7 @@ pub fn appendPart(
     tex_width: f32,
     tex_height: f32,
     pose: Pose,
+    lit: item_lighting.Lit,
 ) !void {
     for (faceSpecs(part.box)) |face| {
         var positions: [4][3]f32 = undefined;
@@ -870,8 +888,32 @@ pub fn appendPart(
             std.mem.reverse([3]f32, &positions);
             std.mem.reverse([2]f32, &uvs);
         }
-        try mesh.quad(gpa, positions, uvs, .{ 255, 255, 255, 255 });
+        try mesh.quad(gpa, positions, uvs, item_lighting.faceColor(lit, posedNormal(part, pose, face.normal)));
     }
+}
+
+test "a part's faces are shaded by the way they point once posed" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    const cube: Part = .{
+        .box = .{ .origin = .{ -4, -4, -4 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 },
+        .pivot = .{ 0, 0, 0 },
+    };
+    try appendPart(&mesh, gpa, cube, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
+
+    var top: ?u8 = null;
+    var bottom: ?u8 = null;
+    var face: usize = 0;
+    while (face * 4 < mesh.vertices.items.len) : (face += 1) {
+        const corners = mesh.vertices.items[face * 4 ..][0..4];
+        if (corners[1].y != corners[0].y or corners[2].y != corners[0].y or corners[3].y != corners[0].y) continue;
+        if (corners[0].y > 0) top = corners[0].color[0] else bottom = corners[0].color[0];
+    }
+
+    try std.testing.expectEqual(@as(u8, 255), top.?);
+    try std.testing.expectEqual(@as(u8, @intFromFloat(255.0 * item_lighting.ambient)), bottom.?);
 }
 
 test "appendPart emits 6 quads and flips the box into world space at yaw 0" {
@@ -883,7 +925,7 @@ test "appendPart emits 6 quads and flips the box into world space at yaw 0" {
         .box = .{ .origin = .{ 0, 0, 0 }, .size = .{ 16, 16, 16 }, .tex_u = 0, .tex_v = 0 },
         .pivot = .{ 0, 0, 0 },
     };
-    try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+    try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
 
     try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
 
@@ -1039,7 +1081,7 @@ test "ModelBoat's hull and four walls close into a boat" {
     for (boat.parts, &bounds) |part, *out| {
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
-        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
         try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
 
         out[0] = .{ 1000, 1000, 1000 };
@@ -1081,7 +1123,7 @@ test "ModelMinecart's floor, four walls and inner plate close into a cart" {
     for (minecart.parts, &bounds) |part, *out| {
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
-        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
         try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
 
         out[0] = .{ 1000, 1000, 1000 };

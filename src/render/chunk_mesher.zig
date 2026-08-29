@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Atlas = @import("Atlas.zig");
 const Colorizer = @import("Colorizer.zig");
+const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
 const FaceDir = struct {
@@ -1199,6 +1200,7 @@ pub fn buildBoxCube(
     bounds: world.block.Bounds,
     face_textures: world.block.FaceTextures,
     inset: f32,
+    lit: item_lighting.Lit,
 ) !void {
     for (faces) |face| {
         const quad = boxFaceQuad(bounds, .{ 0, 0, 0 }, face, face_textures.get(face.side), .{});
@@ -1208,7 +1210,12 @@ pub fn buildBoxCube(
             position[0] = pulledInward(position[0], face.normal[0], inset);
             position[2] = pulledInward(position[2], face.normal[2], inset);
         }
-        try mesh.quad(gpa, positions, quad.uvs, shadeColor(face.shade, Colorizer.white));
+        const normal: [3]f32 = .{
+            @floatFromInt(face.normal[0]),
+            @floatFromInt(face.normal[1]),
+            @floatFromInt(face.normal[2]),
+        };
+        try mesh.quad(gpa, positions, quad.uvs, item_lighting.faceColor(lit, normal));
     }
 }
 
@@ -3017,7 +3024,7 @@ test "a slab in hand is the bottom half of its block, not a whole cube" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], world.Block.slab.faceTextures(), 0.0);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, boxes[0], world.Block.slab.faceTextures(), 0.0, .{});
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);
@@ -3200,7 +3207,7 @@ fn expectSameMesh(want: MeshBuilder, got: MeshBuilder) !void {
     }
 }
 
-test "a box with full bounds is the cube the item renderers drew before" {
+test "a box with full bounds sits where the whole cube does, lit as an item rather than as terrain" {
     const gpa = std.testing.allocator;
 
     for ([_]world.Block{ .workbench, .cactus }) |id| {
@@ -3212,9 +3219,26 @@ test "a box with full bounds is the cube the item renderers drew before" {
         const textures = id.faceTextures();
         const inset = id.sideInset();
         try buildCube(&cube, gpa, .{ -0.5, -0.5, -0.5 }, .{ 0.5, 0.5, 0.5 }, textures, inset);
-        try buildBoxCube(&box, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], textures, inset);
+        try buildBoxCube(&box, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], textures, inset, .{});
 
-        try expectSameMesh(cube, box);
+        try std.testing.expectEqual(cube.vertices.items.len, box.vertices.items.len);
+        for (cube.vertices.items, box.vertices.items) |a, b| {
+            try std.testing.expectApproxEqAbs(a.x, b.x, 1.0e-6);
+            try std.testing.expectApproxEqAbs(a.y, b.y, 1.0e-6);
+            try std.testing.expectApproxEqAbs(a.z, b.z, 1.0e-6);
+            try std.testing.expectApproxEqAbs(a.u, b.u, 1.0e-6);
+            try std.testing.expectApproxEqAbs(a.v, b.v, 1.0e-6);
+        }
+
+        for (faces, 0..) |face, index| {
+            const normal: [3]f32 = .{
+                @floatFromInt(face.normal[0]),
+                @floatFromInt(face.normal[1]),
+                @floatFromInt(face.normal[2]),
+            };
+            const want = item_lighting.faceColor(.{}, normal);
+            try std.testing.expectEqual(want, box.vertices.items[index * 4].color);
+        }
     }
 }
 
@@ -3224,7 +3248,7 @@ test "a trapdoor in hand is a plate through the middle of its block" {
     defer mesh.deinit(gpa);
 
     const id = world.Block.trapdoor;
-    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], id.faceTextures(), 0.0);
+    try buildBoxCube(&mesh, gpa, .{ 0, 0, 0 }, 1.0, id.itemRenderBoxes()[0], id.faceTextures(), 0.0, .{});
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);

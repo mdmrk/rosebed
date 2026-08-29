@@ -3919,6 +3919,13 @@ fn handBrightness(app_state: *const AppState) f32 {
     );
 }
 
+fn handLightRotation(player: game.Player, partial: f32) math.Mat4 {
+    const degrees = std.math.pi / 180.0;
+    const pitch = player.prev_pitch + (player.pitch - player.prev_pitch) * partial;
+    const yaw = player.prev_yaw + (player.yaw - player.prev_yaw) * partial;
+    return math.Mat4.rotationY(-yaw * degrees).mul(math.Mat4.rotationX(-pitch * degrees));
+}
+
 fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.Inventory.ItemStack) !void {
     const data = try app_state.level.world_map.mapData(@bitCast(stack.meta));
 
@@ -3932,10 +3939,11 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
 
     const brightness = handBrightness(app_state);
 
-    const base = proj
-        .mul(app_state.player.hurtMatrix(partial))
+    const placed = app_state.player.hurtMatrix(partial)
         .mul(bob)
         .mul(render.map_render.baseMatrix(swing, equipped, pitch));
+    const base = proj.mul(placed);
+    const lit = handLightRotation(app_state.player, partial).mul(placed);
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
     app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
@@ -3949,13 +3957,19 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     for (render.map_render.arm_sides) |side| {
         var arm: render.MeshBuilder = .{};
         defer arm.deinit(app_state.frame);
-        try render.held_item.appendArm(&arm, app_state.frame, 1.0);
-        app_state.shader.setMat4(.u_view_proj, base.mul(render.map_render.armMatrix(side)).m);
+        const arm_matrix = render.map_render.armMatrix(side);
+        try render.held_item.appendArm(&arm, app_state.frame, 1.0, render.item_lighting.orientOf(lit.mul(arm_matrix)));
+        app_state.shader.setMat4(.u_view_proj, base.mul(arm_matrix).m);
         drawMapPass(&arm, app_state.textures.char);
     }
 
-    const transform = base.mul(render.map_render.boardMatrix(swing));
-    app_state.shader.setMat4(.u_view_proj, transform.m);
+    const board_matrix = render.map_render.boardMatrix(swing);
+    const board_shade = render.item_lighting.shade(render.item_lighting.normalized(
+        render.item_lighting.turned(render.item_lighting.orientOf(lit.mul(board_matrix)), render.map_render.board_normal),
+    ));
+    const board_tint = @min(1.0, brightness * board_shade);
+    app_state.shader.setVec4(.u_tint, .{ board_tint, board_tint, board_tint, 1 });
+    app_state.shader.setMat4(.u_view_proj, base.mul(board_matrix).m);
     gl.Disable(gl.CULL_FACE);
 
     var background: render.MeshBuilder = .{};
@@ -4005,22 +4019,39 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     }
     const shape = render.held_item.heldShape(app_state.equip.shown);
 
-    var transform = proj.mul(app_state.player.hurtMatrix(partial)).mul(bob);
+    const placed = app_state.player.hurtMatrix(partial).mul(bob);
+    const lamps = handLightRotation(app_state.player, partial).mul(placed);
+    var transform = proj.mul(placed);
     if (shape) |held| {
-        transform = transform.mul(render.held_item.handMatrix(swing, equipped));
+        var held_matrix = render.held_item.handMatrix(swing, equipped);
         if (render.held_item.turnsAroundInHand(app_state.equip.shown)) {
-            transform = transform.mul(math.Mat4.rotationY(std.math.pi));
+            held_matrix = held_matrix.mul(math.Mat4.rotationY(std.math.pi));
         }
+        transform = transform.mul(held_matrix);
+        const material = render.item_lighting.material(brightness, .{ 1, 1, 1 });
         switch (held) {
-            .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, brightness),
+            .cube => |id| try render.held_item.appendBlock(&mesh, app_state.frame, id, .{
+                .orient = render.item_lighting.orientOf(lamps.mul(held_matrix)),
+                .material = material,
+            }),
             .sprite => |sprite| {
-                try render.held_item.appendSprite(&mesh, app_state.frame, sprite.tile, brightness);
-                transform = transform.mul(render.held_item.spriteMatrix());
+                const sprite_matrix = render.held_item.spriteMatrix();
+                try render.held_item.appendSprite(&mesh, app_state.frame, sprite.tile, .{
+                    .orient = render.item_lighting.orientOf(lamps.mul(held_matrix).mul(sprite_matrix)),
+                    .material = material,
+                });
+                transform = transform.mul(sprite_matrix);
             },
         }
     } else {
-        transform = transform.mul(render.held_item.armMatrix(swing, equipped));
-        try render.held_item.appendArm(&mesh, app_state.frame, brightness);
+        const arm_matrix = render.held_item.armMatrix(swing, equipped);
+        transform = transform.mul(arm_matrix);
+        try render.held_item.appendArm(
+            &mesh,
+            app_state.frame,
+            brightness,
+            render.item_lighting.orientOf(lamps.mul(arm_matrix)),
+        );
     }
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);

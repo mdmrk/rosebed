@@ -133,6 +133,8 @@ pub fn armMatrix(side: f32) math.Mat4 {
     return transform.mul(math.Mat4.rotationY(-65.0 * side * degrees));
 }
 
+pub const board_normal: [3]f32 = .{ 0, 0, -1 };
+
 pub fn boardMatrix(swing: f32) math.Mat4 {
     const bob = math.util.sin(@sqrt(swing) * std.math.pi);
     const twist = math.util.sin(swing * swing * std.math.pi);

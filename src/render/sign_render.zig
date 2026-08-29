@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Font = @import("Font.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
+const item_lighting = @import("item_lighting.zig");
 const mob_model = @import("mob_model.zig");
 
 pub const texture_width: f32 = 64;
@@ -71,6 +72,16 @@ fn placeSince(mesh: *MeshBuilder, first_vertex: usize, pose: Pose) void {
     }
 }
 
+fn orientOf(pose: Pose) [3][3]f32 {
+    const cos = @cos(pose.turn);
+    const sin = @sin(pose.turn);
+    return .{
+        .{ cos, 0, -sin },
+        .{ 0, -1, 0 },
+        .{ -sin, 0, -cos },
+    };
+}
+
 fn flipModelSince(mesh: *MeshBuilder, first_vertex: usize) void {
     for (mesh.vertices.items[first_vertex..]) |*vertex| {
         vertex.x *= model_scale;
@@ -90,15 +101,19 @@ pub fn appendBoardAt(
     z: f32,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
+    const pose = poseAt(id, metadata, x, y, z);
+    const lit: item_lighting.Lit = .{
+        .orient = orientOf(pose),
+        .material = item_lighting.material(brightness, .{ 1, 1, 1 }),
+    };
 
-    try mob_model.appendBox(mesh, gpa, board, .{ 0, 0, 0 }, 1.0 / 16.0, texture_width, texture_height);
+    try mob_model.appendBox(mesh, gpa, board, .{ 0, 0, 0 }, 1.0 / 16.0, texture_width, texture_height, lit);
     if (id == .sign_post) {
-        try mob_model.appendBox(mesh, gpa, stick, .{ 0, 0, 0 }, 1.0 / 16.0, texture_width, texture_height);
+        try mob_model.appendBox(mesh, gpa, stick, .{ 0, 0, 0 }, 1.0 / 16.0, texture_width, texture_height, lit);
     }
 
     flipModelSince(mesh, first_vertex);
-    placeSince(mesh, first_vertex, poseAt(id, metadata, x, y, z));
-    mesh.scaleColors(first_vertex, brightness);
+    placeSince(mesh, first_vertex, pose);
 }
 
 pub fn appendBoard(
@@ -209,6 +224,35 @@ pub fn appendTextAt(
             cursor += @floatFromInt(font.char_width[c]);
         }
     }
+}
+
+test "the board's faces are shaded by the way they point once the sign is placed" {
+    const gpa = std.testing.allocator;
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    try appendBoardAt(&mesh, gpa, 1.0, .sign_post, 0, 0, 0, 0);
+
+    var top: ?u8 = null;
+    var bottom: ?u8 = null;
+    var highest: f32 = -std.math.floatMax(f32);
+    var lowest: f32 = std.math.floatMax(f32);
+    var face: usize = 0;
+    while (face * 4 < mesh.vertices.items.len) : (face += 1) {
+        const corners = mesh.vertices.items[face * 4 ..][0..4];
+        if (corners[1].y != corners[0].y or corners[2].y != corners[0].y or corners[3].y != corners[0].y) continue;
+        if (corners[0].y > highest) {
+            highest = corners[0].y;
+            top = corners[0].color[0];
+        }
+        if (corners[0].y < lowest) {
+            lowest = corners[0].y;
+            bottom = corners[0].color[0];
+        }
+    }
+
+    try std.testing.expectEqual(@as(u8, 255), top.?);
+    try std.testing.expectEqual(@as(u8, @intFromFloat(255.0 * item_lighting.ambient)), bottom.?);
 }
 
 test "a sign post turns with its metadata, a wall sign with the face it hangs on" {

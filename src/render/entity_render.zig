@@ -8,6 +8,7 @@ const Atlas = @import("Atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
 const Colorizer = @import("Colorizer.zig");
 const held_item = @import("held_item.zig");
+const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
@@ -61,14 +62,12 @@ fn itemOrigin(item: game.ItemEntity, partial_ticks: f32) [3]f32 {
 fn appendCopies(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    world_map: *const world.World,
     item: game.ItemEntity,
     yaw: f32,
     spread: f32,
     partial_ticks: f32,
     build: *const fn (*MeshBuilder, std.mem.Allocator) anyerror!void,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const origin = itemOrigin(item, partial_ticks);
     var rand = world.JavaRandom.init(stack_copy_seed);
 
@@ -83,8 +82,16 @@ fn appendCopies(
         }
         placeSince(mesh, copy_start, yaw, offset);
     }
+}
 
-    mesh.scaleColors(first_vertex, brightnessOf(world_map, item.base));
+fn spunOrient(yaw: f32) [3][3]f32 {
+    const cos = @cos(yaw);
+    const sin = @sin(yaw);
+    return .{
+        .{ cos, 0, sin },
+        .{ 0, 1, 0 },
+        .{ -sin, 0, cos },
+    };
 }
 
 pub fn appendItem(
@@ -99,24 +106,33 @@ pub fn appendItem(
         .item => return,
     };
 
+    const brightness = brightnessOf(world_map, item.base);
+
     if (id.flatItemTile(item.stack.blockMeta())) |tile| {
         const Cross = struct {
             var shape_tile: u8 = 0;
+            var color: [4]u8 = white;
             fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
-                try appendCrossSprite(target, gpa_inner, shape_tile, flat_scale);
+                try appendCrossSprite(target, gpa_inner, shape_tile, flat_scale, color);
             }
         };
         Cross.shape_tile = tile;
-        return appendCopies(mesh, gpa, world_map, item, 0, 0.2, partial_ticks, Cross.build);
+        Cross.color = item_lighting.faceColor(
+            .{ .material = item_lighting.material(brightness, .{ 1, 1, 1 }) },
+            flat_item_normal,
+        );
+        return appendCopies(mesh, gpa, item, 0, 0.2, partial_ticks, Cross.build);
     }
 
+    const spin = spinRadians(item.age, item.hover, partial_ticks);
     const Cube = struct {
         var faces: world.block.FaceTextures = undefined;
         var boxes: []const world.block.Bounds = undefined;
         var inset: f32 = 0.0;
+        var lit: item_lighting.Lit = .{};
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
             for (boxes) |bounds| {
-                try chunk_mesher.buildBoxCube(target, gpa_inner, .{ 0, 0, 0 }, block_scale, bounds, faces, inset);
+                try chunk_mesher.buildBoxCube(target, gpa_inner, .{ 0, 0, 0 }, block_scale, bounds, faces, inset, lit);
             }
         }
     };
@@ -134,19 +150,16 @@ pub fn appendItem(
         Cube.faces = world.block.slabTextures(item.stack.blockMeta());
     }
     Cube.inset = id.sideInset() * block_scale;
-    try appendCopies(
-        mesh,
-        gpa,
-        world_map,
-        item,
-        spinRadians(item.age, item.hover, partial_ticks),
-        0.2,
-        partial_ticks,
-        Cube.build,
-    );
+    Cube.lit = .{
+        .orient = spunOrient(spin),
+        .material = item_lighting.material(brightness, .{ 1, 1, 1 }),
+    };
+    try appendCopies(mesh, gpa, item, spin, 0.2, partial_ticks, Cube.build);
 }
 
-fn appendCrossSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, scale: f32) !void {
+const flat_item_normal: [3]f32 = .{ 0, 1, 0 };
+
+fn appendCrossSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, scale: f32, color: [4]u8) !void {
     const uv = Atlas.tileUv(tile);
     const uvs = [4][2]f32{
         .{ uv.u0, uv.v1 }, .{ uv.u1, uv.v1 }, .{ uv.u1, uv.v0 }, .{ uv.u0, uv.v0 },
@@ -154,10 +167,10 @@ fn appendCrossSprite(mesh: *MeshBuilder, gpa: std.mem.Allocator, tile: u8, scale
     const half = scale / 2.0;
     try mesh.quad(gpa, .{
         .{ -half, -half, -half }, .{ half, -half, half }, .{ half, half, half }, .{ -half, half, -half },
-    }, uvs, white);
+    }, uvs, color);
     try mesh.quad(gpa, .{
         .{ half, -half, -half }, .{ -half, -half, half }, .{ -half, half, half }, .{ half, half, -half },
-    }, uvs, white);
+    }, uvs, color);
 }
 
 pub fn appendItemIcon(
@@ -175,6 +188,7 @@ pub fn appendItemIcon(
 
     const Billboard = struct {
         var icon: u8 = 0;
+        var color: [4]u8 = white;
         fn build(target: *MeshBuilder, gpa_inner: std.mem.Allocator) anyerror!void {
             const uv = Atlas.tileUv(icon);
             const uvs = [4][2]f32{
@@ -186,13 +200,17 @@ pub fn appendItemIcon(
             const top = bottom + flat_scale;
             try target.quad(gpa_inner, .{
                 .{ left, bottom, 0 }, .{ right, bottom, 0 }, .{ right, top, 0 }, .{ left, top, 0 },
-            }, uvs, white);
+            }, uvs, color);
         }
     };
     Billboard.icon = tile;
+    Billboard.color = item_lighting.faceColor(
+        .{ .material = item_lighting.material(brightnessOf(world_map, item.base), .{ 1, 1, 1 }) },
+        flat_item_normal,
+    );
 
     const degrees = std.math.pi / 180.0;
-    try appendCopies(mesh, gpa, world_map, item, (180.0 - view_yaw) * degrees, 0.3, partial_ticks, Billboard.build);
+    try appendCopies(mesh, gpa, item, (180.0 - view_yaw) * degrees, 0.3, partial_ticks, Billboard.build);
 }
 
 pub const item_shadow_size: f32 = 0.15;
@@ -548,6 +566,17 @@ fn bipedPose(world_map: *const world.World, player: game.Player, partial_ticks: 
 pub const head_block_size: f32 = 10.0 / 16.0;
 pub const head_block_lift: f32 = 0.25;
 
+fn headBlockOrient(head: mob_model.Part, pose: mob_model.Pose) [3][3]f32 {
+    var orient: [3][3]f32 = undefined;
+    for (0..3) |axis| {
+        var local: [3]f32 = .{ 0, 0, 0 };
+        local[axis] = -1;
+        const placed = mob_model.posedNormal(head, pose, local);
+        for (0..3) |row| orient[row][axis] = placed[row];
+    }
+    return orient;
+}
+
 fn headBlockCorner(corner: [3]f32) [3]f32 {
     const pixels = head_block_size * 16.0;
     return .{
@@ -567,11 +596,14 @@ pub fn appendPlayerHeadBlock(
     id: world.Block,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    try held_item.appendBlock(mesh, gpa, id, brightnessOf(world_map, player.base));
-
     const parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
     const head = parts[mob_model.biped.head_index];
     const pose = bipedPose(world_map, player, partial_ticks);
+
+    try held_item.appendBlock(mesh, gpa, id, .{
+        .orient = headBlockOrient(head, pose),
+        .material = item_lighting.material(brightnessOf(world_map, player.base), untinted),
+    });
 
     for (mesh.vertices.items[first_vertex..]) |*vertex| {
         const placed = mob_model.posedPoint(head, pose, headBlockCorner(.{ vertex.x, vertex.y, vertex.z }));
@@ -591,16 +623,14 @@ fn appendBiped(
     model: mob_model.Model,
     shown: []const bool,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const parts = bipedParts(model, player, holding_item, partial_ticks);
     const pose = bipedPose(world_map, player, partial_ticks);
+    const material = item_lighting.material(brightnessOf(world_map, player.base), untinted);
 
     for (parts, shown) |part, visible| {
         if (!visible) continue;
-        try mob_model.appendPart(mesh, gpa, part, model.texture_width, model.texture_height, pose);
+        try mob_model.appendPart(mesh, gpa, part, model.texture_width, model.texture_height, pose, .{ .material = material });
     }
-
-    mesh.scaleColors(first_vertex, brightnessOf(world_map, player.base));
 }
 
 pub fn slimeScale(slime: game.Slime, partial_ticks: f32) [3]f32 {
@@ -632,7 +662,6 @@ pub fn appendSquid(
     squid: game.Squid,
     partial_ticks: f32,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const pos = squid.animal.base.renderPosition(partial_ticks);
     const parts = mob_model.squidPosed(squid.renderTentacleAngle(partial_ticks));
 
@@ -644,13 +673,13 @@ pub fn appendSquid(
         .lift = squid_lift,
     };
 
-    for (parts) |part| {
-        try mob_model.appendPart(mesh, gpa, part, mob_model.squid.texture_width, mob_model.squid.texture_height, pose);
-    }
-
     const brightness = brightnessOf(world_map, squid.animal.base);
-    mesh.scaleColors(first_vertex, brightness);
-    if (squid.animal.hurt_time > 0 or squid.animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
+    var material = item_lighting.material(brightness, untinted);
+    if (squid.animal.hurt_time > 0 or squid.animal.death_time > 0) material = hurtTinted(material, brightness);
+
+    for (parts) |part| {
+        try mob_model.appendPart(mesh, gpa, part, mob_model.squid.texture_width, mob_model.squid.texture_height, pose, .{ .material = material });
+    }
 }
 
 pub fn ghastScale(ghast: game.Ghast, partial_ticks: f32) [3]f32 {
@@ -836,7 +865,6 @@ fn appendAnimal(
     model: mob_model.Model,
     trim: Trim,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const pos = animal.base.renderPosition(partial_ticks);
 
     const pose: mob_model.Pose = .{
@@ -847,6 +875,14 @@ fn appendAnimal(
     };
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
+    const brightness = brightnessOf(world_map, animal.base);
+
+    var material = item_lighting.material(brightness * trim.shade, trim.tint);
+    if (trim.glow_alpha) |alpha| {
+        material = .{ 255, 255, 255, @intFromFloat(std.math.clamp(alpha, 0.0, 1.0) * 255.0) };
+    } else if (animal.hurt_time > 0 or animal.death_time > 0) {
+        material = hurtTinted(material, brightness);
+    }
 
     for (trim.posed orelse model.parts) |part| {
         var p = part;
@@ -861,43 +897,19 @@ fn appendAnimal(
             .wing_left => p.rotate_z = -trim.wing_flap,
             .still => {},
         }
-        try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose);
-    }
-
-    if (trim.glow_alpha) |alpha| {
-        setGlow(mesh, first_vertex, alpha);
-        return;
-    }
-
-    const brightness = brightnessOf(world_map, animal.base);
-    mesh.scaleColors(first_vertex, brightness * trim.shade);
-    tintColors(mesh, first_vertex, trim.tint);
-    if (animal.hurt_time > 0 or animal.death_time > 0) tintRed(mesh, first_vertex, brightness);
-}
-
-fn setGlow(mesh: *MeshBuilder, first_vertex: usize, alpha: f32) void {
-    const opacity: u8 = @intFromFloat(std.math.clamp(alpha, 0.0, 1.0) * 255.0);
-    for (mesh.vertices.items[first_vertex..]) |*vertex| {
-        vertex.color = .{ 255, 255, 255, opacity };
+        try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose, .{ .material = material });
     }
 }
 
-fn tintColors(mesh: *MeshBuilder, first_vertex: usize, tint: [3]f32) void {
-    for (mesh.vertices.items[first_vertex..]) |*vertex| {
-        for (0..3) |channel| {
-            vertex.color[channel] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[channel])) * tint[channel]);
-        }
-    }
-}
-
-fn tintRed(mesh: *MeshBuilder, first_vertex: usize, brightness: f32) void {
-    const red: f32 = brightness * 255.0 * hurt_tint;
-    for (mesh.vertices.items[first_vertex..]) |*vertex| {
-        const kept = 1.0 - hurt_tint;
-        vertex.color[0] = @intFromFloat(@min(255.0, @as(f32, @floatFromInt(vertex.color[0])) * kept + red));
-        vertex.color[1] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[1])) * kept);
-        vertex.color[2] = @intFromFloat(@as(f32, @floatFromInt(vertex.color[2])) * kept);
-    }
+fn hurtTinted(color: [4]u8, brightness: f32) [4]u8 {
+    const kept = 1.0 - hurt_tint;
+    const red = brightness * 255.0 * hurt_tint;
+    return .{
+        @intFromFloat(@min(255.0, @as(f32, @floatFromInt(color[0])) * kept + red)),
+        @intFromFloat(@as(f32, @floatFromInt(color[1])) * kept),
+        @intFromFloat(@as(f32, @floatFromInt(color[2])) * kept),
+        color[3],
+    };
 }
 
 pub const CameraBasis = struct {
@@ -1060,7 +1072,7 @@ test "a cargo cart carries its block above the cart floor and an empty one carri
     try mob_model.appendPart(&floor, gpa, mob_model.minecart.parts[0], 64, 32, .{
         .position = .{ 0, @floatCast(game.Minecart.y_offset), 0 },
         .yaw = 0,
-    });
+    }, .{});
 
     var min: [3]f32 = .{ 1000, 1000, 1000 };
     var max: [3]f32 = .{ -1000, -1000, -1000 };
@@ -1210,6 +1222,54 @@ test "a dropped item bobs and a dropped block also spins" {
 
     try std.testing.expect(early.vertices.items[0].y != later.vertices.items[0].y);
     try std.testing.expect(early.vertices.items[0].x != later.vertices.items[0].x);
+}
+
+test "a dropped block is lit by the item lamps, and its shading turns as it spins" {
+    const gpa = std.testing.allocator;
+    var world_map = try world.testing.flatWorld(gpa, 64);
+    defer world_map.deinit();
+    world_map.setBlockLight(8, 64, 8, 15);
+
+    var mesh: MeshBuilder = .{};
+    defer mesh.deinit(gpa);
+
+    var rand = world.JavaRandom.init(0);
+    var item = game.ItemEntity.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 }, .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    try appendItem(&mesh, gpa, &world_map, item, 0);
+
+    var top: ?u8 = null;
+    var bottom: ?u8 = null;
+    var highest: f32 = -std.math.floatMax(f32);
+    var lowest: f32 = std.math.floatMax(f32);
+    var face: usize = 0;
+    while (face * 4 < mesh.vertices.items.len) : (face += 1) {
+        const corners = mesh.vertices.items[face * 4 ..][0..4];
+        if (corners[1].y != corners[0].y or corners[2].y != corners[0].y or corners[3].y != corners[0].y) continue;
+        if (corners[0].y > highest) {
+            highest = corners[0].y;
+            top = corners[0].color[0];
+        }
+        if (corners[0].y < lowest) {
+            lowest = corners[0].y;
+            bottom = corners[0].color[0];
+        }
+    }
+
+    try std.testing.expectEqual(@as(u8, 255), top.?);
+    try std.testing.expectEqual(@as(u8, @intFromFloat(255.0 * item_lighting.ambient)), bottom.?);
+
+    var side: ?usize = null;
+    face = 0;
+    while (face * 4 < mesh.vertices.items.len) : (face += 1) {
+        const corners = mesh.vertices.items[face * 4 ..][0..4];
+        if (corners[1].y != corners[0].y) side = face * 4;
+    }
+
+    var spun: MeshBuilder = .{};
+    defer spun.deinit(gpa);
+    item.age = 10;
+    try appendItem(&spun, gpa, &world_map, item, 0);
+    try std.testing.expect(spun.vertices.items[side.?].color[0] != mesh.vertices.items[side.?].color[0]);
 }
 
 test "a true item stack has no world geometry yet" {
@@ -1852,9 +1912,9 @@ test "the fleece takes the sheep's colour and the body underneath stays white" {
     try appendSheepFur(&black_fur, gpa, &world_map, testSheep(position, 15), 0);
     try appendSheep(&black_body, gpa, &world_map, testSheep(position, 15), 0);
 
-    try std.testing.expectEqual(@as(u8, 255), white_fur.vertices.items[0].color[0]);
-    try std.testing.expect(black_fur.vertices.items[0].color[0] < 40);
-    try std.testing.expectEqual(@as(u8, 255), black_body.vertices.items[0].color[0]);
+    const untinted_channel = black_body.vertices.items[0].color[0];
+    try std.testing.expectEqual(untinted_channel, white_fur.vertices.items[0].color[0]);
+    try std.testing.expect(black_fur.vertices.items[0].color[0] < untinted_channel / 4);
 }
 
 test "every wool colour has a fleece tint to draw it with" {
@@ -2119,8 +2179,34 @@ test "an entity in the open is lit brighter than one sealed in the dark" {
     try appendPig(&lit, gpa, &world_map, game.Pig.spawn(.{ .x = 2, .y = 1, .z = 8 }), 0);
     try appendPig(&dark, gpa, &world_map, game.Pig.spawn(.{ .x = 14, .y = 1, .z = 8 }), 0);
 
-    try std.testing.expectEqual(@as(u8, 255), lit.vertices.items[0].color[0]);
+    try std.testing.expect(lit.vertices.items[0].color[0] > dark.vertices.items[0].color[0]);
     try std.testing.expect(dark.vertices.items[0].color[0] < 255);
+}
+
+test "a mob's shading turns with the mob" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const chunk = try world_map.createChunk(0, 0);
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
+    }
+
+    var facing_east: MeshBuilder = .{};
+    defer facing_east.deinit(gpa);
+    var facing_south: MeshBuilder = .{};
+    defer facing_south.deinit(gpa);
+
+    var pig = game.Pig.spawn(.{ .x = 8, .y = 1, .z = 8 });
+    try appendPig(&facing_east, gpa, &world_map, pig, 0);
+    pig.animal.yaw = 90;
+    pig.animal.prev_yaw = 90;
+    pig.animal.render_yaw = 90;
+    pig.animal.prev_render_yaw = 90;
+    try appendPig(&facing_south, gpa, &world_map, pig, 0);
+
+    try std.testing.expect(facing_south.vertices.items[0].color[0] > facing_east.vertices.items[0].color[0]);
 }
 
 test "an entity samples light two thirds of the way up its own box" {
@@ -2682,7 +2768,7 @@ test "the spider's legs mirror each other across its body" {
     }
 }
 
-test "the spider's eye layer is flat white, lit by its own glow rather than the world" {
+test "the spider's eye layer takes its own glow instead of the world's light" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
@@ -2700,10 +2786,12 @@ test "the spider's eye layer is flat white, lit by its own glow rather than the 
     try std.testing.expectEqual(body.vertices.items.len, eyes.vertices.items.len);
 
     const glow: u8 = @intFromFloat(spider.eyeGlow(&world_map) * 255.0);
-    for (eyes.vertices.items) |vertex| {
-        try std.testing.expectEqual([4]u8{ 255, 255, 255, glow }, vertex.color);
+    for (eyes.vertices.items, body.vertices.items) |glowing, shaded| {
+        try std.testing.expectEqual(glow, glowing.color[3]);
+        try std.testing.expectEqual(glowing.color[0], glowing.color[1]);
+        try std.testing.expectEqual(glowing.color[0], glowing.color[2]);
+        try std.testing.expect(glowing.color[0] > shaded.color[0]);
     }
-    try std.testing.expect(body.vertices.items[0].color[0] < 255);
 
     for (body.vertices.items, eyes.vertices.items) |lit, glowing| {
         try std.testing.expectApproxEqAbs(lit.x, glowing.x, 1.0e-6);
@@ -2772,11 +2860,11 @@ test "a mirrored box keeps its corners and flips only its texture across u" {
 
     var straight: MeshBuilder = .{};
     defer straight.deinit(gpa);
-    try mob_model.appendPart(&straight, gpa, plain, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+    try mob_model.appendPart(&straight, gpa, plain, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
 
     var flipped: MeshBuilder = .{};
     defer flipped.deinit(gpa);
-    try mob_model.appendPart(&flipped, gpa, mirrored, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 });
+    try mob_model.appendPart(&flipped, gpa, mirrored, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
 
     try std.testing.expectEqual(straight.vertices.items.len, flipped.vertices.items.len);
 
@@ -3072,7 +3160,6 @@ pub fn appendBoat(
     boat: game.Boat,
     partial_ticks: f32,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const pos = boat.base.renderPosition(partial_ticks);
     const yaw = boat.prev_yaw + (boat.yaw - boat.prev_yaw) * partial_ticks;
 
@@ -3086,6 +3173,8 @@ pub fn appendBoat(
         .pitch = boatRock(boat, partial_ticks) * to_radians,
     };
 
+    const material = item_lighting.material(brightnessOf(world_map, boat.base), untinted);
+
     for (mob_model.boat.parts) |part| {
         try mob_model.appendPart(
             mesh,
@@ -3094,10 +3183,9 @@ pub fn appendBoat(
             mob_model.boat.texture_width,
             mob_model.boat.texture_height,
             pose,
+            .{ .material = material },
         );
     }
-
-    mesh.scaleColors(first_vertex, brightnessOf(world_map, boat.base));
 }
 
 pub fn boatRock(boat: game.Boat, partial_ticks: f32) f32 {
@@ -3150,8 +3238,8 @@ pub fn appendMinecart(
     cart: game.Minecart,
     partial_ticks: f32,
 ) !void {
-    const first_vertex = mesh.vertices.items.len;
     const pose = minecartPose(world_map, cart, partial_ticks);
+    const material = item_lighting.material(brightnessOf(world_map, cart.base), untinted);
 
     for (mob_model.minecart.parts) |part| {
         try mob_model.appendPart(
@@ -3161,10 +3249,9 @@ pub fn appendMinecart(
             mob_model.minecart.texture_width,
             mob_model.minecart.texture_height,
             pose,
+            .{ .material = material },
         );
     }
-
-    mesh.scaleColors(first_vertex, brightnessOf(world_map, cart.base));
 }
 
 const cargo_scale: f32 = 12.0 / 16.0;

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const game = @import("game");
+const math = @import("math");
 const grid_size = game.crafting.player_grid_size;
 const armor_size = game.Inventory.armor_size;
 const gl = @import("gl");
@@ -8,6 +9,7 @@ const world = @import("world");
 
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
+const item_lighting = @import("../item_lighting.zig");
 const MobModel = @import("../mob_model.zig");
 const container = @import("container.zig");
 
@@ -74,6 +76,10 @@ fn appendPlayerPreview(
     const head_yaw = std.math.atan(dx / preview_tracking_divisor) * (40.0 * std.math.pi / 180.0);
     const pitch = -std.math.atan(dy / preview_tracking_divisor) * (20.0 * std.math.pi / 180.0);
 
+    const lit: item_lighting.Lit = .{
+        .orient = item_lighting.orientOf(math.Mat4.rotationY(std.math.pi / 2.0).mul(math.Mat4.rotationX(pitch))),
+    };
+
     const start = mesh.vertices.items.len;
     for (model.parts, 0..) |part, i| {
         if (!visible[i]) continue;
@@ -83,7 +89,7 @@ fn appendPlayerPreview(
             yaw = head_yaw;
             p.rotate_x = pitch;
         }
-        try MobModel.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, .{ .position = .{ 0, 0, 0 }, .yaw = yaw });
+        try MobModel.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, .{ .position = .{ 0, 0, 0 }, .yaw = yaw }, lit);
     }
 
     for (mesh.vertices.items[start..]) |*v| {

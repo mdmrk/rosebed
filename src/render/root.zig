@@ -13,6 +13,7 @@ pub const gui = @import("gui.zig");
 pub const Ui = gui.Ui;
 pub const held_item = @import("held_item.zig");
 pub const hud = @import("hud.zig");
+pub const item_lighting = @import("item_lighting.zig");
 pub const lightning = @import("lightning.zig");
 pub const map_render = @import("map_render.zig");
 pub const menu = @import("menu.zig");
@@ -57,6 +58,7 @@ test {
     _ = Colorizer;
     _ = hud;
     _ = mob_model;
+    _ = item_lighting;
     _ = Font;
     _ = button;
     _ = menu;
