@@ -13,13 +13,13 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 
 ## Index
 
-- [Deliberate deviations](#deliberate-deviations)
+- [Not in b1.7.3](#not-in-b173)
 - [Play](#play)
 - [Build](#build)
   - [Web](#web)
 - [License](#license)
 
-## Deliberate deviations
+## Not in b1.7.3
 
 The short list of things b1.7.3 does not have. Everything else is meant to match it, and anything that doesn't is a bug.
 
@@ -35,10 +35,10 @@ Or download a build, each archive has both binaries, `rosebed` and `rosebed-serv
 
 | Platform                  | Release                                                                                              | Nightly                                                                                               |
 | ------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Linux, `x86_64-linux`     | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz)      |
-| Windows, `x86_64-windows` | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip)          | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip)          |
-| macOS, `aarch64-macos`    | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz)     | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz)     |
-| Web, `wasm32-emscripten`  | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
+| `x86_64-linux`     | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz)      |
+| `x86_64-windows` | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip)          | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip)          |
+| `aarch64-macos`    | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz)     | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz)     |
+|  `wasm32-emscripten`  | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
 
 ```
 rosebed-server [--port 25565] [--world world] [--seed <n>] [--ticks <n>]
