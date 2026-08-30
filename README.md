@@ -11,6 +11,17 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 > [!IMPORTANT]
 > **Work in progress.** Most of the game is playable, so what's left is the fine detail. Anything that behaves differently than it does in the real b1.7.3 counts as a bug: terrain, block or mob behavior, a sound, a wrong pixel somewhere. If you spot one, [open an issue](https://github.com/mdmrk/rosebed/issues) with what you did and what the original does instead.
 
+## Deliberate deviations
+
+The short list of things b1.7.3 does not have. Everything else is meant to match it, and anything that doesn't is a bug.
+
+- **Freecam.** `/freecam` detaches the camera from the player; the player stays put and the world keeps ticking.
+- **Chat and commands in single player.** Vanilla opens chat only in a multiplayer world, and its client-side command hook is an empty stub, so a single-player client has neither. Rosebed answers `/help`, `/give`, `/kill`, `/spawn`, `/seed`, `/time`, `/tp` and `/weather`.
+- **A chat input that edits like a text box.** Up and down recall previous messages, ctrl+backspace deletes a word, and the clipboard pastes. Vanilla wires paste into text fields only, never into chat or signs.
+- **Fullscreen in Video Settings.** Vanilla toggles the window with F11 alone and never stores the state.
+- **Runtime registries.** Blocks, items and mob types can be registered past the vanilla ids. Saved chunks carry a key to id palette and stored stacks carry their registry key, so a world keeps that content when ids move and drops it cleanly when a key disappears.
+- **A WebAssembly build.**
+
 ## Play
 
 [mdmrk.github.io/rosebed](https://mdmrk.github.io/rosebed/) runs the client on WebAssembly. Worlds are saved in browser storage. Needs WebGL2.
