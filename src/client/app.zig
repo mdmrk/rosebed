@@ -425,10 +425,7 @@ pub fn init(
         .packs_dir = packs_dir,
     };
     app_state.settings = game.options_file.load(gpa, io, base_dir);
-    if (app_state.settings.fullscreen) window.setFullscreen(true) catch |err| {
-        std.log.warn("could not enter fullscreen: {t}", .{err});
-        app_state.settings.fullscreen = false;
-    };
+    if (app_state.settings.fullscreen) applyFullscreen(&app_state);
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
     gl.DepthFunc(gl.LEQUAL);
@@ -1539,6 +1536,13 @@ fn openTexturePacks(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
+fn applyFullscreen(app_state: *AppState) void {
+    app_state.window.setFullscreen(app_state.settings.fullscreen) catch |err| {
+        std.log.warn("could not change the fullscreen state: {t}", .{err});
+        app_state.settings.fullscreen = !app_state.settings.fullscreen;
+    };
+}
+
 fn saveOptions(app_state: *AppState) void {
     game.options_file.save(app_state.gpa, app_state.io, app_state.base_dir, &app_state.settings) catch |err| {
         std.log.warn("could not save {s}: {t}", .{ game.options_file.file_name, err });
@@ -2217,10 +2221,7 @@ fn videoClick(app_state: *AppState) !void {
         switch (hit) {
             .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
             .anaglyph => try refreshTextures(app_state),
-            .fullscreen => app_state.window.setFullscreen(app_state.settings.fullscreen) catch |err| {
-                std.log.warn("could not change the fullscreen state: {t}", .{err});
-                app_state.settings.fullscreen = !app_state.settings.fullscreen;
-            },
+            .fullscreen => applyFullscreen(app_state),
             else => {},
         }
         saveOptions(app_state);
@@ -4736,7 +4737,11 @@ pub fn event(
     gl.makeProcTableCurrent(&app_state.gl_procs);
     switch (curr_event) {
         .quit, .terminating => return .success,
-        .key_down => |k| if (pasteRequested(k) and typingSomewhere(app_state)) {
+        .key_down => |k| if (!wasm and k.key == .func11 and !k.repeat) {
+            app_state.settings.fullscreen = !app_state.settings.fullscreen;
+            applyFullscreen(app_state);
+            saveOptions(app_state);
+        } else if (pasteRequested(k) and typingSomewhere(app_state)) {
             pasteClipboard(app_state);
         } else if (app_state.controls_open) {
             if (app_state.rebinding) |binding| {
