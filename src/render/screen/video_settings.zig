@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const game = @import("game");
 const gl = @import("gl");
@@ -8,6 +9,8 @@ const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 const options_screen = @import("options.zig");
 pub const Backdrop = options_screen.Backdrop;
+
+const wasm = builtin.cpu.arch.isWasm();
 
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
@@ -34,8 +37,7 @@ const order = [_]Hit{
     .view_bobbing,
     .gui_scale,
     .advanced_opengl,
-    .fullscreen,
-};
+} ++ if (wasm) [_]Hit{} else [_]Hit{.fullscreen};
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
 
@@ -140,7 +142,7 @@ pub fn draw(
     gl.Enable(gl.DEPTH_TEST);
 }
 
-test "the options fill two columns, the ninth opening a fifth row" {
+test "the options fill two columns, row by row" {
     const res = gui.scaledResolution(640, 480, 1000);
     const list = controls(res.width, res.height);
     try std.testing.expectEqual(@as(f32, 5), list[0].x);
@@ -148,14 +150,18 @@ test "the options fill two columns, the ninth opening a fifth row" {
     try std.testing.expectEqual(list[0].y, list[1].y);
     try std.testing.expectEqual(list[0].y + 24, list[2].y);
     try std.testing.expectEqual(list[0].y + 72, list[6].y);
-    try std.testing.expectEqual(list[0].x, list[8].x);
-    try std.testing.expectEqual(list[0].y + 96, list[8].y);
 }
 
-test "the fifth row clears the Done button" {
+test "the last row clears the Done button" {
     const res = gui.scaledResolution(640, 480, 1000);
     const list = controls(res.width, res.height);
-    try std.testing.expect(list[8].y + button.height <= list[order.len].y);
+    const last = list[order.len - 1];
+    try std.testing.expectEqual(list[0].y + 24 * @as(f32, (order.len - 1) >> 1), last.y);
+    try std.testing.expect(last.y + button.height <= list[order.len].y);
+}
+
+test "fullscreen is offered off the web" {
+    try std.testing.expectEqual(!wasm, std.mem.indexOfScalar(Hit, &order, .fullscreen) != null);
 }
 
 test "fullscreen toggles off and on" {
