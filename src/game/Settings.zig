@@ -161,6 +161,7 @@ anaglyph: bool = false,
 view_bobbing: bool = true,
 gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
+fullscreen: bool = false,
 skin: Name = .init(default_skin),
 last_server: Name = .{},
 keys: KeyBindings = .init(.{

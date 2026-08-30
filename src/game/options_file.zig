@@ -64,6 +64,7 @@ pub fn encode(gpa: std.mem.Allocator, settings: *const Settings) ![]u8 {
     try out.print("bobView:{s}\n", .{boolText(settings.view_bobbing)});
     try out.print("anaglyph3d:{s}\n", .{boolText(settings.anaglyph)});
     try out.print("advancedOpengl:{s}\n", .{boolText(settings.advanced_opengl)});
+    try out.print("fullscreen:{s}\n", .{boolText(settings.fullscreen)});
     try out.print("fpsLimit:{d}\n", .{@intFromEnum(settings.framerate_limit)});
     try out.print("difficulty:{d}\n", .{@intFromEnum(settings.difficulty)});
     try out.print("fancyGraphics:{s}\n", .{boolText(settings.fancy_graphics)});
@@ -107,6 +108,8 @@ fn applyOption(settings: *Settings, name: []const u8, value: []const u8) void {
         settings.anaglyph = parseBool(value);
     } else if (std.mem.eql(u8, name, "advancedOpengl")) {
         settings.advanced_opengl = parseBool(value);
+    } else if (std.mem.eql(u8, name, "fullscreen")) {
+        settings.fullscreen = parseBool(value);
     } else if (std.mem.eql(u8, name, "fpsLimit")) {
         settings.framerate_limit = parseChoice(Settings.FramerateLimit, value) orelse return;
     } else if (std.mem.eql(u8, name, "difficulty")) {
@@ -194,6 +197,7 @@ test "every field survives a round trip" {
         .view_bobbing = false,
         .gui_scale = .large,
         .advanced_opengl = true,
+        .fullscreen = true,
         .skin = .init("Fancy Pack.zip"),
         .last_server = .init("localhost_25565"),
     };
@@ -219,6 +223,7 @@ test "every field survives a round trip" {
     try std.testing.expectEqual(written.view_bobbing, read.view_bobbing);
     try std.testing.expectEqual(written.gui_scale, read.gui_scale);
     try std.testing.expectEqual(written.advanced_opengl, read.advanced_opengl);
+    try std.testing.expectEqual(written.fullscreen, read.fullscreen);
     try std.testing.expectEqualStrings(written.skin.text(), read.skin.text());
     try std.testing.expectEqualStrings(written.last_server.text(), read.last_server.text());
     try std.testing.expectEqual(@as(u32, 1234), read.keys.get(.forward));

@@ -425,6 +425,10 @@ pub fn init(
         .packs_dir = packs_dir,
     };
     app_state.settings = game.options_file.load(gpa, io, base_dir);
+    if (app_state.settings.fullscreen) window.setFullscreen(true) catch |err| {
+        std.log.warn("could not enter fullscreen: {t}", .{err});
+        app_state.settings.fullscreen = false;
+    };
     if (!app_state.gl_procs.init(glGetProcAddress)) return error.GlInitFailed;
     gl.makeProcTableCurrent(&app_state.gl_procs);
     gl.DepthFunc(gl.LEQUAL);
@@ -2213,6 +2217,10 @@ fn videoClick(app_state: *AppState) !void {
         switch (hit) {
             .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
             .anaglyph => try refreshTextures(app_state),
+            .fullscreen => app_state.window.setFullscreen(app_state.settings.fullscreen) catch |err| {
+                std.log.warn("could not change the fullscreen state: {t}", .{err});
+                app_state.settings.fullscreen = !app_state.settings.fullscreen;
+            },
             else => {},
         }
         saveOptions(app_state);

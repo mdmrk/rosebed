@@ -21,6 +21,7 @@ pub const Hit = enum {
     view_bobbing,
     gui_scale,
     advanced_opengl,
+    fullscreen,
     done,
 };
 
@@ -33,6 +34,7 @@ const order = [_]Hit{
     .view_bobbing,
     .gui_scale,
     .advanced_opengl,
+    .fullscreen,
 };
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
@@ -71,6 +73,7 @@ pub fn cycle(settings: *game.Settings, hit: Hit) void {
         .view_bobbing => settings.view_bobbing = !settings.view_bobbing,
         .gui_scale => settings.gui_scale = settings.gui_scale.next(),
         .advanced_opengl => settings.advanced_opengl = !settings.advanced_opengl,
+        .fullscreen => settings.fullscreen = !settings.fullscreen,
         .done => {},
     }
 }
@@ -89,6 +92,7 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
         .view_bobbing => std.fmt.bufPrint(buf, "View Bobbing: {s}", .{onOff(settings.view_bobbing)}) catch "View Bobbing: ",
         .gui_scale => std.fmt.bufPrint(buf, "GUI Scale: {s}", .{settings.gui_scale.label()}) catch "GUI Scale: ",
         .advanced_opengl => std.fmt.bufPrint(buf, "Advanced OpenGL: {s}", .{onOff(settings.advanced_opengl)}) catch "Advanced OpenGL: ",
+        .fullscreen => std.fmt.bufPrint(buf, "Fullscreen: {s}", .{onOff(settings.fullscreen)}) catch "Fullscreen: ",
         .done => "Done",
     };
 }
@@ -136,7 +140,7 @@ pub fn draw(
     gl.Enable(gl.DEPTH_TEST);
 }
 
-test "the eight options sit in two columns of four rows" {
+test "the options fill two columns, the ninth opening a fifth row" {
     const res = gui.scaledResolution(640, 480, 1000);
     const list = controls(res.width, res.height);
     try std.testing.expectEqual(@as(f32, 5), list[0].x);
@@ -144,6 +148,23 @@ test "the eight options sit in two columns of four rows" {
     try std.testing.expectEqual(list[0].y, list[1].y);
     try std.testing.expectEqual(list[0].y + 24, list[2].y);
     try std.testing.expectEqual(list[0].y + 72, list[6].y);
+    try std.testing.expectEqual(list[0].x, list[8].x);
+    try std.testing.expectEqual(list[0].y + 96, list[8].y);
+}
+
+test "the fifth row clears the Done button" {
+    const res = gui.scaledResolution(640, 480, 1000);
+    const list = controls(res.width, res.height);
+    try std.testing.expect(list[8].y + button.height <= list[order.len].y);
+}
+
+test "fullscreen toggles off and on" {
+    var settings: game.Settings = .{};
+    try std.testing.expect(!settings.fullscreen);
+    cycle(&settings, .fullscreen);
+    try std.testing.expect(settings.fullscreen);
+    cycle(&settings, .fullscreen);
+    try std.testing.expect(!settings.fullscreen);
 }
 
 test "clicking Done returns the done hit" {
