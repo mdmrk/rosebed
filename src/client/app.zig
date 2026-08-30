@@ -115,6 +115,7 @@ pub const AppState = struct {
     controls_open: bool = false,
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
+    debug_graph: render.debug_graph.Samples = .{},
     anaglyph_pass: render.anaglyph.Pass = null,
     third_person: bool = false,
     freecam: game.Freecam = .{},
@@ -4458,6 +4459,7 @@ pub fn iterate(
         app_state.timer.advanceHoldingPartial(sdl3.timer.getNanosecondsSinceInit());
     }
 
+    const ticks_started_ns = sdl3.timer.getNanosecondsSinceInit();
     if (world_ticking) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
             try tick(app_state);
@@ -4478,6 +4480,7 @@ pub fn iterate(
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state), clockAngle(app_state));
         app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items, app_state.settings.anaglyph);
     }
+    const tick_ns = sdl3.timer.getNanosecondsSinceInit() -% ticks_started_ns;
 
     if (app_state.screen == .loading) try stepLoading(app_state);
 
@@ -4633,6 +4636,20 @@ pub fn iterate(
             @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
             inventoryKeyName(app_state),
         );
+    }
+
+    const now_ns = sdl3.timer.getNanosecondsSinceInit();
+    if (app_state.show_debug) {
+        app_state.debug_graph.record(now_ns, tick_ns);
+        try render.debug_graph.draw(
+            app_state.frame,
+            app_state.shader,
+            &app_state.debug_graph,
+            @floatFromInt(px.w),
+            @floatFromInt(px.h),
+        );
+    } else {
+        app_state.debug_graph.skip(now_ns);
     }
 
     try sdl3.video.gl.swapWindow(app_state.window);

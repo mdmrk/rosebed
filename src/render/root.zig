@@ -6,6 +6,7 @@ pub const chat = @import("chat.zig");
 pub const chunk_mesher = @import("chunk_mesher.zig");
 pub const ChunkRenderer = @import("ChunkRenderer.zig");
 pub const Colorizer = @import("Colorizer.zig");
+pub const debug_graph = @import("debug_graph.zig");
 pub const debug_overlay = @import("debug_overlay.zig");
 pub const entity_render = @import("entity_render.zig");
 pub const Font = @import("Font.zig");
@@ -38,6 +39,7 @@ pub const weather = @import("weather.zig");
 
 test {
     _ = anaglyph;
+    _ = debug_graph;
     _ = screen;
     _ = sign_render;
     _ = Atlas;
