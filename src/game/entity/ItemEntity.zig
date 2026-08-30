@@ -21,8 +21,7 @@ pub const height: f64 = 0.25;
 
 const gravity: f64 = 0.04;
 const vertical_drag: f64 = 0.98;
-const ground_friction: f64 = 0.6 * 0.98;
-const air_friction: f64 = 0.98;
+const air_friction: f32 = 0.98;
 const despawn_age: u32 = 6000;
 pub const max_health: i32 = 5;
 const cactus_damage: i32 = 1;
@@ -49,9 +48,12 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World) void {
     _ = self.base.move(world_map);
     if (physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.health -= cactus_damage;
 
-    const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
-    self.base.motion.x *= friction;
-    self.base.motion.z *= friction;
+    const friction: f32 = if (self.base.on_ground)
+        physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
+    else
+        air_friction;
+    self.base.motion.x *= @as(f64, friction);
+    self.base.motion.z *= @as(f64, friction);
     self.base.motion.y *= vertical_drag;
     if (self.base.on_ground) self.base.motion.y *= -0.5;
 

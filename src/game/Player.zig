@@ -110,9 +110,7 @@ pub const turn_scale = 0.15;
 
 const gravity: f64 = 0.08;
 const vertical_drag: f64 = 0.98;
-const air_friction: f64 = 0.91;
-const ground_friction: f64 = 0.6 * 0.91;
-const ground_speed: f64 = 0.1;
+const air_friction: f32 = 0.91;
 const air_speed: f64 = 0.02;
 const jump_velocity: f64 = 0.42;
 
@@ -236,10 +234,14 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         self.jumped = true;
     }
 
+    const friction: f32 = if (self.base.on_ground)
+        game_physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
+    else
+        air_friction;
     const speed: f64 = if (self.base.in_water or self.in_lava)
         liquid_speed
     else if (self.base.on_ground)
-        ground_speed
+        game_physics.walkAcceleration(friction)
     else
         air_speed;
     const dir = self.moveDirection(strafe, forward);
@@ -285,9 +287,8 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     } else {
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;
-        const friction: f64 = if (self.base.on_ground) ground_friction else air_friction;
-        self.base.motion.x *= friction;
-        self.base.motion.z *= friction;
+        self.base.motion.x *= @as(f64, friction);
+        self.base.motion.z *= @as(f64, friction);
     }
 
     var swing: f32 = @floatCast(@sqrt(self.base.motion.x * self.base.motion.x + self.base.motion.z * self.base.motion.z));
@@ -1251,7 +1252,51 @@ test "forward input on the ground moves the player each tick" {
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     player.base.on_ground = true;
     player.tick(&w, 0, 1, false, false);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.base.position.z, 1.0e-9);
+    const step: f64 = game_physics.walkAcceleration(world.block.default_slipperiness * air_friction);
+    try std.testing.expectApproxEqAbs(8.0 + step, player.base.position.z, 1.0e-9);
+}
+
+test "the block underfoot decides how much momentum a tick keeps" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var on_stone = Player.spawn(math.Vec3.init(8, 1, 8));
+    on_stone.base.on_ground = true;
+    on_stone.base.motion.z = 0.1;
+    on_stone.tick(&w, 0, 0, false, false);
+
+    w.setBlock(8, 0, 8, .ice);
+    var on_ice = Player.spawn(math.Vec3.init(8, 1, 8));
+    on_ice.base.on_ground = true;
+    on_ice.base.motion.z = 0.1;
+    on_ice.tick(&w, 0, 0, false, false);
+
+    try std.testing.expectApproxEqAbs(
+        0.1 * @as(f64, world.block.default_slipperiness * air_friction),
+        on_stone.base.motion.z,
+        1.0e-9,
+    );
+    try std.testing.expectApproxEqAbs(
+        0.1 * @as(f64, world.block.ice_slipperiness * air_friction),
+        on_ice.base.motion.z,
+        1.0e-9,
+    );
+}
+
+test "walking accelerates less on ice than on stone" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var on_stone = Player.spawn(math.Vec3.init(8, 1, 8));
+    on_stone.base.on_ground = true;
+    on_stone.tick(&w, 0, 1, false, false);
+
+    w.setBlock(8, 0, 8, .ice);
+    var on_ice = Player.spawn(math.Vec3.init(8, 1, 8));
+    on_ice.base.on_ground = true;
+    on_ice.tick(&w, 0, 1, false, false);
+
+    try std.testing.expect(on_ice.base.motion.z < on_stone.base.motion.z);
 }
 
 test "bobbing is the identity while standing still" {

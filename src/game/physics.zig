@@ -241,6 +241,20 @@ pub fn moveEntityStepping(
 
 const flow_acceleration: f64 = 0.014;
 
+pub fn groundFriction(world_map: *const world.World, box: math.Aabb, x: f64, z: f64, air_friction: f32) f32 {
+    const below = world_map.getBlock(
+        math.util.floorDouble(x),
+        math.util.floorDouble(box.min_y) - 1,
+        math.util.floorDouble(z),
+    );
+    const slipperiness = if (below == .air) world.block.default_slipperiness else below.slipperiness();
+    return slipperiness * air_friction;
+}
+
+pub fn walkAcceleration(friction: f32) f32 {
+    return 0.1 * (0.16277136 / (friction * friction * friction));
+}
+
 pub fn fluidSurface(world_map: *const world.World, x: i32, y: i32, z: i32) f64 {
     const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z));
     return @as(f64, @floatFromInt(y + 1)) - @as(f64, air);

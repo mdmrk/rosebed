@@ -113,8 +113,7 @@ pub const chase_path_range: f32 = 16.0;
 const wander_radius: f32 = 10.0;
 const gravity: f64 = 0.08;
 const vertical_drag: f64 = 0.98;
-const air_friction: f64 = 0.91;
-const ground_friction: f64 = 0.6 * 0.91;
+const air_friction: f32 = 0.91;
 const ground_acceleration: f32 = 0.1;
 const air_acceleration: f32 = 0.02;
 const liquid_acceleration: f32 = 0.02;
@@ -458,17 +457,19 @@ fn moveFlying(self: *Animal, strafe: f32, forward: f32, acceleration: f32) void 
 }
 
 fn flyWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, forward: f32, rand: *world.JavaRandom) void {
+    const friction: f32 = if (self.base.on_ground)
+        physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
+    else
+        air_friction;
     const drag: f64 = if (self.base.in_water)
         water_drag
     else if (self.in_lava)
         lava_drag
-    else if (self.base.on_ground)
-        ground_friction
     else
-        air_friction;
+        @as(f64, friction);
 
     const swimming = self.base.in_water or self.in_lava;
-    const acceleration: f32 = if (!swimming and self.base.on_ground) ground_acceleration else air_acceleration;
+    const acceleration: f32 = if (!swimming and self.base.on_ground) physics.walkAcceleration(friction) else air_acceleration;
 
     self.moveFlying(strafe, forward, acceleration);
     const moved = self.base.move(world_map);
@@ -510,7 +511,11 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
             self.base.motion.y = liquid_climb_out;
         }
     } else {
-        self.moveFlying(strafe, forward, if (was_on_ground) ground_acceleration else air_acceleration);
+        const friction: f32 = if (was_on_ground)
+            physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
+        else
+            air_friction;
+        self.moveFlying(strafe, forward, if (was_on_ground) physics.walkAcceleration(friction) else air_acceleration);
 
         if (self.isOnLadder(world_map)) {
             const cap = world.block.ladder_climb_cap;
@@ -526,9 +531,8 @@ fn moveWithHeading(self: *Animal, world_map: *const world.World, strafe: f32, fo
 
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;
-        const friction: f64 = if (was_on_ground) ground_friction else air_friction;
-        self.base.motion.x *= friction;
-        self.base.motion.z *= friction;
+        self.base.motion.x *= @as(f64, friction);
+        self.base.motion.z *= @as(f64, friction);
     }
 
     self.prev_limb_swing_amount = self.limb_swing_amount;
@@ -1114,7 +1118,7 @@ test "a flying animal keeps the push it was given, bleeding it off at the air fr
 
     try flier.tick(gpa, &w, .{}, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, 61.0), flier.base.position.y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(air_friction, flier.base.motion.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, air_friction), flier.base.motion.y, 1.0e-9);
 }
 
 test "an animal that takes no fall damage lands from any height unhurt" {

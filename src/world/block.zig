@@ -237,6 +237,7 @@ pub const Def = struct {
     item_render_boxes: []const Bounds = &full_cube_box,
     hardness: f32 = 0.0,
     explosion_resistance: f32 = 0.0,
+    slipperiness: f32 = default_slipperiness,
     side_inset: f32 = 0.0,
     tick_rate: u32 = 0,
     opaque_cube: bool = true,
@@ -281,6 +282,7 @@ fn vanillaDefs() [256]Def {
             .item_render_boxes = self.vanillaItemRenderBoxes(),
             .hardness = self.vanillaHardness(),
             .explosion_resistance = self.vanillaExplosionResistance(),
+            .slipperiness = self.vanillaSlipperiness(),
             .side_inset = self.vanillaSideInset(),
             .tick_rate = self.vanillaTickRate(),
             .opaque_cube = self.vanillaOpaqueCube(),
@@ -468,6 +470,9 @@ pub fn ladderBounds(metadata: u4) Bounds {
 
 pub const ladder_climb_cap: f64 = @as(f32, 0.15);
 pub const ladder_climb_lift: f64 = 0.2;
+
+pub const default_slipperiness: f32 = 0.6;
+pub const ice_slipperiness: f32 = 0.98;
 
 pub const soul_sand_drag: f64 = 0.4;
 
@@ -1213,6 +1218,17 @@ pub const Block = enum(u8) {
 
     fn hardness(self: Block) f32 {
         return self.def().hardness;
+    }
+
+    pub fn slipperiness(self: Block) f32 {
+        return self.def().slipperiness;
+    }
+
+    fn vanillaSlipperiness(self: Block) f32 {
+        return switch (self) {
+            .ice => ice_slipperiness,
+            else => default_slipperiness,
+        };
     }
 
     fn vanillaHardness(self: Block) f32 {
