@@ -3468,9 +3468,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendFireball(&item_billboard_mesh, app_state.frame, fireball, basis, partial);
         try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
     }
-    for (app_state.level.entities.thrown_eggs.items) |egg| {
-        if (egg.dead) continue;
-        try render.entity_render.appendThrownEgg(&item_billboard_mesh, app_state.frame, egg, basis, partial);
+    for (app_state.level.entities.thrown.items) |projectile| {
+        if (projectile.dead) continue;
+        try render.entity_render.appendThrown(&item_billboard_mesh, app_state.frame, projectile, basis, partial);
     }
     for (app_state.level.entities.mobs.items) |mob| {
         if (mob.animal.fire <= 0) continue;

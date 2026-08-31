@@ -87,7 +87,7 @@ pub const Peer = struct {
         item: *const game.ItemEntity,
         arrow: *const game.Arrow,
         fireball: *const game.Fireball,
-        thrown_egg: *const game.ThrownEgg,
+        thrown: *const game.Thrown,
         falling_block: *const game.FallingBlock,
         primed_tnt: *const game.PrimedTnt,
         boat: *const game.Boat,
@@ -189,7 +189,7 @@ fn peerMotion(peer: Peer) math.Vec3 {
 
 fn sendsMotion(peer: Peer) bool {
     return switch (peer.body) {
-        .item, .boat, .minecart, .falling_block, .primed_tnt, .hook, .thrown_egg => true,
+        .item, .boat, .minecart, .falling_block, .primed_tnt, .hook, .thrown => true,
         .mob => |entry| entry.type_id == game.mob.squid,
         else => false,
     };
@@ -202,7 +202,7 @@ fn encodeVelocity(value: f64) i16 {
 fn trackRange(peer: Peer) f64 {
     return switch (peer.body) {
         .player => player_track_range,
-        .item, .arrow, .fireball, .thrown_egg, .hook => close_track_range,
+        .item, .arrow, .fireball, .thrown, .hook => close_track_range,
         else => track_range,
     };
 }
@@ -212,7 +212,7 @@ fn updatePeriod(peer: Peer) u32 {
         .player => player_update_period,
         .mob => mob_update_period,
         .hook, .boat, .minecart => vehicle_update_period,
-        .fireball, .thrown_egg => fireball_update_period,
+        .fireball, .thrown => fireball_update_period,
         .primed_tnt => tnt_update_period,
         .item, .arrow, .falling_block => slow_update_period,
         .painting => still_update_period,
@@ -291,7 +291,7 @@ pub fn collectWorldPeers(
         .{ "items", "item" },
         .{ "arrows", "arrow" },
         .{ "fireballs", "fireball" },
-        .{ "thrown_eggs", "thrown_egg" },
+        .{ "thrown", "thrown" },
         .{ "falling_blocks", "falling_block" },
         .{ "primed", "primed_tnt" },
         .{ "boats", "boat" },
@@ -432,7 +432,8 @@ pub const vehicle_boat: u8 = 1;
 pub const vehicle_minecart: u8 = 10;
 pub const vehicle_arrow: u8 = 60;
 pub const vehicle_fireball: u8 = 63;
-pub const vehicle_thrown_egg: u8 = 62;
+pub const vehicle_snowball: u8 = 61;
+pub const vehicle_egg: u8 = 62;
 pub const vehicle_primed_tnt: u8 = 50;
 pub const vehicle_falling_sand: u8 = 70;
 pub const vehicle_falling_gravel: u8 = 71;
@@ -521,9 +522,12 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
             .speed_y = encodeFireballSpeed(shot.acceleration.y),
             .speed_z = encodeFireballSpeed(shot.acceleration.z),
         } }),
-        .thrown_egg => try self.send(gpa, .{ .vehicle_spawn = .{
+        .thrown => |projectile| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_thrown_egg,
+            .kind = switch (projectile.kind) {
+                .egg => vehicle_egg,
+                .snowball => vehicle_snowball,
+            },
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -1948,9 +1952,9 @@ fn useItemInAir(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !voi
         return;
     }
     if (held == .fishing_rod) return self.useFishingRod(gpa, level);
-    if (held == .egg) {
+    if (game.Entities.thrownKind(held)) |kind| {
         self.consumeHeld();
-        try level.entities.throwEgg(gpa, player, &level.world_map.rand);
+        try level.entities.throwItem(gpa, kind, player, &level.world_map.rand);
         return;
     }
     if (held != .bow) return;

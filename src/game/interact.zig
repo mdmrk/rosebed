@@ -11,6 +11,7 @@ const Minecart = @import("entity/Minecart.zig");
 const Painting = @import("entity/Painting.zig");
 const Pig = @import("entity/Pig.zig");
 const Sheep = @import("entity/Sheep.zig");
+const Thrown = @import("entity/Thrown.zig");
 const Wolf = @import("entity/Wolf.zig");
 const Inventory = @import("Inventory.zig");
 const Level = @import("Level.zig");
@@ -194,7 +195,7 @@ pub fn useHeldItem(ctx: Context) !void {
         eatHeldFood(ctx, item, amount);
         return;
     }
-    if (item == .egg) return throwHeldEgg(ctx);
+    if (Entities.thrownKind(item)) |kind| return throwHeld(ctx, kind);
     if (item != .bow) return;
     if (!ctx.player.inventory.consumeItem(.{ .item = .arrow })) return;
 
@@ -202,13 +203,13 @@ pub fn useHeldItem(ctx: Context) !void {
     try ctx.stats.use(ctx.gpa, .{ .item = .bow });
 }
 
-const egg_throw_volume: f32 = 0.5;
+const throw_volume: f32 = 0.5;
 
-fn eggThrowPitch(rand: *world.JavaRandom) f32 {
+fn throwPitch(rand: *world.JavaRandom) f32 {
     return 0.4 / (rand.nextFloat() * 0.4 + 0.8);
 }
 
-pub fn throwHeldEgg(ctx: Context) !void {
+pub fn throwHeld(ctx: Context, kind: Thrown.Kind) !void {
     ctx.consumeSelectedStack();
 
     const rand = &ctx.level.world_map.rand;
@@ -218,12 +219,12 @@ pub fn throwHeldEgg(ctx: Context) !void {
         at.y,
         at.z,
         assets.sounds.random.bow,
-        egg_throw_volume,
-        eggThrowPitch(rand),
+        throw_volume,
+        throwPitch(rand),
     );
 
-    try ctx.level.entities.throwEgg(ctx.gpa, ctx.player, rand);
-    try ctx.stats.use(ctx.gpa, .{ .item = .egg });
+    try ctx.level.entities.throwItem(ctx.gpa, kind, ctx.player, rand);
+    try ctx.stats.use(ctx.gpa, .{ .item = kind.item() });
 }
 
 pub fn eatHeldFood(ctx: Context, held: world.Item, heal_amount: u8) void {
@@ -423,4 +424,33 @@ pub fn placeMinecartAtTarget(ctx: Context, kind: Minecart.Kind) !bool {
     try ctx.stats.use(ctx.gpa, ctx.player.inventory.selectedStack().?.id);
     ctx.consumeSelectedStack();
     return true;
+}
+
+test "right-clicking a held snowball throws it" {
+    const gpa = std.testing.allocator;
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    level.attach();
+    _ = try level.world_map.createChunk(0, 0);
+
+    var tally: stats.Stats = .{};
+    defer tally.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 40, 8));
+    try level.enter(gpa, &player);
+    player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .snowball }, .count = 3 };
+
+    try useHeldItem(.{
+        .gpa = gpa,
+        .frame = gpa,
+        .level = &level,
+        .player = &player,
+        .stats = &tally,
+        .dimension = .overworld,
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), level.entities.thrown.items.len);
+    try std.testing.expectEqual(Thrown.Kind.snowball, level.entities.thrown.items[0].kind);
+    try std.testing.expectEqual(@as(u8, 2), player.inventory.slots[player.inventory.selected].?.count);
 }

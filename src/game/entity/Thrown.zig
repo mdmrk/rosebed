@@ -7,8 +7,9 @@ const Entity = @import("../Entity.zig");
 const Player = @import("../Player.zig");
 const raycast = @import("../raycast.zig");
 
-const ThrownEgg = @This();
+const Thrown = @This();
 
+kind: Kind,
 base: Entity,
 yaw: f32 = 0,
 pitch: f32 = 0,
@@ -18,6 +19,18 @@ owner: Entity.Id = Entity.no_id,
 from_player: bool = false,
 ticks_in_air: i32 = 0,
 dead: bool = false,
+
+pub const Kind = enum {
+    egg,
+    snowball,
+
+    pub fn item(self: Kind) world.Item {
+        return switch (self) {
+            .egg => .egg,
+            .snowball => .snowball,
+        };
+    }
+};
 
 pub const size: f64 = 0.25;
 pub const hit_border: f64 = 0.3;
@@ -47,7 +60,7 @@ pub const BubbleTrail = struct {
     drift: math.Vec3,
 };
 
-pub fn thrownBy(player: Player, rand: *world.JavaRandom) ThrownEgg {
+pub fn thrownBy(kind: Kind, player: Player, rand: *world.JavaRandom) Thrown {
     const eye = player.eyePosition();
     const yaw_radians = player.yaw / 180.0 * std.math.pi;
     const pitch_radians = player.pitch / 180.0 * std.math.pi;
@@ -58,7 +71,8 @@ pub fn thrownBy(player: Player, rand: *world.JavaRandom) ThrownEgg {
         eye.z - @as(f64, math.util.sin(yaw_radians) * hand_offset),
     );
 
-    var egg: ThrownEgg = .{
+    var thrown: Thrown = .{
+        .kind = kind,
         .base = Entity.init(position, size, size),
         .owner = player.base.id,
         .from_player = true,
@@ -69,17 +83,24 @@ pub fn thrownBy(player: Player, rand: *world.JavaRandom) ThrownEgg {
         -math.util.sin(pitch_radians),
         math.util.cos(yaw_radians) * math.util.cos(pitch_radians),
     );
-    egg.setHeading(heading, launch_speed, launch_spread, rand);
-    return egg;
+    thrown.setHeading(heading, launch_speed, launch_spread, rand);
+    return thrown;
 }
 
-pub fn dispensedFrom(from: math.Vec3, toward: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) ThrownEgg {
-    var egg: ThrownEgg = .{ .base = Entity.init(from, size, size) };
-    egg.setHeading(toward, speed, spread, rand);
-    return egg;
+pub fn dispensedFrom(
+    kind: Kind,
+    from: math.Vec3,
+    toward: math.Vec3,
+    speed: f32,
+    spread: f32,
+    rand: *world.JavaRandom,
+) Thrown {
+    var thrown: Thrown = .{ .kind = kind, .base = Entity.init(from, size, size) };
+    thrown.setHeading(toward, speed, spread, rand);
+    return thrown;
 }
 
-fn setHeading(self: *ThrownEgg, direction: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) void {
+fn setHeading(self: *Thrown, direction: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) void {
     const length: f64 = math.util.sqrtF(
         direction.x * direction.x + direction.y * direction.y + direction.z * direction.z,
     );
@@ -115,7 +136,7 @@ fn headingPitch(y: f64, flat: f64) f32 {
     return @floatCast(std.math.atan2(y, flat) * 180.0 / float_pi);
 }
 
-pub fn settle(self: *ThrownEgg, world_map: *const world.World) void {
+pub fn settle(self: *Thrown, world_map: *const world.World) void {
     self.base.beginTick();
     self.prev_yaw = self.yaw;
     self.prev_pitch = self.pitch;
@@ -124,7 +145,7 @@ pub fn settle(self: *ThrownEgg, world_map: *const world.World) void {
     self.ticks_in_air += 1;
 }
 
-pub fn blockImpact(self: ThrownEgg, world_map: *const world.World) ?raycast.Hit {
+pub fn blockImpact(self: Thrown, world_map: *const world.World) ?raycast.Hit {
     return raycast.castCollision(world_map, self.base.position, self.base.motion, 1.0);
 }
 
@@ -133,7 +154,7 @@ pub fn hatched(rand: *world.JavaRandom) usize {
     return if (rand.nextIntBound(brood_chance) == 0) brood_size else 1;
 }
 
-pub fn fly(self: *ThrownEgg) ?BubbleTrail {
+pub fn fly(self: *Thrown) ?BubbleTrail {
     self.base.position.x += self.base.motion.x;
     self.base.position.y += self.base.motion.y;
     self.base.position.z += self.base.motion.z;
@@ -165,11 +186,11 @@ pub fn fly(self: *ThrownEgg) ?BubbleTrail {
     return trail;
 }
 
-pub fn renderYaw(self: ThrownEgg, partial_ticks: f32) f32 {
+pub fn renderYaw(self: Thrown, partial_ticks: f32) f32 {
     return self.prev_yaw + (self.yaw - self.prev_yaw) * partial_ticks;
 }
 
-pub fn renderPitch(self: ThrownEgg, partial_ticks: f32) f32 {
+pub fn renderPitch(self: Thrown, partial_ticks: f32) f32 {
     return self.prev_pitch + (self.pitch - self.prev_pitch) * partial_ticks;
 }
 
@@ -179,7 +200,7 @@ test "an egg leaves the hand at eye height, at one and a half blocks a tick" {
     player.yaw = 0;
     player.pitch = 0;
 
-    const egg = thrownBy(player, &rand);
+    const egg = thrownBy(.egg, player, &rand);
 
     try std.testing.expectApproxEqAbs(@as(f64, 8.0 - 0.16), egg.base.position.x, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 10.0 + Player.eye_height + 0.12 - 0.1), egg.base.position.y, 1.0e-6);
@@ -204,7 +225,7 @@ test "an egg in open air arcs downward and keeps most of its speed" {
 
     var rand = world.JavaRandom.init(3);
     const player = Player.spawn(math.Vec3.init(8, 40, 8));
-    var egg = thrownBy(player, &rand);
+    var egg = thrownBy(.egg, player, &rand);
 
     const started = egg.base.position.z;
     egg.settle(&w);
@@ -223,7 +244,7 @@ test "an egg that meets a wall reports where it would strike it" {
     const chunk = w.getChunk(0, 0).?;
     chunk.setBlock(10, 5, 8, .stone);
 
-    var egg: ThrownEgg = .{ .base = Entity.init(math.Vec3.init(8.5, 5.5, 8.5), size, size) };
+    var egg: Thrown = .{ .kind = .egg, .base = Entity.init(math.Vec3.init(8.5, 5.5, 8.5), size, size) };
     egg.base.motion = math.Vec3.init(1.5, 0, 0);
     egg.settle(&w);
 
@@ -240,7 +261,7 @@ test "an egg trails bubbles once it is under water" {
         for (6..12) |x| chunk.setBlock(@intCast(x), @intCast(y), 8, .stationary_water);
     }
 
-    var egg: ThrownEgg = .{ .base = Entity.init(math.Vec3.init(8.5, 3.5, 8.5), size, size) };
+    var egg: Thrown = .{ .kind = .egg, .base = Entity.init(math.Vec3.init(8.5, 3.5, 8.5), size, size) };
     egg.base.motion = math.Vec3.init(0.5, 0, 0);
     egg.settle(&w);
     try std.testing.expect(egg.base.in_water);
@@ -271,7 +292,7 @@ test "an egg that falls out of the world stops existing" {
     var w = world.World.init(gpa);
     defer w.deinit();
 
-    var egg: ThrownEgg = .{ .base = Entity.init(math.Vec3.init(8, -70, 8), size, size) };
+    var egg: Thrown = .{ .kind = .egg, .base = Entity.init(math.Vec3.init(8, -70, 8), size, size) };
     egg.settle(&w);
     try std.testing.expect(egg.dead);
 }

@@ -356,7 +356,7 @@ pub fn tickBodies(self: *Connection, gpa: std.mem.Allocator, level: *game.Level)
     try level.entities.tickPrimed(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickArrows(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickFireballs(gpa, &level.world_map, level.roster.items, rand);
-    try level.entities.tickThrownEggs(gpa, &level.world_map, level.roster.items, rand);
+    try level.entities.tickThrown(gpa, &level.world_map, level.roster.items, rand);
     try level.entities.tickHooks(gpa, &level.world_map, level.roster.items, rand);
     tickRemoteFallingBlocks(level);
 }
@@ -395,7 +395,7 @@ const Body = union(enum) {
     item: *game.ItemEntity,
     arrow: *game.Arrow,
     fireball: *game.Fireball,
-    thrown_egg: *game.ThrownEgg,
+    thrown: *game.Thrown,
     falling_block: *game.FallingBlock,
     primed_tnt: *game.PrimedTnt,
     boat: *game.Boat,
@@ -507,7 +507,7 @@ fn bodyById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?Body {
         .{ "items", "item" },
         .{ "arrows", "arrow" },
         .{ "fireballs", "fireball" },
-        .{ "thrown_eggs", "thrown_egg" },
+        .{ "thrown", "thrown" },
         .{ "falling_blocks", "falling_block" },
         .{ "primed", "primed_tnt" },
         .{ "boats", "boat" },
@@ -666,7 +666,8 @@ pub const vehicle_boat: u8 = 1;
 pub const vehicle_minecart: u8 = 10;
 pub const vehicle_arrow: u8 = 60;
 pub const vehicle_fireball: u8 = 63;
-pub const vehicle_thrown_egg: u8 = 62;
+pub const vehicle_snowball: u8 = 61;
+pub const vehicle_egg: u8 = 62;
 pub const vehicle_primed_tnt: u8 = 50;
 pub const vehicle_falling_sand: u8 = 70;
 pub const vehicle_falling_gravel: u8 = 71;
@@ -760,14 +761,15 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .fireball = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.fireballs.append(gpa, shot);
         },
-        vehicle_thrown_egg => {
-            var egg: game.ThrownEgg = .{
-                .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.ThrownEgg.size, game.ThrownEgg.size),
+        vehicle_egg, vehicle_snowball => {
+            var projectile: game.Thrown = .{
+                .kind = if (body.kind == vehicle_egg) .egg else .snowball,
+                .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Thrown.size, game.Thrown.size),
                 .owner = @bitCast(body.thrower_id),
             };
-            egg.base.id = id;
-            (Body{ .thrown_egg = &egg }).place(body.x, body.y, body.z, 0, 0);
-            try level.entities.thrown_eggs.append(gpa, egg);
+            projectile.base.id = id;
+            (Body{ .thrown = &projectile }).place(body.x, body.y, body.z, 0, 0);
+            try level.entities.thrown.append(gpa, projectile);
         },
         vehicle_primed_tnt => {
             var lit = game.PrimedTnt.spawn(math.Vec3.init(0, 0, 0), world.tnt.fuse_ticks, &level.world_map.rand);

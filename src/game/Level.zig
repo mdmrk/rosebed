@@ -351,7 +351,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.entities.tickHooks(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickArrows(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickFireballs(gpa, &self.world_map, self.roster.items, rand);
-    try self.entities.tickThrownEggs(gpa, &self.world_map, self.roster.items, rand);
+    try self.entities.tickThrown(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickItems(gpa, &self.world_map, self.roster.items, rand);
     try self.entities.tickPrimed(gpa, &self.world_map, self.roster.items, rand);
     try self.tickFallingBlocks(gpa);

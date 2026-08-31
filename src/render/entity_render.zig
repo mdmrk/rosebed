@@ -3512,7 +3512,7 @@ pub fn appendFishHook(
 }
 
 const fireball_scale: f32 = 2.0;
-const thrown_egg_scale: f32 = 0.5;
+const thrown_scale: f32 = 0.5;
 
 fn appendItemBillboard(
     mesh: *MeshBuilder,
@@ -3554,14 +3554,22 @@ pub fn appendFireball(
     return appendItemBillboard(mesh, gpa, fireball.base, .snowball, fireball_scale, basis, partial_ticks);
 }
 
-pub fn appendThrownEgg(
+pub fn appendThrown(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    egg: game.ThrownEgg,
+    projectile: game.Thrown,
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    return appendItemBillboard(mesh, gpa, egg.base, .egg, thrown_egg_scale, basis, partial_ticks);
+    return appendItemBillboard(
+        mesh,
+        gpa,
+        projectile.base,
+        projectile.kind.item(),
+        thrown_scale,
+        basis,
+        partial_ticks,
+    );
 }
 
 const fire_overlay_spread: f32 = 1.4;

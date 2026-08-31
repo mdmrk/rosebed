@@ -29,7 +29,7 @@ const Sheep = @import("entity/Sheep.zig");
 const Skeleton = @import("entity/Skeleton.zig");
 const Slime = @import("entity/Slime.zig");
 const Spider = @import("entity/Spider.zig");
-const ThrownEgg = @import("entity/ThrownEgg.zig");
+const Thrown = @import("entity/Thrown.zig");
 const Wolf = @import("entity/Wolf.zig");
 const Zombie = @import("entity/Zombie.zig");
 const explosion = @import("explosion.zig");
@@ -44,7 +44,7 @@ const Entities = @This();
 items: std.ArrayList(ItemEntity) = .empty,
 arrows: std.ArrayList(Arrow) = .empty,
 fireballs: std.ArrayList(Fireball) = .empty,
-thrown_eggs: std.ArrayList(ThrownEgg) = .empty,
+thrown: std.ArrayList(Thrown) = .empty,
 falling_blocks: std.ArrayList(FallingBlock) = .empty,
 primed: std.ArrayList(PrimedTnt) = .empty,
 mobs: std.ArrayList(Mob) = .empty,
@@ -158,7 +158,7 @@ pub fn takeId(self: *Entities) Entity.Id {
 }
 
 pub fn stampIds(self: *Entities) void {
-    inline for (.{ "items", "arrows", "fireballs", "thrown_eggs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
+    inline for (.{ "items", "arrows", "fireballs", "thrown", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
         for (@field(self, name).items) |*entity| {
             if (entity.base.id == Entity.no_id) entity.base.id = self.takeId();
         }
@@ -354,7 +354,7 @@ pub fn removeMob(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
 pub fn removeById(self: *Entities, gpa: std.mem.Allocator, id: Entity.Id) bool {
     if (self.removeMob(gpa, id)) return true;
 
-    inline for (.{ "items", "arrows", "fireballs", "thrown_eggs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
+    inline for (.{ "items", "arrows", "fireballs", "thrown", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
         const list = &@field(self, name);
         for (list.items, 0..) |entity, index| {
             if (entity.base.id != id) continue;
@@ -539,7 +539,7 @@ pub fn deinit(self: *Entities, gpa: std.mem.Allocator) void {
     self.items.deinit(gpa);
     self.arrows.deinit(gpa);
     self.fireballs.deinit(gpa);
-    self.thrown_eggs.deinit(gpa);
+    self.thrown.deinit(gpa);
     self.falling_blocks.deinit(gpa);
     self.primed.deinit(gpa);
     self.particles.deinit(gpa);
@@ -564,7 +564,7 @@ pub fn animalCount(self: *const Entities) usize {
 
 pub fn count(self: *const Entities) usize {
     return self.items.items.len + self.arrows.items.len + self.fireballs.items.len +
-        self.thrown_eggs.items.len + self.falling_blocks.items.len + self.paintings.items.len +
+        self.thrown.items.len + self.falling_blocks.items.len + self.paintings.items.len +
         self.boats.items.len + self.minecarts.items.len + self.mobs.items.len;
 }
 
@@ -641,6 +641,14 @@ const dispense_shot_lift: f64 = 0.1;
 const dispense_puffs = 10;
 const dispense_puff_sink: f64 = -0.03;
 
+pub fn thrownKind(item: ?world.Item) ?Thrown.Kind {
+    return switch (item orelse return null) {
+        .egg => .egg,
+        .snowball => .snowball,
+        else => null,
+    };
+}
+
 pub fn dispense(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -657,7 +665,7 @@ pub fn dispense(
 
     const shot_item: ?world.Item = switch (shot.stack.id) {
         .item => |id| switch (id) {
-            .arrow, .egg => id,
+            .arrow, .egg, .snowball => id,
             else => null,
         },
         .block => null,
@@ -675,8 +683,9 @@ pub fn dispense(
         );
         arrow.from_player = true;
         try self.arrows.append(gpa, arrow);
-    } else if (shot_item == .egg) {
-        try self.thrown_eggs.append(gpa, ThrownEgg.dispensedFrom(
+    } else if (thrownKind(shot_item)) |kind| {
+        try self.thrown.append(gpa, Thrown.dispensedFrom(
+            kind,
             muzzle,
             heading,
             dispense_shot_speed,
@@ -1478,7 +1487,7 @@ fn gatherObstacles(
 ) !void {
     out.clearRetainingCapacity();
 
-    inline for (.{ "items", "arrows", "fireballs", "thrown_eggs", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
+    inline for (.{ "items", "arrows", "fireballs", "thrown", "falling_blocks", "primed", "boats", "minecarts", "hooks" }) |name| {
         for (@field(self, name).items) |entry| {
             if (entry.base.id == skip) continue;
             const box = entry.base.boundingBox();
@@ -1890,32 +1899,33 @@ pub fn tickFireballs(
     }
 }
 
-pub fn throwEgg(
+pub fn throwItem(
     self: *Entities,
     gpa: std.mem.Allocator,
+    kind: Thrown.Kind,
     player: *const Player,
     rand: *world.JavaRandom,
 ) !void {
-    try self.thrown_eggs.append(gpa, ThrownEgg.thrownBy(player.*, rand));
+    try self.thrown.append(gpa, Thrown.thrownBy(kind, player.*, rand));
 }
 
-fn eggStrike(self: *Entities, egg: ThrownEgg, roster: []const *Player, limit: f64) ?ArrowStrike {
-    const start = egg.base.position;
-    const along = egg.base.motion;
-    const swept = egg.base.boundingBox()
+fn thrownStrike(self: *Entities, projectile: Thrown, roster: []const *Player, limit: f64) ?ArrowStrike {
+    const start = projectile.base.position;
+    const along = projectile.base.motion;
+    const swept = projectile.base.boundingBox()
         .addCoord(along.x, along.y, along.z)
         .expand(1.0, 1.0, 1.0);
 
     var found: ?ArrowStrike = null;
     var nearest: f64 = 0;
-    const spent = egg.ticks_in_air >= ThrownEgg.owner_grace_ticks;
+    const spent = projectile.ticks_in_air >= Thrown.owner_grace_ticks;
 
     for (self.mobs.items) |entry| {
-        if (entry.animal.base.id == egg.owner and !spent) continue;
+        if (entry.animal.base.id == projectile.owner and !spent) continue;
         const box = entry.animal.base.boundingBox();
         if (!box.intersects(swept)) continue;
 
-        const grown = box.expand(ThrownEgg.hit_border, ThrownEgg.hit_border, ThrownEgg.hit_border);
+        const grown = box.expand(Thrown.hit_border, Thrown.hit_border, Thrown.hit_border);
         const distance = boxRayDistance(grown, start, along, limit) orelse continue;
         if (found == null or distance < nearest) {
             found = .{ .mob = .{ .mob = entry.animal.base.id } };
@@ -1924,11 +1934,11 @@ fn eggStrike(self: *Entities, egg: ThrownEgg, roster: []const *Player, limit: f6
     }
 
     for (roster) |player| {
-        if (player.base.id == egg.owner and !spent) continue;
+        if (player.base.id == projectile.owner and !spent) continue;
         const box = player.base.boundingBox();
         if (!box.intersects(swept)) continue;
 
-        const grown = box.expand(ThrownEgg.hit_border, ThrownEgg.hit_border, ThrownEgg.hit_border);
+        const grown = box.expand(Thrown.hit_border, Thrown.hit_border, Thrown.hit_border);
         const distance = boxRayDistance(grown, start, along, limit) orelse continue;
         if (found == null or distance < nearest) {
             found = .{ .player = player.base.id };
@@ -1939,7 +1949,7 @@ fn eggStrike(self: *Entities, egg: ThrownEgg, roster: []const *Player, limit: f6
     return found;
 }
 
-pub fn tickThrownEggs(
+pub fn tickThrown(
     self: *Entities,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
@@ -1947,54 +1957,54 @@ pub fn tickThrownEggs(
     rand: *world.JavaRandom,
 ) !void {
     var index: usize = 0;
-    while (index < self.thrown_eggs.items.len) {
-        const egg = &self.thrown_eggs.items[index];
-        const owned_here = egg.base.remote == null;
-        egg.settle(world_map);
+    while (index < self.thrown.items.len) {
+        const projectile = &self.thrown.items[index];
+        const owned_here = projectile.base.remote == null;
+        projectile.settle(world_map);
 
-        const block_hit = egg.blockImpact(world_map);
+        const block_hit = projectile.blockImpact(world_map);
         const limit: f64 = if (block_hit) |hit| hit.distance else 1.0;
-        const strike = if (owned_here) self.eggStrike(egg.*, roster, limit) else null;
+        const strike = if (owned_here) self.thrownStrike(projectile.*, roster, limit) else null;
 
         if (strike != null or block_hit != null) {
             if (strike) |target| {
                 if (target == .mob) {
-                    _ = self.hurtTarget(world_map, target.mob, 0, self.eggThrower(egg.*, roster), rand);
+                    _ = self.hurtTarget(world_map, target.mob, 0, self.throwerOf(projectile.*, roster), rand);
                 }
             }
-            const broken = egg.base.position;
-            if (owned_here) {
-                for (0..ThrownEgg.hatched(rand)) |_| {
+            const broken = projectile.base.position;
+            if (owned_here and projectile.kind == .egg) {
+                for (0..Thrown.hatched(rand)) |_| {
                     try self.spawnChicken(gpa, broken, rand);
                 }
             }
-            for (0..ThrownEgg.poof_particles) |_| {
-                try self.particles.append(gpa, Particle.spawnItemPoof(broken, .egg, rand));
+            for (0..Thrown.poof_particles) |_| {
+                try self.particles.append(gpa, Particle.spawnItemPoof(broken, .snowball, rand));
             }
-            egg.dead = true;
+            projectile.dead = true;
         }
 
-        if (egg.fly()) |trail| {
-            for (0..ThrownEgg.bubbles_per_trail) |_| {
+        if (projectile.fly()) |trail| {
+            for (0..Thrown.bubbles_per_trail) |_| {
                 try self.particles.append(gpa, Particle.spawnBubble(trail.position, trail.drift, rand));
             }
         }
 
-        if (egg.dead) {
-            _ = self.thrown_eggs.swapRemove(index);
+        if (projectile.dead) {
+            _ = self.thrown.swapRemove(index);
         } else {
             index += 1;
         }
     }
 }
 
-fn eggThrower(self: *const Entities, egg: ThrownEgg, roster: []const *Player) ?Animal.Attacker {
-    if (egg.from_player) {
-        const thrower = playerById(roster, egg.owner) orelse return null;
+fn throwerOf(self: *const Entities, projectile: Thrown, roster: []const *Player) ?Animal.Attacker {
+    if (projectile.from_player) {
+        const thrower = playerById(roster, projectile.owner) orelse return null;
         return .{ .position = thrower.base.position, .player = thrower.base.id };
     }
 
-    const entry = self.mobById(egg.owner) orelse return null;
+    const entry = self.mobById(projectile.owner) orelse return null;
     return .{
         .position = entry.animal.base.position,
         .mob = entry.animal.base.id,
@@ -2367,7 +2377,7 @@ pub fn anyInBox(self: *Entities, box: math.Aabb, living_only: bool) bool {
     for (self.fireballs.items) |*ball| {
         if (ball.base.boundingBox().intersects(box)) return true;
     }
-    for (self.thrown_eggs.items) |*egg| {
+    for (self.thrown.items) |*egg| {
         if (egg.base.boundingBox().intersects(box)) return true;
     }
     for (self.boats.items) |*boat| {
@@ -3257,17 +3267,62 @@ test "an egg thrown at a wall breaks against it in a puff of shell" {
 
     var rand = world.JavaRandom.init(1);
     var player = archer(math.Vec3.init(8.5, 1, 8.5), -90, 0);
-    try entities.throwEgg(gpa, &player, &rand);
-    try std.testing.expectEqual(@as(usize, 1), entities.thrown_eggs.items.len);
+    try entities.throwItem(gpa, .egg, &player, &rand);
+    try std.testing.expectEqual(@as(usize, 1), entities.thrown.items.len);
 
-    for (0..4) |_| try entities.tickThrownEggs(gpa, &w, &[_]*Player{&player}, &rand);
+    for (0..4) |_| try entities.tickThrown(gpa, &w, &[_]*Player{&player}, &rand);
 
-    try std.testing.expectEqual(@as(usize, 0), entities.thrown_eggs.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.thrown.items.len);
     var poofs: usize = 0;
     for (entities.particles.items) |particle| {
         if (particle.kind == .slime) poofs += 1;
     }
-    try std.testing.expectEqual(ThrownEgg.poof_particles, poofs);
+    try std.testing.expectEqual(Thrown.poof_particles, poofs);
+}
+
+test "a snowball bursts against a wall and hatches nothing" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var y: i32 = 1;
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(5);
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), -90, 0);
+
+    const throws = 200;
+    for (0..throws) |_| {
+        try entities.throwItem(gpa, .snowball, &player, &rand);
+        try std.testing.expectEqual(Thrown.Kind.snowball, entities.thrown.items[0].kind);
+        for (0..4) |_| try entities.tickThrown(gpa, &w, &[_]*Player{&player}, &rand);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), entities.thrown.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.chicken));
+}
+
+test "a snowball thrown at a pig bursts on it and leaves it unhurt" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 12.5));
+    const before = entities.first(Pig, mob.pig).?.animal.health;
+
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 15);
+    try entities.throwItem(gpa, .snowball, &player, &rand);
+
+    for (0..4) |_| try entities.tickThrown(gpa, &w, &[_]*Player{&player}, &rand);
+
+    try std.testing.expectEqual(@as(usize, 0), entities.thrown.items.len);
+    try std.testing.expectEqual(before, entities.first(Pig, mob.pig).?.animal.health);
 }
 
 test "an egg thrown at a pig bursts on it and leaves it unhurt" {
@@ -3283,11 +3338,11 @@ test "an egg thrown at a pig bursts on it and leaves it unhurt" {
     const before = entities.first(Pig, mob.pig).?.animal.health;
 
     var player = archer(math.Vec3.init(8.5, 1, 8.5), 0, 15);
-    try entities.throwEgg(gpa, &player, &rand);
+    try entities.throwItem(gpa, .egg, &player, &rand);
 
-    for (0..4) |_| try entities.tickThrownEggs(gpa, &w, &[_]*Player{&player}, &rand);
+    for (0..4) |_| try entities.tickThrown(gpa, &w, &[_]*Player{&player}, &rand);
 
-    try std.testing.expectEqual(@as(usize, 0), entities.thrown_eggs.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.thrown.items.len);
     try std.testing.expectEqual(before, entities.first(Pig, mob.pig).?.animal.health);
 }
 
@@ -3306,8 +3361,8 @@ test "eggs broken against a wall hatch a chicken now and then" {
 
     const throws = 200;
     for (0..throws) |_| {
-        try entities.throwEgg(gpa, &player, &rand);
-        for (0..4) |_| try entities.tickThrownEggs(gpa, &w, &[_]*Player{&player}, &rand);
+        try entities.throwItem(gpa, .egg, &player, &rand);
+        for (0..4) |_| try entities.tickThrown(gpa, &w, &[_]*Player{&player}, &rand);
     }
 
     const hatched = entities.countOf(mob.chicken);
@@ -3330,9 +3385,30 @@ test "a dispenser throws an egg instead of dropping it" {
         .stack = .{ .id = .{ .item = .egg }, .count = 1 },
     }, &rand);
 
-    try std.testing.expectEqual(@as(usize, 1), entities.thrown_eggs.items.len);
+    try std.testing.expectEqual(@as(usize, 1), entities.thrown.items.len);
     try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
-    try std.testing.expect(entities.thrown_eggs.items[0].base.motion.x > 1.0);
+    try std.testing.expect(entities.thrown.items[0].base.motion.x > 1.0);
+}
+
+test "a dispenser throws a snowball instead of dropping it" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(2);
+    try entities.dispense(gpa, .{
+        .pos = .{ .x = 8, .y = 2, .z = 8 },
+        .step = .{ 1, 0 },
+        .stack = .{ .id = .{ .item = .snowball }, .count = 1 },
+    }, &rand);
+
+    try std.testing.expectEqual(@as(usize, 1), entities.thrown.items.len);
+    try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
+    try std.testing.expectEqual(Thrown.Kind.snowball, entities.thrown.items[0].kind);
+    try std.testing.expect(entities.thrown.items[0].base.motion.x > 1.0);
 }
 
 test "a rolling empty cart scoops up a pig it runs into, and a chest cart does not" {
