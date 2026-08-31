@@ -515,20 +515,32 @@ pub fn isDecorated(self: *const World, chunk_x: i32, chunk_z: i32) bool {
     return self.decorated.contains(.{ .x = chunk_x, .z = chunk_z });
 }
 
-pub fn ensureDecorated(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !void {
-    if (self.isDecorated(chunk_x, chunk_z)) return;
+pub const DecorateStep = enum { generated, decorated, done };
+
+pub fn stepDecorate(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !DecorateStep {
+    if (self.isDecorated(chunk_x, chunk_z)) return .done;
 
     var dx: i32 = -1;
     while (dx <= 1) : (dx += 1) {
         var dz: i32 = -1;
         while (dz <= 1) : (dz += 1) {
+            if (self.getChunk(chunk_x + dx, chunk_z + dz) != null) continue;
             _ = try self.getOrGenerateChunk(generator, chunk_x + dx, chunk_z + dz);
+            return .generated;
         }
     }
 
     try generator.decorateChunk(self, chunk_x, chunk_z);
     try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
     try light.relightChunk(self.allocator, self, chunk_x, chunk_z);
+    return .decorated;
+}
+
+pub fn ensureDecorated(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !void {
+    while (true) {
+        const step = try self.stepDecorate(generator, chunk_x, chunk_z);
+        if (step != .generated) return;
+    }
 }
 
 fn floorDiv(value: i32, divisor: i32) i32 {
@@ -1510,6 +1522,58 @@ test "ensureDecorated shape-generates the full 3x3 neighbor block" {
         var dz: i32 = -1;
         while (dz <= 1) : (dz += 1) {
             try std.testing.expect(w.getChunk(dx, dz) != null);
+        }
+    }
+}
+
+test "stepDecorate walks one chunk of work at a time" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 1);
+    defer gen.deinit(gpa);
+
+    var w = World.init(gpa);
+    defer w.deinit();
+
+    var generated: usize = 0;
+    while (true) {
+        const step = try w.stepDecorate(gen, 0, 0);
+        if (step != .generated) {
+            try std.testing.expectEqual(DecorateStep.decorated, step);
+            break;
+        }
+        generated += 1;
+        try std.testing.expect(!w.isDecorated(0, 0));
+    }
+
+    try std.testing.expectEqual(@as(usize, 9), generated);
+    try std.testing.expect(w.isDecorated(0, 0));
+    try std.testing.expectEqual(DecorateStep.done, try w.stepDecorate(gen, 0, 0));
+}
+
+test "stepping a chunk decorates it exactly as one ensureDecorated call would" {
+    const gpa = std.testing.allocator;
+    const gen = try TerrainGenerator.init(gpa, 7);
+    defer gen.deinit(gpa);
+
+    var whole = World.init(gpa);
+    defer whole.deinit();
+    try whole.ensureDecorated(gen, 0, 0);
+
+    var stepped = World.init(gpa);
+    defer stepped.deinit();
+    while (true) {
+        const step = try stepped.stepDecorate(gen, 0, 0);
+        if (step != .generated) break;
+    }
+
+    for (0..16) |x| {
+        for (0..128) |y| {
+            for (0..16) |z| {
+                try std.testing.expectEqual(
+                    whole.getBlock(@intCast(x), @intCast(y), @intCast(z)),
+                    stepped.getBlock(@intCast(x), @intCast(y), @intCast(z)),
+                );
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ const reach_distance = 4.5;
 const boat_reach = 5.0;
 const bucket_reach = 5.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
+const chunk_stream_budget_ns = 4 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
 const wasm = builtin.cpu.arch.isWasm();
 
@@ -76,7 +77,10 @@ pub const AppState = struct {
     level: game.Level,
     chunks: render.ChunkRenderer = .{},
     timer: Timer,
-    frame_end_ns: u64 = 0,
+    frame_started_ns: u64 = 0,
+    chunk_stream_deadline_ns: u64 = 0,
+    chunk_stream_cost_ns: u64 = 0,
+    chunk_streamed_this_frame: bool = false,
     cloud_offset: u64 = 0,
     fog_brightness: f32 = 0,
     prev_fog_brightness: f32 = 0,
@@ -301,11 +305,23 @@ fn ensureChunksAroundPlayer(app_state: *AppState) !void {
 
     std.mem.sort(Pending, pending.items, {}, Pending.nearestFirst);
 
-    const started = sdl3.timer.getNanosecondsSinceInit();
     for (pending.items) |entry| {
-        try app_state.level.world_map.ensureDecorated(&app_state.level.generator, entry.coord.x, entry.coord.z);
+        while (true) {
+            const started = sdl3.timer.getNanosecondsSinceInit();
+            if (app_state.chunk_streamed_this_frame and
+                started +% app_state.chunk_stream_cost_ns > app_state.chunk_stream_deadline_ns) return;
+
+            const step = try app_state.level.world_map.stepDecorate(
+                &app_state.level.generator,
+                entry.coord.x,
+                entry.coord.z,
+            );
+
+            app_state.chunk_stream_cost_ns = sdl3.timer.getNanosecondsSinceInit() -% started;
+            app_state.chunk_streamed_this_frame = true;
+            if (step != .generated) break;
+        }
         try markMeshableAround(app_state, entry.coord);
-        if (sdl3.timer.getNanosecondsSinceInit() -% started >= chunk_load_budget_ns) break;
     }
 }
 
@@ -3336,7 +3352,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             .smooth = app_state.settings.ambient_occlusion,
             .fancy = app_state.settings.fancy_graphics,
             .anaglyph = app_state.settings.anaglyph,
-        }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_end_ns));
+        }, app_state.player.base.position.x, app_state.player.base.position.z, app_state.settings.framerate_limit.rebuildDeadlineNs(app_state.frame_started_ns));
     }
 
     const px = drawableSize(app_state);
@@ -4441,6 +4457,10 @@ pub fn iterate(
     const dt = app_state.fps_capper.delay();
     _ = dt;
 
+    app_state.frame_started_ns = sdl3.timer.getNanosecondsSinceInit();
+    app_state.chunk_stream_deadline_ns = app_state.frame_started_ns +% chunk_stream_budget_ns;
+    app_state.chunk_streamed_this_frame = false;
+
     if (sdl3.timer.getMillisecondsSinceInit() < app_state.mojang_until_ms) {
         try render.screen.mojang.draw(uiContext(app_state, gui));
         try sdl3.video.gl.swapWindow(app_state.window);
@@ -4511,7 +4531,6 @@ pub fn iterate(
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         if (app_state.screen == .playing) try renderWorld(app_state, horizon);
     }
-    app_state.frame_end_ns = sdl3.timer.getNanosecondsSinceInit();
 
     const ui = uiContext(app_state, gui);
     const backdrop: render.screen.options.Backdrop = if (app_state.options_parent == .pause) .veil else .dirt;
