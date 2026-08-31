@@ -489,6 +489,7 @@ pub const Item = enum(u16) {
     fn vanillaMaxStackSize(self: Item) u8 {
         if (self == .door_wood or self == .door_iron or self == .cake or self == .bed or self == .bow or self == .sign) return 1;
         if (self == .map) return 1;
+        if (self == .egg or self == .snowball) return 16;
         if (self == .boat or self == .saddle) return 1;
         if (self.vanillaMinecartKind() != null) return 1;
         if (self.vanillaBucketFill() != null) return 1;
@@ -1028,6 +1029,15 @@ test "every constant item fact reaches its caller through the registry table" {
     try std.testing.expectEqual(@as(u8, 64), Item.stick.maxStackSize());
     try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
     try std.testing.expectEqualStrings("Gold Ingot", Item.ingot_gold.displayName(0));
+}
+
+test "eggs stack no higher than sixteen" {
+    try std.testing.expectEqual(@as(u8, 16), Item.egg.maxStackSize());
+}
+
+test "eggs and snowballs stack no higher than sixteen" {
+    try std.testing.expectEqual(@as(u8, 16), Item.egg.maxStackSize());
+    try std.testing.expectEqual(@as(u8, 16), Item.snowball.maxStackSize());
 }
 
 test "shears carry ItemShears' own durability, icon and name, without being a tool" {

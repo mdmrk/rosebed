@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const world = @import("world");
 
 const Entities = @import("Entities.zig");
@@ -192,11 +193,36 @@ pub fn useHeldItem(ctx: Context) !void {
         eatHeldFood(ctx, item, amount);
         return;
     }
+    if (item == .egg) return throwHeldEgg(ctx);
     if (item != .bow) return;
     if (!ctx.player.inventory.consumeItem(.{ .item = .arrow })) return;
 
     try ctx.level.entities.shootArrow(ctx.gpa, ctx.player, &ctx.level.world_map.rand);
     try ctx.stats.use(ctx.gpa, .{ .item = .bow });
+}
+
+const egg_throw_volume: f32 = 0.5;
+
+fn eggThrowPitch(rand: *world.JavaRandom) f32 {
+    return 0.4 / (rand.nextFloat() * 0.4 + 0.8);
+}
+
+pub fn throwHeldEgg(ctx: Context) !void {
+    ctx.consumeSelectedStack();
+
+    const rand = &ctx.level.world_map.rand;
+    const at = ctx.player.eyePosition();
+    ctx.level.world_map.playSoundEffect(
+        at.x,
+        at.y,
+        at.z,
+        assets.sounds.random.bow,
+        egg_throw_volume,
+        eggThrowPitch(rand),
+    );
+
+    try ctx.level.entities.throwEgg(ctx.gpa, ctx.player, rand);
+    try ctx.stats.use(ctx.gpa, .{ .item = .egg });
 }
 
 pub fn eatHeldFood(ctx: Context, held: world.Item, heal_amount: u8) void {

@@ -3512,9 +3512,37 @@ pub fn appendFishHook(
 }
 
 const fireball_scale: f32 = 2.0;
-const fireball_half_width: f32 = 0.5 * fireball_scale;
-const fireball_bottom: f32 = -0.25 * fireball_scale;
-const fireball_top: f32 = 0.75 * fireball_scale;
+const thrown_egg_scale: f32 = 0.5;
+
+fn appendItemBillboard(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    base: game.Entity,
+    item: world.item.Item,
+    scale: f32,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    const pos = base.renderPosition(partial_ticks);
+    const cx: f32 = @floatCast(pos.x);
+    const cy: f32 = @floatCast(pos.y);
+    const cz: f32 = @floatCast(pos.z);
+
+    const uv = Atlas.tileUv(item.iconTile(0) orelse return);
+    const half_width = 0.5 * scale;
+    const bottom = -0.25 * scale;
+    const top = 0.75 * scale;
+
+    const positions = [4][3]f32{
+        .{ cx - basis.right_x * half_width + basis.tilt_x * bottom, cy + basis.up_y * bottom, cz - basis.right_z * half_width + basis.tilt_z * bottom },
+        .{ cx - basis.right_x * half_width + basis.tilt_x * top, cy + basis.up_y * top, cz - basis.right_z * half_width + basis.tilt_z * top },
+        .{ cx + basis.right_x * half_width + basis.tilt_x * top, cy + basis.up_y * top, cz + basis.right_z * half_width + basis.tilt_z * top },
+        .{ cx + basis.right_x * half_width + basis.tilt_x * bottom, cy + basis.up_y * bottom, cz + basis.right_z * half_width + basis.tilt_z * bottom },
+    };
+    const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
+
+    try mesh.quad(gpa, positions, uvs, white);
+}
 
 pub fn appendFireball(
     mesh: *MeshBuilder,
@@ -3523,22 +3551,17 @@ pub fn appendFireball(
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    const pos = fireball.base.renderPosition(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    return appendItemBillboard(mesh, gpa, fireball.base, .snowball, fireball_scale, basis, partial_ticks);
+}
 
-    const uv = Atlas.tileUv(world.item.Item.snowball.iconTile(0) orelse return);
-
-    const positions = [4][3]f32{
-        .{ cx - basis.right_x * fireball_half_width + basis.tilt_x * fireball_bottom, cy + basis.up_y * fireball_bottom, cz - basis.right_z * fireball_half_width + basis.tilt_z * fireball_bottom },
-        .{ cx - basis.right_x * fireball_half_width + basis.tilt_x * fireball_top, cy + basis.up_y * fireball_top, cz - basis.right_z * fireball_half_width + basis.tilt_z * fireball_top },
-        .{ cx + basis.right_x * fireball_half_width + basis.tilt_x * fireball_top, cy + basis.up_y * fireball_top, cz + basis.right_z * fireball_half_width + basis.tilt_z * fireball_top },
-        .{ cx + basis.right_x * fireball_half_width + basis.tilt_x * fireball_bottom, cy + basis.up_y * fireball_bottom, cz + basis.right_z * fireball_half_width + basis.tilt_z * fireball_bottom },
-    };
-    const uvs = [4][2]f32{ .{ uv.u0, uv.v1 }, .{ uv.u0, uv.v0 }, .{ uv.u1, uv.v0 }, .{ uv.u1, uv.v1 } };
-
-    try mesh.quad(gpa, positions, uvs, white);
+pub fn appendThrownEgg(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    egg: game.ThrownEgg,
+    basis: CameraBasis,
+    partial_ticks: f32,
+) !void {
+    return appendItemBillboard(mesh, gpa, egg.base, .egg, thrown_egg_scale, basis, partial_ticks);
 }
 
 const fire_overlay_spread: f32 = 1.4;

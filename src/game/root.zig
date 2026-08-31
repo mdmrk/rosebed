@@ -29,6 +29,7 @@ pub const Skeleton = @import("entity/Skeleton.zig");
 pub const Slime = @import("entity/Slime.zig");
 pub const Spider = @import("entity/Spider.zig");
 pub const Squid = @import("entity/Squid.zig");
+pub const ThrownEgg = @import("entity/ThrownEgg.zig");
 pub const Wolf = @import("entity/Wolf.zig");
 pub const Zombie = @import("entity/Zombie.zig");
 pub const explosion = @import("explosion.zig");
@@ -87,6 +88,7 @@ test {
     _ = Fireball;
     _ = Ghast;
     _ = Squid;
+    _ = ThrownEgg;
     _ = mob;
     _ = spawner;
     _ = crafting;

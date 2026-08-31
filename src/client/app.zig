@@ -3469,12 +3469,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         if (hook.dead) continue;
         try render.entity_render.appendFishHook(&particle_mesh, app_state.frame, &app_state.level.world_map, hook, basis, partial);
     }
-    var fireball_mesh: render.MeshBuilder = .{};
-    defer fireball_mesh.deinit(app_state.frame);
+    var item_billboard_mesh: render.MeshBuilder = .{};
+    defer item_billboard_mesh.deinit(app_state.frame);
     for (app_state.level.entities.fireballs.items) |fireball| {
         if (fireball.dead) continue;
-        try render.entity_render.appendFireball(&fireball_mesh, app_state.frame, fireball, basis, partial);
+        try render.entity_render.appendFireball(&item_billboard_mesh, app_state.frame, fireball, basis, partial);
         try render.entity_render.appendEntityFire(&atlas_mesh, app_state.frame, fireball.base, basis, partial);
+    }
+    for (app_state.level.entities.thrown_eggs.items) |egg| {
+        if (egg.dead) continue;
+        try render.entity_render.appendThrownEgg(&item_billboard_mesh, app_state.frame, egg, basis, partial);
     }
     for (app_state.level.entities.mobs.items) |mob| {
         if (mob.animal.fire <= 0) continue;
@@ -3502,9 +3506,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         drawEntityMesh(&item_particle_mesh);
         app_state.textures.terrain.bind();
     }
-    if (fireball_mesh.vertices.items.len > 0) {
+    if (item_billboard_mesh.vertices.items.len > 0) {
         app_state.textures.items.bind();
-        drawEntityMesh(&fireball_mesh);
+        drawEntityMesh(&item_billboard_mesh);
         app_state.textures.terrain.bind();
     }
 

@@ -315,6 +315,14 @@ pub fn spawnSlime(position: math.Vec3, rand: *world.JavaRandom) Particle {
     return particle;
 }
 
+pub fn spawnItemPoof(position: math.Vec3, item: world.Item, rand: *world.JavaRandom) Particle {
+    var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
+    particle.kind = .slime;
+    particle.scale /= 2.0;
+    particle.tile = item.iconTile(0) orelse 0;
+    return particle;
+}
+
 // EntityExplodeFX jitters its drift with Math.random(), which is outside any seeded stream;
 // this port has only the world random, so the shape matches and the exact numbers cannot.
 pub fn spawnExplode(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
