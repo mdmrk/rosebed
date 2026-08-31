@@ -183,7 +183,7 @@ pub const Clouds = struct {
     textures: Textures,
     gpa: std.mem.Allocator,
     view_proj: math.Mat4,
-    eye: [3]f64,
+    eye: math.Vec3,
     scroll: f64,
     color: sky.Color,
 };

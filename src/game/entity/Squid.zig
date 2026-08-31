@@ -221,11 +221,7 @@ pub fn toRecord(self: Squid) world.entity_nbt.Squid {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Squid) Squid {
-    var squid = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var squid = init(record.living.position);
     squid.animal.restore(record.living);
     return squid;
 }

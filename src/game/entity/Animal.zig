@@ -328,10 +328,7 @@ fn eyePosition(self: Animal) math.Vec3 {
 }
 
 pub fn distanceSquaredTo(self: Animal, position: math.Vec3) f64 {
-    const dx = position.x - self.base.position.x;
-    const dy = position.y - self.base.position.y;
-    const dz = position.z - self.base.position.z;
-    return dx * dx + dy * dy + dz * dz;
+    return self.base.position.distanceSquaredTo(position);
 }
 
 fn isInsideOpaqueBlock(self: Animal, world_map: *const world.World) bool {
@@ -642,10 +639,10 @@ pub fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom
     const feet_y: f64 = @floatFromInt(math.util.floorDouble(self.base.boundingBox().min_y + 0.5));
     const reach = self.base.width * 2.0;
 
-    var node: ?[3]f64 = self.path.?.position(self.pathMob());
+    var node: ?math.Vec3 = self.path.?.position(self.pathMob());
     while (node) |position| {
-        const dx = position[0] - self.base.position.x;
-        const dz = position[2] - self.base.position.z;
+        const dx = position.x - self.base.position.x;
+        const dz = position.z - self.base.position.z;
         if (dx * dx + dz * dz >= reach * reach) break;
 
         self.path.?.incrementIndex();
@@ -659,9 +656,9 @@ pub fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom
 
     self.is_jumping = false;
     if (node) |position| {
-        const dx = position[0] - self.base.position.x;
-        const dz = position[2] - self.base.position.z;
-        const dy = position[1] - feet_y;
+        const dx = position.x - self.base.position.x;
+        const dz = position.z - self.base.position.z;
+        const dy = position.y - feet_y;
 
         const target_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
         self.move_forward = self.move_speed;
@@ -845,11 +842,11 @@ pub fn tick(
 pub fn toRecord(self: Animal) world.entity_nbt.Living {
     return .{
         .position = .{
-            self.base.position.x,
-            self.base.position.y + self.base.y_size,
-            self.base.position.z,
+            .x = self.base.position.x,
+            .y = self.base.position.y + self.base.y_size,
+            .z = self.base.position.z,
         },
-        .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+        .motion = self.base.motion,
         .yaw = self.yaw,
         .pitch = self.pitch,
         .fall_distance = self.fall_distance,
@@ -863,7 +860,7 @@ pub fn toRecord(self: Animal) world.entity_nbt.Living {
 }
 
 pub fn restore(self: *Animal, record: world.entity_nbt.Living) void {
-    self.base.motion = math.Vec3.init(record.motion[0], record.motion[1], record.motion[2]);
+    self.base.motion = record.motion;
     self.base.on_ground = record.on_ground;
     self.yaw = record.yaw;
     self.prev_yaw = record.yaw;

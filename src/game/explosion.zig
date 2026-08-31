@@ -133,7 +133,7 @@ fn throwEntities(
 
 const Impact = struct {
     strength: f64,
-    along: [3]f64,
+    along: math.Vec3,
 };
 
 fn impactOn(world_map: *const world.World, at: math.Vec3, reach: f64, base: Entity) ?Impact {
@@ -149,7 +149,7 @@ fn impactOn(world_map: *const world.World, at: math.Vec3, reach: f64, base: Enti
     dz /= away;
 
     const exposure: f64 = blockDensity(world_map, at, base.boundingBox());
-    return .{ .strength = (1.0 - away / reach) * exposure, .along = .{ dx, dy, dz } };
+    return .{ .strength = (1.0 - away / reach) * exposure, .along = math.Vec3.init(dx, dy, dz) };
 }
 
 fn impactDamage(strength: f64, reach: f64) i32 {
@@ -157,9 +157,7 @@ fn impactDamage(strength: f64, reach: f64) i32 {
 }
 
 fn pushBack(base: *Entity, impact: Impact) void {
-    base.motion.x += impact.along[0] * impact.strength;
-    base.motion.y += impact.along[1] * impact.strength;
-    base.motion.z += impact.along[2] * impact.strength;
+    base.motion = base.motion.add(impact.along.scale(impact.strength));
 }
 
 pub fn blockDensity(world_map: *const world.World, at: math.Vec3, box: math.Aabb) f32 {
@@ -191,11 +189,11 @@ pub fn blockDensity(world_map: *const world.World, at: math.Vec3, box: math.Aabb
 }
 
 fn isObstructedBetween(world_map: *const world.World, from: math.Vec3, to: math.Vec3) bool {
-    const along = [3]f64{ to.x - from.x, to.y - from.y, to.z - from.z };
-    const reach = @sqrt(along[0] * along[0] + along[1] * along[1] + along[2] * along[2]);
+    const along = to.sub(from);
+    const reach = @sqrt(along.lengthSquared());
     if (reach == 0.0) return false;
 
-    const unit = [3]f64{ along[0] / reach, along[1] / reach, along[2] / reach };
+    const unit = math.Vec3.init(along.x / reach, along.y / reach, along.z / reach);
     return raycast.castBlocks(world_map, from, unit, reach) != null;
 }
 

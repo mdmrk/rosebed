@@ -45,8 +45,8 @@ const turn_threshold: f64 = 0.001;
 const splash_drop: f64 = 0.125;
 const corner_reach: f64 = 0.8;
 
-pub fn spawn(x: f64, y: f64, z: f64) Boat {
-    return .{ .base = Entity.init(math.Vec3.init(x, y, z), width, height) };
+pub fn spawn(position: math.Vec3) Boat {
+    return .{ .base = Entity.init(position, width, height) };
 }
 
 pub fn submergedFraction(self: Boat, world_map: *const world.World) f64 {
@@ -221,8 +221,8 @@ pub fn crushedSnow(self: Boat, corner: usize) [3]i32 {
 
 pub fn toRecord(self: Boat) world.entity_nbt.Boat {
     return .{ .base = .{
-        .position = .{ self.base.position.x, self.base.position.y, self.base.position.z },
-        .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+        .position = self.base.position,
+        .motion = self.base.motion,
         .yaw = self.yaw,
         .pitch = self.pitch,
         .on_ground = self.base.on_ground,
@@ -230,8 +230,8 @@ pub fn toRecord(self: Boat) world.entity_nbt.Boat {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Boat) Boat {
-    var self = Boat.spawn(record.base.position[0], record.base.position[1], record.base.position[2]);
-    self.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);
+    var self = Boat.spawn(record.base.position);
+    self.base.motion = record.base.motion;
     self.base.on_ground = record.base.on_ground;
     self.yaw = record.base.yaw;
     self.pitch = record.base.pitch;
@@ -241,7 +241,7 @@ pub fn fromRecord(record: world.entity_nbt.Boat) Boat {
 }
 
 test "a boat is the size EntityBoat sets itself to" {
-    const boat = Boat.spawn(8.5, 64, 8.5);
+    const boat = Boat.spawn(math.Vec3.init(8.5, 64, 8.5));
     try std.testing.expectEqual(@as(f64, 1.5), boat.base.width);
     try std.testing.expectEqual(@as(f64, 0.6), boat.base.height);
     try std.testing.expectEqual(@as(i32, 1), boat.rock_direction);
@@ -252,7 +252,7 @@ test "a boat out of water sinks and one in water is held up" {
     var w = try world.testing.flatWorld(gpa, 4);
     defer w.deinit();
 
-    var dry = Boat.spawn(8.5, 20, 8.5);
+    var dry = Boat.spawn(math.Vec3.init(8.5, 20, 8.5));
     _ = dry.tick(&w, null);
     try std.testing.expect(dry.base.motion.y < 0);
 
@@ -262,12 +262,12 @@ test "a boat out of water sinks and one in water is held up" {
         }
     }
 
-    var sunk = Boat.spawn(8.5, 4.0, 8.5);
+    var sunk = Boat.spawn(math.Vec3.init(8.5, 4.0, 8.5));
     try std.testing.expectApproxEqAbs(@as(f64, 0.8), sunk.submergedFraction(&w), 1.0e-9);
     _ = sunk.tick(&w, null);
     try std.testing.expect(sunk.base.motion.y > 0);
 
-    var floating = Boat.spawn(8.5, 4.2, 8.5);
+    var floating = Boat.spawn(math.Vec3.init(8.5, 4.2, 8.5));
     for (0..80) |_| _ = floating.tick(&w, null);
     try std.testing.expect(floating.base.position.y > 4.0);
     try std.testing.expect(floating.base.position.y < 6.0);
@@ -279,7 +279,7 @@ test "a rider's push drives the boat but never past the speed cap" {
     var w = try world.testing.flatWorld(gpa, 4);
     defer w.deinit();
 
-    var boat = Boat.spawn(8.5, 20, 8.5);
+    var boat = Boat.spawn(math.Vec3.init(8.5, 20, 8.5));
     for (0..80) |_| _ = boat.tick(&w, math.Vec3.init(10.0, 0, 10.0));
 
     try std.testing.expect(boat.base.motion.x <= 0.4);
@@ -288,8 +288,8 @@ test "a rider's push drives the boat but never past the speed cap" {
 }
 
 test "two overlapping boats shove each other apart" {
-    var left = Boat.spawn(8.0, 64, 8.5);
-    var right = Boat.spawn(8.9, 64, 8.5);
+    var left = Boat.spawn(math.Vec3.init(8.0, 64, 8.5));
+    var right = Boat.spawn(math.Vec3.init(8.9, 64, 8.5));
 
     right.collideWith(&left);
 
@@ -300,8 +300,8 @@ test "two overlapping boats shove each other apart" {
 }
 
 test "boats sitting on the same spot are left alone" {
-    var a = Boat.spawn(8.5, 64, 8.5);
-    var b = Boat.spawn(8.505, 64, 8.5);
+    var a = Boat.spawn(math.Vec3.init(8.5, 64, 8.5));
+    var b = Boat.spawn(math.Vec3.init(8.505, 64, 8.5));
 
     b.collideWith(&a);
     try std.testing.expectEqual(@as(f64, 0), b.base.motion.x);
@@ -309,20 +309,20 @@ test "boats sitting on the same spot are left alone" {
 }
 
 test "a boat breaks up after enough damage and shrugs off a little" {
-    var light = Boat.spawn(0, 0, 0);
+    var light = Boat.spawn(math.Vec3.init(0, 0, 0));
     _ = light.hurt(1);
     try std.testing.expectEqual(@as(i32, 10), light.damage);
     try std.testing.expectEqual(@as(i32, -1), light.rock_direction);
     try std.testing.expectEqual(@as(i32, 10), light.time_since_hit);
     try std.testing.expect(!light.dead);
 
-    var doomed = Boat.spawn(0, 0, 0);
+    var doomed = Boat.spawn(math.Vec3.init(0, 0, 0));
     _ = doomed.hurt(5);
     try std.testing.expect(doomed.dead);
 }
 
 test "the rider sits ahead of the boat's centre along its heading" {
-    var boat = Boat.spawn(8.5, 64, 8.5);
+    var boat = Boat.spawn(math.Vec3.init(8.5, 64, 8.5));
     boat.yaw = 0;
     const east = boat.riderPosition();
     try std.testing.expectApproxEqAbs(@as(f64, 8.9), east.x, 1.0e-9);
@@ -340,7 +340,7 @@ test "a boat turns toward where it came from, no more than twenty degrees a tick
     var w = try world.testing.flatWorld(gpa, 4);
     defer w.deinit();
 
-    var boat = Boat.spawn(8.5, 20, 8.5);
+    var boat = Boat.spawn(math.Vec3.init(8.5, 20, 8.5));
     boat.yaw = 0;
     boat.base.motion = math.Vec3.init(0, 0, 0.3);
     _ = boat.tick(&w, null);
@@ -356,7 +356,7 @@ test "a boat only throws a wake once it is moving" {
 }
 
 test "the four corners a boat crushes snow under straddle its position" {
-    var boat = Boat.spawn(9.0, 64, 9.0);
+    var boat = Boat.spawn(math.Vec3.init(9.0, 64, 9.0));
 
     var seen_x: [4]i32 = undefined;
     var seen_z: [4]i32 = undefined;
@@ -372,7 +372,7 @@ test "the four corners a boat crushes snow under straddle its position" {
 }
 
 test "a boat's position, motion and heading survive a record round trip" {
-    var boat = Boat.spawn(-12.25, 63.5, 7.75);
+    var boat = Boat.spawn(math.Vec3.init(-12.25, 63.5, 7.75));
     boat.base.motion = math.Vec3.init(0.1, -0.2, 0.3);
     boat.yaw = 42.5;
 

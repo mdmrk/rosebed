@@ -93,14 +93,14 @@ pub fn castWith(
     max_distance: f64,
     hit_liquids: bool,
 ) ?Hit {
-    const widened = [3]f64{ direction[0], direction[1], direction[2] };
+    const widened = math.Vec3.init(direction[0], direction[1], direction[2]);
     return castStopping(world_map, origin, widened, max_distance, .{ .targeting = hit_liquids });
 }
 
 pub fn castCollision(
     world_map: *const world.World,
     origin: math.Vec3,
-    direction: [3]f64,
+    direction: math.Vec3,
     max_distance: f64,
 ) ?Hit {
     return castStopping(world_map, origin, direction, max_distance, .collision);
@@ -109,7 +109,7 @@ pub fn castCollision(
 pub fn castBlocks(
     world_map: *const world.World,
     origin: math.Vec3,
-    direction: [3]f64,
+    direction: math.Vec3,
     max_distance: f64,
 ) ?Hit {
     return castStopping(world_map, origin, direction, max_distance, .{ .targeting = false });
@@ -118,12 +118,12 @@ pub fn castBlocks(
 fn castStopping(
     world_map: *const world.World,
     origin: math.Vec3,
-    direction: [3]f64,
+    direction: math.Vec3,
     max_distance: f64,
     rule: StopRule,
 ) ?Hit {
     const start = [3]f64{ origin.x, origin.y, origin.z };
-    const along = direction;
+    const along = [3]f64{ direction.x, direction.y, direction.z };
 
     var cell = [3]i32{
         math.util.floorDouble(start[0]),

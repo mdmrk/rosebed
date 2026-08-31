@@ -201,11 +201,7 @@ pub fn toRecord(self: Creeper) world.entity_nbt.Creeper {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Creeper) Creeper {
-    var self = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var self = init(record.living.position);
     self.animal.restore(record.living);
     self.powered = record.powered;
     return self;

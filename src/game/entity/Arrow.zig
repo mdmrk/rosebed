@@ -171,8 +171,7 @@ fn buriedInTile(self: Arrow, world_map: *const world.World) bool {
 }
 
 pub fn blockImpact(self: Arrow, world_map: *const world.World) ?raycast.Hit {
-    const motion = [3]f64{ self.base.motion.x, self.base.motion.y, self.base.motion.z };
-    return raycast.castCollision(world_map, self.base.position, motion, 1.0);
+    return raycast.castCollision(world_map, self.base.position, self.base.motion, 1.0);
 }
 
 pub fn reachedThisTick(self: Arrow, fraction: f64) math.Vec3 {
@@ -464,11 +463,11 @@ pub fn toRecord(self: Arrow) world.entity_nbt.Arrow {
     return .{
         .base = .{
             .position = .{
-                self.base.position.x,
-                self.base.position.y + self.base.y_size,
-                self.base.position.z,
+                .x = self.base.position.x,
+                .y = self.base.position.y + self.base.y_size,
+                .z = self.base.position.z,
             },
-            .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+            .motion = self.base.motion,
             .yaw = self.yaw,
             .pitch = self.pitch,
             .on_ground = self.base.on_ground,
@@ -488,11 +487,7 @@ pub fn toRecord(self: Arrow) world.entity_nbt.Arrow {
 
 pub fn fromRecord(record: world.entity_nbt.Arrow) Arrow {
     var arrow = Arrow{
-        .base = Entity.init(math.Vec3.init(
-            record.base.position[0],
-            record.base.position[1],
-            record.base.position[2],
-        ), size, size),
+        .base = Entity.init(record.base.position, size, size),
         .yaw = record.base.yaw,
         .pitch = record.base.pitch,
         .prev_yaw = record.base.yaw,
@@ -504,7 +499,7 @@ pub fn fromRecord(record: world.entity_nbt.Arrow) Arrow {
         .from_player = record.from_player,
         .shake = record.shake,
     };
-    arrow.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);
+    arrow.base.motion = record.base.motion;
     arrow.base.on_ground = record.base.on_ground;
     return arrow;
 }

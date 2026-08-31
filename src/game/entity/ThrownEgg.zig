@@ -125,8 +125,7 @@ pub fn settle(self: *ThrownEgg, world_map: *const world.World) void {
 }
 
 pub fn blockImpact(self: ThrownEgg, world_map: *const world.World) ?raycast.Hit {
-    const motion = [3]f64{ self.base.motion.x, self.base.motion.y, self.base.motion.z };
-    return raycast.castCollision(world_map, self.base.position, motion, 1.0);
+    return raycast.castCollision(world_map, self.base.position, self.base.motion, 1.0);
 }
 
 pub fn hatched(rand: *world.JavaRandom) usize {

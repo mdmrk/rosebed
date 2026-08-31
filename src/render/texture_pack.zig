@@ -377,9 +377,7 @@ test "the built-in pack is the one that is not a file on disk" {
 
 test "scanning a folder lists Default first, then the archives in name order" {
     const gpa = std.testing.allocator;
-    var threaded: std.Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
+    const io = std.testing.io;
 
     var tmp = try std.Io.Dir.cwd().createDirPathOpen(io, "zig-out/test-texturepacks", .{ .open_options = .{ .iterate = true } });
     defer tmp.close(io);
@@ -409,11 +407,9 @@ test "scanning a folder lists Default first, then the archives in name order" {
     try std.testing.expect(packs[1].thumbnail == null);
 }
 
-test "a zip that is not really a zip is skipped instead of failing the scan" {
+test "a zip that is not really a zip is still listed, with an empty description" {
     const gpa = std.testing.allocator;
-    var threaded: std.Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
+    const io = std.testing.io;
 
     var tmp = try std.Io.Dir.cwd().createDirPathOpen(io, "zig-out/test-badpacks", .{ .open_options = .{ .iterate = true } });
     defer tmp.close(io);
@@ -426,6 +422,10 @@ test "a zip that is not really a zip is skipped instead of failing the scan" {
     const packs = try scan(gpa, io, tmp);
     defer deinitAll(gpa, packs);
 
-    try std.testing.expectEqual(@as(usize, 1), packs.len);
+    try std.testing.expectEqual(@as(usize, 2), packs.len);
     try std.testing.expectEqualStrings(default_name, packs[0].name);
+    try std.testing.expectEqualStrings("broken.zip", packs[1].name);
+    try std.testing.expectEqualStrings("", packs[1].lines[0]);
+    try std.testing.expectEqualStrings("", packs[1].lines[1]);
+    try std.testing.expect(packs[1].thumbnail == null);
 }

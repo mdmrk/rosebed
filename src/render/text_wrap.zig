@@ -92,11 +92,19 @@ pub fn wrap(font: Font, text: []const u8, width: u32) Wrapped {
 const testing_font: Font = .{ .texture = 0, .char_width = @splat(6) };
 
 test "a line breaks before the word that would overflow it" {
-    const wrapped = wrap(testing_font, "aaa bbb ccc ddd", 42);
+    const wrapped = wrap(testing_font, "aaa bbb ccc ddd", 48);
 
     try std.testing.expectEqual(@as(usize, 2), wrapped.count);
     try std.testing.expectEqualStrings("aaa bbb ", wrapped.line(0));
     try std.testing.expectEqualStrings("ccc ddd ", wrapped.line(1));
+}
+
+test "a word is only joined while it stays strictly under the width" {
+    const exact = wrap(testing_font, "aaa bbb ccc ddd", 42);
+
+    try std.testing.expectEqual(@as(usize, 4), exact.count);
+    try std.testing.expectEqualStrings("aaa ", exact.line(0));
+    try std.testing.expectEqualStrings("ddd ", exact.line(3));
 }
 
 test "text that fits stays on one line and still measures a full line tall" {
@@ -112,7 +120,7 @@ test "a word longer than the whole width is cut where it stops fitting" {
 
     try std.testing.expectEqual(@as(usize, 2), wrapped.count);
     try std.testing.expectEqualStrings("aaaaa", wrapped.line(0));
-    try std.testing.expectEqualStrings("aaaaa ", wrapped.line(1));
+    try std.testing.expectEqualStrings("aaaaa", wrapped.line(1));
 }
 
 test "each newline starts a fresh paragraph" {

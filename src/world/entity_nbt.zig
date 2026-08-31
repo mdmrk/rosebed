@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const block = @import("block.zig");
 const ItemId = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
@@ -27,8 +29,8 @@ pub const minecart_id = "Minecart";
 pub const max_stored_motion: f64 = 10.0;
 
 pub const Living = struct {
-    position: [3]f64,
-    motion: [3]f64 = .{ 0, 0, 0 },
+    position: math.Vec3,
+    motion: math.Vec3 = math.Vec3.init(0, 0, 0),
     yaw: f32 = 0,
     pitch: f32 = 0,
     fall_distance: f32 = 0,
@@ -120,8 +122,8 @@ pub const Owner = struct {
 pub const max_owner = 16;
 
 pub const Base = struct {
-    position: [3]f64,
-    motion: [3]f64 = .{ 0, 0, 0 },
+    position: math.Vec3,
+    motion: math.Vec3 = math.Vec3.init(0, 0, 0),
     yaw: f32 = 0,
     pitch: f32 = 0,
     fall_distance: f32 = 0,
@@ -171,7 +173,8 @@ fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nb
     try nbt.putDuped(gpa, compound, key, tag);
 }
 
-fn doubleList(gpa: std.mem.Allocator, values: [3]f64) !nbt.Tag {
+fn doubleList(gpa: std.mem.Allocator, vector: math.Vec3) !nbt.Tag {
+    const values = [3]f64{ vector.x, vector.y, vector.z };
     const items = try gpa.alloc(nbt.Tag, values.len);
     for (items, values) |*item, value| item.* = .{ .double = value };
     return .{ .list = .{ .element_type = .double, .items = items } };
@@ -537,20 +540,23 @@ fn nibbleField(compound: nbt.Compound, key: []const u8) u4 {
     };
 }
 
-fn doublesField(compound: nbt.Compound, key: []const u8, out: *[3]f64) bool {
+fn doublesField(compound: nbt.Compound, key: []const u8, out: *math.Vec3) bool {
     const tag = compound.get(key) orelse return false;
     const list = switch (tag) {
         .list => |value| value,
         else => return false,
     };
-    if (list.items.len < out.len) return false;
 
-    for (out, list.items[0..out.len]) |*slot, item| {
+    var values: [3]f64 = undefined;
+    if (list.items.len < values.len) return false;
+
+    for (&values, list.items[0..values.len]) |*slot, item| {
         slot.* = switch (item) {
             .double => |value| value,
             else => return false,
         };
     }
+    out.* = math.Vec3.init(values[0], values[1], values[2]);
     return true;
 }
 
@@ -735,13 +741,19 @@ pub fn loadBoat(compound: nbt.Compound) ?Boat {
     return .{ .base = loadBase(compound) orelse return null };
 }
 
+fn dropWildMotion(motion: math.Vec3) math.Vec3 {
+    return .{
+        .x = if (@abs(motion.x) > max_stored_motion) 0 else motion.x,
+        .y = if (@abs(motion.y) > max_stored_motion) 0 else motion.y,
+        .z = if (@abs(motion.z) > max_stored_motion) 0 else motion.z,
+    };
+}
+
 fn loadBase(compound: nbt.Compound) ?Base {
-    var base: Base = .{ .position = .{ 0, 0, 0 } };
+    var base: Base = .{ .position = math.Vec3.init(0, 0, 0) };
     if (!doublesField(compound, "Pos", &base.position)) return null;
     _ = doublesField(compound, "Motion", &base.motion);
-    for (&base.motion) |*component| {
-        if (@abs(component.*) > max_stored_motion) component.* = 0;
-    }
+    base.motion = dropWildMotion(base.motion);
 
     var rotation = [2]f32{ 0, 0 };
     floatsField(compound, "Rotation", &rotation);
@@ -810,12 +822,10 @@ pub fn loadPainting(compound: nbt.Compound) ?Painting {
 }
 
 fn loadLiving(compound: nbt.Compound) ?Living {
-    var living: Living = .{ .position = .{ 0, 0, 0 } };
+    var living: Living = .{ .position = math.Vec3.init(0, 0, 0) };
     if (!doublesField(compound, "Pos", &living.position)) return null;
     _ = doublesField(compound, "Motion", &living.motion);
-    for (&living.motion) |*component| {
-        if (@abs(component.*) > max_stored_motion) component.* = 0;
-    }
+    living.motion = dropWildMotion(living.motion);
 
     var rotation = [2]f32{ 0, 0 };
     floatsField(compound, "Rotation", &rotation);
@@ -922,8 +932,8 @@ pub fn loadWolf(compound: nbt.Compound) ?Wolf {
 }
 
 const sample_living = Living{
-    .position = .{ 12.5, 64.0, -3.25 },
-    .motion = .{ 0.1, -0.2, 0.3 },
+    .position = math.Vec3.init(12.5, 64.0, -3.25),
+    .motion = math.Vec3.init(0.1, -0.2, 0.3),
     .yaw = 137.5,
     .pitch = -12.0,
     .fall_distance = 2.5,
@@ -961,7 +971,7 @@ test "a sheep is stored under the id the original writes, and colours survive it
     const gpa = std.testing.allocator;
 
     for (0..16) |color| {
-        var tag = try storeSheep(gpa, .{ .living = .{ .position = .{ 0, 64, 0 } }, .color = @intCast(color) });
+        var tag = try storeSheep(gpa, .{ .living = .{ .position = math.Vec3.init(0, 64, 0) }, .color = @intCast(color) });
         defer nbt.deinit(gpa, &tag);
 
         try std.testing.expectEqualStrings("Sheep", tag.compound.get("id").?.string);
@@ -994,7 +1004,7 @@ test "a chicken survives a round trip through its NBT compound" {
 test "a dropped item survives a round trip with its stack intact" {
     const gpa = std.testing.allocator;
     const original = Item{
-        .base = .{ .position = .{ 8.5, 65.0, -2.5 }, .motion = .{ 0.01, 0.2, -0.01 }, .on_ground = true },
+        .base = .{ .position = math.Vec3.init(8.5, 65.0, -2.5), .motion = math.Vec3.init(0.01, 0.2, -0.01), .on_ground = true },
         .stack = .{ .id = .{ .item = .diamond }, .count = 12, .meta = 3 },
         .health = 5,
         .age = 240,
@@ -1019,7 +1029,7 @@ test "a block stack and an item stack both survive the id split at 256" {
     };
 
     for (stacks) |stack| {
-        var tag = try storeItem(gpa, .{ .base = .{ .position = .{ 0, 64, 0 } }, .stack = stack });
+        var tag = try storeItem(gpa, .{ .base = .{ .position = math.Vec3.init(0, 64, 0) }, .stack = stack });
         defer nbt.deinit(gpa, &tag);
         try std.testing.expectEqual(stack, loadItem(tag.compound).?.stack);
     }
@@ -1028,7 +1038,7 @@ test "a block stack and an item stack both survive the id split at 256" {
 test "an item compound with an empty stack is read as nothing" {
     const gpa = std.testing.allocator;
     var tag = try storeItem(gpa, .{
-        .base = .{ .position = .{ 0, 64, 0 } },
+        .base = .{ .position = math.Vec3.init(0, 64, 0) },
         .stack = .{ .id = .{ .block = .stone }, .count = 0 },
     });
     defer nbt.deinit(gpa, &tag);
@@ -1039,7 +1049,7 @@ test "an item compound with an empty stack is read as nothing" {
 test "an arrow survives a round trip stuck in the block it hit" {
     const gpa = std.testing.allocator;
     const original = Arrow{
-        .base = .{ .position = .{ -4.5, 70.0, 12.25 }, .yaw = 90.0, .pitch = -45.0 },
+        .base = .{ .position = math.Vec3.init(-4.5, 70.0, 12.25), .yaw = 90.0, .pitch = -45.0 },
         .tile = .{ -5, 70, 12 },
         .in_tile = 1,
         .in_data = 3,
@@ -1071,7 +1081,7 @@ test "a painting survives a round trip through its motive" {
 
 test "each mob is read back only as its own kind" {
     const gpa = std.testing.allocator;
-    const living = Living{ .position = .{ 0, 64, 0 } };
+    const living = Living{ .position = math.Vec3.init(0, 64, 0) };
 
     var pig = try storePig(gpa, .{ .living = living });
     defer nbt.deinit(gpa, &pig);
@@ -1119,7 +1129,7 @@ test "an untamed wolf writes an empty owner and reads back untamed" {
 
 test "an entity of a kind we do not know is read as nothing at all" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 0, 0, 0 } } });
+    var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(0, 0, 0) } });
     defer nbt.deinit(gpa, &tag);
 
     const id = tag.compound.getPtr("id").?;
@@ -1135,18 +1145,18 @@ test "an entity of a kind we do not know is read as nothing at all" {
 
 test "absurd stored motion is discarded rather than launching the pig" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 0, 64, 0 }, .motion = .{ 99.0, -50.0, 0.5 } } });
+    var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(0, 64, 0), .motion = math.Vec3.init(99.0, -50.0, 0.5) } });
     defer nbt.deinit(gpa, &tag);
 
     const loaded = loadPig(tag.compound).?;
-    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion[0]);
-    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion[1]);
-    try std.testing.expectEqual(@as(f64, 0.5), loaded.living.motion[2]);
+    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion.x);
+    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion.y);
+    try std.testing.expectEqual(@as(f64, 0.5), loaded.living.motion.z);
 }
 
 test "a pig compound missing its position is rejected" {
     const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .living = .{ .position = .{ 1, 2, 3 } } });
+    var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(1, 2, 3) } });
     defer nbt.deinit(gpa, &tag);
 
     var removed = tag.compound.fetchOrderedRemove("Pos").?;
@@ -1159,7 +1169,7 @@ test "a pig compound missing its position is rejected" {
 test "a vanilla stack carries no key, so its compound is unchanged" {
     const gpa = std.testing.allocator;
     var tag = try storeItem(gpa, .{
-        .base = .{ .position = .{ 0, 64, 0 } },
+        .base = .{ .position = math.Vec3.init(0, 64, 0) },
         .stack = .{ .id = .{ .item = .diamond }, .count = 1 },
     });
     defer nbt.deinit(gpa, &tag);
@@ -1175,7 +1185,7 @@ test "a dropped modded item comes back at whatever id its key holds now" {
     was.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
 
     var tag = try storeItem(gpa, .{
-        .base = .{ .position = .{ 0, 64, 0 } },
+        .base = .{ .position = math.Vec3.init(0, 64, 0) },
         .stack = .{ .id = .{ .item = was }, .count = 1, .meta = 7 },
     });
     defer nbt.deinit(gpa, &tag);
@@ -1198,7 +1208,7 @@ test "a dropped item whose mod is gone is read as nothing" {
     was.register(.{ .key = "rosebed:quartz_pickaxe" });
 
     var tag = try storeItem(gpa, .{
-        .base = .{ .position = .{ 0, 64, 0 } },
+        .base = .{ .position = math.Vec3.init(0, 64, 0) },
         .stack = .{ .id = .{ .item = was }, .count = 1 },
     });
     defer nbt.deinit(gpa, &tag);

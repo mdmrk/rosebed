@@ -184,13 +184,13 @@ fn wrapCloud(value: f64) f64 {
 pub fn appendClouds(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    eye: [3]f64,
+    eye: math.Vec3,
     scroll: f64,
     color: Color,
 ) !void {
-    const anchor_x = wrapCloud(eye[0] + scroll);
-    const anchor_z = wrapCloud(eye[2]);
-    const height: f32 = @floatCast(cloud_height - eye[1] + 0.33);
+    const anchor_x = wrapCloud(eye.x + scroll);
+    const anchor_z = wrapCloud(eye.z);
+    const height: f32 = @floatCast(cloud_height - eye.y + 0.33);
     const offset_u: f64 = anchor_x * cloud_uv_scale;
     const offset_v: f64 = anchor_z * cloud_uv_scale;
 
@@ -238,13 +238,13 @@ fn cloudShade(color: Color, factor: f32) [4]u8 {
 pub fn appendFancyClouds(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
-    eye: [3]f64,
+    eye: math.Vec3,
     scroll: f64,
     color: Color,
 ) !void {
-    const anchor_x = wrapCloud((eye[0] + scroll) / fancy_cell);
-    const anchor_z = wrapCloud(eye[2] / fancy_cell + 0.33);
-    const height: f32 = @floatCast(cloud_height - eye[1] + 0.33);
+    const anchor_x = wrapCloud((eye.x + scroll) / fancy_cell);
+    const anchor_z = wrapCloud(eye.z / fancy_cell + 0.33);
+    const height: f32 = @floatCast(cloud_height - eye.y + 0.33);
 
     const base_u = @floor(anchor_x) * fancy_uv_scale;
     const base_v = @floor(anchor_z) * fancy_uv_scale;
@@ -581,7 +581,7 @@ test "the cloud layer tiles the original's grid and sits above the camera" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendClouds(&mesh, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
 
     const cells = 2 * cloud_reach / cloud_cell;
     try std.testing.expectEqual(@as(usize, @intCast(cells * cells * 4)), mesh.vertices.items.len);
@@ -598,8 +598,8 @@ test "clouds stay anchored to the world as the camera moves" {
     var moved: MeshBuilder = .{};
     defer moved.deinit(gpa);
 
-    try appendClouds(&still, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
-    try appendClouds(&moved, gpa, .{ 512, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendClouds(&still, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
+    try appendClouds(&moved, gpa, math.Vec3.init(512, 64, 0), 0, .{ 1, 1, 1 });
 
     try std.testing.expectEqual(still.vertices.items[0].x, moved.vertices.items[0].x);
     try std.testing.expect(still.vertices.items[0].u != moved.vertices.items[0].u);
@@ -629,7 +629,7 @@ test "from below a fancy cloud shows its underside and sides but no top" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendFancyClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendFancyClouds(&mesh, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
 
     const seen = cloudFaceColors(mesh);
     try std.testing.expect(!seen[0]);
@@ -643,7 +643,7 @@ test "from above a fancy cloud shows its top but no underside" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendFancyClouds(&mesh, gpa, .{ 0, 400, 0 }, 0, .{ 1, 1, 1 });
+    try appendFancyClouds(&mesh, gpa, math.Vec3.init(0, 400, 0), 0, .{ 1, 1, 1 });
 
     const seen = cloudFaceColors(mesh);
     try std.testing.expect(seen[0]);
@@ -655,7 +655,7 @@ test "a fancy cloud is a box four units thick" {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
 
-    try appendFancyClouds(&mesh, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendFancyClouds(&mesh, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
 
     var lowest: f32 = std.math.floatMax(f32);
     var highest: f32 = -std.math.floatMax(f32);
@@ -673,8 +673,8 @@ test "fancy clouds are far thicker geometry than the flat layer" {
     var fancy: MeshBuilder = .{};
     defer fancy.deinit(gpa);
 
-    try appendClouds(&flat, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
-    try appendFancyClouds(&fancy, gpa, .{ 0, 64, 0 }, 0, .{ 1, 1, 1 });
+    try appendClouds(&flat, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
+    try appendFancyClouds(&fancy, gpa, math.Vec3.init(0, 64, 0), 0, .{ 1, 1, 1 });
 
     try std.testing.expect(fancy.vertices.items.len > flat.vertices.items.len);
     for (fancy.vertices.items) |v| try std.testing.expectEqual(cloud_alpha, v.color[3]);

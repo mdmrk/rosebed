@@ -1170,12 +1170,12 @@ test "a cargo cart carries its block above the cart floor and an empty one carri
 
     var bare: MeshBuilder = .{};
     defer bare.deinit(gpa);
-    try appendMinecartCargo(&bare, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .empty), 0);
+    try appendMinecartCargo(&bare, gpa, &world_map, game.Minecart.spawn(math.Vec3.init(0, 0, 0), .empty), 0);
     try std.testing.expectEqual(@as(usize, 0), bare.vertices.items.len);
 
     var cargo: MeshBuilder = .{};
     defer cargo.deinit(gpa);
-    try appendMinecartCargo(&cargo, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .chest), 0);
+    try appendMinecartCargo(&cargo, gpa, &world_map, game.Minecart.spawn(math.Vec3.init(0, 0, 0), .chest), 0);
     try std.testing.expectEqual(@as(usize, 6 * 4), cargo.vertices.items.len);
 
     var floor: MeshBuilder = .{};
@@ -1213,7 +1213,7 @@ test "the chest cart turns the chest front onto one end of the cart, and a furna
 
     var chest: MeshBuilder = .{};
     defer chest.deinit(gpa);
-    try appendMinecartCargo(&chest, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .chest), 0);
+    try appendMinecartCargo(&chest, gpa, &world_map, game.Minecart.spawn(math.Vec3.init(0, 0, 0), .chest), 0);
 
     const front = Atlas.tileUv(world.Block.chest.faceTextures().get(.south));
     var facing: [3]f32 = .{ 0, 0, 0 };
@@ -1232,7 +1232,7 @@ test "the chest cart turns the chest front onto one end of the cart, and a furna
 
     var furnace: MeshBuilder = .{};
     defer furnace.deinit(gpa);
-    try appendMinecartCargo(&furnace, gpa, &world_map, game.Minecart.spawn(0, 0, 0, .furnace), 0);
+    try appendMinecartCargo(&furnace, gpa, &world_map, game.Minecart.spawn(math.Vec3.init(0, 0, 0), .furnace), 0);
     try std.testing.expectEqual(chest.vertices.items.len, furnace.vertices.items.len);
     try std.testing.expect(chest.vertices.items[0].u != furnace.vertices.items[0].u or
         chest.vertices.items[0].v != furnace.vertices.items[0].v);

@@ -41,9 +41,8 @@ pub fn attach(self: *Level) void {
     self.world_map.entity_probe = .{ .context = self, .anyInBox = probeAnyInBox };
 }
 
-fn probeAnyInBox(context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool {
+fn probeAnyInBox(context: *anyopaque, box: math.Aabb, living_only: bool) bool {
     const self: *Level = @ptrCast(@alignCast(context));
-    const box = math.Aabb.init(min[0], min[1], min[2], max[0], max[1], max[2]);
     for (self.occupants.items) |occupant| {
         if (occupant.active and occupant.player.base.boundingBox().intersects(box)) return true;
     }

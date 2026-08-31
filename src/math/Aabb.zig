@@ -129,3 +129,63 @@ test "expand/contract are inverses" {
     try std.testing.expectApproxEqAbs(a.min_x, back.min_x, 1.0e-9);
     try std.testing.expectApproxEqAbs(a.max_x, back.max_x, 1.0e-9);
 }
+
+test "calculateYOffset and calculateZOffset clamp motion at the point of contact" {
+    const block = Aabb.init(0, 0, 0, 1, 1, 1);
+
+    const above = Aabb.init(0, 2, 0, 1, 3, 1);
+    try std.testing.expectApproxEqAbs(@as(f64, -1.0), block.calculateYOffset(above, -5.0), 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), block.calculateYOffset(above, 5.0), 1.0e-9);
+
+    const beyond = Aabb.init(0, 0, 2, 1, 1, 3);
+    try std.testing.expectApproxEqAbs(@as(f64, -1.0), block.calculateZOffset(beyond, -5.0), 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), block.calculateZOffset(beyond, 5.0), 1.0e-9);
+}
+
+test "an offset is untouched when the boxes miss on another axis" {
+    const block = Aabb.init(0, 0, 0, 1, 1, 1);
+    const beside = Aabb.init(5, 2, 0, 6, 3, 1);
+
+    try std.testing.expectApproxEqAbs(@as(f64, -5.0), block.calculateXOffset(beside, -5.0), 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, -5.0), block.calculateZOffset(beside, -5.0), 1.0e-9);
+}
+
+test "addCoord grows the box only along the direction of travel" {
+    const a = Aabb.init(0, 0, 0, 1, 1, 1);
+
+    const forward = a.addCoord(2, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), forward.min_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), forward.max_x, 1.0e-9);
+
+    const backward = a.addCoord(-2, 0, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, -2.0), backward.min_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), backward.max_x, 1.0e-9);
+
+    const still = a.addCoord(0, 0, 0);
+    try std.testing.expectApproxEqAbs(a.min_y, still.min_y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(a.max_y, still.max_y, 1.0e-9);
+}
+
+test "offset moves a box without resizing it" {
+    const a = Aabb.init(-1, 2, 0.5, 1, 4, 2.5);
+    const moved = a.offset(3, -1, 0.25);
+
+    try std.testing.expectApproxEqAbs(a.max_x - a.min_x, moved.max_x - moved.min_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(a.max_y - a.min_y, moved.max_y - moved.min_y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(a.max_z - a.min_z, moved.max_z - moved.min_z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), moved.min_x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), moved.min_y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), moved.min_z, 1.0e-9);
+}
+
+test "intersects is symmetric and rejects a miss on any single axis" {
+    const a = Aabb.init(0, 0, 0, 1, 1, 1);
+    const overlapping = Aabb.init(0.5, 0.5, 0.5, 1.5, 1.5, 1.5);
+    try std.testing.expect(a.intersects(overlapping) and overlapping.intersects(a));
+
+    const missing_y = Aabb.init(0.5, 5, 0.5, 1.5, 6, 1.5);
+    try std.testing.expect(!a.intersects(missing_y) and !missing_y.intersects(a));
+
+    const missing_z = Aabb.init(0.5, 0.5, 5, 1.5, 1.5, 6);
+    try std.testing.expect(!a.intersects(missing_z) and !missing_z.intersects(a));
+}

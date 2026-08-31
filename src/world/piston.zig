@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const assets = @import("assets");
+const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
@@ -33,12 +34,12 @@ pub const Moving = struct {
         return self.offsetAt(self.renderProgress(partial_ticks));
     }
 
-    pub fn shoveAlong(self: Moving, amount: f32) [3]f64 {
+    pub fn shoveAlong(self: Moving, amount: f32) math.Vec3 {
         const delta = self.facing.step();
         return .{
-            @as(f64, amount) * @as(f64, @floatFromInt(delta[0])),
-            @as(f64, amount) * @as(f64, @floatFromInt(delta[1])),
-            @as(f64, amount) * @as(f64, @floatFromInt(delta[2])),
+            .x = @as(f64, amount) * @as(f64, @floatFromInt(delta[0])),
+            .y = @as(f64, amount) * @as(f64, @floatFromInt(delta[1])),
+            .z = @as(f64, amount) * @as(f64, @floatFromInt(delta[2])),
         };
     }
 
@@ -424,12 +425,12 @@ pub fn onHeadRemoved(world_map: *World, x: i32, y: i32, z: i32, metadata: u4) !v
 pub const placement_reach: f32 = 2.0;
 pub const placement_eye_height: f64 = 1.82;
 
-pub fn facingForPlacement(player: [3]f64, x: i32, y: i32, z: i32, yaw: f32) Side {
-    const to_x = @abs(@as(f32, @floatCast(player[0])) - @as(f32, @floatFromInt(x)));
-    const to_z = @abs(@as(f32, @floatCast(player[2])) - @as(f32, @floatFromInt(z)));
+pub fn facingForPlacement(player: math.Vec3, x: i32, y: i32, z: i32, yaw: f32) Side {
+    const to_x = @abs(@as(f32, @floatCast(player.x)) - @as(f32, @floatFromInt(x)));
+    const to_z = @abs(@as(f32, @floatCast(player.z)) - @as(f32, @floatFromInt(z)));
 
     if (to_x < placement_reach and to_z < placement_reach) {
-        const eye = player[1] + placement_eye_height;
+        const eye = player.y + placement_eye_height;
         const block_y: f64 = @floatFromInt(y);
         if (eye - block_y > 2.0) return .up;
         if (block_y - eye > 0.0) return .down;
@@ -438,7 +439,7 @@ pub fn facingForPlacement(player: [3]f64, x: i32, y: i32, z: i32, yaw: f32) Side
     return @enumFromInt(block.furnaceFacingFromYaw(yaw));
 }
 
-pub fn onBlockPlaced(world_map: *World, x: i32, y: i32, z: i32, player: [3]f64, yaw: f32) !void {
+pub fn onBlockPlaced(world_map: *World, x: i32, y: i32, z: i32, player: math.Vec3, yaw: f32) !void {
     const facing = facingForPlacement(player, x, y, z, yaw);
     try world_map.setBlockMetadataWithNotify(x, y, z, block.pistonFacingValue(facing));
     try updatePowerState(world_map, x, y, z);
@@ -669,14 +670,14 @@ test "a retracting piston asks for no shove at all" {
 }
 
 test "a piston placed at your feet faces up, one above your head faces down" {
-    const standing = [3]f64{ 8.5, 10.0, 8.5 };
+    const standing = math.Vec3.init(8.5, 10.0, 8.5);
 
     try std.testing.expectEqual(Side.up, facingForPlacement(standing, 8, 7, 8, 0));
     try std.testing.expectEqual(Side.down, facingForPlacement(standing, 8, 13, 8, 0));
 }
 
 test "a piston placed at arm's length faces the way you were looking" {
-    const standing = [3]f64{ 8.5, 10.0, 8.5 };
+    const standing = math.Vec3.init(8.5, 10.0, 8.5);
 
     try std.testing.expectEqual(Side.north, facingForPlacement(standing, 8, 10, 8, 0));
     try std.testing.expectEqual(Side.east, facingForPlacement(standing, 8, 10, 8, 90));
@@ -685,7 +686,7 @@ test "a piston placed at arm's length faces the way you were looking" {
 }
 
 test "a piston placed from further off ignores the up and down rule" {
-    const far_off = [3]f64{ 20.0, 10.0, 8.5 };
+    const far_off = math.Vec3.init(20.0, 10.0, 8.5);
 
     try std.testing.expectEqual(Side.north, facingForPlacement(far_off, 8, 7, 8, 0));
     try std.testing.expectEqual(Side.north, facingForPlacement(far_off, 8, 13, 8, 0));

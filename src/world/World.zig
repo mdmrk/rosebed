@@ -69,7 +69,7 @@ pub const Access = struct {
 
 pub const EntityProbe = struct {
     context: *anyopaque,
-    anyInBox: *const fn (context: *anyopaque, min: [3]f64, max: [3]f64, living_only: bool) bool,
+    anyInBox: *const fn (context: *anyopaque, box: math.Aabb, living_only: bool) bool,
 };
 
 pub const SoundSink = struct {

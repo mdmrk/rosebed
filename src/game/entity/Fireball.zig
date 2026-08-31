@@ -72,11 +72,11 @@ pub fn settle(self: *Fireball, world_map: *const world.World) void {
 }
 
 pub fn blockImpact(self: Fireball, world_map: *const world.World) ?raycast.Hit {
-    const motion = [3]f64{ self.base.motion.x, self.base.motion.y, self.base.motion.z };
-    const reach = @sqrt(motion[0] * motion[0] + motion[1] * motion[1] + motion[2] * motion[2]);
+    const motion = self.base.motion;
+    const reach = @sqrt(motion.lengthSquared());
     if (reach == 0.0) return null;
 
-    const along = [3]f64{ motion[0] / reach, motion[1] / reach, motion[2] / reach };
+    const along = math.Vec3.init(motion.x / reach, motion.y / reach, motion.z / reach);
     return raycast.castBlocks(world_map, self.base.position, along, reach);
 }
 

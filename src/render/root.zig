@@ -69,4 +69,10 @@ test {
     _ = text_field;
     _ = debug_overlay;
     _ = chat;
+    _ = achievement_toast;
+    _ = map_render;
+    _ = pumpkin_blur;
+    _ = text_wrap;
+    _ = texture_pack;
+    _ = underwater;
 }

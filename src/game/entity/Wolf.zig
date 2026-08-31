@@ -195,15 +195,15 @@ fn canSee(self: Wolf, world_map: *const world.World, view: Animal.PlayerView) bo
         self.animal.base.position.y + self.animal.eyeHeight(),
         self.animal.base.position.z,
     );
-    const to_target = [3]f64{
+    const to_target = math.Vec3.init(
         view.position.x - eye.x,
         view.position.y + view.eye_height - eye.y,
         view.position.z - eye.z,
-    };
-    const reach = @sqrt(to_target[0] * to_target[0] + to_target[1] * to_target[1] + to_target[2] * to_target[2]);
+    );
+    const reach = @sqrt(to_target.lengthSquared());
     if (reach == 0.0) return true;
 
-    const along = [3]f64{ to_target[0] / reach, to_target[1] / reach, to_target[2] / reach };
+    const along = math.Vec3.init(to_target.x / reach, to_target.y / reach, to_target.z / reach);
     return raycast.castCollision(world_map, eye, along, reach) == null;
 }
 
@@ -454,11 +454,7 @@ pub fn toRecord(self: Wolf) world.entity_nbt.Wolf {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Wolf) Wolf {
-    var wolf = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var wolf = init(record.living.position);
     wolf.animal.restore(record.living);
     wolf.angry = record.angry;
     wolf.sitting = record.sitting;

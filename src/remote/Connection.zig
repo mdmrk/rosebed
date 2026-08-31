@@ -726,13 +726,13 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
 
     switch (body.kind) {
         vehicle_boat => {
-            var boat = game.Boat.spawn(0, 0, 0);
+            var boat = game.Boat.spawn(math.Vec3.init(0, 0, 0));
             boat.base.id = id;
             (Body{ .boat = &boat }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.boats.append(gpa, boat);
         },
         vehicle_minecart, vehicle_minecart + 1, vehicle_minecart + 2 => {
-            var cart = game.Minecart.spawn(0, 0, 0, @enumFromInt(body.kind - vehicle_minecart));
+            var cart = game.Minecart.spawn(math.Vec3.init(0, 0, 0), @enumFromInt(body.kind - vehicle_minecart));
             cart.base.id = id;
             (Body{ .minecart = &cart }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.minecarts.append(gpa, cart);

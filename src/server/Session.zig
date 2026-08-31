@@ -1894,25 +1894,22 @@ fn useItemOn(
         .boat => {
             const on_snow = level.world_map.getBlock(x, y, z) == .snow_layer;
             const floor = if (on_snow) y - 1 else y;
-            _ = try level.entities.spawnBoat(
-                gpa,
+            _ = try level.entities.spawnBoat(gpa, math.Vec3.init(
                 @as(f64, @floatFromInt(x)) + 0.5,
                 @as(f64, @floatFromInt(floor)) + 1.0,
                 @as(f64, @floatFromInt(z)) + 0.5,
-            );
+            ));
             self.consumeHeld();
         },
         .fishing_rod => try self.useFishingRod(gpa, level),
         else => {
             if (held.minecartKind()) |kind| {
                 if (!world.block.isRail(level.world_map.getBlock(x, y, z))) return;
-                _ = try level.entities.spawnMinecart(
-                    gpa,
+                _ = try level.entities.spawnMinecart(gpa, math.Vec3.init(
                     @as(f64, @floatFromInt(x)) + 0.5,
                     @as(f64, @floatFromInt(y)) + 0.5,
                     @as(f64, @floatFromInt(z)) + 0.5,
-                    kind,
-                );
+                ), kind);
                 self.consumeHeld();
                 return;
             }

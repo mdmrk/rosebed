@@ -98,16 +98,9 @@ fn playerPosition(view: Animal.PlayerView) math.Vec3 {
     };
 }
 
-fn distanceSquaredTo(self: Slime, target: math.Vec3) f64 {
-    const dx = target.x - self.animal.base.position.x;
-    const dy = target.y - self.animal.base.position.y;
-    const dz = target.z - self.animal.base.position.z;
-    return dx * dx + dy * dy + dz * dz;
-}
-
 fn closestPlayer(self: Slime, players: Animal.Players, range: f64) ?Animal.PlayerView {
     const view = players.closestTo(self.animal.base.position, -1.0) orelse return null;
-    if (self.distanceSquaredTo(playerPosition(view)) >= range * range) return null;
+    if (self.animal.distanceSquaredTo(playerPosition(view)) >= range * range) return null;
     return view;
 }
 
@@ -191,11 +184,11 @@ fn canSeePlayer(self: Slime, world_map: *const world.World, view: Animal.PlayerV
         self.animal.base.position.z,
     );
     const sight = playerPosition(view);
-    const to_player = [3]f64{ sight.x - eye.x, sight.y + player_sight_height - eye.y, sight.z - eye.z };
-    const reach = @sqrt(to_player[0] * to_player[0] + to_player[1] * to_player[1] + to_player[2] * to_player[2]);
+    const to_player = math.Vec3.init(sight.x - eye.x, sight.y + player_sight_height - eye.y, sight.z - eye.z);
+    const reach = @sqrt(to_player.lengthSquared());
     if (reach == 0.0) return true;
 
-    const along = [3]f64{ to_player[0] / reach, to_player[1] / reach, to_player[2] / reach };
+    const along = math.Vec3.init(to_player.x / reach, to_player.y / reach, to_player.z / reach);
     return raycast.castCollision(world_map, eye, along, reach) == null;
 }
 
@@ -204,7 +197,7 @@ pub fn attackDamage(self: Slime, world_map: *const world.World, view: Animal.Pla
     if (!self.canSeePlayer(world_map, view)) return null;
 
     const reach = size_scale * @as(f64, @floatFromInt(self.size));
-    if (self.distanceSquaredTo(playerPosition(view)) >= reach * reach) return null;
+    if (self.animal.distanceSquaredTo(playerPosition(view)) >= reach * reach) return null;
 
     return self.size;
 }
@@ -250,11 +243,7 @@ pub fn toRecord(self: Slime) world.entity_nbt.Slime {
 
 pub fn fromRecord(record: world.entity_nbt.Slime) Slime {
     const size: u8 = @intCast(std.math.clamp(record.size + 1, 1, 255));
-    var slime = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ), size);
+    var slime = init(record.living.position, size);
     slime.animal.restore(record.living);
     slime.setSize(size);
     return slime;

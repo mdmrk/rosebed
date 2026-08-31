@@ -117,14 +117,8 @@ fn updateActionState(
     animal.despawnCheck(players, rand);
     self.prev_attack_counter = self.attack_counter;
 
-    const to_waypoint = [3]f64{
-        self.waypoint.x - position.x,
-        self.waypoint.y - position.y,
-        self.waypoint.z - position.z,
-    };
-    const range: f64 = @as(f32, @floatCast(@sqrt(
-        to_waypoint[0] * to_waypoint[0] + to_waypoint[1] * to_waypoint[1] + to_waypoint[2] * to_waypoint[2],
-    )));
+    const to_waypoint = self.waypoint.sub(position);
+    const range: f64 = to_waypoint.length();
 
     if (range < waypoint_min or range > waypoint_max) {
         self.waypoint = math.Vec3.init(
@@ -139,9 +133,9 @@ fn updateActionState(
     if (course_was_due) {
         self.course_change_cooldown += rand.nextIntBound(5) + 2;
         if (self.isCourseTraversable(world_map, range)) {
-            animal.base.motion.x += to_waypoint[0] / range * course_speed;
-            animal.base.motion.y += to_waypoint[1] / range * course_speed;
-            animal.base.motion.z += to_waypoint[2] / range * course_speed;
+            animal.base.motion.x += to_waypoint.x / range * course_speed;
+            animal.base.motion.y += to_waypoint.y / range * course_speed;
+            animal.base.motion.z += to_waypoint.z / range * course_speed;
         } else {
             self.waypoint = position;
         }
@@ -249,15 +243,15 @@ fn canSee(self: Ghast, world_map: *const world.World, view: Animal.PlayerView) b
         self.animal.base.position.y + self.animal.eyeHeight(),
         self.animal.base.position.z,
     );
-    const sight = [3]f64{
+    const sight = math.Vec3.init(
         view.position.x - eye.x,
         view.position.y + player_eye_height - eye.y,
         view.position.z - eye.z,
-    };
-    const reach = @sqrt(sight[0] * sight[0] + sight[1] * sight[1] + sight[2] * sight[2]);
+    );
+    const reach = @sqrt(sight.lengthSquared());
     if (reach == 0.0) return true;
 
-    const along = [3]f64{ sight[0] / reach, sight[1] / reach, sight[2] / reach };
+    const along = math.Vec3.init(sight.x / reach, sight.y / reach, sight.z / reach);
     return raycast.castBlocks(world_map, eye, along, reach) == null;
 }
 
@@ -306,11 +300,7 @@ pub fn toRecord(self: Ghast) world.entity_nbt.Ghast {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Ghast) Ghast {
-    var ghast = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var ghast = init(record.living.position);
     ghast.animal.restore(record.living);
     return ghast;
 }

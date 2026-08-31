@@ -807,8 +807,8 @@ test "a boat and a minecart arrive as the right kind of vehicle" {
     try pair.settle(6);
 
     const at = pair.session.player.?.base.position;
-    try pair.server_level.entities.boats.append(gpa, game.Boat.spawn(at.x + 3.0, at.y, at.z));
-    try pair.server_level.entities.minecarts.append(gpa, game.Minecart.spawn(at.x, at.y, at.z + 3.0, .furnace));
+    try pair.server_level.entities.boats.append(gpa, game.Boat.spawn(math.Vec3.init(at.x + 3.0, at.y, at.z)));
+    try pair.server_level.entities.minecarts.append(gpa, game.Minecart.spawn(math.Vec3.init(at.x, at.y, at.z + 3.0), .furnace));
     try pair.trackWorld(1);
 
     try std.testing.expectEqual(@as(usize, 1), pair.client_level.entities.boats.items.len);

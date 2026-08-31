@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const assets = @import("assets");
+const math = @import("math");
 const world = @import("world");
 
 const Entities = @import("Entities.zig");
@@ -400,12 +401,11 @@ pub fn placeBoatAtTarget(ctx: Context) !bool {
     const on_snow = ctx.level.world_map.getBlock(hit.x, hit.y, hit.z) == .snow_layer;
     const floor = if (on_snow) hit.y - 1 else hit.y;
 
-    _ = try ctx.level.entities.spawnBoat(
-        ctx.gpa,
+    _ = try ctx.level.entities.spawnBoat(ctx.gpa, math.Vec3.init(
         @as(f64, @floatFromInt(hit.x)) + 0.5,
         @as(f64, @floatFromInt(floor)) + 1.0,
         @as(f64, @floatFromInt(hit.z)) + 0.5,
-    );
+    ));
     try ctx.stats.use(ctx.gpa, .{ .item = .boat });
     ctx.consumeSelectedStack();
     return true;
@@ -415,13 +415,11 @@ pub fn placeMinecartAtTarget(ctx: Context, kind: Minecart.Kind) !bool {
     const hit = ctx.pickedBlock() orelse return false;
     if (!world.block.isRail(ctx.level.world_map.getBlock(hit.x, hit.y, hit.z))) return false;
 
-    _ = try ctx.level.entities.spawnMinecart(
-        ctx.gpa,
+    _ = try ctx.level.entities.spawnMinecart(ctx.gpa, math.Vec3.init(
         @as(f64, @floatFromInt(hit.x)) + 0.5,
         @as(f64, @floatFromInt(hit.y)) + 0.5,
         @as(f64, @floatFromInt(hit.z)) + 0.5,
-        kind,
-    );
+    ), kind);
     try ctx.stats.use(ctx.gpa, ctx.player.inventory.selectedStack().?.id);
     ctx.consumeSelectedStack();
     return true;

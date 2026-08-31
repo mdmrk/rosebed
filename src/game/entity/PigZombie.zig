@@ -138,11 +138,7 @@ pub fn toRecord(self: PigZombie) world.entity_nbt.PigZombie {
 }
 
 pub fn fromRecord(record: world.entity_nbt.PigZombie) PigZombie {
-    var self = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var self = init(record.living.position);
     self.animal.restore(record.living);
     self.anger_level = record.anger;
     return self;

@@ -77,11 +77,7 @@ pub fn toRecord(self: Cow) world.entity_nbt.Cow {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Cow) Cow {
-    var cow = Cow.spawn(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var cow = Cow.spawn(record.living.position);
     cow.animal.restore(record.living);
     return cow;
 }

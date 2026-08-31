@@ -68,8 +68,8 @@ pub const track = [10][2][3]i32{
     .{ .{ 0, 0, -1 }, .{ 1, 0, 0 } },
 };
 
-pub fn spawn(x: f64, y: f64, z: f64, kind: Kind) Minecart {
-    return .{ .base = Entity.init(math.Vec3.init(x, y, z), width, height), .kind = kind };
+pub fn spawn(position: math.Vec3, kind: Kind) Minecart {
+    return .{ .base = Entity.init(position, width, height), .kind = kind };
 }
 
 fn centre(self: Minecart) math.Vec3 {
@@ -548,8 +548,8 @@ pub fn droppedItem(kind: Kind) world.Id {
 pub fn toRecord(self: Minecart) world.entity_nbt.Minecart {
     return .{
         .base = .{
-            .position = .{ self.base.position.x, self.base.position.y, self.base.position.z },
-            .motion = .{ self.base.motion.x, self.base.motion.y, self.base.motion.z },
+            .position = self.base.position,
+            .motion = self.base.motion,
             .yaw = self.yaw,
             .pitch = self.pitch,
             .on_ground = self.base.on_ground,
@@ -562,13 +562,8 @@ pub fn toRecord(self: Minecart) world.entity_nbt.Minecart {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Minecart) Minecart {
-    var self = Minecart.spawn(
-        record.base.position[0],
-        record.base.position[1],
-        record.base.position[2],
-        @enumFromInt(@min(record.kind, 2)),
-    );
-    self.base.motion = math.Vec3.init(record.base.motion[0], record.base.motion[1], record.base.motion[2]);
+    var self = Minecart.spawn(record.base.position, @enumFromInt(@min(record.kind, 2)));
+    self.base.motion = record.base.motion;
     self.base.on_ground = record.base.on_ground;
     self.yaw = record.base.yaw;
     self.pitch = record.base.pitch;
@@ -596,7 +591,7 @@ fn railWorld(shape_along_x: bool) !world.World {
 }
 
 test "a minecart is the size EntityMinecart sets itself to" {
-    const cart = Minecart.spawn(8.5, 12.5, 8.5, .empty);
+    const cart = Minecart.spawn(math.Vec3.init(8.5, 12.5, 8.5), .empty);
     try std.testing.expectEqual(@as(f64, 0.98), cart.base.width);
     try std.testing.expectEqual(@as(f64, 0.7), cart.base.height);
     try std.testing.expectEqual(Kind.empty, cart.kind);
@@ -606,7 +601,7 @@ test "a minecart on a straight rail is pulled onto the centre line" {
     var w = try railWorld(true);
     defer w.deinit();
 
-    var cart = Minecart.spawn(8.2, 12.0, 8.4, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(8.2, 12.0, 8.4), .empty);
     _ = cart.tick(&w, &.{}, false);
 
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), cart.base.position.z, 1.0e-9);
@@ -616,7 +611,7 @@ test "a minecart rolls along the rail it was pushed down and stays on it" {
     var w = try railWorld(true);
     defer w.deinit();
 
-    var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(6.5, 12.0, 8.5), .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
 
     for (0..20) |_| _ = cart.tick(&w, &.{}, false);
@@ -631,7 +626,7 @@ test "a minecart driven into a wall on the rails stops dead" {
     defer w.deinit();
     try w.setBlockWithNotify(9, 12, 8, .stone);
 
-    var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(6.5, 12.0, 8.5), .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
     for (0..20) |_| _ = cart.tick(&w, &.{}, false);
 
@@ -659,7 +654,7 @@ test "a minecart left alone on level track coasts to a halt" {
     var w = try railWorld(true);
     defer w.deinit();
 
-    var cart = Minecart.spawn(6.5, 12.0, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(6.5, 12.0, 8.5), .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
     for (0..400) |_| _ = cart.tick(&w, &.{}, false);
 
@@ -672,7 +667,7 @@ test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
     try boosted.setBlockWithNotify(8, 12, 8, .rail_powered);
     try boosted.setBlockMetadataWithNotify(8, 12, 8, 1 | world.block.rail_flag_bit);
 
-    var fast = Minecart.spawn(8.5, 12.0, 8.5, .empty);
+    var fast = Minecart.spawn(math.Vec3.init(8.5, 12.0, 8.5), .empty);
     fast.base.motion = math.Vec3.init(0.1, 0, 0);
     const before = fast.base.motion.x;
     _ = fast.tick(&boosted, &.{}, false);
@@ -683,7 +678,7 @@ test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
     try braked.setBlockWithNotify(8, 12, 8, .rail_powered);
     try braked.setBlockMetadataWithNotify(8, 12, 8, 1);
 
-    var slow = Minecart.spawn(8.5, 12.0, 8.5, .empty);
+    var slow = Minecart.spawn(math.Vec3.init(8.5, 12.0, 8.5), .empty);
     slow.base.motion = math.Vec3.init(0.1, 0, 0);
     _ = slow.tick(&braked, &.{}, false);
     try std.testing.expect(slow.base.motion.x < 0.1);
@@ -694,7 +689,7 @@ test "a minecart off the rails falls and drags along the ground" {
     var w = try testing_world.flatWorld(gpa, 12);
     defer w.deinit();
 
-    var cart = Minecart.spawn(8.5, 16.0, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(8.5, 16.0, 8.5), .empty);
     _ = cart.tick(&w, &.{}, false);
     try std.testing.expect(cart.base.motion.y < 0);
 
@@ -703,9 +698,9 @@ test "a minecart off the rails falls and drags along the ground" {
 }
 
 test "two carts meeting head on trade their momentum" {
-    var rolling = Minecart.spawn(8.0, 12.15, 8.5, .empty);
+    var rolling = Minecart.spawn(math.Vec3.init(8.0, 12.15, 8.5), .empty);
     rolling.base.motion = math.Vec3.init(0.3, 0, 0);
-    var parked = Minecart.spawn(8.8, 12.15, 8.5, .empty);
+    var parked = Minecart.spawn(math.Vec3.init(8.8, 12.15, 8.5), .empty);
 
     parked.collideWith(&rolling);
 
@@ -715,9 +710,9 @@ test "two carts meeting head on trade their momentum" {
 }
 
 test "a furnace cart shoves an ordinary one along instead of splitting the difference" {
-    var pusher = Minecart.spawn(8.0, 12.15, 8.5, .furnace);
+    var pusher = Minecart.spawn(math.Vec3.init(8.0, 12.15, 8.5), .furnace);
     pusher.base.motion = math.Vec3.init(0.3, 0, 0);
-    var pushed = Minecart.spawn(8.8, 12.15, 8.5, .empty);
+    var pushed = Minecart.spawn(math.Vec3.init(8.8, 12.15, 8.5), .empty);
 
     pushed.collideWith(&pusher);
 
@@ -726,8 +721,8 @@ test "a furnace cart shoves an ordinary one along instead of splitting the diffe
 }
 
 test "carts touching but not overlapping in x are left alone" {
-    var a = Minecart.spawn(8.5, 12.15, 8.5, .empty);
-    var b = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    var a = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
+    var b = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     b.base.motion = math.Vec3.init(0.3, 0, 0);
 
     a.collideWith(&b);
@@ -736,24 +731,24 @@ test "carts touching but not overlapping in x are left alone" {
 }
 
 test "far from the origin EntityMinecart's skew test lets carts roll through each other" {
-    var near_a = Minecart.spawn(0.0, 12.15, 8.5, .empty);
+    var near_a = Minecart.spawn(math.Vec3.init(0.0, 12.15, 8.5), .empty);
     near_a.base.motion = math.Vec3.init(0.3, 0, 0);
     near_a.base.prev_position = near_a.base.position;
-    var near_b = Minecart.spawn(0.6, 12.15, 8.8, .empty);
+    var near_b = Minecart.spawn(math.Vec3.init(0.6, 12.15, 8.8), .empty);
     near_b.collideWith(&near_a);
     try std.testing.expect(near_b.base.motion.x != 0);
 
-    var far_a = Minecart.spawn(400.0, 12.15, 8.5, .empty);
+    var far_a = Minecart.spawn(math.Vec3.init(400.0, 12.15, 8.5), .empty);
     far_a.base.motion = math.Vec3.init(0.3, 0, 0);
     far_a.base.prev_position = far_a.base.position;
-    var far_b = Minecart.spawn(400.6, 12.15, 8.8, .empty);
+    var far_b = Minecart.spawn(math.Vec3.init(400.6, 12.15, 8.8), .empty);
     far_b.collideWith(&far_a);
     try std.testing.expectEqual(@as(f64, 0), far_b.base.motion.x);
     try std.testing.expectEqual(@as(f64, 0.3), far_a.base.motion.x);
 }
 
 test "a cart shoves a bystander at a quarter of what it takes itself" {
-    var cart = Minecart.spawn(8.0, 12.15, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(8.0, 12.15, 8.5), .empty);
     var bystander = Entity.init(math.Vec3.init(8.8, 12.15, 8.5), 0.6, 1.8);
 
     cart.shoveOff(&bystander);
@@ -765,7 +760,7 @@ test "a cart shoves a bystander at a quarter of what it takes itself" {
 }
 
 test "a bystander standing exactly on the cart is left alone" {
-    var cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    var cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     var bystander = Entity.init(math.Vec3.init(8.5, 12.15, 8.5), 0.6, 1.8);
 
     cart.shoveOff(&bystander);
@@ -774,28 +769,28 @@ test "a bystander standing exactly on the cart is left alone" {
 }
 
 test "only a moving, empty, riderless cart scoops a passenger up" {
-    var rolling = Minecart.spawn(0, 0, 0, .empty);
+    var rolling = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     rolling.base.motion = math.Vec3.init(0.2, 0, 0);
     try std.testing.expect(rolling.wouldScoop());
 
-    var crawling = Minecart.spawn(0, 0, 0, .empty);
+    var crawling = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     crawling.base.motion = math.Vec3.init(0.05, 0, 0);
     try std.testing.expect(!crawling.wouldScoop());
 
-    var occupied = Minecart.spawn(0, 0, 0, .empty);
+    var occupied = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     occupied.base.motion = math.Vec3.init(0.2, 0, 0);
     occupied.rider = 7;
     try std.testing.expect(!occupied.wouldScoop());
 
     for ([_]Kind{ .chest, .furnace }) |kind| {
-        var cargo = Minecart.spawn(0, 0, 0, kind);
+        var cargo = Minecart.spawn(math.Vec3.init(0, 0, 0), kind);
         cargo.base.motion = math.Vec3.init(0.2, 0, 0);
         try std.testing.expect(!cargo.wouldScoop());
     }
 }
 
 test "stepping off a cart sets you down on top of it, not in the seat" {
-    const cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    const cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     const seat = cart.riderPosition();
     const off = Entity.dismountPosition(cart.base);
 
@@ -806,19 +801,19 @@ test "stepping off a cart sets you down on top of it, not in the seat" {
 }
 
 test "a rider sits just above the cart floor" {
-    const cart = Minecart.spawn(8.5, 12.15, 8.5, .empty);
+    const cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     const seat = cart.riderPosition();
     try std.testing.expectApproxEqAbs(@as(f64, 12.15 + 0.05), seat.y, 1.0e-12);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), seat.x, 1.0e-12);
 }
 
 test "a minecart breaks after enough damage and shrugs off a little" {
-    var light = Minecart.spawn(0, 0, 0, .empty);
+    var light = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     _ = light.hurt(1);
     try std.testing.expectEqual(@as(i32, 10), light.damage);
     try std.testing.expect(!light.dead);
 
-    var doomed = Minecart.spawn(0, 0, 0, .empty);
+    var doomed = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     _ = doomed.hurt(5);
     try std.testing.expect(doomed.dead);
 }
@@ -830,7 +825,7 @@ test "each cart kind names the extra block it leaves behind" {
 }
 
 test "a chest cart holds a chest's worth of slots" {
-    var cart = Minecart.spawn(0, 0, 0, .chest);
+    var cart = Minecart.spawn(math.Vec3.init(0, 0, 0), .chest);
     try std.testing.expect(cart.isEmpty());
     cart.slot(26).* = .{ .id = .{ .block = .stone }, .count = 64 };
     try std.testing.expect(!cart.isEmpty());
@@ -838,7 +833,7 @@ test "a chest cart holds a chest's worth of slots" {
 }
 
 test "a minecart's cargo and heading survive a record round trip" {
-    var cart = Minecart.spawn(-12.25, 63.5, 7.75, .chest);
+    var cart = Minecart.spawn(math.Vec3.init(-12.25, 63.5, 7.75), .chest);
     cart.base.motion = math.Vec3.init(0.1, -0.2, 0.3);
     cart.yaw = 42.5;
     cart.fuel = 600;

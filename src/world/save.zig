@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const block = @import("block.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("Chunk.zig");
@@ -31,8 +33,8 @@ pub const InventoryEntry = struct {
 };
 
 pub const PlayerState = struct {
-    pos: [3]f64,
-    motion: [3]f64 = .{ 0, 0, 0 },
+    pos: math.Vec3,
+    motion: math.Vec3 = math.Vec3.init(0, 0, 0),
     yaw: f32 = 0,
     pitch: f32 = 0,
     fall_distance: f32 = 0,
@@ -486,7 +488,8 @@ fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nb
     try nbt.putDuped(gpa, compound, key, tag);
 }
 
-fn doubleList(gpa: std.mem.Allocator, values: [3]f64) !nbt.Tag {
+fn doubleList(gpa: std.mem.Allocator, vector: math.Vec3) !nbt.Tag {
+    const values = [3]f64{ vector.x, vector.y, vector.z };
     const items = try gpa.alloc(nbt.Tag, 3);
     for (items, values) |*item, value| item.* = .{ .double = value };
     return .{ .list = .{ .element_type = .double, .items = items } };
@@ -630,22 +633,24 @@ fn stringField(compound: nbt.Compound, key: []const u8) ?[]const u8 {
     };
 }
 
-fn doublesFromList(compound: nbt.Compound, key: []const u8, out: *[3]f64) void {
+fn doublesFromList(compound: nbt.Compound, key: []const u8, out: *math.Vec3) void {
     const items = switch (compound.get(key) orelse return) {
         .list => |value| value.items,
         else => return,
     };
+    var values = [3]f64{ out.x, out.y, out.z };
     for (items, 0..) |item, i| {
-        if (i >= out.len) break;
-        out[i] = switch (item) {
+        if (i >= values.len) break;
+        values[i] = switch (item) {
             .double => |value| value,
-            else => out[i],
+            else => values[i],
         };
     }
+    out.* = math.Vec3.init(values[0], values[1], values[2]);
 }
 
 fn playerFromTag(gpa: std.mem.Allocator, compound: nbt.Compound) !PlayerState {
-    var player: PlayerState = .{ .pos = .{ 0, 64, 0 } };
+    var player: PlayerState = .{ .pos = math.Vec3.init(0, 64, 0) };
     doublesFromList(compound, "Pos", &player.pos);
     doublesFromList(compound, "Motion", &player.motion);
 
@@ -794,8 +799,8 @@ test "a level.dat round-trips seed, spawn, time and player state" {
         .last_played = 1700000000,
         .name = try gpa.dupe(u8, "Test World"),
         .player = .{
-            .pos = .{ 1.5, 72.25, -3.75 },
-            .motion = .{ 0.1, -0.2, 0.3 },
+            .pos = math.Vec3.init(1.5, 72.25, -3.75),
+            .motion = math.Vec3.init(0.1, -0.2, 0.3),
             .yaw = 45.5,
             .pitch = -12.25,
             .fall_distance = 3.5,
@@ -841,7 +846,7 @@ test "a level.dat round-trips seed, spawn, time and player state" {
 
 test "a player written without vitals reads back at the original's fallback health" {
     const gpa = std.testing.allocator;
-    const player: PlayerState = .{ .pos = .{ 0, 64, 0 } };
+    const player: PlayerState = .{ .pos = math.Vec3.init(0, 64, 0) };
 
     var tag = try playerToTag(gpa, player);
     defer nbt.deinit(gpa, &tag);
@@ -1133,7 +1138,7 @@ test "the dimension a player logged out in comes back with them" {
     var info: LevelInfo = .{
         .seed = 5,
         .name = try gpa.dupe(u8, "Travelled"),
-        .player = .{ .pos = .{ 1.5, 70.0, 2.5 }, .dimension = .nether },
+        .player = .{ .pos = math.Vec3.init(1.5, 70.0, 2.5), .dimension = .nether },
     };
     defer info.deinit(gpa);
     try handle.writeLevel(gpa, io, info);
@@ -1156,7 +1161,7 @@ test "a world saved before dimensions existed loads as the overworld" {
     var info: LevelInfo = .{
         .seed = 5,
         .name = try gpa.dupe(u8, "Legacy"),
-        .player = .{ .pos = .{ 0, 64, 0 } },
+        .player = .{ .pos = math.Vec3.init(0, 64, 0) },
     };
     defer info.deinit(gpa);
     try handle.writeLevel(gpa, io, info);

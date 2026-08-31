@@ -1633,8 +1633,8 @@ fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.Inventor
     try app_state.player.inventory.appendSaveEntries(app_state.gpa, entries);
     const position = app_state.player.base.position;
     return .{
-        .pos = .{ position.x, position.y, position.z },
-        .motion = .{ app_state.player.base.motion.x, app_state.player.base.motion.y, app_state.player.base.motion.z },
+        .pos = position,
+        .motion = app_state.player.base.motion,
         .yaw = app_state.player.yaw,
         .pitch = app_state.player.pitch,
         .dimension = app_state.dimension,
@@ -1653,16 +1653,8 @@ fn playerState(app_state: *AppState, entries: *std.ArrayList(world.save.Inventor
 }
 
 fn applyPlayerState(app_state: *AppState, state: world.save.PlayerState) void {
-    app_state.player.base.position = math.Vec3.init(
-        @floatCast(state.pos[0]),
-        @floatCast(state.pos[1]),
-        @floatCast(state.pos[2]),
-    );
-    app_state.player.base.motion = math.Vec3.init(
-        @floatCast(state.motion[0]),
-        @floatCast(state.motion[1]),
-        @floatCast(state.motion[2]),
-    );
+    app_state.player.base.position = state.pos;
+    app_state.player.base.motion = state.motion;
     app_state.player.base.prev_position = app_state.player.base.position;
     app_state.player.yaw = state.yaw;
     app_state.player.pitch = state.pitch;
@@ -2673,7 +2665,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         py,
         pz,
         placed,
-        .{ app_state.player.base.position.x, app_state.player.base.position.y, app_state.player.base.position.z },
+        app_state.player.base.position,
         app_state.player.yaw,
     );
     _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, px, py, pz);
@@ -4225,7 +4217,7 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     const eye = app_state.player.base.renderPosition(partial);
     const view: render.weather.View = .{
         .world_map = &app_state.level.world_map,
-        .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
+        .eye = math.Vec3.init(eye.x, eye.y + game.Player.eye_height, eye.z),
         .tick_count = @intCast(app_state.level.tick_count),
         .partial_ticks = partial,
         .strength = strength,
@@ -4282,7 +4274,7 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .textures = app_state.textures,
         .gpa = app_state.frame,
         .view_proj = proj.mul(rotation),
-        .eye = .{ eye.x, eye.y + game.Player.eye_height, eye.z },
+        .eye = math.Vec3.init(eye.x, eye.y + game.Player.eye_height, eye.z),
         .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
         .color = render.sky.cloudColor(angle),
     }, app_state.settings.fancy_graphics, app_state.anaglyph_pass);

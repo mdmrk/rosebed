@@ -108,11 +108,7 @@ pub fn toRecord(self: Sheep) world.entity_nbt.Sheep {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Sheep) Sheep {
-    var sheep = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var sheep = init(record.living.position);
     sheep.animal.restore(record.living);
     sheep.sheared = record.sheared;
     sheep.fleece_color = record.color;

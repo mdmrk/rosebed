@@ -133,11 +133,7 @@ pub fn toRecord(self: Chicken) world.entity_nbt.Chicken {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Chicken) Chicken {
-    var chicken = init(math.Vec3.init(
-        record.living.position[0],
-        record.living.position[1],
-        record.living.position[2],
-    ));
+    var chicken = init(record.living.position);
     chicken.animal.restore(record.living);
     return chicken;
 }

@@ -276,19 +276,17 @@ pub fn minecartById(self: *Entities, id: Entity.Id) ?*Minecart {
 pub fn spawnMinecart(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: f64,
-    y: f64,
-    z: f64,
+    position: math.Vec3,
     kind: Minecart.Kind,
 ) !Entity.Id {
-    var cart = Minecart.spawn(x, y - Minecart.y_offset, z, kind);
+    var cart = Minecart.spawn(.{ .x = position.x, .y = position.y - Minecart.y_offset, .z = position.z }, kind);
     cart.base.id = self.takeId();
     try self.minecarts.append(gpa, cart);
     return cart.base.id;
 }
 
-pub fn spawnBoat(self: *Entities, gpa: std.mem.Allocator, x: f64, y: f64, z: f64) !Entity.Id {
-    var boat = Boat.spawn(x, y, z);
+pub fn spawnBoat(self: *Entities, gpa: std.mem.Allocator, position: math.Vec3) !Entity.Id {
+    var boat = Boat.spawn(position);
     boat.base.id = self.takeId();
     try self.boats.append(gpa, boat);
     return boat.base.id;
@@ -392,9 +390,12 @@ pub fn adoptAs(
 pub const entity_reach: f64 = 3.0;
 const collision_border: f64 = 0.1;
 
-fn boxRayDistance(box: math.Aabb, origin: [3]f64, along: [3]f64, reach: f64) ?f64 {
+fn boxRayDistance(box: math.Aabb, from: math.Vec3, direction: math.Vec3, reach: f64) ?f64 {
     var entry: f64 = 0;
     var exit = reach;
+
+    const origin = [3]f64{ from.x, from.y, from.z };
+    const along = [3]f64{ direction.x, direction.y, direction.z };
 
     const low = [3]f64{ box.min_x, box.min_y, box.min_z };
     const high = [3]f64{ box.max_x, box.max_y, box.max_z };
@@ -414,15 +415,15 @@ fn boxRayDistance(box: math.Aabb, origin: [3]f64, along: [3]f64, reach: f64) ?f6
     return entry;
 }
 
-fn boxHolds(box: math.Aabb, point: [3]f64) bool {
-    return point[0] >= box.min_x and point[0] <= box.max_x and
-        point[1] >= box.min_y and point[1] <= box.max_y and
-        point[2] >= box.min_z and point[2] <= box.max_z;
+fn boxHolds(box: math.Aabb, point: math.Vec3) bool {
+    return point.x >= box.min_x and point.x <= box.max_x and
+        point.y >= box.min_y and point.y <= box.max_y and
+        point.z >= box.min_z and point.z <= box.max_z;
 }
 
 pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Target {
-    const start = [3]f64{ origin.x, origin.y, origin.z };
-    const along = [3]f64{ look[0], look[1], look[2] };
+    const start = origin;
+    const along = math.Vec3.init(look[0], look[1], look[2]);
 
     var found: ?Target = null;
     var nearest: f64 = 0;
@@ -1397,10 +1398,10 @@ const ArrowStrike = union(enum) {
 };
 
 fn arrowStrike(self: *Entities, arrow: Arrow, roster: []const *Player, limit: f64) ?ArrowStrike {
-    const start = [3]f64{ arrow.base.position.x, arrow.base.position.y, arrow.base.position.z };
-    const along = [3]f64{ arrow.base.motion.x, arrow.base.motion.y, arrow.base.motion.z };
+    const start = arrow.base.position;
+    const along = arrow.base.motion;
     const swept = arrow.base.boundingBox()
-        .addCoord(along[0], along[1], along[2])
+        .addCoord(along.x, along.y, along.z)
         .expand(1.0, 1.0, 1.0);
 
     var found: ?ArrowStrike = null;
@@ -1410,8 +1411,8 @@ fn arrowStrike(self: *Entities, arrow: Arrow, roster: []const *Player, limit: f6
         fn hit(
             box: math.Aabb,
             candidate: ArrowStrike,
-            origin: [3]f64,
-            direction: [3]f64,
+            origin: math.Vec3,
+            direction: math.Vec3,
             reach: f64,
             best: *?ArrowStrike,
             best_distance: *f64,
@@ -1792,10 +1793,10 @@ pub fn shootFireball(
 }
 
 fn fireballStrike(self: *Entities, ball: Fireball, roster: []const *Player, limit: f64) ?ArrowStrike {
-    const start = [3]f64{ ball.base.position.x, ball.base.position.y, ball.base.position.z };
-    const along = [3]f64{ ball.base.motion.x, ball.base.motion.y, ball.base.motion.z };
+    const start = ball.base.position;
+    const along = ball.base.motion;
     const swept = ball.base.boundingBox()
-        .addCoord(along[0], along[1], along[2])
+        .addCoord(along.x, along.y, along.z)
         .expand(1.0, 1.0, 1.0);
 
     var found: ?ArrowStrike = null;
@@ -1899,10 +1900,10 @@ pub fn throwEgg(
 }
 
 fn eggStrike(self: *Entities, egg: ThrownEgg, roster: []const *Player, limit: f64) ?ArrowStrike {
-    const start = [3]f64{ egg.base.position.x, egg.base.position.y, egg.base.position.z };
-    const along = [3]f64{ egg.base.motion.x, egg.base.motion.y, egg.base.motion.z };
+    const start = egg.base.position;
+    const along = egg.base.motion;
     const swept = egg.base.boundingBox()
-        .addCoord(along[0], along[1], along[2])
+        .addCoord(along.x, along.y, along.z)
         .expand(1.0, 1.0, 1.0);
 
     var found: ?ArrowStrike = null;
@@ -2535,13 +2536,9 @@ pub fn applyPistonShoves(self: *Entities, world_map: *world.World, roster: []con
 
         for (roster) |player| {
             if (!player.base.boundingBox().intersects(box)) continue;
-            player.base.motion.x += push[0];
-            player.base.motion.y += push[1];
-            player.base.motion.z += push[2];
+            player.base.motion = player.base.motion.add(push);
             _ = player.base.move(world_map);
-            player.base.motion.x -= push[0];
-            player.base.motion.y -= push[1];
-            player.base.motion.z -= push[2];
+            player.base.motion = player.base.motion.sub(push);
         }
 
         for (self.mobs.items) |entry| {
@@ -2555,9 +2552,9 @@ pub fn applyPistonShoves(self: *Entities, world_map: *world.World, roster: []con
     }
 }
 
-fn shoveEntity(base: *Entity, world_map: *const world.World, push: [3]f64) void {
+fn shoveEntity(base: *Entity, world_map: *const world.World, push: math.Vec3) void {
     const kept = base.motion;
-    base.motion = .{ .x = push[0], .y = push[1], .z = push[2] };
+    base.motion = push;
     _ = base.move(world_map);
     base.motion = kept;
 }
@@ -3350,7 +3347,7 @@ test "a rolling empty cart scoops up a pig it runs into, and a chest cart does n
     var entities: Entities = .{};
     defer entities.deinit(gpa);
     try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
-    const cart_id = try entities.spawnMinecart(gpa, 7.5, 12.5, 8.5, .empty);
+    const cart_id = try entities.spawnMinecart(gpa, math.Vec3.init(7.5, 12.5, 8.5), .empty);
     entities.minecartById(cart_id).?.base.motion = math.Vec3.init(0.3, 0, 0);
 
     for (0..6) |_| try entities.tickMinecarts(gpa, &w, &.{}, &rand);
@@ -3376,7 +3373,7 @@ test "a cart is stopped by whatever is standing on the track, not driven through
 
     var clear: Entities = .{};
     defer clear.deinit(gpa);
-    const rolling = try clear.spawnMinecart(gpa, 7.5, 12.5, 8.5, .chest);
+    const rolling = try clear.spawnMinecart(gpa, math.Vec3.init(7.5, 12.5, 8.5), .chest);
     clear.minecartById(rolling).?.base.motion = math.Vec3.init(0.3, 0, 0);
     for (0..8) |_| try clear.tickMinecarts(gpa, &w, &.{}, &rand);
     try std.testing.expect(clear.minecartById(rolling).?.base.position.x > 9.5);
@@ -3386,7 +3383,7 @@ test "a cart is stopped by whatever is standing on the track, not driven through
     var dropped = ItemEntity.spawn(math.Vec3.init(9.5, 12.15, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
     dropped.base.motion = math.Vec3.init(0, 0, 0);
     try blocked.items.append(gpa, dropped);
-    const halted = try blocked.spawnMinecart(gpa, 7.5, 12.5, 8.5, .chest);
+    const halted = try blocked.spawnMinecart(gpa, math.Vec3.init(7.5, 12.5, 8.5), .chest);
     blocked.minecartById(halted).?.base.motion = math.Vec3.init(0.3, 0, 0);
     for (0..8) |_| try blocked.tickMinecarts(gpa, &w, &.{}, &rand);
     try std.testing.expect(blocked.minecartById(halted).?.base.position.x < 9.0);
@@ -3398,7 +3395,7 @@ test "boarding a cart bumps a mob out of the seat but leaves another player's se
     defer entities.deinit(gpa);
 
     try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
-    const cart_id = try entities.spawnMinecart(gpa, 8.5, 12.5, 8.5, .empty);
+    const cart_id = try entities.spawnMinecart(gpa, math.Vec3.init(8.5, 12.5, 8.5), .empty);
     const pig = entities.first(Pig, mob.pig).?;
 
     const cart = entities.minecartById(cart_id).?;
@@ -3420,8 +3417,8 @@ test "boarding one cart empties the seat you left behind" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
-    const first_cart = try entities.spawnMinecart(gpa, 8.5, 12.5, 8.5, .empty);
-    const second_cart = try entities.spawnMinecart(gpa, 10.5, 12.5, 8.5, .empty);
+    const first_cart = try entities.spawnMinecart(gpa, math.Vec3.init(8.5, 12.5, 8.5), .empty);
+    const second_cart = try entities.spawnMinecart(gpa, math.Vec3.init(10.5, 12.5, 8.5), .empty);
 
     const rider: Entity.Id = 4096;
     try std.testing.expect(entities.boardMinecart(entities.minecartById(first_cart).?, rider));
@@ -3443,7 +3440,7 @@ test "a wrecked cart sets its passenger down on top of where it stood" {
     defer entities.deinit(gpa);
 
     try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
-    const cart_id = try entities.spawnMinecart(gpa, 7.5, 12.5, 8.5, .empty);
+    const cart_id = try entities.spawnMinecart(gpa, math.Vec3.init(7.5, 12.5, 8.5), .empty);
     entities.minecartById(cart_id).?.base.motion = math.Vec3.init(0.3, 0, 0);
     for (0..6) |_| try entities.tickMinecarts(gpa, &w, &.{}, &rand);
 
@@ -3472,7 +3469,7 @@ test "a chest cart bumps a pig aside instead of carrying it" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
     try entities.spawnPig(gpa, math.Vec3.init(8.5, 12.15, 8.5));
-    const cart_id = try entities.spawnMinecart(gpa, 7.5, 12.5, 8.5, .chest);
+    const cart_id = try entities.spawnMinecart(gpa, math.Vec3.init(7.5, 12.5, 8.5), .chest);
     entities.minecartById(cart_id).?.base.motion = math.Vec3.init(0.3, 0, 0);
 
     var nudged = false;

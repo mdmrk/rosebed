@@ -65,13 +65,13 @@ pub const Path = struct {
         return self.points[self.points.len - 1];
     }
 
-    pub fn position(self: Path, mob: Mob) [3]f64 {
+    pub fn position(self: Path, mob: Mob) math.Vec3 {
         const offset = mob.footprintOffset();
         const point = self.points[self.index];
         return .{
-            @as(f64, @floatFromInt(point.x)) + offset,
-            @floatFromInt(point.y),
-            @as(f64, @floatFromInt(point.z)) + offset,
+            .x = @as(f64, @floatFromInt(point.x)) + offset,
+            .y = @floatFromInt(point.y),
+            .z = @as(f64, @floatFromInt(point.z)) + offset,
         };
     }
 };
@@ -526,6 +526,6 @@ test "the walked position is centred in the block for a pig-sized mob" {
     defer path.deinit(gpa);
 
     const position = path.position(pigAt(4.5, 1, 8.5));
-    try std.testing.expectApproxEqAbs(@as(f64, 4.5), position[0], 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.5), position[2], 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.5), position.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), position.z, 1.0e-9);
 }

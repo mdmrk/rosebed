@@ -435,22 +435,26 @@ fn repeaterTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Err
     }
 }
 
-fn plateProbeBox(x: i32, y: i32, z: i32) [2][3]f64 {
+fn plateProbeBox(x: i32, y: i32, z: i32) math.Aabb {
     const margin: f64 = 2.0 / 16.0;
     const fx: f64 = @floatFromInt(x);
     const fy: f64 = @floatFromInt(y);
     const fz: f64 = @floatFromInt(z);
-    return .{
-        .{ fx + margin, fy, fz + margin },
-        .{ fx + 1.0 - margin, fy + 0.25, fz + 1.0 - margin },
-    };
+    return math.Aabb.init(
+        fx + margin,
+        fy,
+        fz + margin,
+        fx + 1.0 - margin,
+        fy + 0.25,
+        fz + 1.0 - margin,
+    );
 }
 
 fn plateOccupied(world_map: *const World, x: i32, y: i32, z: i32) bool {
     const probe = world_map.entity_probe orelse return false;
     const box = plateProbeBox(x, y, z);
     const living_only = world_map.getBlock(x, y, z) == .pressure_plate_stone;
-    return probe.anyInBox(probe.context, box[0], box[1], living_only);
+    return probe.anyInBox(probe.context, box, living_only);
 }
 
 fn plateSettle(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
@@ -780,12 +784,7 @@ pub fn onMinecartOverRail(world_map: *World, cart: math.Aabb) std.mem.Allocator.
 fn detectorOccupied(world_map: *const World, x: i32, y: i32, z: i32) bool {
     const probe = world_map.entity_probe orelse return false;
     const box = detectorBox(x, y, z);
-    return probe.anyInBox(
-        probe.context,
-        .{ box.min_x, box.min_y, box.min_z },
-        .{ box.max_x, box.max_y, box.max_z },
-        false,
-    );
+    return probe.anyInBox(probe.context, box, false);
 }
 
 fn setDetectorRail(world_map: *World, x: i32, y: i32, z: i32, occupied: bool) std.mem.Allocator.Error!void {
@@ -855,7 +854,7 @@ pub fn onBlockPlaced(
     y: i32,
     z: i32,
     id: Block,
-    player: [3]f64,
+    player: math.Vec3,
     yaw: f32,
 ) std.mem.Allocator.Error!void {
     if (id.isPistonBase()) return piston.onBlockPlaced(world_map, x, y, z, player, yaw);
@@ -1203,7 +1202,7 @@ const ProbeStub = struct {
     occupied: bool = false,
     asked_living_only: bool = false,
 
-    fn anyInBox(context: *anyopaque, _: [3]f64, _: [3]f64, living_only: bool) bool {
+    fn anyInBox(context: *anyopaque, _: math.Aabb, living_only: bool) bool {
         const self: *ProbeStub = @ptrCast(@alignCast(context));
         self.asked_living_only = living_only;
         return self.occupied;

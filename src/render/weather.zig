@@ -80,7 +80,7 @@ fn appendColumn(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: i32, z: i32, colu
 
 pub const View = struct {
     world_map: *const world.World,
-    eye: [3]f64,
+    eye: math.Vec3,
     tick_count: i64,
     partial_ticks: f32,
     strength: f32,
@@ -89,9 +89,9 @@ pub const View = struct {
 
 pub fn appendRain(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void {
     const reach = reachFor(view.fancy);
-    const at_x = math.util.floorDouble(view.eye[0]);
-    const at_y = math.util.floorDouble(view.eye[1]);
-    const at_z = math.util.floorDouble(view.eye[2]);
+    const at_x = math.util.floorDouble(view.eye.x);
+    const at_y = math.util.floorDouble(view.eye.y);
+    const at_z = math.util.floorDouble(view.eye.z);
 
     var x = at_x - reach;
     while (x <= at_x + reach) : (x += 1) {
@@ -122,10 +122,10 @@ pub fn appendRain(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
 
 pub fn appendSnow(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void {
     const reach = reachFor(view.fancy);
-    const at_x = math.util.floorDouble(view.eye[0]);
-    const at_y = math.util.floorDouble(view.eye[1]);
-    const at_z = math.util.floorDouble(view.eye[2]);
-    const eye_y = math.util.floorDouble(view.eye[1]);
+    const at_x = math.util.floorDouble(view.eye.x);
+    const at_y = math.util.floorDouble(view.eye.y);
+    const at_z = math.util.floorDouble(view.eye.z);
+    const eye_y = math.util.floorDouble(view.eye.y);
 
     var x = at_x - reach;
     while (x <= at_x + reach) : (x += 1) {
@@ -162,8 +162,8 @@ fn brightnessAt(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
 }
 
 fn fade(view: View, x: i32, z: i32, reach: i32, base: f32, falloff: f32) f32 {
-    const dx = @as(f64, @floatFromInt(x)) + 0.5 - view.eye[0];
-    const dz = @as(f64, @floatFromInt(z)) + 0.5 - view.eye[2];
+    const dx = @as(f64, @floatFromInt(x)) + 0.5 - view.eye.x;
+    const dz = @as(f64, @floatFromInt(z)) + 0.5 - view.eye.z;
     const away: f32 = @floatCast(@sqrt(dx * dx + dz * dz) / @as(f64, @floatFromInt(reach)));
     return ((1.0 - away * away) * falloff + base) * view.strength;
 }
@@ -185,7 +185,7 @@ test "rain thins out toward the edge of the reach" {
 
     const view: View = .{
         .world_map = &w,
-        .eye = .{ 0.5, 64.0, 0.5 },
+        .eye = math.Vec3.init(0.5, 64.0, 0.5),
         .tick_count = 0,
         .partial_ticks = 0,
         .strength = 1.0,
@@ -208,7 +208,7 @@ test "a dry sky draws nothing at all" {
 
     try appendRain(&mesh, gpa, .{
         .world_map = &w,
-        .eye = .{ 8.5, 5.0, 8.5 },
+        .eye = math.Vec3.init(8.5, 5.0, 8.5),
         .tick_count = 0,
         .partial_ticks = 0,
         .strength = 1.0,
