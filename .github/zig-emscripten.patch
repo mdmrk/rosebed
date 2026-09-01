@@ -19,7 +19,7 @@
      else => dirReadUnimplemented,
  };
  
-@@ -5538,6 +5539,88 @@
+@@ -5538,6 +5539,92 @@
          };
          buffer_index += 1;
      }
@@ -45,9 +45,13 @@
 +    while (buffer.len - buffer_index != 0) {
 +        if (dr.end - dr.index == 0) {
 +            if (buffer_index != 0) break;
++            // Emscripten writes d_ino and d_off with HEAP64, whose index rounds the
++            // address down to a multiple of 8, so a merely usize-aligned buffer gets
++            // its first record written 4 bytes before the buffer starts.
++            const pad = std.mem.alignPointerOffset(dr.buffer.ptr, 8).?;
 +            const syscall: Syscall = try .start();
 +            const n = while (true) {
-+                const rc = __syscall_getdents64(dr.dir.handle, dr.buffer.ptr, dr.buffer.len);
++                const rc = __syscall_getdents64(dr.dir.handle, dr.buffer.ptr + pad, dr.buffer.len - pad);
 +                if (rc >= 0) {
 +                    syscall.finish();
 +                    break @as(usize, @intCast(rc));
@@ -77,8 +81,8 @@
 +                dr.state = .finished;
 +                return 0;
 +            }
-+            dr.index = 0;
-+            dr.end = n;
++            dr.index = pad;
++            dr.end = pad + n;
 +        }
 +        const entry: *align(1) linux.dirent64 = @ptrCast(&dr.buffer[dr.index]);
 +        dr.index += entry.reclen;
