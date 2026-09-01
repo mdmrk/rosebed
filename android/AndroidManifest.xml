@@ -10,6 +10,7 @@
     <application
         android:label="Rosebed"
         android:icon="@mipmap/icon"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:hasCode="true">

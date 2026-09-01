@@ -405,6 +405,8 @@ pub fn init(
     try sdl3.init(init_flags);
     errdefer sdl3.quit(init_flags);
 
+    if (android) try sdl3.hints.set(.orientations, "LandscapeLeft LandscapeRight");
+
     try sdl3.video.gl.setAttribute(.depth_size, 24);
     try sdl3.video.gl.setAttribute(.context_major_version, 3);
     try sdl3.video.gl.setAttribute(.context_minor_version, if (gles) 0 else 3);
