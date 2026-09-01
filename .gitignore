@@ -2,3 +2,4 @@
 zig-out/
 zig-pkg/
 assets/
+android/sdl/

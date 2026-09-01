@@ -63,6 +63,15 @@ pub fn airBubbles(air: i32) AirBubbles {
     return .{ .full = full, .popping = total - full };
 }
 
+pub fn hotbarSlotAt(gx: f32, gy: f32, res: gui.Scaled) ?u8 {
+    const hotbar_x = @floor(res.width / 2.0) - hotbar_width / 2.0;
+    if (gy < res.height - hotbar_height) return null;
+    if (gx < hotbar_x or gx >= hotbar_x + hotbar_width) return null;
+    const slot = @floor((gx - hotbar_x) / slot_pitch);
+    if (slot > 8) return null;
+    return @intFromFloat(slot);
+}
+
 pub fn draw(
     ui: gui.Ui,
     inventory: game.Inventory,
@@ -223,4 +232,13 @@ test "the blink stops once the resistance window is nearly spent" {
     try std.testing.expect(!blinking(6));
     try std.testing.expect(!blinking(3));
     try std.testing.expect(!blinking(0));
+}
+
+test "hotbar slots are picked left to right along the bar" {
+    const res: gui.Scaled = .{ .factor = 2, .ortho_width = 600, .ortho_height = 340, .width = 600, .height = 340 };
+    const hotbar_x = @floor(res.width / 2.0) - hotbar_width / 2.0;
+    try std.testing.expectEqual(@as(?u8, 0), hotbarSlotAt(hotbar_x + 1, res.height - 1, res));
+    try std.testing.expectEqual(@as(?u8, 8), hotbarSlotAt(hotbar_x + hotbar_width - 3, res.height - 1, res));
+    try std.testing.expectEqual(@as(?u8, null), hotbarSlotAt(hotbar_x - 1, res.height - 1, res));
+    try std.testing.expectEqual(@as(?u8, null), hotbarSlotAt(hotbar_x + 1, res.height - hotbar_height - 1, res));
 }

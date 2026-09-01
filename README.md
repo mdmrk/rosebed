@@ -17,6 +17,7 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 - [Play](#play)
 - [Build](#build)
   - [Web](#web)
+  - [Android](#android)
 - [License](#license)
 
 ## Not in b1.7.3
@@ -26,6 +27,7 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 - [x] **Chat and commands in single player.** `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
 - [x] **Chat input editing.** History recall, ctrl+backspace, paste.
 - [x] **Fullscreen in Video Settings.** Vanilla has F11 and no setting.
+- [x] **On-screen touch controls.** Only on Android, where there is no keyboard or mouse to bind.
 
 ## Play
 
@@ -33,12 +35,13 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 
 Or download a build, each archive has both binaries, `rosebed` and `rosebed-server`:
 
-| Platform            | Stable                                                                                              | Nightly                                                                                               |
+| Platform            | Stable                                                                                               | Nightly                                                                                               |
 | ------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `x86_64-linux`      | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz)      |
 | `x86_64-windows`    | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip)          | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip)          |
 | `aarch64-macos`     | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz)     | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz)     |
 | `wasm32-emscripten` | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
+| `aarch64-android`   | [apk](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-android-aarch64.apk)         | [apk](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-android-aarch64.apk)         |
 
 ```sh
 # Client
@@ -83,6 +86,21 @@ zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast \
 ```
 
 Output is a static site in `zig-out/www`. You can serve it with `python -m http.server`.
+
+### Android
+
+Needs the [Android NDK](https://developer.android.com/ndk/downloads) and an Android SDK with `build-tools` and a platform installed, plus `zip` and `keytool` on `PATH`. SDL3 itself is the official prebuilt Android build, not compiled from source:
+
+```sh
+zig build fetch-android-sdl       # once, unpacks SDL3 and its Java glue into android/sdl
+
+zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast \
+  -Dandroid-ndk="$ANDROID_NDK_HOME" -Dandroid-sdk="$ANDROID_HOME"
+```
+
+The NDK and SDK paths also come from `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT` and `ANDROID_HOME`/`ANDROID_SDK_ROOT` when the options are left out. `-Dandroid-api` (default 21), `-Dandroid-build-tools` (default `35.0.0`) and `-Dandroid-platform` (default `android-35`) pick the levels to build against.
+
+Output is a signed debug APK in `zig-out/rosebed.apk`. `zig build run` with the same options installs it on a connected device over `adb` and starts it.
 
 ## License
 

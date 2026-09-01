@@ -34,6 +34,7 @@ pub const text_wrap = @import("text_wrap.zig");
 pub const texture_pack = @import("texture_pack.zig");
 pub const TextureFx = @import("TextureFx.zig");
 pub const Textures = @import("Textures.zig");
+pub const touch = @import("touch.zig");
 pub const underwater = @import("underwater.zig");
 pub const weather = @import("weather.zig");
 
@@ -61,6 +62,7 @@ test {
     _ = TextureFx;
     _ = Colorizer;
     _ = hud;
+    _ = touch;
     _ = mob_model;
     _ = item_lighting;
     _ = Font;

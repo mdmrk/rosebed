@@ -103,6 +103,40 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: zig-out/www
+  android:
+    name: android (ubuntu-latest, aarch64-linux-android)
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+      - name: setup zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: seed freetype tarball
+        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: fetch assets
+        run: zig build fetch-assets
+      - name: fetch sdl for android
+        run: zig build fetch-android-sdl
+      - name: build
+        run: |
+          zig build \
+            -Dtarget=aarch64-linux-android \
+            -Doptimize=ReleaseFast \
+            -Dandroid-ndk="$ANDROID_NDK_ROOT" \
+            -Dandroid-sdk="$ANDROID_HOME" \
+            -Dandroid-build-tools="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)" \
+            -Dandroid-platform="$(ls "$ANDROID_HOME/platforms" | sort -V | tail -1)"
+      - name: package
+        run: |
+          mkdir -p dist
+          cp zig-out/rosebed.apk dist/rosebed-android-aarch64.apk
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosebed-android-aarch64
+          path: dist/*
   pages:
     if: github.event_name != 'pull_request'
     needs: web
@@ -119,7 +153,7 @@ jobs:
         uses: actions/deploy-pages@v5
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    needs: [build, web]
+    needs: [build, web, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -144,7 +178,7 @@ jobs:
           gh release upload nightly dist/*
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, web]
+    needs: [build, web, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

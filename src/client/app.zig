@@ -31,6 +31,12 @@ const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const chunk_stream_budget_ns = 4 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
 const wasm = builtin.cpu.arch.isWasm();
+const android = builtin.abi == .android or builtin.abi == .androideabi;
+const gles = wasm or android;
+const touch_ui = android;
+const touch_dig_delay_ms = 180;
+const touch_drag_slop = 12.0;
+const max_touches = 4;
 
 const splashes: []const []const u8 = blk: {
     @setEvalBranchQuota(100_000);
@@ -58,6 +64,17 @@ fn pickSplash(rand: *world.JavaRandom) []const u8 {
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 var frame_arena: std.heap.ArenaAllocator = undefined;
 var io_threaded: std.Io.Threaded = undefined;
+
+const Touch = struct {
+    id: u64 = 0,
+    role: Role = .none,
+    control: render.touch.Control = .move,
+    still_since_ms: u64 = 0,
+    travel: f32 = 0,
+    digging: bool = false,
+
+    const Role = enum { none, move, button, world };
+};
 
 pub const AppState = struct {
     gpa: std.mem.Allocator,
@@ -87,6 +104,8 @@ pub const AppState = struct {
     chunks_drawn: u32 = 0,
     equip: render.held_item.Equip = .{},
     player: game.Player = playerAtSpawn(),
+    touches: [max_touches]Touch = @splat(.{}),
+    touch_stick: ?[2]f32 = null,
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -367,6 +386,11 @@ fn glGetProcAddress(name: [*:0]const u8) ?gl.PROC {
     return @ptrCast(@alignCast(proc));
 }
 
+fn internalStoragePath() ![:0]const u8 {
+    const path = sdl3.c.SDL_GetAndroidInternalStoragePath() orelse return error.NoInternalStorage;
+    return std.mem.span(path);
+}
+
 fn setIcon(window: sdl3.video.Window) !void {
     const icon = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(@embedFile("icon_png")), true);
     defer icon.deinit();
@@ -383,9 +407,9 @@ pub fn init(
 
     try sdl3.video.gl.setAttribute(.depth_size, 24);
     try sdl3.video.gl.setAttribute(.context_major_version, 3);
-    try sdl3.video.gl.setAttribute(.context_minor_version, if (wasm) 0 else 3);
+    try sdl3.video.gl.setAttribute(.context_minor_version, if (gles) 0 else 3);
     try sdl3.video.gl.setAttribute(.context_profile_mask, @intFromEnum(
-        if (wasm) sdl3.video.gl.Profile.es else sdl3.video.gl.Profile.core,
+        if (gles) sdl3.video.gl.Profile.es else sdl3.video.gl.Profile.core,
     ));
 
     const window = try sdl3.video.Window.init("Rosebed", screen_width, screen_height, .{
@@ -395,7 +419,7 @@ pub fn init(
     });
     errdefer window.deinit();
 
-    if (!wasm) setIcon(window) catch |err| {
+    if (!wasm and !android) setIcon(window) catch |err| {
         std.log.warn("could not set the window icon: {t}", .{err});
     };
 
@@ -413,7 +437,7 @@ pub fn init(
     frame_arena = .init(gpa);
     io_threaded = .init(gpa, .{});
     const io = io_threaded.io();
-    const base_path = if (wasm) persist_root else try sdl3.filesystem.getBasePath();
+    const base_path = if (wasm) persist_root else if (android) try internalStoragePath() else try sdl3.filesystem.getBasePath();
     const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
     const saves_dir = try world.save.openSavesDir(io, base_dir);
     const packs_dir = try render.texture_pack.open(io, base_dir);
@@ -1073,7 +1097,7 @@ fn worldFocused(app_state: *const AppState) bool {
 }
 
 fn updateMouseMode(app_state: *AppState) !void {
-    try sdl3.mouse.setWindowRelativeMode(app_state.window, worldFocused(app_state));
+    try sdl3.mouse.setWindowRelativeMode(app_state.window, !touch_ui and worldFocused(app_state));
 }
 
 fn closeContainer(app_state: *AppState) !void {
@@ -2888,6 +2912,7 @@ fn tickCarriedMaps(app_state: *AppState) !void {
 
 fn tick(app_state: *AppState) !void {
     stepFogBrightness(app_state);
+    if (touch_ui) try touchTick(app_state);
     if (app_state.sound) |*sound| sound.playRandomMusicIfReady() catch {};
     app_state.chat.tick();
     if (app_state.sign_edit) |*open| open.tick();
@@ -4552,6 +4577,11 @@ pub fn iterate(
             try render.pumpkin_blur.draw(app_state.frame, app_state.shader, app_state.textures.pumpkin_blur);
         }
         try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
+        if (touch_ui and worldFocused(app_state)) try render.touch.draw(ui, .{
+            .stick = app_state.touch_stick,
+            .jump = app_state.keys.jump,
+            .sneak = app_state.keys.sneak,
+        });
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
         try render.chat.draw(ui, &app_state.chat);
     }
@@ -4745,13 +4775,174 @@ fn selectHotbarFromKey(app_state: *AppState, key: ?sdl3.keycode.Keycode) void {
     app_state.player.inventory.selectHotbar(index);
 }
 
+fn touchSlot(app_state: *AppState, id: u64) ?*Touch {
+    for (&app_state.touches) |*touch| {
+        if (touch.role != .none and touch.id == id) return touch;
+    }
+    return null;
+}
+
+fn applyStick(app_state: *AppState, stick: ?[2]f32) void {
+    app_state.touch_stick = stick;
+    const value = stick orelse [2]f32{ 0, 0 };
+    app_state.keys.forward = value[1] <= -render.touch.dead_zone;
+    app_state.keys.back = value[1] >= render.touch.dead_zone;
+    app_state.keys.left = value[0] <= -render.touch.dead_zone;
+    app_state.keys.right = value[0] >= render.touch.dead_zone;
+}
+
+fn releaseTouches(app_state: *AppState) void {
+    app_state.touches = @splat(.{});
+    applyStick(app_state, null);
+    app_state.keys.jump = false;
+    app_state.keys.sneak = false;
+    app_state.mouse_left_down = false;
+    app_state.missed_click_cooldown = 0;
+}
+
+fn touchTap(app_state: *AppState) !void {
+    if (app_state.freecam.active) return;
+    if (pickedEntity(app_state) != null) return clickLeft(app_state);
+    if (try useBlockOrPlace(app_state)) {
+        swingArm(app_state);
+    } else if (app_state.link == null) {
+        try game.interact.useHeldItem(interactContext(app_state));
+    }
+}
+
+fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
+    if (!worldFocused(app_state)) return;
+    const res = guiSize(app_state);
+    const gx = finger.x * res.width;
+    const gy = finger.y * res.height;
+
+    if (render.touch.controlAt(gx, gy, res)) |control| {
+        switch (control) {
+            .move => applyStick(app_state, render.touch.stickAt(gx, gy, res)),
+            .jump => app_state.keys.jump = true,
+            .sneak => app_state.keys.sneak = true,
+            .inventory => {
+                releaseTouches(app_state);
+                return toggleInventory(app_state);
+            },
+            .pause => {
+                releaseTouches(app_state);
+                return togglePause(app_state);
+            },
+        }
+        const slot = freeTouch(app_state) orelse return;
+        slot.* = .{
+            .id = finger.finger_id.value,
+            .role = if (control == .move) .move else .button,
+            .control = control,
+        };
+        return;
+    }
+
+    if (render.hud.hotbarSlotAt(gx, gy, res)) |index| {
+        app_state.player.inventory.selectHotbar(index);
+        return;
+    }
+
+    const slot = freeTouch(app_state) orelse return;
+    slot.* = .{
+        .id = finger.finger_id.value,
+        .role = .world,
+        .still_since_ms = sdl3.timer.getMillisecondsSinceInit(),
+    };
+}
+
+fn freeTouch(app_state: *AppState) ?*Touch {
+    for (&app_state.touches) |*touch| {
+        if (touch.role == .none) return touch;
+    }
+    return null;
+}
+
+fn touchMotion(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
+    const slot = touchSlot(app_state, finger.finger_id.value) orelse return;
+    const res = guiSize(app_state);
+    switch (slot.role) {
+        .move => applyStick(app_state, render.touch.stickAt(finger.x * res.width, finger.y * res.height, res)),
+        .world => {
+            const px = drawableSize(app_state);
+            const dx = finger.dx * @as(f32, @floatFromInt(px.w));
+            const dy = finger.dy * @as(f32, @floatFromInt(px.h));
+            slot.travel += @abs(dx) + @abs(dy);
+            if (@abs(dx) + @abs(dy) > 0) slot.still_since_ms = sdl3.timer.getMillisecondsSinceInit();
+            if (app_state.freecam.active) {
+                app_state.freecam.turn(dx, dy, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+            } else {
+                app_state.player.turn(dx, dy, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+            }
+        },
+        .button, .none => {},
+    }
+}
+
+fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
+    const slot = touchSlot(app_state, finger.finger_id.value) orelse return;
+    const role = slot.role;
+    const control = slot.control;
+    const tapped = slot.travel < touch_drag_slop and !slot.digging;
+    slot.* = .{};
+
+    switch (role) {
+        .move => applyStick(app_state, null),
+        .button => switch (control) {
+            .jump => app_state.keys.jump = false,
+            .sneak => app_state.keys.sneak = false,
+            else => {},
+        },
+        .world => {
+            app_state.mouse_left_down = touchDigging(app_state);
+            if (!app_state.mouse_left_down) app_state.missed_click_cooldown = 0;
+            if (tapped and worldFocused(app_state)) try touchTap(app_state);
+        },
+        .none => {},
+    }
+}
+
+fn touchDigging(app_state: *const AppState) bool {
+    for (app_state.touches) |touch| {
+        if (touch.role == .world and touch.digging) return true;
+    }
+    return false;
+}
+
+fn touchTick(app_state: *AppState) !void {
+    if (!worldFocused(app_state)) return;
+    const now = sdl3.timer.getMillisecondsSinceInit();
+    for (&app_state.touches) |*touch| {
+        if (touch.role != .world or touch.digging) continue;
+        if (now - touch.still_since_ms < touch_dig_delay_ms) continue;
+        touch.digging = true;
+        app_state.mouse_left_down = true;
+        app_state.last_held_swing_tick = app_state.level.tick_count;
+        try clickLeft(app_state);
+    }
+}
+
+fn fromTouchMouse(curr_event: sdl3.events.Event) bool {
+    const id = switch (curr_event) {
+        .mouse_motion => |m| m.id,
+        .mouse_button_down, .mouse_button_up => |m| m.id,
+        else => return false,
+    } orelse return false;
+    return id.value == sdl3.mouse.Id.touch.value;
+}
+
 pub fn event(
     app_state: *AppState,
     curr_event: sdl3.events.Event,
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
+    if (touch_ui and worldFocused(app_state) and fromTouchMouse(curr_event)) return .run;
     switch (curr_event) {
         .quit, .terminating => return .success,
+        .finger_down => |f| if (touch_ui) try touchDown(app_state, f),
+        .finger_motion => |f| if (touch_ui) try touchMotion(app_state, f),
+        .finger_up, .finger_canceled => |f| if (touch_ui) try touchUp(app_state, f),
         .key_down => |k| if (!wasm and k.key == .func11 and !k.repeat) {
             app_state.settings.fullscreen = !app_state.settings.fullscreen;
             applyFullscreen(app_state);

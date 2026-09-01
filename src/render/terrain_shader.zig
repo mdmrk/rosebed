@@ -8,7 +8,7 @@ fn retarget(comptime source: []const u8, comptime header: []const u8) [:0]const 
     return std.fmt.comptimePrint("{s}{s}", .{ header, body });
 }
 
-const gles = builtin.os.tag == .emscripten;
+const gles = builtin.os.tag == .emscripten or builtin.abi == .android or builtin.abi == .androideabi;
 
 pub const vertex_source = retarget(
     @embedFile("shaders/terrain.vert"),

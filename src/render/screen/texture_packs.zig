@@ -10,6 +10,7 @@ const MeshBuilder = @import("../MeshBuilder.zig");
 const texture_pack = @import("../texture_pack.zig");
 
 const wasm = builtin.cpu.arch.isWasm();
+const android = builtin.abi == .android or builtin.abi == .androideabi;
 
 const dirt_tile_scale: f32 = 32;
 const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
@@ -63,7 +64,7 @@ fn buttons(res: gui.Scaled) [2]struct { button: button.Button, hit: Hit } {
     const cx = @floor(res.width / 2.0);
     const y = res.height - 48;
     return .{
-        .{ .button = .{ .x = cx - 154, .y = y, .w = 150, .label = "Open texture pack folder", .enabled = !wasm }, .hit = .open_folder },
+        .{ .button = .{ .x = cx - 154, .y = y, .w = 150, .label = "Open texture pack folder", .enabled = !wasm and !android }, .hit = .open_folder },
         .{ .button = .{ .x = cx + 4, .y = y, .w = 150, .label = "Done", .enabled = true }, .hit = .done },
     };
 }
