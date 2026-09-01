@@ -8,6 +8,7 @@ uniform sampler2D u_atlas;
 uniform int u_textured;
 uniform vec4 u_tint;
 uniform int u_alpha_test;
+uniform float u_alpha_cutoff;
 uniform int u_fog_enabled;
 uniform int u_fog_exponential;
 uniform vec3 u_fog_color;
@@ -19,7 +20,7 @@ out vec4 frag_color;
 
 void main() {
     frag_color = (u_textured != 0 ? texture(u_atlas, v_uv) * v_color : v_color) * u_tint;
-    if (u_alpha_test != 0 && frag_color.a <= 0.1) discard;
+    if (u_alpha_test != 0 && frag_color.a <= u_alpha_cutoff) discard;
 
     if (u_fog_enabled != 0) {
         float visibility = u_fog_exponential != 0

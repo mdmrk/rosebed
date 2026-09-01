@@ -4,7 +4,10 @@ const gl = @import("gl");
 
 const Shader = @This();
 
+pub const default_alpha_cutoff: f32 = 0.1;
+
 pub const Uniform = enum {
+    u_alpha_cutoff,
     u_alpha_test,
     u_atlas,
     u_camera_pos,
@@ -77,6 +80,7 @@ fn locationOf(self: Shader, name: Uniform) gl.int {
 
 pub fn use(self: Shader) void {
     gl.UseProgram(self.program);
+    self.setFloat(.u_alpha_cutoff, default_alpha_cutoff);
 }
 
 pub fn setMat4(self: Shader, name: Uniform, value: [16]f32) void {

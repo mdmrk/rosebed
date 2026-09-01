@@ -18,6 +18,7 @@ pub const rain_alpha_base: f32 = 0.5;
 pub const rain_alpha_falloff: f32 = 0.5;
 pub const snow_alpha_base: f32 = 0.5;
 pub const snow_alpha_falloff: f32 = 0.3;
+pub const alpha_cutoff: f32 = 0.01;
 
 pub fn reachFor(fancy: bool) i32 {
     return if (fancy) fancy_reach else fast_reach;

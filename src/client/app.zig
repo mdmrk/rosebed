@@ -4309,7 +4309,8 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     };
 
     app_state.shader.setMat4(.u_view_proj, view_proj.m);
-    app_state.shader.setInt(.u_alpha_test, 0);
+    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setFloat(.u_alpha_cutoff, render.weather.alpha_cutoff);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.Disable(gl.CULL_FACE);
@@ -4318,7 +4319,7 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     try drawWeatherLayer(app_state, view, &app_state.textures.rain, render.weather.appendRain);
 
     gl.Disable(gl.BLEND);
-    app_state.shader.setInt(.u_alpha_test, 1);
+    app_state.shader.setFloat(.u_alpha_cutoff, render.Shader.default_alpha_cutoff);
     app_state.textures.terrain.bind();
 }
 
