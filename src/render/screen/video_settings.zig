@@ -11,6 +11,7 @@ const options_screen = @import("options.zig");
 pub const Backdrop = options_screen.Backdrop;
 
 const wasm = builtin.cpu.arch.isWasm();
+const android = builtin.abi == .android or builtin.abi == .androideabi;
 
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
@@ -37,7 +38,7 @@ const order = [_]Hit{
     .view_bobbing,
     .gui_scale,
     .advanced_opengl,
-} ++ if (wasm) [_]Hit{} else [_]Hit{.fullscreen};
+} ++ if (wasm or android) [_]Hit{} else [_]Hit{.fullscreen};
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
 
@@ -160,8 +161,8 @@ test "the last row clears the Done button" {
     try std.testing.expect(last.y + button.height <= list[order.len].y);
 }
 
-test "fullscreen is offered off the web" {
-    try std.testing.expectEqual(!wasm, std.mem.indexOfScalar(Hit, &order, .fullscreen) != null);
+test "fullscreen is offered only where the window is not already the whole screen" {
+    try std.testing.expectEqual(!wasm and !android, std.mem.indexOfScalar(Hit, &order, .fullscreen) != null);
 }
 
 test "fullscreen toggles off and on" {

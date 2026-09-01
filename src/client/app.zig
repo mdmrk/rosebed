@@ -4945,7 +4945,7 @@ pub fn event(
         .finger_down => |f| if (touch_ui) try touchDown(app_state, f),
         .finger_motion => |f| if (touch_ui) try touchMotion(app_state, f),
         .finger_up, .finger_canceled => |f| if (touch_ui) try touchUp(app_state, f),
-        .key_down => |k| if (!wasm and k.key == .func11 and !k.repeat) {
+        .key_down => |k| if (!wasm and !android and k.key == .func11 and !k.repeat) {
             app_state.settings.fullscreen = !app_state.settings.fullscreen;
             applyFullscreen(app_state);
             saveOptions(app_state);
