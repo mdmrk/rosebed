@@ -69,7 +69,7 @@ pub fn cast(world_map: *const world.World, origin: math.Vec3, direction: [3]f32,
 }
 
 fn stopsRay(id: world.Block, metadata: u4, hit_liquids: bool) bool {
-    if (id == .air) return false;
+    if (id == .air or id == .fire) return false;
     if (id.isLiquid()) return hit_liquids and metadata == 0;
     return true;
 }
@@ -249,6 +249,18 @@ test "a standing torch is only targetable down its own narrow column" {
     const off_centre = cast(&w, math.Vec3.init(8.9, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 5), off_centre.y);
     try std.testing.expectEqual(world.Side.up, off_centre.face);
+}
+
+test "fire cannot be targeted, so the ray carries on to the block behind it" {
+    var w = world.World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(8, 5, 8, .stone);
+    chunk.setBlock(8, 6, 8, .fire);
+
+    const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
+    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
 test "a snow layer is only hit within its eighth of a block" {
