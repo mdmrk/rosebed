@@ -24,10 +24,10 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 
 The short list of things b1.7.3 does not have. Everything else is meant to match it, and anything that doesn't is a bug.
 
-- [x] **Chat and commands in single player.** `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
-- [x] **Chat input editing.** History recall, ctrl+backspace, paste.
-- [x] **Fullscreen in Video Settings.** Vanilla has F11 and no setting.
-- [x] **On-screen touch controls.** Only on Android, where there is no keyboard or mouse to bind.
+- [x] **Chat and commands in single player** - `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
+- [x] **Chat input editing** - History recall, ctrl+backspace, paste.
+- [x] **Fullscreen in Video Settings** - Vanilla has F11 and no setting.
+- [x] **On-screen touch controls** - Only on Android, where there is no keyboard or mouse to bind.
 
 ## Play
 
