@@ -23,6 +23,7 @@ pub const MeshBuilder = @import("MeshBuilder.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const pumpkin_blur = @import("pumpkin_blur.zig");
 pub const screen = @import("screen.zig");
+pub const screenshot = @import("screenshot.zig");
 pub const selection = @import("selection.zig");
 pub const Shader = @import("Shader.zig");
 pub const sign_render = @import("sign_render.zig");
@@ -42,6 +43,7 @@ test {
     _ = anaglyph;
     _ = debug_graph;
     _ = screen;
+    _ = screenshot;
     _ = sign_render;
     _ = Atlas;
     _ = MeshBuilder;

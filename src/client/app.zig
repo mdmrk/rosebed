@@ -140,6 +140,7 @@ pub const AppState = struct {
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
     hide_gui: bool = false,
+    screenshot_pending: bool = false,
     debug_graph: render.debug_graph.Samples = .{},
     anaglyph_pass: render.anaglyph.Pass = null,
     third_person: bool = false,
@@ -1338,6 +1339,22 @@ fn sendChat(app_state: *AppState) !void {
 fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void {
     var buf: [render.chat.max_message_length * 2]u8 = undefined;
     app_state.chat.addMessage(app_state.font, std.fmt.bufPrint(&buf, format, args) catch return);
+}
+
+fn takeScreenshot(app_state: *AppState, width: gl.sizei, height: gl.sizei) void {
+    var name_buf: [render.screenshot.max_name_len]u8 = undefined;
+    if (render.screenshot.save(
+        app_state.gpa,
+        app_state.io,
+        app_state.base_dir,
+        @intCast(width),
+        @intCast(height),
+        &name_buf,
+    )) |name| {
+        reply(app_state, "{s}{s}", .{ render.screenshot.saved_prefix, name });
+    } else |err| {
+        reply(app_state, "{s}{t}", .{ render.screenshot.failed_prefix, err });
+    }
 }
 
 fn lookedAtPosition(app_state: *AppState) math.Vec3 {
@@ -4737,6 +4754,11 @@ pub fn iterate(
         app_state.debug_graph.skip(now_ns);
     }
 
+    if (app_state.screenshot_pending) {
+        app_state.screenshot_pending = false;
+        takeScreenshot(app_state, px.w, px.h);
+    }
+
     try sdl3.video.gl.swapWindow(app_state.window);
 
     return .run;
@@ -5007,6 +5029,8 @@ pub fn event(
             app_state.settings.fullscreen = !app_state.settings.fullscreen;
             applyFullscreen(app_state);
             saveOptions(app_state);
+        } else if (k.key == .func2 and !k.repeat) {
+            app_state.screenshot_pending = true;
         } else if (pasteRequested(k) and typingSomewhere(app_state)) {
             pasteClipboard(app_state);
         } else if (app_state.controls_open) {
