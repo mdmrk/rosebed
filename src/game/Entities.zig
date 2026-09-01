@@ -1719,6 +1719,17 @@ pub fn tickBoats(
     }
 }
 
+fn playArrowImpact(world_map: *const world.World, arrow: Arrow, rand: *world.JavaRandom) void {
+    world_map.playSoundEffect(
+        arrow.base.position.x,
+        arrow.base.position.y,
+        arrow.base.position.z,
+        assets.sounds.random.drr,
+        Arrow.impact_volume,
+        Arrow.impactPitch(rand),
+    );
+}
+
 pub fn tickArrows(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -1746,9 +1757,13 @@ pub fn tickArrows(
                         break :blk !absorbed;
                     },
                 };
-                if (landed) arrow.dead = true else arrow.deflect();
+                if (landed) {
+                    playArrowImpact(world_map, arrow.*, rand);
+                    arrow.dead = true;
+                } else arrow.deflect();
             } else if (block_hit) |hit| {
                 arrow.stickInto(world_map, hit);
+                playArrowImpact(world_map, arrow.*, rand);
             }
 
             if (arrow.fly()) |trail| {
@@ -3253,6 +3268,38 @@ test "an arrow shot at a pig sticks in it, hurts it and is gone" {
 
     try std.testing.expectEqual(@as(usize, 0), entities.arrows.items.len);
     try std.testing.expectEqual(before - Arrow.damage, entities.first(Pig, mob.pig).?.animal.health);
+}
+
+test "an arrow is heard landing, both in a wall and in a mob" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    var y: i32 = 1;
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+
+    var heard: SoundLog = .{};
+    w.sound_sink = heard.sink();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    var player = archer(math.Vec3.init(8.5, 1, 8.5), -90, 0);
+    try entities.shootArrow(gpa, &player, &rand);
+    for (0..4) |_| try entities.tickArrows(gpa, &w, &[_]*Player{&player}, &rand);
+
+    try std.testing.expect(entities.arrows.items[0].in_ground);
+    try std.testing.expect(heard.indexOf(assets.sounds.random.drr.key) != null);
+
+    heard.count = 0;
+    try entities.spawnPig(gpa, math.Vec3.init(8.5, 1, 12.5));
+    const before = entities.first(Pig, mob.pig).?.animal.health;
+    var shooter = archer(math.Vec3.init(8.5, 1, 8.5), 0, 15);
+    try entities.shootArrow(gpa, &shooter, &rand);
+    for (0..4) |_| try entities.tickArrows(gpa, &w, &[_]*Player{&shooter}, &rand);
+
+    try std.testing.expectEqual(before - Arrow.damage, entities.first(Pig, mob.pig).?.animal.health);
+    try std.testing.expect(heard.indexOf(assets.sounds.random.drr.key) != null);
 }
 
 test "an egg thrown at a wall breaks against it in a puff of shell" {

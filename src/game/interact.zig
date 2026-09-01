@@ -199,11 +199,25 @@ pub fn useHeldItem(ctx: Context) !void {
     if (item != .bow) return;
     if (!ctx.player.inventory.consumeItem(.{ .item = .arrow })) return;
 
+    const at = ctx.player.eyePosition();
+    ctx.level.world_map.playSoundEffect(
+        at.x,
+        at.y,
+        at.z,
+        assets.sounds.random.bow,
+        bow_volume,
+        bowPitch(&ctx.level.world_map.rand),
+    );
     try ctx.level.entities.shootArrow(ctx.gpa, ctx.player, &ctx.level.world_map.rand);
     try ctx.stats.use(ctx.gpa, .{ .item = .bow });
 }
 
+const bow_volume: f32 = 1.0;
 const throw_volume: f32 = 0.5;
+
+fn bowPitch(rand: *world.JavaRandom) f32 {
+    return 1.0 / (rand.nextFloat() * 0.4 + 0.8);
+}
 
 fn throwPitch(rand: *world.JavaRandom) f32 {
     return 0.4 / (rand.nextFloat() * 0.4 + 0.8);
@@ -424,6 +438,63 @@ pub fn placeMinecartAtTarget(ctx: Context, kind: Minecart.Kind) !bool {
     try ctx.stats.use(ctx.gpa, ctx.player.inventory.selectedStack().?.id);
     ctx.consumeSelectedStack();
     return true;
+}
+
+const BowSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+        const self: *BowSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *BowSound) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "loosing an arrow from a bow twangs it" {
+    const gpa = std.testing.allocator;
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    level.attach();
+    _ = try level.world_map.createChunk(0, 0);
+
+    var heard: BowSound = .{};
+    level.world_map.sound_sink = heard.sink();
+
+    var tally: stats.Stats = .{};
+    defer tally.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8, 40, 8));
+    try level.enter(gpa, &player);
+    player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .bow }, .count = 1 };
+    player.inventory.slots[1] = .{ .id = .{ .item = .arrow }, .count = 2 };
+
+    try useHeldItem(.{
+        .gpa = gpa,
+        .frame = gpa,
+        .level = &level,
+        .player = &player,
+        .stats = &tally,
+        .dimension = .overworld,
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), level.entities.arrows.items.len);
+    try std.testing.expectEqual(@as(u8, 1), player.inventory.slots[1].?.count);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings(assets.sounds.random.bow.key, heard.key);
+    try std.testing.expectEqual(bow_volume, heard.volume);
+    try std.testing.expect(heard.pitch >= 1.0 / 1.2 and heard.pitch <= 1.0 / 0.8);
 }
 
 test "right-clicking a held snowball throws it" {

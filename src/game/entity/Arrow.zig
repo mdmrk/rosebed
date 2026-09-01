@@ -31,6 +31,7 @@ pub const hit_border: f64 = 0.3;
 pub const owner_grace_ticks: i32 = 5;
 pub const bubbles_per_trail: usize = 4;
 pub const shake_ticks: i32 = 7;
+pub const impact_volume: f32 = 1.0;
 
 const eye_offset: f32 = 0.12;
 const hand_offset: f32 = 0.16;
@@ -48,6 +49,10 @@ const stick_backoff: f32 = 0.05;
 const deflect_rebound: f32 = -0.1;
 const pop_out_scale: f32 = 0.2;
 const void_floor: f64 = -64.0;
+
+pub fn impactPitch(rand: *world.JavaRandom) f32 {
+    return 1.2 / (rand.nextFloat() * 0.2 + 0.9);
+}
 
 pub const BubbleTrail = struct {
     position: math.Vec3,
