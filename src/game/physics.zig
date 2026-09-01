@@ -377,6 +377,18 @@ pub fn isBoxInMaterial(world_map: *const world.World, box: math.Aabb, material: 
     return false;
 }
 
+pub const auto_jump_reach = 0.35;
+
+pub fn stepIsJumpable(world_map: *const world.World, box: math.Aabb, direction: [3]f32) bool {
+    const ahead = box.offset(
+        @as(f64, direction[0]) * auto_jump_reach,
+        0,
+        @as(f64, direction[2]) * auto_jump_reach,
+    );
+    if (!isBoxObstructed(world_map, ahead)) return false;
+    return !isBoxObstructed(world_map, ahead.offset(0, 1.0, 0));
+}
+
 pub fn isBoxObstructed(world_map: *const world.World, box: math.Aabb) bool {
     var box_buf: [max_colliding_boxes]math.Aabb = undefined;
     const count = collidingBoxes(world_map, box, &box_buf);
@@ -776,4 +788,27 @@ test "an open trapdoor drops an entity through and bars the way instead" {
     const blocked = moveEntity(&w, beside, 0, 0, 2.0);
     const bounds = world.block.trapdoorBounds(world.block.trapdoor_open_bit);
     try std.testing.expectApproxEqAbs(8.0 + @as(f64, bounds.min[2]), blocked.aabb.max_z, 1.0e-9);
+}
+
+test "a one block rise is jumpable, open air and a taller wall are not" {
+    var w = try testWorldWithFloor(0);
+    defer w.deinit();
+    const box = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
+    const east = [3]f32{ 1, 0, 0 };
+
+    try std.testing.expect(!stepIsJumpable(&w, box, east));
+
+    w.setBlock(2, 0, 0, .stone);
+    try std.testing.expect(stepIsJumpable(&w, box, east));
+
+    w.setBlock(2, 1, 0, .stone);
+    try std.testing.expect(!stepIsJumpable(&w, box, east));
+}
+
+test "a rise behind the entity is not jumpable" {
+    var w = try testWorldWithFloor(0);
+    defer w.deinit();
+    w.setBlock(2, 0, 0, .stone);
+    const box = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
+    try std.testing.expect(!stepIsJumpable(&w, box, .{ -1, 0, 0 }));
 }

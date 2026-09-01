@@ -65,6 +65,7 @@ pub fn encode(gpa: std.mem.Allocator, settings: *const Settings) ![]u8 {
     try out.print("anaglyph3d:{s}\n", .{boolText(settings.anaglyph)});
     try out.print("advancedOpengl:{s}\n", .{boolText(settings.advanced_opengl)});
     try out.print("fullscreen:{s}\n", .{boolText(settings.fullscreen)});
+    try out.print("autoJump:{s}\n", .{boolText(settings.auto_jump)});
     try out.print("fpsLimit:{d}\n", .{@intFromEnum(settings.framerate_limit)});
     try out.print("difficulty:{d}\n", .{@intFromEnum(settings.difficulty)});
     try out.print("fancyGraphics:{s}\n", .{boolText(settings.fancy_graphics)});
@@ -106,6 +107,8 @@ fn applyOption(settings: *Settings, name: []const u8, value: []const u8) void {
         settings.view_bobbing = parseBool(value);
     } else if (std.mem.eql(u8, name, "anaglyph3d")) {
         settings.anaglyph = parseBool(value);
+    } else if (std.mem.eql(u8, name, "autoJump")) {
+        settings.auto_jump = parseBool(value);
     } else if (std.mem.eql(u8, name, "advancedOpengl")) {
         settings.advanced_opengl = parseBool(value);
     } else if (std.mem.eql(u8, name, "fullscreen")) {
@@ -198,6 +201,7 @@ test "every field survives a round trip" {
         .gui_scale = .large,
         .advanced_opengl = true,
         .fullscreen = true,
+        .auto_jump = !(Settings{}).auto_jump,
         .skin = .init("Fancy Pack.zip"),
         .last_server = .init("localhost_25565"),
     };
@@ -224,6 +228,7 @@ test "every field survives a round trip" {
     try std.testing.expectEqual(written.gui_scale, read.gui_scale);
     try std.testing.expectEqual(written.advanced_opengl, read.advanced_opengl);
     try std.testing.expectEqual(written.fullscreen, read.fullscreen);
+    try std.testing.expectEqual(written.auto_jump, read.auto_jump);
     try std.testing.expectEqualStrings(written.skin.text(), read.skin.text());
     try std.testing.expectEqualStrings(written.last_server.text(), read.last_server.text());
     try std.testing.expectEqual(@as(u32, 1234), read.keys.get(.forward));

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const game = @import("game");
 const gl = @import("gl");
@@ -9,26 +10,32 @@ const gui = @import("../gui.zig");
 pub const Backdrop = gui.Backdrop;
 const MeshBuilder = @import("../MeshBuilder.zig");
 
+const touch = builtin.abi == .android or builtin.abi == .androideabi;
+const extra_controls: usize = if (touch) 1 else 0;
+
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
 pub const Slider = enum { music, sound, sensitivity };
-pub const Hit = union(enum) { slider: Slider, toggle_invert, cycle_difficulty, video, controls, done };
+pub const Hit = union(enum) { slider: Slider, toggle_invert, toggle_auto_jump, cycle_difficulty, video, controls, done };
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
 
-fn controls(scaled_width: f32, scaled_height: f32) [8]Control {
+fn controls(scaled_width: f32, scaled_height: f32) [8 + extra_controls]Control {
     const cx = @floor(scaled_width / 2.0);
     const sixth = @floor(scaled_height / 6.0);
     const left = cx - 155.0;
     const right = cx - 155.0 + 160.0;
-    return .{
+    return [_]Control{
         .{ .x = left, .y = sixth, .w = opt_width, .hit = .{ .slider = .music } },
         .{ .x = right, .y = sixth, .w = opt_width, .hit = .{ .slider = .sound } },
         .{ .x = left, .y = sixth + 24, .w = opt_width, .hit = .toggle_invert },
         .{ .x = right, .y = sixth + 24, .w = opt_width, .hit = .{ .slider = .sensitivity } },
         .{ .x = left, .y = sixth + 48, .w = opt_width, .hit = .cycle_difficulty },
+    } ++ (if (touch) [_]Control{
+        .{ .x = right, .y = sixth + 48, .w = opt_width, .hit = .toggle_auto_jump },
+    } else [_]Control{}) ++ [_]Control{
         .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .hit = .video },
         .{ .x = cx - 100, .y = sixth + 120 + 12, .w = 200, .hit = .controls },
         .{ .x = cx - 100, .y = sixth + 168, .w = 200, .hit = .done },
@@ -80,6 +87,7 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
                 std.fmt.bufPrint(buf, "Sensitivity: {d}%", .{@as(u32, @intFromFloat(settings.sensitivity * 200.0))}) catch "Sensitivity: ",
         },
         .toggle_invert => if (settings.invert_mouse) "Invert Mouse: ON" else "Invert Mouse: OFF",
+        .toggle_auto_jump => if (settings.auto_jump) "Auto-Jump: ON" else "Auto-Jump: OFF",
         .cycle_difficulty => std.fmt.bufPrint(buf, "Difficulty: {s}", .{settings.difficulty.label()}) catch "Difficulty: ",
         .video => "Video Settings...",
         .controls => "Controls...",

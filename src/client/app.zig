@@ -2239,6 +2239,10 @@ fn optionsClick(app_state: *AppState) !void {
             app_state.settings.invert_mouse = !app_state.settings.invert_mouse;
             saveOptions(app_state);
         },
+        .toggle_auto_jump => {
+            app_state.settings.auto_jump = !app_state.settings.auto_jump;
+            saveOptions(app_state);
+        },
         .cycle_difficulty => {
             app_state.settings.difficulty = app_state.settings.difficulty.next();
             saveOptions(app_state);
@@ -2917,6 +2921,19 @@ fn tickCarriedMaps(app_state: *AppState) !void {
     }
 }
 
+fn autoJump(app_state: *const AppState, strafe: f32, forward: f32) bool {
+    if (!app_state.settings.auto_jump) return false;
+    if (!app_state.player.base.on_ground or app_state.keys.sneak) return false;
+    if (!app_state.player.base.blocked_horizontally) return false;
+    if (strafe == 0 and forward == 0) return false;
+
+    return game.physics.stepIsJumpable(
+        &app_state.level.world_map,
+        app_state.player.base.boundingBox(),
+        app_state.player.moveDirection(strafe, forward),
+    );
+}
+
 fn tick(app_state: *AppState) !void {
     stepFogBrightness(app_state);
     if (touch_ui) try touchTick(app_state);
@@ -2937,6 +2954,7 @@ fn tick(app_state: *AppState) !void {
         !app_state.player.isMovementBlocked() and !app_state.freecam.active;
     const forward: f32 = if (!moving_allowed) 0 else (if (app_state.keys.forward) @as(f32, 1) else 0) - (if (app_state.keys.back) @as(f32, 1) else 0);
     const strafe: f32 = if (!moving_allowed) 0 else (if (app_state.keys.left) @as(f32, 1) else 0) - (if (app_state.keys.right) @as(f32, 1) else 0);
+    const jumping = (moving_allowed and app_state.keys.jump) or autoJump(app_state, strafe, forward);
     const before_move = app_state.player.base.position;
     const was_in_water = app_state.player.base.in_water;
     if (app_state.player.riding != game.Entity.no_id) {
@@ -2947,7 +2965,7 @@ fn tick(app_state: *AppState) !void {
             &app_state.level.world_map,
             strafe,
             forward,
-            moving_allowed and app_state.keys.jump,
+            jumping,
             moving_allowed and app_state.keys.sneak,
         );
     }
