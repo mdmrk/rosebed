@@ -4347,10 +4347,16 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     if (!app_state.dimension.hasSky()) return;
 
     const angle = app_state.level.world_map.celestialAngle(partial);
-    const eye = app_state.player.base.renderPosition(partial);
+    const player_eye = app_state.player.base.renderPosition(partial);
+    const eye = if (app_state.freecam.active)
+        app_state.freecam.renderPosition(partial)
+    else
+        math.Vec3.init(player_eye.x, player_eye.y + game.Player.eye_height, player_eye.z);
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.settings.view_bobbing)
+    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.freecam.active)
+        app_state.freecam.rotationMatrix(partial)
+    else if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
         hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map)));
@@ -4361,7 +4367,7 @@ fn drawClouds(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
         .textures = app_state.textures,
         .gpa = app_state.frame,
         .view_proj = proj.mul(rotation),
-        .eye = math.Vec3.init(eye.x, eye.y + game.Player.eye_height, eye.z),
+        .eye = eye,
         .scroll = (ticks + partial) * render.sky.cloud_scroll_per_tick,
         .color = render.sky.cloudColor(angle),
     }, app_state.settings.fancy_graphics, app_state.anaglyph_pass);
@@ -4395,7 +4401,9 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
     ));
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
-    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.settings.view_bobbing)
+    const rotation = render.anaglyph.view(app_state.anaglyph_pass, if (app_state.freecam.active)
+        app_state.freecam.rotationMatrix(partial)
+    else if (app_state.settings.view_bobbing)
         hurt.mul(app_state.player.bobMatrix(partial)).mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map))
     else
         hurt.mul(warp).mul(app_state.player.cameraRotation(&app_state.level.world_map)));

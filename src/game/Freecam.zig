@@ -70,14 +70,17 @@ pub fn renderPosition(self: Freecam, partial_ticks: f32) math.Vec3 {
     return self.prev_position.lerp(self.position, partial_ticks);
 }
 
-pub fn viewMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
-    const eye = self.renderPosition(partial_ticks);
+pub fn rotationMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
     const degrees = std.math.pi / 180.0;
     const yaw = self.prev_yaw + (self.yaw - self.prev_yaw) * partial_ticks;
     const pitch = self.prev_pitch + (self.pitch - self.prev_pitch) * partial_ticks;
     return math.Mat4.rotationX(pitch * degrees)
-        .mul(math.Mat4.rotationY((yaw + 180.0) * degrees))
-        .mul(math.Mat4.translation(
+        .mul(math.Mat4.rotationY((yaw + 180.0) * degrees));
+}
+
+pub fn viewMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
+    const eye = self.renderPosition(partial_ticks);
+    return self.rotationMatrix(partial_ticks).mul(math.Mat4.translation(
         @floatCast(-eye.x),
         @floatCast(-eye.y),
         @floatCast(-eye.z),
