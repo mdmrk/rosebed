@@ -705,6 +705,17 @@ pub fn playRecord(self: *const World, name: ?[]const u8, x: i32, y: i32, z: i32)
     sink.playRecord(sink.context, name, x, y, z);
 }
 
+pub fn onBlockHit(self: *World, x: i32, y: i32, z: i32, side: block.Side) !void {
+    const step = side.step();
+    const fire_x = x + step[0];
+    const fire_y = y + step[1];
+    const fire_z = z + step[2];
+    if (self.getBlock(fire_x, fire_y, fire_z) != .fire) return;
+
+    self.playFizzAt(fire_x, fire_y, fire_z);
+    try self.setBlockWithNotify(fire_x, fire_y, fire_z, .air);
+}
+
 pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
     try self.setBlockAndMetadataWithNotify(x, y, z, id, 0);
 }
@@ -1334,6 +1345,46 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
             }
         }
     }
+}
+
+const HeardSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+        const self: *HeardSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+
+    fn sink(self: *HeardSound) SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "punching a block puts out the fire standing on the face that was hit" {
+    var w = World.init(std.testing.allocator);
+    defer w.deinit();
+    const chunk = try w.createChunk(0, 0);
+    chunk.setBlock(8, 5, 8, .netherrack);
+    chunk.setBlock(8, 6, 8, .fire);
+
+    var heard: HeardSound = .{};
+    w.sound_sink = heard.sink();
+
+    try w.onBlockHit(8, 5, 8, .north);
+    try std.testing.expectEqual(.fire, w.getBlock(8, 6, 8));
+    try std.testing.expectEqualStrings("", heard.key);
+
+    try w.onBlockHit(8, 5, 8, .up);
+    try std.testing.expectEqual(.air, w.getBlock(8, 6, 8));
+    try std.testing.expectEqualStrings(assets.sounds.random.fizz.key, heard.key);
+    try std.testing.expectEqual(@as(f32, 0.5), heard.volume);
+    try std.testing.expect(heard.pitch >= 2.6 - 0.8 and heard.pitch <= 2.6 + 0.8);
 }
 
 test "block access spans chunk boundaries using world coordinates" {

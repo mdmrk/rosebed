@@ -753,6 +753,8 @@ fn startDigging(app_state: *AppState, hit: game.raycast.Hit) !void {
     if (app_state.link) |link| {
         return link.connection.reportDigStart(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face));
     }
+    try app_state.level.world_map.onBlockHit(hit.x, hit.y, hit.z, hit.face);
+
     const punched = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
     if (punched == .tnt and holdingFlintAndSteel(app_state)) {
         world.tnt.markLit(&app_state.level.world_map, hit.x, hit.y, hit.z);

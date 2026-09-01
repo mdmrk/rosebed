@@ -1010,7 +1010,7 @@ fn handlePlaying(
             action_stop_sneaking => player.base.sneaking = false,
             else => {},
         },
-        .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z),
+        .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z, body.face),
         .place => |body| try self.placeBlock(gpa, level, body.x, body.y, body.z, body.face),
         .chat => |body| try self.handleChat(gpa, level, body.message),
         .respawn => try self.respawnPlayer(gpa, level),
@@ -1699,12 +1699,15 @@ fn digBlock(
     x: i32,
     y: u8,
     z: i32,
+    face: u8,
 ) !void {
     const player = self.player orelse return;
     const height: i32 = y;
     if (!withinReach(player, x, height, z)) return;
 
     if (status == dig_started) {
+        if (face <= 5) try level.world_map.onBlockHit(x, height, z, @enumFromInt(face));
+
         const punched = level.world_map.getBlock(x, height, z);
         if (punched == .tnt and holdingFlintAndSteel(player)) {
             return world.tnt.markLit(&level.world_map, x, height, z);
@@ -2684,6 +2687,26 @@ test "a dig that has only started leaves the block alone" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = 0, .x = 8, .y = 63, .z = 8, .face = 1 } });
 
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 8));
+}
+
+test "starting a dig on the block under a fire puts the fire out" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    try level.world_map.setBlockWithNotify(8, 64, 8, .fire);
+
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 63, .z = 8, .face = 1 } });
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 8));
 }
 
