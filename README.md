@@ -34,8 +34,6 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 
 **[Play browser build online](https://mdmrk.github.io/rosebed/)**. Worlds are saved in browser storage. Needs WebGL2.
 
-Or download a build, each archive has both binaries, `rosebed` and `rosebed-server`:
-
 | Platform            | Stable                                                                                               | Nightly                                                                                               |
 | ------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `x86_64-linux`      | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz)      |
