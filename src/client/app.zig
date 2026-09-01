@@ -2002,9 +2002,7 @@ fn finishLoading(app_state: *AppState) !void {
         const landed = try world.portal.placeInto(
             &app_state.level.world_map,
             &app_state.level.world_map.rand,
-            app_state.player.base.position.x,
-            app_state.player.base.position.y,
-            app_state.player.base.position.z,
+            app_state.player.base.position,
         );
         placePlayerAt(app_state, landed.x, landed.y, landed.z);
         try applyBlockChanges(app_state);
@@ -3163,7 +3161,7 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                     x,
                     y,
                     z,
-                    world.portal.spansX(&app_state.level.world_map, x, y, z),
+                    world.portal.spansX(&app_state.level.world_map, .{ .x = x, .y = y, .z = z }),
                     rand,
                 );
             },

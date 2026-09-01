@@ -780,10 +780,10 @@ pub fn travel(
             try to.world_map.ensureDecorated(&to.generator, centre_x + dx, centre_z + dz);
         }
     }
-    const landed = try world.portal.placeInto(&to.world_map, &to.world_map.rand, x, y, z);
+    const landed = try world.portal.placeInto(&to.world_map, &to.world_map.rand, math.Vec3.init(x, y, z));
 
     const keep_id = player.base.id;
-    player.base.position = .{ .x = landed.x, .y = landed.y, .z = landed.z };
+    player.base.position = landed;
     player.base.prev_position = player.base.position;
     player.base.motion = .{ .x = 0, .y = 0, .z = 0 };
     player.fall_distance = 0;

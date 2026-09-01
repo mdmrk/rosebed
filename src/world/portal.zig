@@ -1,28 +1,39 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const JavaRandom = @import("JavaRandom.zig");
 const World = @import("World.zig");
+const BlockPos = World.BlockPos;
 
 pub const frame_width = 2;
 pub const frame_height = 3;
 
-pub fn spansX(world_map: anytype, x: i32, y: i32, z: i32) bool {
-    return world_map.getBlock(x - 1, y, z) == .portal or world_map.getBlock(x + 1, y, z) == .portal;
+fn blockAt(world_map: anytype, pos: BlockPos) Block {
+    return world_map.getBlock(pos.x, pos.y, pos.z);
 }
 
-pub fn bounds(world_map: anytype, x: i32, y: i32, z: i32) block.Bounds {
-    return block.portalBounds(spansX(world_map, x, y, z));
+fn setBlockAt(world_map: *World, pos: BlockPos, id: Block) !void {
+    try world_map.setBlockWithNotify(pos.x, pos.y, pos.z, id);
 }
 
-pub fn facesNeighbour(world_map: anytype, x: i32, y: i32, z: i32, side: block.Side) bool {
-    if (world_map.getBlock(x, y, z) == .portal) return false;
+pub fn spansX(world_map: anytype, pos: BlockPos) bool {
+    return blockAt(world_map, pos.offset(-1, 0, 0)) == .portal or blockAt(world_map, pos.offset(1, 0, 0)) == .portal;
+}
 
-    const along_x = (world_map.getBlock(x - 1, y, z) == .portal and world_map.getBlock(x - 2, y, z) != .portal) or
-        (world_map.getBlock(x + 1, y, z) == .portal and world_map.getBlock(x + 2, y, z) != .portal);
-    const along_z = (world_map.getBlock(x, y, z - 1) == .portal and world_map.getBlock(x, y, z - 2) != .portal) or
-        (world_map.getBlock(x, y, z + 1) == .portal and world_map.getBlock(x, y, z + 2) != .portal);
+pub fn bounds(world_map: anytype, pos: BlockPos) block.Bounds {
+    return block.portalBounds(spansX(world_map, pos));
+}
+
+pub fn facesNeighbour(world_map: anytype, pos: BlockPos, side: block.Side) bool {
+    if (blockAt(world_map, pos) == .portal) return false;
+
+    const along_x = (blockAt(world_map, pos.offset(-1, 0, 0)) == .portal and blockAt(world_map, pos.offset(-2, 0, 0)) != .portal) or
+        (blockAt(world_map, pos.offset(1, 0, 0)) == .portal and blockAt(world_map, pos.offset(2, 0, 0)) != .portal);
+    const along_z = (blockAt(world_map, pos.offset(0, 0, -1)) == .portal and blockAt(world_map, pos.offset(0, 0, -2)) != .portal) or
+        (blockAt(world_map, pos.offset(0, 0, 1)) == .portal and blockAt(world_map, pos.offset(0, 0, 2)) != .portal);
 
     return switch (side) {
         .west, .east => along_x,
@@ -31,20 +42,16 @@ pub fn facesNeighbour(world_map: anytype, x: i32, y: i32, z: i32, side: block.Si
     };
 }
 
-pub fn tryCreate(world_map: *World, x_in: i32, y: i32, z_in: i32) !bool {
-    var x = x_in;
-    var z = z_in;
+pub fn tryCreate(world_map: *World, origin: BlockPos) !bool {
+    var pos = origin;
 
     var step_x: i32 = 0;
     var step_z: i32 = 0;
-    if (world_map.getBlock(x - 1, y, z) == .obsidian or world_map.getBlock(x + 1, y, z) == .obsidian) step_x = 1;
-    if (world_map.getBlock(x, y, z - 1) == .obsidian or world_map.getBlock(x, y, z + 1) == .obsidian) step_z = 1;
+    if (blockAt(world_map, pos.offset(-1, 0, 0)) == .obsidian or blockAt(world_map, pos.offset(1, 0, 0)) == .obsidian) step_x = 1;
+    if (blockAt(world_map, pos.offset(0, 0, -1)) == .obsidian or blockAt(world_map, pos.offset(0, 0, 1)) == .obsidian) step_z = 1;
     if (step_x == step_z) return false;
 
-    if (world_map.getBlock(x - step_x, y, z - step_z) == .air) {
-        x -= step_x;
-        z -= step_z;
-    }
+    if (blockAt(world_map, pos.offset(-step_x, 0, -step_z)) == .air) pos = pos.offset(-step_x, 0, -step_z);
 
     var across: i32 = -1;
     while (across <= frame_width) : (across += 1) {
@@ -53,7 +60,7 @@ pub fn tryCreate(world_map: *World, x_in: i32, y: i32, z_in: i32) !bool {
             const on_frame = across == -1 or across == frame_width or up == -1 or up == frame_height;
             if ((across == -1 or across == frame_width) and (up == -1 or up == frame_height)) continue;
 
-            const found = world_map.getBlock(x + step_x * across, y + up, z + step_z * across);
+            const found = blockAt(world_map, pos.offset(step_x * across, up, step_z * across));
             if (on_frame) {
                 if (found != .obsidian) return false;
             } else if (found != .air and found != .fire) {
@@ -69,86 +76,76 @@ pub fn tryCreate(world_map: *World, x_in: i32, y: i32, z_in: i32) !bool {
     while (across < frame_width) : (across += 1) {
         var up: i32 = 0;
         while (up < frame_height) : (up += 1) {
-            try world_map.setBlockWithNotify(x + step_x * across, y + up, z + step_z * across, .portal);
+            try setBlockAt(world_map, pos.offset(step_x * across, up, step_z * across), .portal);
         }
     }
     return true;
 }
 
-pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) !void {
+pub fn onNeighborChange(world_map: *World, pos: BlockPos) !void {
     var side_x: i32 = 0;
     var side_z: i32 = 1;
-    if (world_map.getBlock(x - 1, y, z) == .portal or world_map.getBlock(x + 1, y, z) == .portal) {
+    if (blockAt(world_map, pos.offset(-1, 0, 0)) == .portal or blockAt(world_map, pos.offset(1, 0, 0)) == .portal) {
         side_x = 1;
         side_z = 0;
     }
 
-    var base = y;
-    while (world_map.getBlock(x, base - 1, z) == .portal) base -= 1;
+    var foot = pos;
+    while (blockAt(world_map, foot.offset(0, -1, 0)) == .portal) foot = foot.offset(0, -1, 0);
 
-    if (world_map.getBlock(x, base - 1, z) != .obsidian) {
-        try world_map.setBlockWithNotify(x, y, z, .air);
+    if (blockAt(world_map, foot.offset(0, -1, 0)) != .obsidian) {
+        try setBlockAt(world_map, pos, .air);
         return;
     }
 
     var height: i32 = 1;
-    while (height < 4 and world_map.getBlock(x, base + height, z) == .portal) height += 1;
+    while (height < 4 and blockAt(world_map, foot.offset(0, height, 0)) == .portal) height += 1;
 
-    if (height != frame_height or world_map.getBlock(x, base + height, z) != .obsidian) {
-        try world_map.setBlockWithNotify(x, y, z, .air);
+    if (height != frame_height or blockAt(world_map, foot.offset(0, height, 0)) != .obsidian) {
+        try setBlockAt(world_map, pos, .air);
         return;
     }
 
-    const along_x = world_map.getBlock(x - 1, y, z) == .portal or world_map.getBlock(x + 1, y, z) == .portal;
-    const along_z = world_map.getBlock(x, y, z - 1) == .portal or world_map.getBlock(x, y, z + 1) == .portal;
+    const along_x = blockAt(world_map, pos.offset(-1, 0, 0)) == .portal or blockAt(world_map, pos.offset(1, 0, 0)) == .portal;
+    const along_z = blockAt(world_map, pos.offset(0, 0, -1)) == .portal or blockAt(world_map, pos.offset(0, 0, 1)) == .portal;
     if (along_x and along_z) {
-        try world_map.setBlockWithNotify(x, y, z, .air);
+        try setBlockAt(world_map, pos, .air);
         return;
     }
 
-    const forward_framed = world_map.getBlock(x + side_x, y, z + side_z) == .obsidian and
-        world_map.getBlock(x - side_x, y, z - side_z) == .portal;
-    const backward_framed = world_map.getBlock(x - side_x, y, z - side_z) == .obsidian and
-        world_map.getBlock(x + side_x, y, z + side_z) == .portal;
-    if (!forward_framed and !backward_framed) try world_map.setBlockWithNotify(x, y, z, .air);
+    const forward_framed = blockAt(world_map, pos.offset(side_x, 0, side_z)) == .obsidian and
+        blockAt(world_map, pos.offset(-side_x, 0, -side_z)) == .portal;
+    const backward_framed = blockAt(world_map, pos.offset(-side_x, 0, -side_z)) == .obsidian and
+        blockAt(world_map, pos.offset(side_x, 0, side_z)) == .portal;
+    if (!forward_framed and !backward_framed) try setBlockAt(world_map, pos, .air);
 }
-
-pub const Destination = struct {
-    x: f64,
-    y: f64,
-    z: f64,
-};
 
 const search_radius: i32 = 128;
 const build_radius: i32 = 16;
 
-pub fn findExisting(world_map: *const World, from_x: f64, from_y: f64, from_z: f64) ?Destination {
+pub fn findExisting(world_map: *const World, from: math.Vec3) ?math.Vec3 {
     var best_distance: f64 = -1.0;
-    var best_x: i32 = 0;
-    var best_y: i32 = 0;
-    var best_z: i32 = 0;
+    var best: BlockPos = .{ .x = 0, .y = 0, .z = 0 };
 
-    const center_x = @as(i32, @intFromFloat(@floor(from_x)));
-    const center_z = @as(i32, @intFromFloat(@floor(from_z)));
+    const center_x = @as(i32, @intFromFloat(@floor(from.x)));
+    const center_z = @as(i32, @intFromFloat(@floor(from.z)));
 
     var x = center_x - search_radius;
     while (x <= center_x + search_radius) : (x += 1) {
-        const dx = @as(f64, @floatFromInt(x)) + 0.5 - from_x;
+        const dx = @as(f64, @floatFromInt(x)) + 0.5 - from.x;
         var z = center_z - search_radius;
         while (z <= center_z + search_radius) : (z += 1) {
-            const dz = @as(f64, @floatFromInt(z)) + 0.5 - from_z;
+            const dz = @as(f64, @floatFromInt(z)) + 0.5 - from.z;
             var y: i32 = 127;
             while (y >= 0) : (y -= 1) {
                 if (world_map.getBlock(x, y, z) != .portal) continue;
                 while (world_map.getBlock(x, y - 1, z) == .portal) y -= 1;
 
-                const dy = @as(f64, @floatFromInt(y)) + 0.5 - from_y;
+                const dy = @as(f64, @floatFromInt(y)) + 0.5 - from.y;
                 const distance = dx * dx + dy * dy + dz * dz;
                 if (best_distance < 0.0 or distance < best_distance) {
                     best_distance = distance;
-                    best_x = x;
-                    best_y = y;
-                    best_z = z;
+                    best = .{ .x = x, .y = y, .z = z };
                 }
             }
         }
@@ -156,37 +153,35 @@ pub fn findExisting(world_map: *const World, from_x: f64, from_y: f64, from_z: f
 
     if (best_distance < 0.0) return null;
 
-    var out_x = @as(f64, @floatFromInt(best_x)) + 0.5;
-    const out_y = @as(f64, @floatFromInt(best_y)) + 0.5;
-    var out_z = @as(f64, @floatFromInt(best_z)) + 0.5;
+    var out = math.Vec3.init(
+        @as(f64, @floatFromInt(best.x)) + 0.5,
+        @as(f64, @floatFromInt(best.y)) + 0.5,
+        @as(f64, @floatFromInt(best.z)) + 0.5,
+    );
 
-    if (world_map.getBlock(best_x - 1, best_y, best_z) == .portal) out_x -= 0.5;
-    if (world_map.getBlock(best_x + 1, best_y, best_z) == .portal) out_x += 0.5;
-    if (world_map.getBlock(best_x, best_y, best_z - 1) == .portal) out_z -= 0.5;
-    if (world_map.getBlock(best_x, best_y, best_z + 1) == .portal) out_z += 0.5;
+    if (blockAt(world_map, best.offset(-1, 0, 0)) == .portal) out.x -= 0.5;
+    if (blockAt(world_map, best.offset(1, 0, 0)) == .portal) out.x += 0.5;
+    if (blockAt(world_map, best.offset(0, 0, -1)) == .portal) out.z -= 0.5;
+    if (blockAt(world_map, best.offset(0, 0, 1)) == .portal) out.z += 0.5;
 
-    return .{ .x = out_x, .y = out_y, .z = out_z };
+    return out;
 }
 
 const Placement = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     orientation: i32,
     distance: f64,
 };
 
-fn clearanceAt(world_map: *const World, x: i32, y: i32, z: i32, step_x: i32, step_z: i32, depth: i32) bool {
+fn clearanceAt(world_map: *const World, pos: BlockPos, step_x: i32, step_z: i32, depth: i32) bool {
     var across: i32 = 0;
     while (across < 4) : (across += 1) {
         var up: i32 = -1;
         while (up < 4) : (up += 1) {
-            const cell_x = x + (across - 1) * step_x + depth * step_z;
-            const cell_y = y + up;
-            const cell_z = z + (across - 1) * step_z - depth * step_x;
+            const cell = pos.offset((across - 1) * step_x + depth * step_z, up, (across - 1) * step_z - depth * step_x);
             if (up < 0) {
-                if (!world_map.getBlock(cell_x, cell_y, cell_z).material().isSolid()) return false;
-            } else if (world_map.getBlock(cell_x, cell_y, cell_z) != .air) {
+                if (!blockAt(world_map, cell).material().isSolid()) return false;
+            } else if (blockAt(world_map, cell) != .air) {
                 return false;
             }
         }
@@ -194,18 +189,18 @@ fn clearanceAt(world_map: *const World, x: i32, y: i32, z: i32, step_x: i32, ste
     return true;
 }
 
-fn searchPlacement(world_map: *const World, from_x: f64, from_y: f64, from_z: f64, first_orientation: i32, orientations: i32, depths: i32) ?Placement {
+fn searchPlacement(world_map: *const World, from: math.Vec3, first_orientation: i32, orientations: i32, depths: i32) ?Placement {
     var best: ?Placement = null;
 
-    const center_x = @as(i32, @intFromFloat(@floor(from_x)));
-    const center_z = @as(i32, @intFromFloat(@floor(from_z)));
+    const center_x = @as(i32, @intFromFloat(@floor(from.x)));
+    const center_z = @as(i32, @intFromFloat(@floor(from.z)));
 
     var x = center_x - build_radius;
     while (x <= center_x + build_radius) : (x += 1) {
-        const dx = @as(f64, @floatFromInt(x)) + 0.5 - from_x;
+        const dx = @as(f64, @floatFromInt(x)) + 0.5 - from.x;
         var z = center_z - build_radius;
         while (z <= center_z + build_radius) : (z += 1) {
-            const dz = @as(f64, @floatFromInt(z)) + 0.5 - from_z;
+            const dz = @as(f64, @floatFromInt(z)) + 0.5 - from.z;
             var y: i32 = 127;
             column: while (y >= 0) : (y -= 1) {
                 if (world_map.getBlock(x, y, z) != .air) continue;
@@ -222,16 +217,14 @@ fn searchPlacement(world_map: *const World, from_x: f64, from_y: f64, from_z: f6
 
                     var depth: i32 = 0;
                     while (depth < depths) : (depth += 1) {
-                        if (!clearanceAt(world_map, x, y, z, step_x, step_z, depth)) continue :column;
+                        if (!clearanceAt(world_map, .{ .x = x, .y = y, .z = z }, step_x, step_z, depth)) continue :column;
                     }
 
-                    const dy = @as(f64, @floatFromInt(y)) + 0.5 - from_y;
+                    const dy = @as(f64, @floatFromInt(y)) + 0.5 - from.y;
                     const distance = dx * dx + dy * dy + dz * dz;
                     if (best == null or distance < best.?.distance) {
                         best = .{
-                            .x = x,
-                            .y = y,
-                            .z = z,
+                            .pos = .{ .x = x, .y = y, .z = z },
                             .orientation = @mod(orientation, orientations),
                             .distance = distance,
                         };
@@ -244,22 +237,22 @@ fn searchPlacement(world_map: *const World, from_x: f64, from_y: f64, from_z: f6
     return best;
 }
 
-pub fn create(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, from_z: f64) !void {
+pub fn create(world_map: *World, rand: *JavaRandom, from: math.Vec3) !void {
     const first_orientation = rand.nextIntBound(4);
 
-    var placement = searchPlacement(world_map, from_x, from_y, from_z, first_orientation, 4, 3);
-    if (placement == null) placement = searchPlacement(world_map, from_x, from_y, from_z, first_orientation, 2, 1);
+    var placement = searchPlacement(world_map, from, first_orientation, 4, 3);
+    if (placement == null) placement = searchPlacement(world_map, from, first_orientation, 2, 1);
 
-    var origin_x = @as(i32, @intFromFloat(@floor(from_x)));
-    var origin_y = @as(i32, @intFromFloat(@floor(from_y)));
-    var origin_z = @as(i32, @intFromFloat(@floor(from_z)));
+    var origin: BlockPos = .{
+        .x = @as(i32, @intFromFloat(@floor(from.x))),
+        .y = @as(i32, @intFromFloat(@floor(from.y))),
+        .z = @as(i32, @intFromFloat(@floor(from.z))),
+    };
     var orientation: i32 = 0;
     const clear = placement != null;
 
     if (placement) |found| {
-        origin_x = found.x;
-        origin_y = found.y;
-        origin_z = found.z;
+        origin = found.pos;
         orientation = found.orientation;
     }
 
@@ -271,7 +264,7 @@ pub fn create(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, fr
     }
 
     if (!clear) {
-        origin_y = std.math.clamp(origin_y, 70, 118);
+        origin.y = std.math.clamp(origin.y, 70, 118);
 
         var side: i32 = -1;
         while (side <= 1) : (side += 1) {
@@ -279,10 +272,8 @@ pub fn create(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, fr
             while (across < 3) : (across += 1) {
                 var up: i32 = -1;
                 while (up < 3) : (up += 1) {
-                    const cell_x = origin_x + (across - 1) * step_x + side * step_z;
-                    const cell_y = origin_y + up;
-                    const cell_z = origin_z + (across - 1) * step_z - side * step_x;
-                    try world_map.setBlockWithNotify(cell_x, cell_y, cell_z, if (up < 0) .obsidian else .air);
+                    const cell = origin.offset((across - 1) * step_x + side * step_z, up, (across - 1) * step_z - side * step_x);
+                    try setBlockAt(world_map, cell, if (up < 0) .obsidian else .air);
                 }
             }
         }
@@ -294,11 +285,9 @@ pub fn create(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, fr
         while (across < 4) : (across += 1) {
             var up: i32 = -1;
             while (up < 4) : (up += 1) {
-                const cell_x = origin_x + (across - 1) * step_x;
-                const cell_y = origin_y + up;
-                const cell_z = origin_z + (across - 1) * step_z;
+                const cell = origin.offset((across - 1) * step_x, up, (across - 1) * step_z);
                 const frame = across == 0 or across == 3 or up == -1 or up == frame_height;
-                try world_map.setBlockWithNotify(cell_x, cell_y, cell_z, if (frame) .obsidian else .portal);
+                try setBlockAt(world_map, cell, if (frame) .obsidian else .portal);
             }
         }
         world_map.editing_blocks = false;
@@ -307,22 +296,19 @@ pub fn create(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, fr
         while (across < 4) : (across += 1) {
             var up: i32 = -1;
             while (up < 4) : (up += 1) {
-                const cell_x = origin_x + (across - 1) * step_x;
-                const cell_y = origin_y + up;
-                const cell_z = origin_z + (across - 1) * step_z;
-                try world_map.notifyBlocksOfNeighborChange(cell_x, cell_y, cell_z, world_map.getBlock(cell_x, cell_y, cell_z));
+                const cell = origin.offset((across - 1) * step_x, up, (across - 1) * step_z);
+                try world_map.notifyBlocksOfNeighborChange(cell.x, cell.y, cell.z, blockAt(world_map, cell));
             }
         }
     }
 }
 
-pub fn placeInto(world_map: *World, rand: *JavaRandom, from_x: f64, from_y: f64, from_z: f64) !Destination {
-    if (findExisting(world_map, from_x, from_y, from_z)) |found| return found;
+pub fn placeInto(world_map: *World, rand: *JavaRandom, from: math.Vec3) !math.Vec3 {
+    if (findExisting(world_map, from)) |found| return found;
 
-    try create(world_map, rand, from_x, from_y, from_z);
-    return findExisting(world_map, from_x, from_y, from_z) orelse .{ .x = from_x, .y = from_y, .z = from_z };
+    try create(world_map, rand, from);
+    return findExisting(world_map, from) orelse from;
 }
-
 fn obsidianFrameWorld(gpa: std.mem.Allocator, along_x: bool) !World {
     var w = World.init(gpa);
     var chunk_x: i32 = -1;
@@ -361,7 +347,7 @@ test "lighting a fire inside a finished obsidian frame fills it with portal bloc
         var w = try obsidianFrameWorld(gpa, along_x);
         defer w.deinit();
 
-        try std.testing.expect(try tryCreate(&w, 8, 64, 8));
+        try std.testing.expect(try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 
         const step_x: i32 = if (along_x) 1 else 0;
         const step_z: i32 = if (along_x) 0 else 1;
@@ -385,7 +371,7 @@ test "a frame with a hole in it does not light" {
 
     w.setBlock(8, 67, 8, .air);
 
-    try std.testing.expect(!try tryCreate(&w, 8, 64, 8));
+    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
     try std.testing.expectEqual(.air, w.getBlock(8, 64, 8));
 }
 
@@ -396,7 +382,7 @@ test "a frame blocked by something other than fire does not light" {
 
     w.setBlock(9, 65, 8, .stone);
 
-    try std.testing.expect(!try tryCreate(&w, 8, 64, 8));
+    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 }
 
 test "fire already burning in the frame does not stop it lighting" {
@@ -406,7 +392,7 @@ test "fire already burning in the frame does not stop it lighting" {
 
     w.setBlock(8, 64, 8, .fire);
 
-    try std.testing.expect(try tryCreate(&w, 8, 64, 8));
+    try std.testing.expect(try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
     try std.testing.expectEqual(.portal, w.getBlock(8, 64, 8));
 }
 
@@ -416,16 +402,16 @@ test "obsidian on neither axis, or both, leaves the frame unlit" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try std.testing.expect(!try tryCreate(&w, 8, 64, 8));
+    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 
     w.setBlock(7, 64, 8, .obsidian);
     w.setBlock(8, 64, 7, .obsidian);
-    try std.testing.expect(!try tryCreate(&w, 8, 64, 8));
+    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 }
 
 fn litPortalWorld(gpa: std.mem.Allocator) !World {
     var w = try obsidianFrameWorld(gpa, true);
-    _ = try tryCreate(&w, 8, 64, 8);
+    _ = try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 });
     return w;
 }
 
@@ -435,7 +421,7 @@ test "knocking the frame out breaks the portal blocks that leaned on it" {
     defer w.deinit();
 
     w.setBlock(8, 63, 8, .air);
-    try onNeighborChange(&w, 8, 64, 8);
+    try onNeighborChange(&w, .{ .x = 8, .y = 64, .z = 8 });
 
     try std.testing.expectEqual(.air, w.getBlock(8, 64, 8));
 }
@@ -449,7 +435,7 @@ test "a portal block in a whole frame survives its neighbours changing" {
     while (across < frame_width) : (across += 1) {
         var up: i32 = 0;
         while (up < frame_height) : (up += 1) {
-            try onNeighborChange(&w, 8 + across, 64 + up, 8);
+            try onNeighborChange(&w, .{ .x = 8 + across, .y = 64 + up, .z = 8 });
             try std.testing.expectEqual(.portal, w.getBlock(8 + across, 64 + up, 8));
         }
     }
@@ -461,7 +447,7 @@ test "a portal too tall for its frame breaks" {
     defer w.deinit();
 
     w.setBlock(8, 67, 8, .portal);
-    try onNeighborChange(&w, 8, 67, 8);
+    try onNeighborChange(&w, .{ .x = 8, .y = 67, .z = 8 });
 
     try std.testing.expectEqual(.air, w.getBlock(8, 67, 8));
 }
@@ -471,7 +457,7 @@ test "the teleporter lands on the nearest portal, centred in its mouth" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    const found = findExisting(&w, 8.5, 64.0, 8.5).?;
+    const found = findExisting(&w, math.Vec3.init(8.5, 64.0, 8.5)).?;
 
     try std.testing.expectApproxEqAbs(@as(f64, 9.0), found.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 64.5), found.y, 1.0e-9);
@@ -483,7 +469,7 @@ test "the teleporter finds the foot of a portal, not its middle" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    const from_above = findExisting(&w, 8.5, 80.0, 8.5).?;
+    const from_above = findExisting(&w, math.Vec3.init(8.5, 80.0, 8.5)).?;
     try std.testing.expectApproxEqAbs(@as(f64, 64.5), from_above.y, 1.0e-9);
 }
 
@@ -492,7 +478,7 @@ test "a world with no portal in it hands the teleporter nothing" {
     var w = try obsidianFrameWorld(gpa, true);
     defer w.deinit();
 
-    try std.testing.expect(findExisting(&w, 8.5, 64.0, 8.5) == null);
+    try std.testing.expect(findExisting(&w, math.Vec3.init(8.5, 64.0, 8.5)) == null);
 }
 
 test "the teleporter carves a fresh portal where none exists, and lands in it" {
@@ -514,13 +500,13 @@ test "the teleporter carves a fresh portal where none exists, and lands in it" {
     }
 
     var rand = JavaRandom.init(7);
-    const landed = try placeInto(&w, &rand, 8.5, 64.0, 8.5);
+    const landed = try placeInto(&w, &rand, math.Vec3.init(8.5, 64.0, 8.5));
 
     const at_x: i32 = @intFromFloat(@floor(landed.x));
     const at_y: i32 = @intFromFloat(@floor(landed.y));
     const at_z: i32 = @intFromFloat(@floor(landed.z));
     try std.testing.expectEqual(.portal, w.getBlock(at_x, at_y, at_z));
-    try std.testing.expect(findExisting(&w, 8.5, 64.0, 8.5) != null);
+    try std.testing.expect(findExisting(&w, math.Vec3.init(8.5, 64.0, 8.5)) != null);
 }
 
 test "a portal carved out of thin air still gets an obsidian frame under it" {
@@ -537,7 +523,7 @@ test "a portal carved out of thin air still gets an obsidian frame under it" {
     }
 
     var rand = JavaRandom.init(3);
-    const landed = try placeInto(&w, &rand, 8.5, 90.0, 8.5);
+    const landed = try placeInto(&w, &rand, math.Vec3.init(8.5, 90.0, 8.5));
 
     const at_x: i32 = @intFromFloat(@floor(landed.x));
     const at_y: i32 = @intFromFloat(@floor(landed.y));
@@ -581,7 +567,7 @@ test "arriving in the nether carves a portal into real nether terrain" {
     }
 
     var rand = JavaRandom.init(9);
-    const landed = try placeInto(&w, &rand, from_x, 70.0, from_z);
+    const landed = try placeInto(&w, &rand, math.Vec3.init(from_x, 70.0, from_z));
 
     const at_x: i32 = @intFromFloat(@floor(landed.x));
     const at_y: i32 = @intFromFloat(@floor(landed.y));
@@ -590,7 +576,7 @@ test "arriving in the nether carves a portal into real nether terrain" {
     try std.testing.expectEqual(.portal, w.getBlock(at_x, at_y, at_z));
     try std.testing.expectEqual(.obsidian, w.getBlock(at_x, at_y - 1, at_z));
 
-    const found_again = findExisting(&w, from_x, 70.0, from_z).?;
+    const found_again = findExisting(&w, math.Vec3.init(from_x, 70.0, from_z)).?;
     try std.testing.expectApproxEqAbs(landed.x, found_again.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(landed.z, found_again.z, 1.0e-9);
 }
@@ -600,8 +586,8 @@ test "a portal shows no face towards another portal block" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    try std.testing.expect(!facesNeighbour(&w, 9, 64, 8, .east));
-    try std.testing.expect(!facesNeighbour(&w, 8, 65, 8, .up));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 9, .y = 64, .z = 8 }, .east));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 65, .z = 8 }, .up));
 }
 
 test "a portal never caps itself top or bottom" {
@@ -609,8 +595,8 @@ test "a portal never caps itself top or bottom" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    try std.testing.expect(!facesNeighbour(&w, 8, 63, 8, .down));
-    try std.testing.expect(!facesNeighbour(&w, 8, 67, 8, .up));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 63, .z = 8 }, .down));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 67, .z = 8 }, .up));
 }
 
 test "a portal shows only the two broad faces it presents" {
@@ -618,20 +604,20 @@ test "a portal shows only the two broad faces it presents" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    try std.testing.expect(facesNeighbour(&w, 8, 64, 7, .north));
-    try std.testing.expect(facesNeighbour(&w, 8, 64, 9, .south));
+    try std.testing.expect(facesNeighbour(&w, .{ .x = 8, .y = 64, .z = 7 }, .north));
+    try std.testing.expect(facesNeighbour(&w, .{ .x = 8, .y = 64, .z = 9 }, .south));
 
-    try std.testing.expect(!facesNeighbour(&w, 7, 64, 8, .west));
-    try std.testing.expect(!facesNeighbour(&w, 10, 64, 8, .east));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 7, .y = 64, .z = 8 }, .west));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 10, .y = 64, .z = 8 }, .east));
 }
 
 test "the sheet a portal presents turns with the frame it was lit in" {
     const gpa = std.testing.allocator;
     var w = try obsidianFrameWorld(gpa, false);
     defer w.deinit();
-    _ = try tryCreate(&w, 8, 64, 8);
+    _ = try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 });
 
-    try std.testing.expect(facesNeighbour(&w, 7, 64, 8, .west));
-    try std.testing.expect(facesNeighbour(&w, 9, 64, 8, .east));
-    try std.testing.expect(!facesNeighbour(&w, 8, 64, 7, .north));
+    try std.testing.expect(facesNeighbour(&w, .{ .x = 7, .y = 64, .z = 8 }, .west));
+    try std.testing.expect(facesNeighbour(&w, .{ .x = 9, .y = 64, .z = 8 }, .east));
+    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 64, .z = 7 }, .north));
 }

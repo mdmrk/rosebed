@@ -161,7 +161,7 @@ fn texturesFor(options: Options, textures: world.block.FaceTextures) world.block
 
 fn showsFace(options: Options, world_map: *const world.ChunkView, id: world.Block, x: i32, y: i32, z: i32, side: world.Side) bool {
     if (options.all_faces) return true;
-    if (id == .portal) return world.portal.facesNeighbour(world_map, x, y, z, side);
+    if (id == .portal) return world.portal.facesNeighbour(world_map, .{ .x = x, .y = y, .z = z }, side);
     return id.shouldRenderFace(world_map.getBlock(x, y, z), side, options.fancy);
 }
 
@@ -1730,7 +1730,7 @@ pub fn buildBlockAt(
     }
 
     if (id.shape() == .portal) {
-        const bounds = world.portal.bounds(world_map, x, y, z);
+        const bounds = world.portal.bounds(world_map, .{ .x = x, .y = y, .z = z });
         try buildBoundedBox(target, gpa, world_map, id, bounds, id.faceTextures(), x, y, z, origin, options);
         return;
     }
@@ -3748,7 +3748,7 @@ test "a lit portal meshes as one seamless sheet, not a stack of boxes" {
             world_map.setBlock(8 + across, 64 + up, 8, .obsidian);
         }
     }
-    try std.testing.expect(try world.portal.tryCreate(&world_map, 8, 64, 8));
+    try std.testing.expect(try world.portal.tryCreate(&world_map, .{ .x = 8, .y = 64, .z = 8 }));
     try world.light.relightChunk(gpa, &world_map, 0, 0);
 
     var mesh = try build(gpa, &world_map, world_map.getChunk(0, 0).?, Colorizer.untinted, .{});

@@ -50,7 +50,15 @@ pub const EntityIo = struct {
 
 pub const ChunkCoord = struct { x: i32, z: i32 };
 
-pub const BlockPos = struct { x: i32, y: i32, z: i32 };
+pub const BlockPos = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+
+    pub fn offset(self: BlockPos, dx: i32, dy: i32, dz: i32) BlockPos {
+        return .{ .x = self.x + dx, .y = self.y + dy, .z = self.z + dz };
+    }
+};
 
 pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
 pub const Dispensed = struct { pos: BlockPos, step: [2]i32, stack: block.Stack };
@@ -1175,7 +1183,7 @@ pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32, source
 }
 
 fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
-    if (id == .fire and self.getBlock(x, y - 1, z) == .obsidian) _ = try portal.tryCreate(self, x, y, z);
+    if (id == .fire and self.getBlock(x, y - 1, z) == .obsidian) _ = try portal.tryCreate(self, .{ .x = x, .y = y, .z = z });
     if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
     if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
     if (id == .dispenser) try self.setBlockMetadataWithNotify(x, y, z, self.dispenserDefaultFacing(x, y, z));

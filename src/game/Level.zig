@@ -795,7 +795,7 @@ fn lightPortalAt(level: *Level, x: i32, y: i32, z: i32) !void {
             level.world_map.setBlock(x + across, y + up, z, .obsidian);
         }
     }
-    try std.testing.expect(try world.portal.tryCreate(&level.world_map, x, y, z));
+    try std.testing.expect(try world.portal.tryCreate(&level.world_map, .{ .x = x, .y = y, .z = z }));
 }
 
 test "a player standing in a portal is marked for travel, and one beside it is not" {
