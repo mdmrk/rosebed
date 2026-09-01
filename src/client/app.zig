@@ -139,6 +139,7 @@ pub const AppState = struct {
     controls_open: bool = false,
     rebinding: ?game.Settings.Binding = null,
     show_debug: bool = false,
+    hide_gui: bool = false,
     debug_graph: render.debug_graph.Samples = .{},
     anaglyph_pass: render.anaglyph.Pass = null,
     third_person: bool = false,
@@ -3927,7 +3928,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     try drawWeather(app_state, view_proj, partial);
     try drawClouds(app_state, proj, partial);
     if (!app_state.third_person and !app_state.player.sleeping and !app_state.freecam.active) {
-        try drawHeldItem(app_state, proj, partial);
+        if (!app_state.hide_gui) try drawHeldItem(app_state, proj, partial);
         if (app_state.player.fire > 0) try drawFireOverlay(app_state, proj);
     }
 }
@@ -4601,17 +4602,19 @@ pub fn iterate(
         if (blurred and !app_state.third_person and !app_state.freecam.active) {
             try render.pumpkin_blur.draw(app_state.frame, app_state.shader, app_state.textures.pumpkin_blur);
         }
-        try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
-        if (touch_ui and worldFocused(app_state)) {
-            if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
-                .stick = app_state.touch_stick,
-                .jump = app_state.keys.jump,
-                .attack = touchHeld(app_state, .attack),
-                .sneak = app_state.keys.sneak,
-            }, atlas);
+        if (!app_state.hide_gui or !worldFocused(app_state)) {
+            try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
+            if (touch_ui and worldFocused(app_state)) {
+                if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
+                    .stick = app_state.touch_stick,
+                    .jump = app_state.keys.jump,
+                    .attack = touchHeld(app_state, .attack),
+                    .sneak = app_state.keys.sneak,
+                }, atlas);
+            }
+            if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
+            try render.chat.draw(ui, &app_state.chat);
         }
-        if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
-        try render.chat.draw(ui, &app_state.chat);
     }
 
     if (app_state.controls_open) {
@@ -5091,6 +5094,8 @@ pub fn event(
                 } else {
                     try togglePause(app_state);
                 }
+            } else if (k.key == .func1 and !k.repeat) {
+                app_state.hide_gui = !app_state.hide_gui;
             } else if (k.key == .func3) {
                 app_state.show_debug = !app_state.show_debug;
             } else if (k.key == .func5 and !k.repeat) {
