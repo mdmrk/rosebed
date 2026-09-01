@@ -71,7 +71,7 @@ jobs:
       - name: setup emsdk
         uses: emscripten-core/setup-emsdk@v16
         with:
-          version: 6.0.8
+          version: 6.0.9
           actions-cache-folder: emsdk-cache
       - name: patch zig std for emscripten
         run: |
