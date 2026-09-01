@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const world = @import("world");
-
 pub const Difficulty = world.Difficulty;
 
 pub const RenderDistance = enum(u2) {

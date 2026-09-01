@@ -123,6 +123,7 @@ pub const AppState = struct {
     screen: Screen = .title,
     splash: []const u8 = splashes[0],
     github_icon: ?render.Atlas = null,
+    touch_atlas: ?render.Atlas = null,
     mojang_until_ms: u64 = 0,
     inventory_open: bool = false,
     sign_edit: ?render.screen.edit_sign.State = null,
@@ -406,6 +407,7 @@ pub fn init(
     errdefer sdl3.quit(init_flags);
 
     if (android) try sdl3.hints.set(.orientations, "LandscapeLeft LandscapeRight");
+    if (android) try sdl3.hints.set(.android_trap_back_button, "1");
 
     try sdl3.video.gl.setAttribute(.depth_size, 24);
     try sdl3.video.gl.setAttribute(.context_major_version, 3);
@@ -486,6 +488,9 @@ pub fn init(
 
     if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"), app_state.settings.anaglyph);
     errdefer if (app_state.github_icon) |icon| icon.deinit();
+
+    if (touch_ui) app_state.touch_atlas = try render.Atlas.load(@embedFile("touch_png"), app_state.settings.anaglyph);
+    errdefer if (app_state.touch_atlas) |atlas| atlas.deinit();
 
     app_state.colorizer = try render.Colorizer.load(gpa);
     errdefer app_state.colorizer.deinit(gpa);
@@ -4579,11 +4584,14 @@ pub fn iterate(
             try render.pumpkin_blur.draw(app_state.frame, app_state.shader, app_state.textures.pumpkin_blur);
         }
         try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
-        if (touch_ui and worldFocused(app_state)) try render.touch.draw(ui, .{
-            .stick = app_state.touch_stick,
-            .jump = app_state.keys.jump,
-            .sneak = app_state.keys.sneak,
-        });
+        if (touch_ui and worldFocused(app_state)) {
+            if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
+                .stick = app_state.touch_stick,
+                .jump = app_state.keys.jump,
+                .attack = touchHeld(app_state, .attack),
+                .sneak = app_state.keys.sneak,
+            }, atlas);
+        }
         if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
         try render.chat.draw(ui, &app_state.chat);
     }
@@ -4823,6 +4831,11 @@ fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
             .move => applyStick(app_state, render.touch.stickAt(gx, gy, res)),
             .jump => app_state.keys.jump = true,
             .sneak => app_state.keys.sneak = true,
+            .attack => {
+                app_state.mouse_left_down = true;
+                app_state.last_held_swing_tick = app_state.level.tick_count;
+                try clickLeft(app_state);
+            },
             .inventory => {
                 releaseTouches(app_state);
                 return toggleInventory(app_state);
@@ -4894,10 +4907,14 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
         .button => switch (control) {
             .jump => app_state.keys.jump = false,
             .sneak => app_state.keys.sneak = false,
+            .attack => {
+                app_state.mouse_left_down = touchAttacking(app_state);
+                if (!app_state.mouse_left_down) app_state.missed_click_cooldown = 0;
+            },
             else => {},
         },
         .world => {
-            app_state.mouse_left_down = touchDigging(app_state);
+            app_state.mouse_left_down = touchAttacking(app_state);
             if (!app_state.mouse_left_down) app_state.missed_click_cooldown = 0;
             if (tapped and worldFocused(app_state)) try touchTap(app_state);
         },
@@ -4905,9 +4922,17 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     }
 }
 
-fn touchDigging(app_state: *const AppState) bool {
+fn touchHeld(app_state: *const AppState, control: render.touch.Control) bool {
+    for (app_state.touches) |touch| {
+        if (touch.role == .button and touch.control == control) return true;
+    }
+    return false;
+}
+
+fn touchAttacking(app_state: *const AppState) bool {
     for (app_state.touches) |touch| {
         if (touch.role == .world and touch.digging) return true;
+        if (touch.role == .button and touch.control == .attack) return true;
     }
     return false;
 }
@@ -4922,6 +4947,15 @@ fn touchTick(app_state: *AppState) !void {
         app_state.mouse_left_down = true;
         app_state.last_held_swing_tick = app_state.level.tick_count;
         try clickLeft(app_state);
+    }
+}
+
+fn backAsEscape(current: *sdl3.events.Event) void {
+    switch (current.*) {
+        .key_down, .key_up => |*k| if (k.key == .ac_back) {
+            k.key = .escape;
+        },
+        else => {},
     }
 }
 
@@ -4940,7 +4974,10 @@ pub fn event(
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
     if (touch_ui and worldFocused(app_state) and fromTouchMouse(curr_event)) return .run;
-    switch (curr_event) {
+    var current = curr_event;
+    // Without a keyboard the back gesture is the only way off a screen.
+    if (touch_ui) backAsEscape(&current);
+    switch (current) {
         .quit, .terminating => return .success,
         .finger_down => |f| if (touch_ui) try touchDown(app_state, f),
         .finger_motion => |f| if (touch_ui) try touchMotion(app_state, f),
@@ -5192,6 +5229,7 @@ pub fn quit(
         state.shader.deinit();
         state.textures.deinit();
         if (state.github_icon) |icon| icon.deinit();
+        if (state.touch_atlas) |atlas| atlas.deinit();
         state.font.deinit();
         state.gl_context.deinit() catch {};
         state.window.deinit();

@@ -6,8 +6,8 @@ const world = @import("world");
 const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
 const Inventory = @import("Inventory.zig");
-const Player = @import("Player.zig");
 const physics = @import("physics.zig");
+const Player = @import("Player.zig");
 const spawner = @import("spawner.zig");
 
 const Level = @This();

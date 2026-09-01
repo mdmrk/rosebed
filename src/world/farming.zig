@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const assets = @import("assets");
+
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");

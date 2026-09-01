@@ -594,6 +594,9 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     client_mod.addAnonymousImport("github_png", .{
         .root_source_file = b.path("web/github.png"),
     });
+    client_mod.addAnonymousImport("touch_png", .{
+        .root_source_file = b.path("android/hud.png"),
+    });
     client_mod.addLibraryPath(sdl_lib_dir);
 
     const client = b.addLibrary(.{

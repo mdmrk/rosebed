@@ -4,8 +4,8 @@ const math = @import("math");
 const world = @import("world");
 
 const Font = @import("Font.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
 const item_lighting = @import("item_lighting.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
 pub const texture_width: f32 = 64;

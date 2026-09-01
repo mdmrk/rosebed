@@ -2,10 +2,10 @@ const std = @import("std");
 
 const assets = @import("assets");
 
+const farming = @import("farming.zig");
 const item = @import("item.zig");
 const Item = item.Item;
 const JavaRandom = @import("JavaRandom.zig");
-const farming = @import("farming.zig");
 const World = @import("World.zig");
 
 pub const Side = enum(u3) {

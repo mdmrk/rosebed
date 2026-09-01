@@ -38,13 +38,13 @@ pub const interact = @import("interact.zig");
 pub const Inventory = @import("Inventory.zig");
 pub const Level = @import("Level.zig");
 pub const mob = @import("mob.zig");
+pub const options_file = @import("options_file.zig");
 pub const physics = @import("physics.zig");
 pub const Player = @import("Player.zig");
 pub const raycast = @import("raycast.zig");
 pub const Settings = @import("Settings.zig");
 pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
-pub const options_file = @import("options_file.zig");
 pub const stats_file = @import("stats_file.zig");
 pub const Window = @import("Window.zig");
 

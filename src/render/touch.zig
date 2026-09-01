@@ -2,35 +2,52 @@ const std = @import("std");
 
 const gl = @import("gl");
 
+const Atlas = @import("Atlas.zig");
 const Font = @import("Font.zig");
 const gui = @import("gui.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
-const margin: f32 = 6;
-const pad_size: f32 = 66;
-const knob_size: f32 = 24;
-const jump_size: f32 = 40;
-const small_size: f32 = 26;
+const margin: f32 = 24;
+const gap: f32 = 6;
+const pad_size: f32 = 64;
+const knob_size: f32 = 32;
+const button_size: f32 = 22;
+
+const texture_size: f32 = 128;
+const pad_uv = gui.pixelUv(0, 0, pad_size, pad_size, texture_size, texture_size);
+const knob_uv = gui.pixelUv(64, 0, knob_size, knob_size, texture_size, texture_size);
+const jump_uv = gui.pixelUv(96, 0, button_size, button_size, texture_size, texture_size);
+const sneak_uv = gui.pixelUv(96, 22, button_size, button_size, texture_size, texture_size);
+const blank_uv = gui.pixelUv(96, 44, button_size, button_size, texture_size, texture_size);
+const attack_uv = gui.pixelUv(96, 66, button_size, button_size, texture_size, texture_size);
+
+const tint_normal: [4]u8 = .{ 255, 255, 255, 255 };
+const tint_held: [4]u8 = .{ 170, 170, 170, 255 };
+const label_color: [4]u8 = .{ 224, 224, 224, 255 };
 
 pub const dead_zone: f32 = 0.3;
-
-const panel_color: [4]u8 = .{ 0, 0, 0, 128 };
-const panel_held_color: [4]u8 = .{ 255, 255, 255, 112 };
-const knob_color: [4]u8 = .{ 255, 255, 255, 176 };
-const label_color: [4]u8 = .{ 224, 224, 224, 255 };
 
 pub const Control = enum {
     move,
     jump,
+    attack,
     sneak,
     inventory,
     pause,
 
+    fn uv(control: Control) Atlas.Uv {
+        return switch (control) {
+            .move => pad_uv,
+            .jump => jump_uv,
+            .attack => attack_uv,
+            .sneak => sneak_uv,
+            .inventory, .pause => blank_uv,
+        };
+    }
+
     fn label(control: Control) []const u8 {
         return switch (control) {
-            .move => "",
-            .jump => "^",
-            .sneak => "v",
+            .move, .jump, .attack, .sneak => "",
             .inventory => "E",
             .pause => "II",
         };
@@ -49,22 +66,15 @@ pub const Rect = struct {
 };
 
 pub fn rect(control: Control, res: gui.Scaled) Rect {
+    const right = res.width - margin - button_size;
+    const bottom = res.height - margin - button_size;
     return switch (control) {
         .move => .{ .x = margin, .y = res.height - margin - pad_size, .w = pad_size, .h = pad_size },
-        .jump => .{ .x = res.width - margin - jump_size, .y = res.height - margin - jump_size, .w = jump_size, .h = jump_size },
-        .sneak => .{
-            .x = res.width - margin * 2 - jump_size - small_size,
-            .y = res.height - margin - small_size,
-            .w = small_size,
-            .h = small_size,
-        },
-        .inventory => .{
-            .x = res.width - margin - small_size,
-            .y = res.height - margin * 2 - jump_size - small_size,
-            .w = small_size,
-            .h = small_size,
-        },
-        .pause => .{ .x = margin, .y = margin, .w = small_size, .h = small_size },
+        .jump => .{ .x = right, .y = bottom, .w = button_size, .h = button_size },
+        .attack => .{ .x = right - gap - button_size, .y = bottom, .w = button_size, .h = button_size },
+        .sneak => .{ .x = right, .y = bottom - gap - button_size, .w = button_size, .h = button_size },
+        .inventory => .{ .x = right, .y = bottom - (gap + button_size) * 2, .w = button_size, .h = button_size },
+        .pause => .{ .x = margin, .y = margin, .w = button_size, .h = button_size },
     };
 }
 
@@ -90,32 +100,34 @@ pub fn stickAt(gx: f32, gy: f32, res: gui.Scaled) [2]f32 {
 pub const State = struct {
     stick: ?[2]f32 = null,
     jump: bool = false,
+    attack: bool = false,
     sneak: bool = false,
 
     fn held(self: State, control: Control) bool {
         return switch (control) {
-            .move => self.stick != null,
+            .move => false,
             .jump => self.jump,
+            .attack => self.attack,
             .sneak => self.sneak,
             .inventory, .pause => false,
         };
     }
 };
 
-pub fn draw(ui: gui.Ui, state: State) !void {
+pub fn draw(ui: gui.Ui, state: State, atlas: Atlas) !void {
     gl.Disable(gl.DEPTH_TEST);
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    var panels: MeshBuilder = .{};
-    defer panels.deinit(ui.gpa);
+    var sprites: MeshBuilder = .{};
+    defer sprites.deinit(ui.gpa);
     var text: MeshBuilder = .{};
     defer text.deinit(ui.gpa);
 
     for (std.enums.values(Control)) |control| {
         const box = rect(control, ui.res);
-        const color = if (state.held(control)) panel_held_color else panel_color;
-        try gui.appendRectColor(&panels, ui.gpa, box.x, box.y, box.w, box.h, gui.opaque_texel, color, ui.res);
+        const tint = if (state.held(control)) tint_held else tint_normal;
+        try gui.appendRectColor(&sprites, ui.gpa, box.x, box.y, box.w, box.h, control.uv(), tint, ui.res);
 
         const label = control.label();
         if (label.len == 0) continue;
@@ -136,18 +148,18 @@ pub fn draw(ui: gui.Ui, state: State) !void {
     const travel = (pad_size - knob_size) / 2.0;
     const stick = state.stick orelse [2]f32{ 0, 0 };
     try gui.appendRectColor(
-        &panels,
+        &sprites,
         ui.gpa,
         pad.x + travel + stick[0] * travel,
         pad.y + travel + stick[1] * travel,
         knob_size,
         knob_size,
-        gui.opaque_texel,
-        knob_color,
+        knob_uv,
+        if (state.stick != null) tint_held else tint_normal,
         ui.res,
     );
 
-    try gui.drawColorMesh(&panels, ui.shader);
+    try gui.drawTexturedMesh(&sprites, ui.shader, atlas);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 }
 

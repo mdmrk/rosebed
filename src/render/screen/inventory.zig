@@ -1,15 +1,15 @@
 const std = @import("std");
 
 const game = @import("game");
-const math = @import("math");
 const grid_size = game.crafting.player_grid_size;
 const armor_size = game.Inventory.armor_size;
 const gl = @import("gl");
+const math = @import("math");
 const world = @import("world");
 
 const gui = @import("../gui.zig");
-const MeshBuilder = @import("../MeshBuilder.zig");
 const item_lighting = @import("../item_lighting.zig");
+const MeshBuilder = @import("../MeshBuilder.zig");
 const MobModel = @import("../mob_model.zig");
 const container = @import("container.zig");
 
