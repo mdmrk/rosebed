@@ -42,7 +42,10 @@ pub const State = struct {
 
 pub fn init(last_server: []const u8) State {
     var state: State = .{};
-    state.address.setText(last_server);
+    var typed: [text_field.max_length]u8 = undefined;
+    const length = @min(last_server.len, typed.len);
+    for (last_server[0..length], typed[0..length]) |c, *out| out.* = if (c == '_') ':' else c;
+    state.address.setText(typed[0..length]);
     return state;
 }
 
@@ -205,7 +208,7 @@ test "connect stays dark until the field has something in it" {
 
 test "the screen opens on the server it was last pointed at" {
     const state = init("example.com_1234");
-    try std.testing.expectEqualStrings("example.com_1234", state.address.text());
+    try std.testing.expectEqualStrings("example.com:1234", state.address.text());
     try std.testing.expect(state.address.focused);
 }
 
