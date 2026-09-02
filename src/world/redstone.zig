@@ -18,6 +18,9 @@ var wires_provide_power: bool = true;
 
 const repeater_output_code: [4]u2 = .{ 2, 3, 0, 1 };
 
+const click_on_pitch: f32 = 0.6;
+const click_off_pitch: f32 = 0.5;
+
 pub fn canProvidePower(id: Block) bool {
     return switch (id) {
         .redstone_wire => wires_provide_power,
@@ -390,7 +393,10 @@ fn torchTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!
     if (id == .torch_redstone_on) {
         if (!suppressed) return;
         try world_map.setBlockAndMetadataWithNotify(x, y, z, .torch_redstone_off, world_map.getBlockMetadata(x, y, z));
-        if (try checkForBurnout(world_map, x, y, z, true)) world_map.playFizzAt(x, y, z);
+        if (try checkForBurnout(world_map, x, y, z, true)) {
+            world_map.playFizzAt(x, y, z);
+            try world_map.burnt_out.append(world_map.allocator, .{ .x = x, .y = y, .z = z });
+        }
         return;
     }
 
@@ -466,6 +472,7 @@ fn plateSettle(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Erro
         try world_map.setBlockMetadataWithNotify(x, y, z, if (pressed) 1 else 0);
         try world_map.notifyBlocksOfNeighborChange(x, y, z, id);
         try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
+        world_map.playSwitchClick(x, y, z, 0.1, if (pressed) click_on_pitch else click_off_pitch);
     }
 
     if (pressed) try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
@@ -728,6 +735,7 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Alloca
             const facing = metadata & block.facing_mask;
             try world_map.setBlockMetadataWithNotify(x, y, z, facing);
             try notifyAttachment(world_map, x, y, z, id, facing);
+            world_map.playSwitchClick(x, y, z, 0.5, click_off_pitch);
         },
         .pressure_plate_stone, .pressure_plate_planks => {
             if (world_map.getBlockMetadata(x, y, z) == 0) return;
@@ -828,6 +836,7 @@ pub fn activate(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Err
             const facing = metadata & block.facing_mask;
             const flipped = block.power_bit - (metadata & block.power_bit);
             try world_map.setBlockMetadataWithNotify(x, y, z, facing + flipped);
+            world_map.playSwitchClick(x, y, z, 0.5, if (flipped > 0) click_on_pitch else click_off_pitch);
             try notifyAttachment(world_map, x, y, z, id, facing);
             return true;
         },
@@ -835,6 +844,7 @@ pub fn activate(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Err
             if (block.isPowered(metadata)) return true;
             const facing = metadata & block.facing_mask;
             try world_map.setBlockMetadataWithNotify(x, y, z, facing + block.power_bit);
+            world_map.playSwitchClick(x, y, z, 0.5, click_on_pitch);
             try notifyAttachment(world_map, x, y, z, id, facing);
             try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
             return true;
@@ -1097,13 +1107,13 @@ test "a lever powering a dispenser makes it hand one item out four ticks later" 
     try std.testing.expectEqual(@as(u8, 2), w.dispenserAt(8, 12, 8).?.items[0].?.count);
 }
 
-const DispenserSound = struct {
+const SoundLog = struct {
     key: []const u8 = "",
     pitch: f32 = 0,
     count: usize = 0,
 
     fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, pitch: f32) void {
-        const self: *DispenserSound = @ptrCast(@alignCast(context));
+        const self: *SoundLog = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.pitch = pitch;
         self.count += 1;
@@ -1111,7 +1121,7 @@ const DispenserSound = struct {
 
     fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
 
-    fn sink(self: *DispenserSound) World.SoundSink {
+    fn sink(self: *SoundLog) World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
     }
 };
@@ -1121,7 +1131,7 @@ test "a dispenser clicks over an item, twangs over an arrow and clicks higher ov
     defer w.deinit();
     try armedDispenser(&w, @intFromEnum(block.Side.south));
 
-    var heard: DispenserSound = .{};
+    var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
 
     try w.dispense(8, 12, 8);
@@ -1276,4 +1286,89 @@ test "a redstone torch flicked on and off too many times burns out" {
     try w.tickUpdates();
 
     try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+}
+
+test "a lever clicks up when it is thrown and down again when it is dropped" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .lever, 5);
+
+    var heard: SoundLog = .{};
+    w.sound_sink = heard.sink();
+
+    _ = try activate(&w, 8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
+    try std.testing.expectEqual(click_on_pitch, heard.pitch);
+
+    _ = try activate(&w, 8, 12, 8);
+    try std.testing.expectEqual(click_off_pitch, heard.pitch);
+    try std.testing.expectEqual(@as(usize, 2), heard.count);
+}
+
+test "a button clicks in when it is pressed and out again when it pops back" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    w.setBlock(7, 12, 8, .stone);
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .button, 1);
+
+    var heard: SoundLog = .{};
+    w.sound_sink = heard.sink();
+
+    _ = try activate(&w, 8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
+    try std.testing.expectEqual(click_on_pitch, heard.pitch);
+
+    w.time += 20;
+    try w.tickUpdates();
+
+    try std.testing.expectEqual(click_off_pitch, heard.pitch);
+    try std.testing.expectEqual(@as(usize, 2), heard.count);
+}
+
+test "a pressure plate clicks down under a step and up again when it springs back" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    var stub: ProbeStub = .{};
+    w.entity_probe = .{ .context = &stub, .anyInBox = ProbeStub.anyInBox };
+    try w.setBlockWithNotify(8, 12, 8, .pressure_plate_planks);
+
+    var heard: SoundLog = .{};
+    w.sound_sink = heard.sink();
+
+    stub.occupied = true;
+    try onEntityCollided(&w, 8, 12, 8);
+    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
+    try std.testing.expectEqual(click_on_pitch, heard.pitch);
+
+    stub.occupied = false;
+    w.time += 20;
+    try w.tickUpdates();
+
+    try std.testing.expectEqual(click_off_pitch, heard.pitch);
+    try std.testing.expectEqual(@as(usize, 2), heard.count);
+}
+
+test "a torch that burns out leaves a puff of smoke where it stood" {
+    var w = try flatWorld(12);
+    defer w.deinit();
+
+    try w.setBlockAndMetadataWithNotify(8, 12, 8, .torch_redstone_on, 5);
+    try w.setBlockAndMetadataWithNotify(7, 11, 8, .lever, 2);
+
+    for (0..8) |_| {
+        _ = try activate(&w, 7, 11, 8);
+        w.time += 2;
+        try w.tickUpdates();
+
+        _ = try activate(&w, 7, 11, 8);
+        w.time += 2;
+        try w.tickUpdates();
+    }
+
+    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(@as(usize, 1), w.burnt_out.items.len);
+    try std.testing.expectEqual(World.BlockPos{ .x = 8, .y = 12, .z = 8 }, w.burnt_out.items[0]);
 }

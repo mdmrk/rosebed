@@ -993,6 +993,30 @@ pub fn spawnTorchParticles(
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
 }
 
+pub const torch_burnout_particles = 5;
+const torch_burnout_spread: f64 = 0.6;
+const torch_burnout_inset: f64 = 0.2;
+
+pub fn spawnTorchBurnoutSmoke(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    x: i32,
+    y: i32,
+    z: i32,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..torch_burnout_particles) |_| {
+        const px = @as(f64, @floatFromInt(x)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        const py = @as(f64, @floatFromInt(y)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        const pz = @as(f64, @floatFromInt(z)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        try self.particles.append(gpa, Particle.spawnSmoke(
+            math.Vec3.init(px, py, pz),
+            math.Vec3.init(0, 0, 0),
+            rand,
+        ));
+    }
+}
+
 pub const fire_standing_particles = 3;
 pub const fire_edge_particles = 2;
 const fire_edge_inset: f64 = 0.1;

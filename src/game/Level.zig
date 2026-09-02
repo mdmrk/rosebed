@@ -153,6 +153,11 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
         try self.entities.dispense(gpa, shot, &self.world_map.rand);
     }
     self.world_map.dispensed.clearRetainingCapacity();
+
+    for (self.world_map.burnt_out.items) |pos| {
+        try self.entities.spawnTorchBurnoutSmoke(gpa, pos.x, pos.y, pos.z, &self.world_map.rand);
+    }
+    self.world_map.burnt_out.clearRetainingCapacity();
 }
 
 fn tickBoats(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {
@@ -303,13 +308,21 @@ pub fn standInPortals(self: *Level) void {
     }
 }
 
-fn walkOnBlocks(self: *Level) !void {
+fn walkOnBlocks(self: *Level, gpa: std.mem.Allocator) !void {
     for (self.occupants.items) |occupant| {
         const stepped = occupant.player.stepped_on orelse continue;
         occupant.player.stepped_on = null;
         if (!occupant.active) continue;
         try world.farming.trample(&self.world_map, stepped[0], stepped[1], stepped[2]);
+        try self.stirRedstoneOre(gpa, stepped[0], stepped[1], stepped[2]);
     }
+}
+
+fn stirRedstoneOre(self: *Level, gpa: std.mem.Allocator, x: i32, y: i32, z: i32) !void {
+    const id = self.world_map.getBlock(x, y, z);
+    if (id != .ore_redstone and id != .ore_redstone_glowing) return;
+    try self.entities.spawnRedstoneOreParticles(gpa, &self.world_map, x, y, z, &self.world_map.rand);
+    try world.redstone.lightRedstoneOre(&self.world_map, x, y, z);
 }
 
 fn pressPressurePlates(self: *Level) !void {
@@ -370,7 +383,7 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     }
     self.world_map.clearStrikes();
     try self.entities.tickLightning(gpa, &self.world_map, self.roster.items, rand);
-    try self.walkOnBlocks();
+    try self.walkOnBlocks(gpa);
     try self.pressPressurePlates();
     self.standInPortals();
     try self.world_map.tickUpdates();

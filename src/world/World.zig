@@ -145,6 +145,7 @@ changed: std.ArrayList(BlockPos) = .empty,
 dropped: std.ArrayList(DroppedBlock) = .empty,
 falling: std.ArrayList(FallingBlock) = .empty,
 primed: std.ArrayList(PrimedTnt) = .empty,
+burnt_out: std.ArrayList(BlockPos) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 update_lcg: i32 = 0,
 time: i64 = 0,
@@ -262,6 +263,7 @@ pub fn deinit(self: *World) void {
     self.dropped.deinit(self.allocator);
     self.falling.deinit(self.allocator);
     self.primed.deinit(self.allocator);
+    self.burnt_out.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
     self.chests.deinit(self.allocator);
@@ -662,6 +664,17 @@ pub fn playFizzAt(self: *World, x: i32, y: i32, z: i32) void {
         assets.sounds.random.fizz,
         0.5,
         2.6 + (self.rand.nextFloat() - self.rand.nextFloat()) * 0.8,
+    );
+}
+
+pub fn playSwitchClick(self: *const World, x: i32, y: i32, z: i32, y_offset: f64, pitch: f32) void {
+    self.playSoundEffect(
+        @as(f64, @floatFromInt(x)) + 0.5,
+        @as(f64, @floatFromInt(y)) + y_offset,
+        @as(f64, @floatFromInt(z)) + 0.5,
+        assets.sounds.random.click,
+        0.3,
+        pitch,
     );
 }
 

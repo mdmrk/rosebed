@@ -583,7 +583,7 @@ fn clickLeft(app_state: *AppState) !void {
             _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
             try applyBlockChanges(app_state);
         },
-        .ore_redstone => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
+        .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
         else => {},
     }
 }
@@ -2402,7 +2402,7 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
             .jukebox => {
                 if (try game.interact.ejectJukeboxRecord(interactContext(app_state), hit.x, hit.y, hit.z)) return true;
             },
-            .ore_redstone => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
+            .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
             else => |id| {
                 if (id.def().on_activated) |hook| {
                     if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, id)) {
