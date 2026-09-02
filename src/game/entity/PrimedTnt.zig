@@ -39,6 +39,7 @@ pub fn spawnInBlock(x: i32, y: i32, z: i32, fuse: i32, rand: *world.JavaRandom) 
 
 pub fn spawn(position: math.Vec3, fuse: i32, rand: *world.JavaRandom) PrimedTnt {
     var base = Entity.init(position, size, size);
+    base.triggers_walking = false;
     const angle = @as(f64, rand.nextFloat()) * std.math.pi * 2.0;
     base.motion = .{
         .x = -@sin(angle * std.math.pi / 180.0) * spawn_drift,

@@ -19,6 +19,11 @@ blocked_horizontally: bool = false,
 in_water: bool = false,
 in_web: bool = false,
 sneaking: bool = false,
+triggers_walking: bool = true,
+distance_walked: f32 = 0,
+prev_distance_walked: f32 = 0,
+next_step_distance: i32 = 1,
+stepped_on: ?[3]i32 = null,
 width: f64,
 height: f64,
 step_height: f64 = 0,
@@ -167,6 +172,8 @@ pub fn move(self: *Entity, world_map: *const world.World) Moved {
 }
 
 pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []const math.Aabb) Moved {
+    const before_x = self.position.x;
+    const before_z = self.position.z;
     var dx = self.motion.x;
     var dy = self.motion.y;
     var dz = self.motion.z;
@@ -221,6 +228,10 @@ pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []cons
     if (moved.blocked_y) self.motion.y = 0;
     if (moved.blocked_z) self.motion.z = 0;
 
+    if (self.triggers_walking and !sneak_stepping) {
+        self.trackWalking(world_map, self.position.x - before_x, self.position.z - before_z);
+    }
+
     if (physics.touchesBlock(world_map, self.boundingBox(), .web)) self.in_web = true;
 
     var soul_sand = physics.countTouchedBlocks(world_map, self.boundingBox(), .soul_sand);
@@ -230,6 +241,32 @@ pub fn moveAmong(self: *Entity, world_map: *const world.World, obstacles: []cons
     }
 
     return moved;
+}
+
+fn trackWalking(self: *Entity, world_map: *const world.World, dx: f64, dz: f64) void {
+    self.distance_walked += @floatCast(@sqrt(dx * dx + dz * dz) * 0.6);
+
+    const x = math.util.floorDouble(self.position.x);
+    const y = math.util.floorDouble(self.position.y - 0.2);
+    const z = math.util.floorDouble(self.position.z);
+    const under = if (world_map.getBlock(x, y - 1, z) == .fence) world.Block.fence else world_map.getBlock(x, y, z);
+    if (self.distance_walked <= @as(f32, @floatFromInt(self.next_step_distance)) or under == .air) return;
+
+    self.next_step_distance += 1;
+    self.stepped_on = .{ x, y, z };
+
+    const covered = world_map.getBlock(x, y + 1, z) == .snow_layer;
+    if (!covered and under.material().isLiquid()) return;
+
+    const step_sound = if (covered) world.Block.snow_layer.stepSound() else under.stepSound();
+    world_map.playSoundEffect(
+        self.position.x,
+        self.position.y,
+        self.position.z,
+        step_sound.walk(),
+        step_sound.volume() * 0.15,
+        step_sound.pitch(),
+    );
 }
 
 pub fn renderPosition(self: Entity, partial_ticks: f32) math.Vec3 {
@@ -359,4 +396,56 @@ test "unobstructed movement keeps the entity off the ground" {
     try std.testing.expect(!entity.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, -0.2), moved.dy, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 49.8), entity.position.y, 1.0e-9);
+}
+
+test "an entity that has walked far enough records the block under its feet" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(8, 0, 8, .farmland);
+
+    var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
+    try std.testing.expectEqual(@as(?[3]i32, null), entity.stepped_on);
+
+    for (0..10) |_| {
+        entity.position = math.Vec3.init(8.5, 1.0, 8.5);
+        entity.motion = math.Vec3.init(0.2, 0, 0);
+        _ = entity.move(&w);
+    }
+
+    try std.testing.expectEqual(@as(?[3]i32, .{ 8, 0, 8 }), entity.stepped_on);
+}
+
+test "an entity that cannot trigger walking never records a step" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
+    entity.triggers_walking = false;
+
+    for (0..10) |_| {
+        entity.position = math.Vec3.init(8.5, 1.0, 8.5);
+        entity.motion = math.Vec3.init(0.2, 0, 0);
+        _ = entity.move(&w);
+    }
+
+    try std.testing.expectEqual(@as(f32, 0), entity.distance_walked);
+    try std.testing.expectEqual(@as(?[3]i32, null), entity.stepped_on);
+}
+
+test "a sneaking entity on the ground takes no step" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
+
+    for (0..10) |_| {
+        entity.position = math.Vec3.init(8.5, 1.0, 8.5);
+        entity.on_ground = true;
+        entity.sneaking = true;
+        entity.motion = math.Vec3.init(0.2, 0, 0);
+        _ = entity.move(&w);
+    }
+
+    try std.testing.expectEqual(@as(f32, 0), entity.distance_walked);
+    try std.testing.expectEqual(@as(?[3]i32, null), entity.stepped_on);
 }

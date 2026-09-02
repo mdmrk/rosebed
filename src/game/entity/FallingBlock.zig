@@ -20,7 +20,9 @@ const give_up_after_ticks: u32 = 100;
 pub const Outcome = enum { falling, landed, gave_up };
 
 pub fn spawn(position: math.Vec3, block_id: world.Block) FallingBlock {
-    return .{ .base = Entity.init(position, size, size), .block_id = block_id };
+    var base = Entity.init(position, size, size);
+    base.triggers_walking = false;
+    return .{ .base = base, .block_id = block_id };
 }
 
 pub fn tick(self: *FallingBlock, world_map: *const world.World) Outcome {

@@ -46,7 +46,9 @@ const splash_drop: f64 = 0.125;
 const corner_reach: f64 = 0.8;
 
 pub fn spawn(position: math.Vec3) Boat {
-    return .{ .base = Entity.init(position, width, height) };
+    var base = Entity.init(position, width, height);
+    base.triggers_walking = false;
+    return .{ .base = base };
 }
 
 pub fn submergedFraction(self: Boat, world_map: *const world.World) f64 {

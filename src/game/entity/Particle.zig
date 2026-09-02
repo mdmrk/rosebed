@@ -67,6 +67,7 @@ pub const portal_tiles: i32 = 8;
 
 fn spawnBase(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var base = Entity.init(position, size, size);
+    base.triggers_walking = false;
 
     var motion = math.Vec3.init(
         drift.x + (@as(f64, rand.nextFloat()) * 2.0 - 1.0) * 0.4,

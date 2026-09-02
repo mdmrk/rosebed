@@ -44,9 +44,6 @@ time_in_portal: f32 = 0,
 prev_time_in_portal: f32 = 0,
 time_until_portal: i32 = portal_cooldown,
 inventory: Inventory = .{},
-distance_walked: f32 = 0,
-prev_distance_walked: f32 = 0,
-next_step_distance: i32 = 0,
 camera_yaw: f32 = 0,
 swing_progress: f32 = 0,
 prev_swing_progress: f32 = 0,
@@ -64,7 +61,6 @@ last_damage: i32 = 0,
 damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
-stepped_on: ?[3]i32 = null,
 distance_fallen: f32 = 0,
 earned: std.EnumSet(achievements.Id) = .initEmpty(),
 minecart_start: ?[3]i32 = null,
@@ -169,7 +165,7 @@ pub fn tickRidden(self: *Player, strafe: f32, forward: f32) void {
     self.base.beginTick();
     self.jumped = false;
     self.drowned = false;
-    self.prev_distance_walked = self.distance_walked;
+    self.base.prev_distance_walked = self.base.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
     self.prev_yaw = self.yaw;
@@ -197,7 +193,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     self.base.beginTick();
     self.jumped = false;
     self.drowned = false;
-    self.prev_distance_walked = self.distance_walked;
+    self.base.prev_distance_walked = self.base.distance_walked;
     self.prev_camera_yaw = self.camera_yaw;
     self.prev_camera_pitch = self.camera_pitch;
     self.prev_yaw = self.yaw;
@@ -257,20 +253,13 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         if (sneak and self.base.motion.y < 0) self.base.motion.y = 0;
     }
 
-    const before_x = self.base.position.x;
     const before_y = self.base.position.y;
-    const before_z = self.base.position.z;
     const moved = self.base.move(world_map);
     self.updateFallState(world_map, moved.dy);
     if (self.base.blocked_horizontally and self.base.isOnLadder(world_map)) {
         self.base.motion.y = world.block.ladder_climb_lift;
     }
     self.hurtOnCactus(world_map);
-
-    const moved_x = self.base.position.x - before_x;
-    const moved_z = self.base.position.z - before_z;
-    self.distance_walked += @floatCast(@sqrt(moved_x * moved_x + moved_z * moved_z) * 0.6);
-    self.playStepSound(world_map);
 
     if (self.base.in_water or self.in_lava) {
         const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
@@ -832,29 +821,6 @@ pub fn eyePosition(self: Player) math.Vec3 {
     };
 }
 
-fn playStepSound(self: *Player, world_map: *const world.World) void {
-    const x = math.util.floorDouble(self.base.position.x);
-    const y = math.util.floorDouble(self.base.position.y - 0.2);
-    const z = math.util.floorDouble(self.base.position.z);
-    const stepped_on = world_map.getBlock(x, y, z);
-    if (self.distance_walked <= @as(f32, @floatFromInt(self.next_step_distance)) or stepped_on == .air) return;
-
-    self.next_step_distance += 1;
-    self.stepped_on = .{ x, y, z };
-    const covered = world_map.getBlock(x, y + 1, z) == .snow_layer;
-    if (!covered and stepped_on.material().isLiquid()) return;
-
-    const step_sound = if (covered) world.Block.snow_layer.stepSound() else stepped_on.stepSound();
-    world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
-        step_sound.walk(),
-        step_sound.volume() * 0.15,
-        step_sound.pitch(),
-    );
-}
-
 pub const swing_duration: i32 = 8;
 
 pub fn swingItem(self: *Player) void {
@@ -1026,8 +992,8 @@ pub fn portalMatrix(self: Player, partial_ticks: f32, ticks: u64) math.Mat4 {
 }
 
 pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
-    const step = self.distance_walked - self.prev_distance_walked;
-    const walk = -(self.distance_walked + step * partial_ticks);
+    const step = self.base.distance_walked - self.base.prev_distance_walked;
+    const walk = -(self.base.distance_walked + step * partial_ticks);
     const swing = self.prev_camera_yaw + (self.camera_yaw - self.prev_camera_yaw) * partial_ticks;
     const dip = self.prev_camera_pitch + (self.camera_pitch - self.prev_camera_pitch) * partial_ticks;
 
@@ -1317,8 +1283,8 @@ test "bobbing sways to both sides and never lifts the camera" {
     var swayed_right = false;
     var walked: f32 = 0;
     while (walked < 4.0) : (walked += 0.05) {
-        player.prev_distance_walked = walked;
-        player.distance_walked = walked;
+        player.base.prev_distance_walked = walked;
+        player.base.distance_walked = walked;
         const bob: [16]f32 = player.bobMatrix(0).m;
         if (bob[12] < -1.0e-4) swayed_left = true;
         if (bob[12] > 1.0e-4) swayed_right = true;
@@ -1333,8 +1299,8 @@ test "a long walk does not overflow MathHelper's sine table index" {
     var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.camera_yaw = 0.1;
     player.prev_camera_yaw = 0.1;
-    player.distance_walked = 1.0e9;
-    player.prev_distance_walked = 1.0e9;
+    player.base.distance_walked = 1.0e9;
+    player.base.prev_distance_walked = 1.0e9;
     _ = player.bobMatrix(0.5);
 }
 

@@ -98,6 +98,7 @@ pub fn isFavouriteMeat(item: world.Item) bool {
 fn init(position: math.Vec3) Wolf {
     var wolf: Wolf = .{ .animal = Animal.spawn(position, spec) };
     wolf.animal.action_state = updateActionState;
+    wolf.animal.base.triggers_walking = false;
     return wolf;
 }
 

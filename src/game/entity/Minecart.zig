@@ -69,7 +69,9 @@ pub const track = [10][2][3]i32{
 };
 
 pub fn spawn(position: math.Vec3, kind: Kind) Minecart {
-    return .{ .base = Entity.init(position, width, height), .kind = kind };
+    var base = Entity.init(position, width, height);
+    base.triggers_walking = false;
+    return .{ .base = base, .kind = kind };
 }
 
 fn centre(self: Minecart) math.Vec3 {

@@ -310,19 +310,30 @@ pub fn standInPortals(self: *Level) void {
 
 fn walkOnBlocks(self: *Level, gpa: std.mem.Allocator) !void {
     for (self.occupants.items) |occupant| {
-        const stepped = occupant.player.stepped_on orelse continue;
-        occupant.player.stepped_on = null;
+        const stepped = occupant.player.base.stepped_on orelse continue;
+        occupant.player.base.stepped_on = null;
         if (!occupant.active) continue;
-        try world.farming.trample(&self.world_map, stepped[0], stepped[1], stepped[2]);
-        try self.stirRedstoneOre(gpa, stepped[0], stepped[1], stepped[2]);
+        try self.walkedOn(gpa, stepped);
+    }
+    for (self.entities.mobs.items) |entry| {
+        const stepped = entry.animal.base.stepped_on orelse continue;
+        entry.animal.base.stepped_on = null;
+        try self.walkedOn(gpa, stepped);
+    }
+    for (self.entities.hooks.items) |*hook| {
+        const stepped = hook.base.stepped_on orelse continue;
+        hook.base.stepped_on = null;
+        try self.walkedOn(gpa, stepped);
     }
 }
 
-fn stirRedstoneOre(self: *Level, gpa: std.mem.Allocator, x: i32, y: i32, z: i32) !void {
-    const id = self.world_map.getBlock(x, y, z);
+fn walkedOn(self: *Level, gpa: std.mem.Allocator, at: [3]i32) !void {
+    try world.farming.trample(&self.world_map, at[0], at[1], at[2]);
+
+    const id = self.world_map.getBlock(at[0], at[1], at[2]);
     if (id != .ore_redstone and id != .ore_redstone_glowing) return;
-    try self.entities.spawnRedstoneOreParticles(gpa, &self.world_map, x, y, z, &self.world_map.rand);
-    try world.redstone.lightRedstoneOre(&self.world_map, x, y, z);
+    try self.entities.spawnRedstoneOreParticles(gpa, &self.world_map, at[0], at[1], at[2], &self.world_map.rand);
+    try world.redstone.lightRedstoneOre(&self.world_map, at[0], at[1], at[2]);
 }
 
 fn pressPressurePlates(self: *Level) !void {

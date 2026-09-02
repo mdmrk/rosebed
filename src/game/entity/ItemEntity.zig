@@ -28,6 +28,7 @@ const cactus_damage: i32 = 1;
 
 pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaRandom) ItemEntity {
     var base = Entity.init(position, width, height);
+    base.triggers_walking = false;
     base.motion = .{
         .x = @as(f64, rand.nextFloat()) * 0.2 - 0.1,
         .y = 0.2,
@@ -166,6 +167,7 @@ pub fn fromRecord(record: world.entity_nbt.Item) ItemEntity {
         .health = record.health,
         .age = @intCast(@max(0, record.age)),
     };
+    item.base.triggers_walking = false;
     item.base.motion = record.base.motion;
     item.base.on_ground = record.base.on_ground;
     return item;

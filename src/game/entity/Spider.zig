@@ -41,6 +41,7 @@ fn init(position: math.Vec3) Spider {
     self.animal.action_state = updateActionState;
     self.animal.path_weight = Monster.blockPathWeight;
     self.animal.climbs_walls = true;
+    self.animal.base.triggers_walking = false;
     self.animal.death_max_rotation = death_max_rotation;
     self.monster.attack = attackEntity;
     return self;
