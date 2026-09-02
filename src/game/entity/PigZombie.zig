@@ -424,9 +424,9 @@ test "a pig zombie spawns wherever it fits and stays dry, however bright the net
     }
     try std.testing.expect(clear.canSpawnHere(&w));
 
-    w.setBlock(8, 2, 8, .stone);
+    w.setBlock(.init(8, 2, 8), .stone);
     try std.testing.expect(!clear.canSpawnHere(&w));
 
-    w.setBlock(8, 2, 8, .stationary_water);
+    w.setBlock(.init(8, 2, 8), .stationary_water);
     try std.testing.expect(!clear.canSpawnHere(&w));
 }

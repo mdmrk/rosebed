@@ -204,7 +204,7 @@ pub fn tick(self: *FishHook, world_map: *const world.World, rand: *world.JavaRan
     if (self.shake > 0) self.shake -= 1;
 
     if (self.in_ground) {
-        if (world_map.getBlock(self.tile[0], self.tile[1], self.tile[2]) == self.in_tile) {
+        if (world_map.getBlock(.init(self.tile[0], self.tile[1], self.tile[2])) == self.in_tile) {
             self.ticks_in_ground += 1;
             if (self.ticks_in_ground == stuck_lifetime) self.dead = true;
             return step;
@@ -267,7 +267,7 @@ fn settleInto(self: *FishHook, world_map: *const world.World) void {
     const x = math.util.floorDouble(self.base.position.x);
     const y = math.util.floorDouble(self.base.position.y);
     const z = math.util.floorDouble(self.base.position.z);
-    const under = world_map.getBlock(x, y - 1, z);
+    const under = world_map.getBlock(.init(x, y - 1, z));
     if (under == .air or under.isLiquid()) return;
 
     self.tile = .{ x, y - 1, z };

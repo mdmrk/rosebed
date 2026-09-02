@@ -3,6 +3,7 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Mob = @import("../mob.zig");
 const Animal = @import("Animal.zig");
@@ -68,9 +69,7 @@ pub fn burnInDaylight(animal: *Animal, world_map: *const world.World, rand: *wor
 
     const at = animal.base.position;
     if (!world_map.canBlockSeeTheSky(
-        math.util.floorDouble(at.x),
-        math.util.floorDouble(at.y),
-        math.util.floorDouble(at.z),
+        .init(math.util.floorDouble(at.x), math.util.floorDouble(at.y), math.util.floorDouble(at.z)),
     )) return;
 
     if (rand.nextFloat() * 30.0 >= (brightness - 0.4) * 2.0) return;
@@ -306,7 +305,7 @@ test "a zombie under a roof never catches fire, however bright the day" {
             while (y <= 3) : (y += 1) chunk.setBlockLight(@intCast(x), y, @intCast(z), 15);
         }
     }
-    try std.testing.expect(!w.canBlockSeeTheSky(8, 1, 8));
+    try std.testing.expect(!w.canBlockSeeTheSky(.init(8, 1, 8)));
 
     var rand = world.JavaRandom.init(1);
     var self = Zombie.spawn(math.Vec3.init(8.5, 1, 8.5));
@@ -383,7 +382,7 @@ const HurtSounds = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *HurtSounds) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };

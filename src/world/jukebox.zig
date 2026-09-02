@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const BlockPos = @import("BlockPos.zig");
 const Item = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
 const testing_world = @import("testing.zig");
@@ -11,16 +12,16 @@ pub const Jukebox = struct {
     record: ?Item = null,
 };
 
-pub fn insertRecord(world_map: *World, x: i32, y: i32, z: i32, record: Item) !void {
-    (try world_map.addJukebox(x, y, z)).record = record;
-    try world_map.setBlockMetadataWithNotify(x, y, z, 1);
+pub fn insertRecord(world_map: *World, pos: BlockPos, record: Item) !void {
+    (try world_map.addJukebox(pos)).record = record;
+    try world_map.setBlockMetadataWithNotify(pos, 1);
 }
 
-pub fn takeRecord(world_map: *World, x: i32, y: i32, z: i32) !?Item {
-    const state = world_map.jukeboxAt(x, y, z) orelse return null;
+pub fn takeRecord(world_map: *World, pos: BlockPos) !?Item {
+    const state = world_map.jukeboxAt(pos) orelse return null;
     const record = state.record orelse return null;
     state.record = null;
-    try world_map.setBlockMetadataWithNotify(x, y, z, 0);
+    try world_map.setBlockMetadataWithNotify(pos, 0);
     return record;
 }
 
@@ -28,7 +29,7 @@ fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nb
     try nbt.putDuped(gpa, compound, key, tag);
 }
 
-pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Jukebox) !nbt.Tag {
+pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Jukebox) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
         var owned: nbt.Tag = .{ .compound = compound };
@@ -36,9 +37,9 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Jukebox) !nb
     }
 
     try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = x });
-    try put(gpa, &compound, "y", .{ .int = y });
-    try put(gpa, &compound, "z", .{ .int = z });
+    try put(gpa, &compound, "x", .{ .int = pos.x });
+    try put(gpa, &compound, "y", .{ .int = pos.y });
+    try put(gpa, &compound, "z", .{ .int = pos.z });
 
     if (state.record) |record| {
         try put(gpa, &compound, "Record", .{ .int = @intFromEnum(record) });
@@ -48,9 +49,7 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Jukebox) !nb
 }
 
 pub const Placed = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     state: Jukebox,
 };
 
@@ -71,9 +70,11 @@ pub fn load(compound: nbt.Compound) ?Placed {
         null;
 
     return .{
-        .x = nbt.intField(compound, "x") orelse return null,
-        .y = nbt.intField(compound, "y") orelse return null,
-        .z = nbt.intField(compound, "z") orelse return null,
+        .pos = .{
+            .x = nbt.intField(compound, "x") orelse return null,
+            .y = nbt.intField(compound, "y") orelse return null,
+            .z = nbt.intField(compound, "z") orelse return null,
+        },
         .state = .{ .record = record },
     };
 }
@@ -81,59 +82,57 @@ pub fn load(compound: nbt.Compound) ?Placed {
 test "inserting a record fills the jukebox and lights its metadata" {
     var w = try testing_world.flatWorld(std.testing.allocator, 4);
     defer w.deinit();
-    try w.setBlockWithNotify(8, 4, 8, .jukebox);
+    try w.setBlockWithNotify(.init(8, 4, 8), .jukebox);
 
-    try std.testing.expect(w.jukeboxAt(8, 4, 8) == null);
+    try std.testing.expect(w.jukeboxAt(.init(8, 4, 8)) == null);
 
-    try insertRecord(&w, 8, 4, 8, .record_13);
-    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(8, 4, 8));
-    try std.testing.expectEqual(Item.record_13, w.jukeboxAt(8, 4, 8).?.record.?);
+    try insertRecord(&w, .init(8, 4, 8), .record_13);
+    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(.init(8, 4, 8)));
+    try std.testing.expectEqual(Item.record_13, w.jukeboxAt(.init(8, 4, 8)).?.record.?);
 }
 
 test "taking a record hands it back once and clears the metadata" {
     var w = try testing_world.flatWorld(std.testing.allocator, 4);
     defer w.deinit();
-    try w.setBlockWithNotify(8, 4, 8, .jukebox);
-    try insertRecord(&w, 8, 4, 8, .record_cat);
+    try w.setBlockWithNotify(.init(8, 4, 8), .jukebox);
+    try insertRecord(&w, .init(8, 4, 8), .record_cat);
 
-    try std.testing.expectEqual(Item.record_cat, (try takeRecord(&w, 8, 4, 8)).?);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 4, 8));
-    try std.testing.expect(try takeRecord(&w, 8, 4, 8) == null);
+    try std.testing.expectEqual(Item.record_cat, (try takeRecord(&w, .init(8, 4, 8))).?);
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 4, 8)));
+    try std.testing.expect(try takeRecord(&w, .init(8, 4, 8)) == null);
 }
 
 test "a jukebox that lost its block spills its record and its state" {
     var w = try testing_world.flatWorld(std.testing.allocator, 4);
     defer w.deinit();
-    try w.setBlockWithNotify(8, 4, 8, .jukebox);
-    try insertRecord(&w, 8, 4, 8, .record_13);
+    try w.setBlockWithNotify(.init(8, 4, 8), .jukebox);
+    try insertRecord(&w, .init(8, 4, 8), .record_13);
 
     try w.spillOrphanJukeboxes();
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 
-    try w.setBlockWithNotify(8, 4, 8, .air);
+    try w.setBlockWithNotify(.init(8, 4, 8), .air);
     try w.spillOrphanJukeboxes();
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
     try std.testing.expectEqual(Item.record_13, w.dropped.items[0].stack.id.item);
-    try std.testing.expect(w.jukeboxAt(8, 4, 8) == null);
+    try std.testing.expect(w.jukeboxAt(.init(8, 4, 8)) == null);
 }
 
 test "an empty jukebox writes no Record tag and reads back empty" {
     const gpa = std.testing.allocator;
-    var tag = try store(gpa, 3, 70, -9, .{});
+    var tag = try store(gpa, .init(3, 70, -9), .{});
     defer nbt.deinit(gpa, &tag);
 
     try std.testing.expect(tag.compound.get("Record") == null);
 
     const loaded = load(tag.compound).?;
-    try std.testing.expectEqual(@as(i32, 3), loaded.x);
-    try std.testing.expectEqual(@as(i32, 70), loaded.y);
-    try std.testing.expectEqual(@as(i32, -9), loaded.z);
+    try std.testing.expectEqual(BlockPos.init(3, 70, -9), loaded.pos);
     try std.testing.expect(loaded.state.record == null);
 }
 
 test "a loaded record survives a trip through NBT" {
     const gpa = std.testing.allocator;
-    var tag = try store(gpa, 0, 64, 0, .{ .record = .record_cat });
+    var tag = try store(gpa, .init(0, 64, 0), .{ .record = .record_cat });
     defer nbt.deinit(gpa, &tag);
 
     try std.testing.expectEqual(@as(i32, 2257), tag.compound.get("Record").?.int);
@@ -142,7 +141,7 @@ test "a loaded record survives a trip through NBT" {
 
 test "a tile entity of another kind is not read as a jukebox" {
     const gpa = std.testing.allocator;
-    var tag = try store(gpa, 1, 2, 3, .{});
+    var tag = try store(gpa, .init(1, 2, 3), .{});
     defer nbt.deinit(gpa, &tag);
 
     const stored = tag.compound.getPtr("id").?;

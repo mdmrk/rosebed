@@ -20,9 +20,7 @@ pub const blink_ticks: i32 = 6;
 pub const Hit = enum { done };
 
 pub const State = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    z: i32 = 0,
+    pos: world.BlockPos = .{ .x = 0, .y = 0, .z = 0 },
     line: usize = 0,
     counter: i32 = 0,
 

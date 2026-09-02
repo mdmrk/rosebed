@@ -4,6 +4,7 @@ const core = @import("core");
 const game = @import("game");
 const net = @import("net");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 const chunk_payload = world.chunk_payload;
 
 const Session = @import("Session.zig");
@@ -136,16 +137,16 @@ fn worldAccess(dim: *Dim) world.World.Access {
     };
 }
 
-fn markBlockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+fn markBlockNeedsUpdate(context: *anyopaque, pos: BlockPos) std.mem.Allocator.Error!void {
     const dim: *Dim = @ptrCast(@alignCast(context));
-    if (y < 0 or y >= world.Chunk.height) return;
+    if (pos.y < 0 or pos.y >= world.Chunk.height) return;
 
-    const block = dim.level.world_map.getBlock(x, y, z);
-    const metadata = dim.level.world_map.getBlockMetadata(x, y, z);
+    const block = dim.level.world_map.getBlock(pos);
+    const metadata = dim.level.world_map.getBlockMetadata(pos);
 
     for (dim.server.connections.items) |connection| {
         if (connection.session.dimension != dim.dimension) continue;
-        connection.session.sendBlockChange(dim.server.gpa, x, y, z, block, metadata) catch |err| switch (err) {
+        connection.session.sendBlockChange(dim.server.gpa, pos, block, metadata) catch |err| switch (err) {
             error.OutOfMemory, error.WriteFailed => return error.OutOfMemory,
             error.StringTooLong, error.InvalidUtf8 => unreachable,
         };
@@ -156,16 +157,14 @@ fn updateAllRenderers(_: *anyopaque) std.mem.Allocator.Error!void {}
 
 fn playNote(
     context: *anyopaque,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     instrument: world.note.Instrument,
     pitch: u8,
 ) void {
     const dim: *Dim = @ptrCast(@alignCast(context));
     for (dim.server.connections.items) |connection| {
         if (connection.session.dimension != dim.dimension) continue;
-        connection.session.sendNote(dim.server.gpa, x, y, z, instrument, pitch) catch {};
+        connection.session.sendNote(dim.server.gpa, pos, instrument, pitch) catch {};
     }
 }
 
@@ -271,7 +270,7 @@ fn findSpawn(level: *game.Level) ![3]i32 {
 
     var y: i32 = world.Chunk.height - 2;
     while (y > 0) : (y -= 1) {
-        if (!level.world_map.getBlock(8, y, 8).isSolid()) continue;
+        if (!level.world_map.getBlock(.init(8, y, 8)).isSolid()) continue;
         return .{ 8, y + 1, 8 };
     }
     return .{ 8, 64, 8 };
@@ -330,11 +329,11 @@ fn broadcastSleep(server: *Server, from: *Connection, change: Session.SleepChang
 
 fn broadcastSign(server: *Server, which: world.Dimension, at: world.World.BlockPos) void {
     const dim = server.dimOf(which);
-    const post = dim.level.world_map.signAt(at.x, at.y, at.z) orelse return;
+    const post = dim.level.world_map.signAt(at) orelse return;
     for (server.connections.items) |connection| {
         if (connection.session.dimension != which) continue;
         if (!connection.session.seesChunkAt(at.x, at.z)) continue;
-        connection.session.sendSign(server.gpa, at.x, at.y, at.z, post) catch {};
+        connection.session.sendSign(server.gpa, at, post) catch {};
     }
 }
 

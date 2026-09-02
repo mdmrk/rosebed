@@ -270,7 +270,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(128);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        _ = try dungeons.generate(world_map, &decorate_rand, x, y, z);
+        _ = try dungeons.generate(world_map, &decorate_rand, .init(x, y, z));
     }
 
     decorate.generateClayPatches(world_map, chunk_x, chunk_z, &decorate_rand);
@@ -285,14 +285,14 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(120) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        try springs.generate(world_map, x, y, z, .flowing_water);
+        try springs.generate(world_map, .init(x, y, z), .flowing_water);
     }
 
     for (0..20) |_| {
         const x = base_x + decorate_rand.nextIntBound(16) + 8;
         const y = decorate_rand.nextIntBound(decorate_rand.nextIntBound(decorate_rand.nextIntBound(112) + 8) + 8);
         const z = base_z + decorate_rand.nextIntBound(16) + 8;
-        try springs.generate(world_map, x, y, z, .flowing_lava);
+        try springs.generate(world_map, .init(x, y, z), .flowing_lava);
     }
 
     const snow_climate = self.climate.sample(base_x + 8, base_z + 8);
@@ -302,7 +302,7 @@ pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, ch
 fn findTopSolidBlock(world_map: *const World, x: i32, z: i32) i32 {
     var y: i32 = 127;
     while (y > 0) : (y -= 1) {
-        const material = world_map.getBlock(x, y, z).material();
+        const material = world_map.getBlock(.init(x, y, z)).material();
         if (material.isSolid() or material.isLiquid()) return y + 1;
     }
     return -1;
@@ -322,11 +322,11 @@ fn placeSnowLayers(world_map: *World, base_x: i32, base_z: i32, temperatures: *c
             const temperature = temperatures[climate_idx] - altitude_penalty;
             if (temperature >= 0.5 or top_y <= 0 or top_y >= 128) continue;
 
-            if (world_map.getBlock(x, top_y, z) != .air) continue;
-            const below = world_map.getBlock(x, top_y - 1, z).material();
+            if (world_map.getBlock(.init(x, top_y, z)) != .air) continue;
+            const below = world_map.getBlock(.init(x, top_y - 1, z)).material();
             if (!below.isSolid() or below == .ice) continue;
 
-            try world_map.setBlockWithNotify(x, top_y, z, .snow_layer);
+            try world_map.setBlockWithNotify(.init(x, top_y, z), .snow_layer);
         }
     }
 }
@@ -438,7 +438,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
     var found_snow = false;
     for (8..24) |x| {
         for (8..24) |z| {
-            if (cold_world.getBlock(@intCast(x), 71, @intCast(z)) == .snow_layer) found_snow = true;
+            if (cold_world.getBlock(.init(@intCast(x), 71, @intCast(z))) == .snow_layer) found_snow = true;
         }
     }
     try std.testing.expect(found_snow);
@@ -450,7 +450,7 @@ test "snow layers form on solid ground in cold climates but not warm ones" {
 
     for (8..24) |x| {
         for (8..24) |z| {
-            try std.testing.expect(warm_world.getBlock(@intCast(x), 71, @intCast(z)) != .snow_layer);
+            try std.testing.expect(warm_world.getBlock(.init(@intCast(x), 71, @intCast(z))) != .snow_layer);
         }
     }
 }
@@ -463,24 +463,24 @@ test "the snow pass covers the 16x16 area starting eight blocks into the chunk" 
 
     for (8..24) |x| {
         for (8..24) |z| {
-            try std.testing.expectEqual(.snow_layer, w.getBlock(@intCast(x), 71, @intCast(z)));
+            try std.testing.expectEqual(.snow_layer, w.getBlock(.init(@intCast(x), 71, @intCast(z))));
         }
     }
-    try std.testing.expectEqual(.air, w.getBlock(7, 71, 8));
-    try std.testing.expectEqual(.air, w.getBlock(8, 71, 7));
-    try std.testing.expectEqual(.air, w.getBlock(24, 71, 24));
+    try std.testing.expectEqual(.air, w.getBlock(.init(7, 71, 8)));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 71, 7)));
+    try std.testing.expectEqual(.air, w.getBlock(.init(24, 71, 24)));
 }
 
 test "snow does not settle on ice" {
     var w = try grassPlateauWorld();
     defer w.deinit();
-    w.setBlock(12, 70, 12, .ice);
+    w.setBlock(.init(12, 70, 12), .ice);
 
     const cold = uniformTemperatures(0.1);
     try placeSnowLayers(&w, 0, 0, &cold);
 
-    try std.testing.expectEqual(.air, w.getBlock(12, 71, 12));
-    try std.testing.expectEqual(.snow_layer, w.getBlock(13, 71, 12));
+    try std.testing.expectEqual(.air, w.getBlock(.init(12, 71, 12)));
+    try std.testing.expectEqual(.snow_layer, w.getBlock(.init(13, 71, 12)));
 }
 
 fn uniformClimate(temperature: f64, humidity: f64) Climate.Sample {

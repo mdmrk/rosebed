@@ -3,6 +3,7 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const achievements = @import("achievements.zig");
 const Entity = @import("Entity.zig");
@@ -630,30 +631,28 @@ pub fn sleepInBedAt(
     self: *Player,
     world_map: *const world.World,
     dimension: world.Dimension,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
 ) SleepStatus {
     if (self.sleeping or self.isDead()) return .other_problem;
     if (dimension == .nether) return .not_possible_here;
     if (world_map.isDaytime()) return .not_possible_now;
-    if (@abs(self.base.position.x - @as(f64, @floatFromInt(x))) > bed_reach_x) return .too_far_away;
-    if (@abs(self.base.position.y + eye_height - @as(f64, @floatFromInt(y))) > bed_reach_y) return .too_far_away;
-    if (@abs(self.base.position.z - @as(f64, @floatFromInt(z))) > bed_reach_x) return .too_far_away;
+    if (@abs(self.base.position.x - @as(f64, @floatFromInt(pos.x))) > bed_reach_x) return .too_far_away;
+    if (@abs(self.base.position.y + eye_height - @as(f64, @floatFromInt(pos.y))) > bed_reach_y) return .too_far_away;
+    if (@abs(self.base.position.z - @as(f64, @floatFromInt(pos.z))) > bed_reach_x) return .too_far_away;
 
-    self.layInBed(world_map, x, y, z);
+    self.layInBed(world_map, pos);
     return .ok;
 }
 
-pub fn layInBed(self: *Player, world_map: *const world.World, x: i32, y: i32, z: i32) void {
+pub fn layInBed(self: *Player, world_map: *const world.World, pos: BlockPos) void {
     self.base.width = sleep_size;
     self.base.height = sleep_size;
 
     var toward_x: f64 = 0.5;
     var toward_z: f64 = 0.5;
     self.bed_offset = .{ 0, 0 };
-    if (world_map.getChunk(x >> 4, z >> 4) != null) {
-        switch (world.block.bedFacing(world_map.getBlockMetadata(x, y, z))) {
+    if (world_map.getChunk(pos.x >> 4, pos.z >> 4) != null) {
+        switch (world.block.bedFacing(world_map.getBlockMetadata(pos))) {
             0 => {
                 toward_z = 0.9;
                 self.bed_offset[1] = -bed_body_reach;
@@ -674,14 +673,14 @@ pub fn layInBed(self: *Player, world_map: *const world.World, x: i32, y: i32, z:
     }
 
     self.tp(.{
-        .x = @as(f64, @floatFromInt(x)) + toward_x,
-        .y = @as(f64, @floatFromInt(y)) + bed_pillow_height - sleep_eye_height,
-        .z = @as(f64, @floatFromInt(z)) + toward_z,
+        .x = @as(f64, @floatFromInt(pos.x)) + toward_x,
+        .y = @as(f64, @floatFromInt(pos.y)) + bed_pillow_height - sleep_eye_height,
+        .z = @as(f64, @floatFromInt(pos.z)) + toward_z,
     });
 
     self.sleeping = true;
     self.sleep_timer = 0;
-    self.bed = .{ x, y, z };
+    self.bed = .{ pos.x, pos.y, pos.z };
     self.base.motion = math.Vec3.init(0, 0, 0);
 }
 
@@ -691,9 +690,9 @@ pub fn wakeUp(self: *Player, world_map: *world.World, immediately: bool, set_spa
     self.y_size = 0;
 
     if (self.bed) |spot| {
-        if (world_map.getBlock(spot[0], spot[1], spot[2]) == .bed) {
-            try world.block_update.setBedOccupied(world_map, spot[0], spot[1], spot[2], false);
-            const stand = world.block_update.bedRespawnSpot(world_map, spot[0], spot[1], spot[2], 0) orelse
+        if (world_map.getBlock(.init(spot[0], spot[1], spot[2])) == .bed) {
+            try world.block_update.setBedOccupied(world_map, .init(spot[0], spot[1], spot[2]), false);
+            const stand = world.block_update.bedRespawnSpot(world_map, .init(spot[0], spot[1], spot[2]), 0) orelse
                 [3]i32{ spot[0], spot[1] + 1, spot[2] };
             self.tp(.{
                 .x = @as(f64, @floatFromInt(stand[0])) + 0.5,
@@ -722,12 +721,12 @@ pub fn isMovementBlocked(self: Player) bool {
 
 pub fn isInBed(self: Player, world_map: *const world.World) bool {
     const spot = self.bed orelse return false;
-    return world_map.getBlock(spot[0], spot[1], spot[2]) == .bed;
+    return world_map.getBlock(.init(spot[0], spot[1], spot[2])) == .bed;
 }
 
 pub fn bedOrientationDegrees(self: Player, world_map: *const world.World) f32 {
     const spot = self.bed orelse return 0;
-    return switch (world.block.bedFacing(world_map.getBlockMetadata(spot[0], spot[1], spot[2]))) {
+    return switch (world.block.bedFacing(world_map.getBlockMetadata(.init(spot[0], spot[1], spot[2])))) {
         0 => 90,
         1 => 0,
         2 => 270,
@@ -873,8 +872,8 @@ pub fn sleepFacingDegrees(self: Player, world_map: *const world.World) f32 {
     const x = math.util.floorDouble(self.base.position.x);
     const y = math.util.floorDouble(self.anchorY());
     const z = math.util.floorDouble(self.base.position.z);
-    if (world_map.getBlock(x, y, z) != .bed) return 0;
-    return @floatFromInt(@as(i32, world.block.bedFacing(world_map.getBlockMetadata(x, y, z))) * 90);
+    if (world_map.getBlock(.init(x, y, z)) != .bed) return 0;
+    return @floatFromInt(@as(i32, world.block.bedFacing(world_map.getBlockMetadata(.init(x, y, z)))) * 90);
 }
 
 pub fn cameraRotation(self: Player, world_map: *const world.World) math.Mat4 {
@@ -902,7 +901,7 @@ pub fn isInsideOpaqueBlock(self: Player, world_map: *const world.World) bool {
         const x = math.util.floorDouble(self.base.position.x + dx);
         const y = math.util.floorDouble(self.base.position.y + eye_height + opaque_probe_eye + dy);
         const z = math.util.floorDouble(self.base.position.z + dz);
-        if (world_map.getBlock(x, y, z).isOpaqueCube()) return true;
+        if (world_map.getBlock(.init(x, y, z)).isOpaqueCube()) return true;
     }
     return false;
 }
@@ -1141,7 +1140,7 @@ test "resting on the ground stays grounded" {
 test "a cactus pricks the player perched on it" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .cactus);
+    w.setBlock(.init(8, 1, 8), .cactus);
 
     var pricked = Player.spawn(math.Vec3.init(8, 2.0 - 1.0 / 16.0, 8));
     pricked.base.on_ground = true;
@@ -1159,9 +1158,9 @@ test "a player pressed against a ladder climbs it instead of sliding down" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     for (1..9) |y| {
-        w.setBlock(8, @intCast(y), 9, .stone);
-        w.setBlock(8, @intCast(y), 8, .ladder);
-        w.setBlockMetadata(8, @intCast(y), 8, 2);
+        w.setBlock(.init(8, @intCast(y), 9), .stone);
+        w.setBlock(.init(8, @intCast(y), 8), .ladder);
+        w.setBlockMetadata(.init(8, @intCast(y), 8), 2);
     }
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
@@ -1177,9 +1176,9 @@ test "a sneaking player holds still on a ladder rather than sliding down it" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     for (1..9) |y| {
-        w.setBlock(8, @intCast(y), 9, .stone);
-        w.setBlock(8, @intCast(y), 8, .ladder);
-        w.setBlockMetadata(8, @intCast(y), 8, 2);
+        w.setBlock(.init(8, @intCast(y), 9), .stone);
+        w.setBlock(.init(8, @intCast(y), 8), .ladder);
+        w.setBlockMetadata(.init(8, @intCast(y), 8), 2);
     }
 
     var clinging = Player.spawn(math.Vec3.init(8, 3, 8));
@@ -1231,7 +1230,7 @@ test "the block underfoot decides how much momentum a tick keeps" {
     on_stone.base.motion.z = 0.1;
     on_stone.tick(&w, 0, 0, false, false);
 
-    w.setBlock(8, 0, 8, .ice);
+    w.setBlock(.init(8, 0, 8), .ice);
     var on_ice = Player.spawn(math.Vec3.init(8, 1, 8));
     on_ice.base.on_ground = true;
     on_ice.base.motion.z = 0.1;
@@ -1257,7 +1256,7 @@ test "walking accelerates less on ice than on stone" {
     on_stone.base.on_ground = true;
     on_stone.tick(&w, 0, 1, false, false);
 
-    w.setBlock(8, 0, 8, .ice);
+    w.setBlock(.init(8, 0, 8), .ice);
     var on_ice = Player.spawn(math.Vec3.init(8, 1, 8));
     on_ice.base.on_ground = true;
     on_ice.tick(&w, 0, 1, false, false);
@@ -1747,7 +1746,7 @@ test "a block at head height counts as being inside it" {
 test "a player walks up a slab without jumping" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(10, 1, 8, .slab);
+    w.setBlock(.init(10, 1, 8), .slab);
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.base.on_ground = true;
@@ -1765,7 +1764,7 @@ test "a player walks up a slab without jumping" {
 test "a player climbs a stair's tread and back in two steps, never jumping" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    try w.setBlockAndMetadataWithNotify(10, 1, 8, .stairs_cobblestone, 0);
+    try w.setBlockAndMetadataWithNotify(.init(10, 1, 8), .stairs_cobblestone, 0);
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.base.on_ground = true;
@@ -1786,7 +1785,7 @@ test "a player climbs a stair's tread and back in two steps, never jumping" {
 test "without step height the same slab stops the player where they stand" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(10, 1, 8, .slab);
+    w.setBlock(.init(10, 1, 8), .slab);
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.base.step_height = 0;
@@ -1834,7 +1833,7 @@ const HurtSound = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *HurtSound) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -2077,10 +2076,10 @@ fn bedWorld(gpa: std.mem.Allocator, facing: u2) !world.World {
     errdefer w.deinit();
 
     const step = world.block.bedStep(facing);
-    w.setBlock(8, 2, 8, .bed);
-    w.setBlockMetadata(8, 2, 8, @as(u4, facing) | world.block.bed_pillow_bit);
-    w.setBlock(8 + step[0], 2, 8 + step[1], .bed);
-    w.setBlockMetadata(8 + step[0], 2, 8 + step[1], facing);
+    w.setBlock(.init(8, 2, 8), .bed);
+    w.setBlockMetadata(.init(8, 2, 8), @as(u4, facing) | world.block.bed_pillow_bit);
+    w.setBlock(.init(8 + step[0], 2, 8 + step[1]), .bed);
+    w.setBlockMetadata(.init(8 + step[0], 2, 8 + step[1]), facing);
     w.time = 14000;
     w.skylight_subtracted = 11;
     return w;
@@ -2091,7 +2090,7 @@ test "a bed at night takes the player and puts them on the pillow" {
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
     try std.testing.expect(player.sleeping);
     try std.testing.expectEqual(@as(?[3]i32, .{ 8, 2, 8 }), player.bed);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 + 15.0 / 16.0 - 0.2), player.base.position.y, 1.0e-9);
@@ -2104,17 +2103,17 @@ test "daylight, distance and the nether each refuse the bed for their own reason
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.not_possible_here, player.sleepInBedAt(&w, .nether, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.not_possible_here, player.sleepInBedAt(&w, .nether, .init(8, 2, 8)));
 
     var far = Player.spawn(math.Vec3.init(20.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.too_far_away, far.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.too_far_away, far.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
 
     w.skylight_subtracted = 0;
-    try std.testing.expectEqual(SleepStatus.not_possible_now, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.not_possible_now, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
 
     w.skylight_subtracted = 11;
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
-    try std.testing.expectEqual(SleepStatus.other_problem, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
+    try std.testing.expectEqual(SleepStatus.other_problem, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
 }
 
 test "the sleep timer fills over a hundred ticks and drains over ten more" {
@@ -2143,12 +2142,12 @@ test "waking clears the occupied bit, restores the box and claims the bed as spa
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
-    try world.block_update.setBedOccupied(&w, 8, 2, 8, true);
+    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
+    try world.block_update.setBedOccupied(&w, .init(8, 2, 8), true);
 
     try player.wakeUp(&w, false, true);
     try std.testing.expect(!player.sleeping);
-    try std.testing.expect(!world.block.bedIsOccupied(w.getBlockMetadata(8, 2, 8)));
+    try std.testing.expect(!world.block.bedIsOccupied(w.getBlockMetadata(.init(8, 2, 8))));
     try std.testing.expectEqual(height, player.base.height);
     try std.testing.expectEqual(@as(?[3]i32, .{ 8, 2, 8 }), player.spawn_point);
     try std.testing.expectEqual(sleep_fade_ticks, player.sleep_timer);
@@ -2159,7 +2158,7 @@ test "the bed's facing decides which way the body lies and where the camera look
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
     try std.testing.expectApproxEqAbs(@as(f32, 1.8), player.bed_offset[1], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 270.0), player.bedOrientationDegrees(&w), 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.base.position.z, 1.0e-6);
@@ -2170,7 +2169,7 @@ test "the sleeping camera looks down the bed and ignores where the mouse points"
     defer w.deinit();
 
     var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, 8, 2, 8));
+    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
     player.base.prev_position = player.base.position;
 
     const settled = player.cameraRotation(&w);

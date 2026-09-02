@@ -14,6 +14,7 @@ const remote = @import("remote");
 const render = @import("render");
 const sdl3 = @import("sdl3");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Link = @import("Link.zig");
 
@@ -224,9 +225,7 @@ const save_chunks_per_pass: usize = 24;
 const OptionsParent = enum { title, pause };
 
 const Digging = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: world.BlockPos,
     progress: f32,
     sound_ticks: u32 = 0,
 };
@@ -569,21 +568,21 @@ fn clickLeft(app_state: *AppState) !void {
         return;
     };
     if (app_state.digging != null) return;
-    switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
+    switch (app_state.level.world_map.getBlock(hit.pos)) {
         .door_wood => {
-            try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
+            try world.block_update.toggleDoor(&app_state.level.world_map, hit.pos);
             try applyBlockChanges(app_state);
         },
         .trapdoor => {
-            try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
+            try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.pos);
             try applyBlockChanges(app_state);
         },
-        .cake => try game.interact.eatCakeSlice(interactContext(app_state), hit.x, hit.y, hit.z),
+        .cake => try game.interact.eatCakeSlice(interactContext(app_state), hit.pos),
         .lever, .button => {
-            _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
+            _ = try world.redstone.activate(&app_state.level.world_map, hit.pos);
             try applyBlockChanges(app_state);
         },
-        .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
+        .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.pos),
         else => {},
     }
 }
@@ -600,19 +599,19 @@ fn digStep(app_state: *AppState) !void {
         return;
     };
 
-    if (app_state.digging == null or app_state.digging.?.x != hit.x or app_state.digging.?.y != hit.y or app_state.digging.?.z != hit.z) {
-        app_state.digging = .{ .x = hit.x, .y = hit.y, .z = hit.z, .progress = 0 };
+    if (app_state.digging == null or !std.meta.eql(app_state.digging.?.pos, hit.pos)) {
+        app_state.digging = .{ .pos = hit.pos, .progress = 0 };
         try startDigging(app_state, hit);
     }
 
-    const block_id = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
+    const block_id = app_state.level.world_map.getBlock(hit.pos);
     const strength = block_id.strength(
         app_state.player.inventory.selectedStack(),
         app_state.player.digSpeedFactor(&app_state.level.world_map),
     );
     if (strength <= 0.0) return;
     if (strength >= 1.0) {
-        try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
+        try breakBlock(app_state, hit.pos, block_id);
         try applyBlockChanges(app_state);
         return;
     }
@@ -621,9 +620,9 @@ fn digStep(app_state: *AppState) !void {
     if (app_state.digging.?.sound_ticks % 4 == 0) {
         const step_sound = block_id.stepSound();
         app_state.level.world_map.playSoundEffect(
-            @as(f64, @floatFromInt(hit.x)) + 0.5,
-            @as(f64, @floatFromInt(hit.y)) + 0.5,
-            @as(f64, @floatFromInt(hit.z)) + 0.5,
+            @as(f64, @floatFromInt(hit.pos.x)) + 0.5,
+            @as(f64, @floatFromInt(hit.pos.y)) + 0.5,
+            @as(f64, @floatFromInt(hit.pos.z)) + 0.5,
             step_sound.walk(),
             (step_sound.volume() + 1.0) / 8.0,
             step_sound.pitch() * 0.5,
@@ -632,40 +631,38 @@ fn digStep(app_state: *AppState) !void {
     app_state.digging.?.sound_ticks += 1;
     try app_state.level.entities.spawnBlockHitParticle(
         app_state.gpa,
-        hit.x,
-        hit.y,
-        hit.z,
+        hit.pos,
         hit.face,
-        block_id.selectionBounds(app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
-        block_id.particleTile(app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z)),
-        particleTint(app_state, block_id, hit.x, hit.y, hit.z),
+        block_id.selectionBounds(app_state.level.world_map.getBlockMetadata(hit.pos)),
+        block_id.particleTile(app_state.level.world_map.getBlockMetadata(hit.pos)),
+        particleTint(app_state, block_id, hit.pos),
         &app_state.level.world_map.rand,
     );
     if (app_state.digging.?.progress >= 1.0) {
-        try breakBlock(app_state, hit.x, hit.y, hit.z, block_id);
+        try breakBlock(app_state, hit.pos, block_id);
         try applyBlockChanges(app_state);
     }
 }
 
-fn particleTint(app_state: *const AppState, id: world.Block, x: i32, y: i32, z: i32) [3]u8 {
+fn particleTint(app_state: *const AppState, id: world.Block, pos: BlockPos) [3]u8 {
     if (id == .grass) return .{ 255, 255, 255 };
     const width = world.Chunk.width;
-    const chunk = app_state.level.world_map.getChunk(@divFloor(x, width), @divFloor(z, width)) orelse return .{ 255, 255, 255 };
-    const lx: u32 = @intCast(@mod(x, width));
-    const lz: u32 = @intCast(@mod(z, width));
+    const chunk = app_state.level.world_map.getChunk(@divFloor(pos.x, width), @divFloor(pos.z, width)) orelse return .{ 255, 255, 255 };
+    const lx: u32 = @intCast(@mod(pos.x, width));
+    const lz: u32 = @intCast(@mod(pos.z, width));
     return render.chunk_mesher.blockTint(
         app_state.colorizer,
         id,
-        app_state.level.world_map.getBlockMetadata(x, y, z),
+        app_state.level.world_map.getBlockMetadata(pos),
         world.Side.up,
         chunk.getTemperature(lx, lz),
         chunk.getHumidity(lx, lz),
     );
 }
 
-fn markBlockNeedsUpdate(context: *anyopaque, x: i32, _: i32, z: i32) std.mem.Allocator.Error!void {
+fn markBlockNeedsUpdate(context: *anyopaque, pos: BlockPos) std.mem.Allocator.Error!void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
-    try app_state.chunks.markBlockDirty(app_state.gpa, x, z);
+    try app_state.chunks.markBlockDirty(app_state.gpa, pos.x, pos.z);
 }
 
 fn updateAllRenderers(context: *anyopaque) std.mem.Allocator.Error!void {
@@ -675,18 +672,16 @@ fn updateAllRenderers(context: *anyopaque) std.mem.Allocator.Error!void {
 
 fn playNote(
     context: *anyopaque,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     instrument: world.note.Instrument,
     pitch: u8,
 ) void {
     _ = instrument;
     const app_state: *AppState = @ptrCast(@alignCast(context));
     const at = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + note_particle_lift,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + note_particle_lift,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
     );
     const tone = @as(f32, @floatFromInt(pitch)) / note_tone_span;
     app_state.level.entities.particles.append(
@@ -727,13 +722,13 @@ fn playSound(context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, v
     if (app_state.sound) |*device| device.playSound(sound, x, y, z, volume, pitch) catch {};
 }
 
-fn playRecord(context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void {
+fn playRecord(context: *anyopaque, name: ?[]const u8, pos: BlockPos) void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
     if (app_state.sound) |*sound| sound.playStreaming(
         name,
-        @floatFromInt(x),
-        @floatFromInt(y),
-        @floatFromInt(z),
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
         1.0,
     ) catch {};
 }
@@ -751,17 +746,17 @@ fn faceIndex(face: world.block.Side) u8 {
 
 fn startDigging(app_state: *AppState, hit: game.raycast.Hit) !void {
     if (app_state.link) |link| {
-        return link.connection.reportDigStart(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face));
+        return link.connection.reportDigStart(app_state.gpa, hit.pos, faceIndex(hit.face));
     }
-    try app_state.level.world_map.onBlockHit(hit.x, hit.y, hit.z, hit.face);
+    try app_state.level.world_map.onBlockHit(hit.pos, hit.face);
 
-    const punched = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
+    const punched = app_state.level.world_map.getBlock(hit.pos);
     if (punched == .tnt and holdingFlintAndSteel(app_state)) {
-        world.tnt.markLit(&app_state.level.world_map, hit.x, hit.y, hit.z);
+        world.tnt.markLit(&app_state.level.world_map, hit.pos);
         return;
     }
     if (punched != .note_block) return;
-    try world.note.onPunched(&app_state.level.world_map, hit.x, hit.y, hit.z);
+    try world.note.onPunched(&app_state.level.world_map, hit.pos);
 }
 
 fn holdingFlintAndSteel(app_state: *const AppState) bool {
@@ -769,44 +764,42 @@ fn holdingFlintAndSteel(app_state: *const AppState) bool {
     return stack.id.eql(.{ .item = .flint_and_steel });
 }
 
-fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Block) !void {
+fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void {
     if (app_state.link) |link| {
-        try link.connection.reportDig(app_state.gpa, x, y, z, 1);
+        try link.connection.reportDig(app_state.gpa, pos, 1);
         app_state.digging = null;
         try wearHeldItem(app_state, block_id);
         return;
     }
 
-    const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
+    const meta = app_state.level.world_map.getBlockMetadata(pos);
     const held = app_state.player.inventory.selectedStack();
     const harvested = block_id.harvestableWith(held);
     const step_sound = block_id.stepSound();
     app_state.level.world_map.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         step_sound.destroy(),
         (step_sound.volume() + 1.0) / 2.0,
         step_sound.pitch() * 0.8,
     );
     try app_state.level.entities.spawnBlockDestroyParticles(
         app_state.gpa,
-        x,
-        y,
-        z,
+        pos,
         block_id.particleTile(meta),
-        particleTint(app_state, block_id, x, y, z),
+        particleTint(app_state, block_id, pos),
         &app_state.level.world_map.rand,
     );
     const lit_tnt = block_id == .tnt and world.tnt.isLit(meta);
-    try app_state.level.world_map.setBlockWithNotify(x, y, z, .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, x, y, z);
-    try spillFurnace(app_state, x, y, z);
-    try spillDispenser(app_state, x, y, z);
-    try ejectBrokenJukebox(app_state, x, y, z);
-    try closeBrokenChest(app_state, x, y, z);
-    _ = app_state.level.world_map.removeSign(x, y, z);
-    _ = app_state.level.world_map.removeNote(x, y, z);
+    try app_state.level.world_map.setBlockWithNotify(pos, .air);
+    if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, pos);
+    try spillFurnace(app_state, pos);
+    try spillDispenser(app_state, pos);
+    try ejectBrokenJukebox(app_state, pos);
+    try closeBrokenChest(app_state, pos);
+    _ = app_state.level.world_map.removeSign(pos);
+    _ = app_state.level.world_map.removeNote(pos);
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
 
@@ -814,60 +807,58 @@ fn breakBlock(app_state: *AppState, x: i32, y: i32, z: i32, block_id: world.Bloc
         try app_state.stats.mine(app_state.gpa, block_id);
         const dropped = if (lit_tnt) null else block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
         if (dropped) |d| {
-            try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+            try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
         }
         if (!lit_tnt) {
             var extra: [3]world.block.Stack = undefined;
             for (block_id.bonusDrops(meta, &app_state.level.world_map.rand, &extra)) |d| {
-                try spawnDroppedItem(app_state, x, y, z, .{ .id = d.id, .count = d.count, .meta = d.meta });
+                try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
             }
         }
     }
 }
 
-fn spillFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    var removed = app_state.level.world_map.removeFurnace(x, y, z) orelse return;
+fn spillFurnace(app_state: *AppState, pos: BlockPos) !void {
+    var removed = app_state.level.world_map.removeFurnace(pos) orelse return;
 
     if (app_state.furnace_open) |open| {
-        if (open.x == x and open.y == y and open.z == z) try closeContainer(app_state);
+        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
     }
 
     for (0..world.furnace.slot_count) |index| {
         const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, x, y, z, stack);
+        try spawnDroppedItem(app_state, pos, stack);
     }
 }
 
-fn spillDispenser(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    var removed = app_state.level.world_map.removeDispenser(x, y, z) orelse return;
+fn spillDispenser(app_state: *AppState, pos: BlockPos) !void {
+    var removed = app_state.level.world_map.removeDispenser(pos) orelse return;
 
     if (app_state.dispenser_open) |open| {
-        if (open.x == x and open.y == y and open.z == z) try closeContainer(app_state);
+        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
     }
 
     for (0..world.dispenser.slot_count) |index| {
         const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, x, y, z, stack);
+        try spawnDroppedItem(app_state, pos, stack);
     }
 }
 
-fn ejectBrokenJukebox(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    const removed = app_state.level.world_map.removeJukebox(x, y, z) orelse return;
+fn ejectBrokenJukebox(app_state: *AppState, pos: BlockPos) !void {
+    const removed = app_state.level.world_map.removeJukebox(pos) orelse return;
     const record = removed.record orelse return;
     try app_state.level.entities.ejectRecord(
         app_state.gpa,
-        x,
-        y,
-        z,
+        pos,
         .{ .id = .{ .item = record }, .count = 1 },
         &app_state.level.world_map.rand,
     );
 }
 
-fn closeBrokenChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
+fn closeBrokenChest(app_state: *AppState, pos: BlockPos) !void {
     const open = app_state.chest_open orelse return;
-    if (y != open.y) return;
-    const reach = @abs(x - open.x) + @abs(z - open.z);
+    if (pos.y != open.y) return;
+    const reach = @abs(pos.x - open.x) + @abs(pos.z - open.z);
     if (reach > 1) return;
     try closeContainer(app_state);
 }
@@ -1079,8 +1070,8 @@ fn containerOpen(app_state: *const AppState) bool {
         app_state.minecart_open != game.Entity.no_id or app_state.sign_edit != null;
 }
 
-fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
-    app_state.sign_edit = .{ .x = x, .y = y, .z = z };
+fn openSignEditor(app_state: *AppState, pos: BlockPos) void {
+    app_state.sign_edit = .{ .pos = pos };
     sdl3.keyboard.startTextInput(app_state.window) catch {};
     updateMouseMode(app_state) catch {};
 }
@@ -1088,8 +1079,8 @@ fn openSignEditor(app_state: *AppState, x: i32, y: i32, z: i32) void {
 fn closeSignEditor(app_state: *AppState) !void {
     if (app_state.link) |link| {
         if (app_state.sign_edit) |open| {
-            if (app_state.level.world_map.signAt(open.x, open.y, open.z)) |post| {
-                link.connection.reportSign(app_state.gpa, open.x, open.y, open.z, post) catch {};
+            if (app_state.level.world_map.signAt(open.pos)) |post| {
+                link.connection.reportSign(app_state.gpa, open.pos, post) catch {};
             }
         }
     }
@@ -1100,7 +1091,7 @@ fn closeSignEditor(app_state: *AppState) !void {
 
 fn editedSign(app_state: *AppState) ?*world.sign.Sign {
     const open = app_state.sign_edit orelse return null;
-    return app_state.level.world_map.signAt(open.x, open.y, open.z);
+    return app_state.level.world_map.signAt(open.pos);
 }
 
 fn worldFocused(app_state: *const AppState) bool {
@@ -1140,15 +1131,15 @@ fn openWorkbench(app_state: *AppState) !void {
     try updateMouseMode(app_state);
 }
 
-fn openFurnace(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    _ = try app_state.level.world_map.addFurnace(x, y, z);
-    app_state.furnace_open = .{ .x = x, .y = y, .z = z };
+fn openFurnace(app_state: *AppState, pos: BlockPos) !void {
+    _ = try app_state.level.world_map.addFurnace(pos);
+    app_state.furnace_open = .{ .x = pos.x, .y = pos.y, .z = pos.z };
     try updateMouseMode(app_state);
 }
 
 fn openedFurnace(app_state: *AppState) ?*world.furnace.Furnace {
     const pos = app_state.furnace_open orelse return null;
-    return app_state.level.world_map.furnaceAt(pos.x, pos.y, pos.z);
+    return app_state.level.world_map.furnaceAt(pos);
 }
 
 fn openedMinecart(app_state: *AppState) ?*game.Minecart {
@@ -1156,26 +1147,26 @@ fn openedMinecart(app_state: *AppState) ?*game.Minecart {
     return app_state.level.entities.minecartById(app_state.minecart_open);
 }
 
-fn openDispenser(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    _ = try app_state.level.world_map.addDispenser(x, y, z);
-    app_state.dispenser_open = .{ .x = x, .y = y, .z = z };
+fn openDispenser(app_state: *AppState, pos: BlockPos) !void {
+    _ = try app_state.level.world_map.addDispenser(pos);
+    app_state.dispenser_open = .{ .x = pos.x, .y = pos.y, .z = pos.z };
     try updateMouseMode(app_state);
 }
 
 fn openedDispenser(app_state: *AppState) ?*world.dispenser.Dispenser {
     const pos = app_state.dispenser_open orelse return null;
-    if (app_state.level.world_map.getBlock(pos.x, pos.y, pos.z) != .dispenser) return null;
-    return app_state.level.world_map.dispenserAt(pos.x, pos.y, pos.z);
+    if (app_state.level.world_map.getBlock(pos) != .dispenser) return null;
+    return app_state.level.world_map.dispenserAt(pos);
 }
 
-fn openChest(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    if (app_state.level.world_map.chestIsBlocked(x, y, z)) return;
+fn openChest(app_state: *AppState, pos: BlockPos) !void {
+    if (app_state.level.world_map.chestIsBlocked(pos)) return;
 
-    const pair = app_state.level.world_map.chestPairAt(x, y, z);
-    _ = try app_state.level.world_map.addChest(pair.upper.x, pair.upper.y, pair.upper.z);
-    if (pair.lower) |lower| _ = try app_state.level.world_map.addChest(lower.x, lower.y, lower.z);
+    const pair = app_state.level.world_map.chestPairAt(pos);
+    _ = try app_state.level.world_map.addChest(pair.upper);
+    if (pair.lower) |lower| _ = try app_state.level.world_map.addChest(lower);
 
-    app_state.chest_open = .{ .x = x, .y = y, .z = z };
+    app_state.chest_open = .{ .x = pos.x, .y = pos.y, .z = pos.z };
     try updateMouseMode(app_state);
 }
 
@@ -1191,12 +1182,12 @@ const OpenChest = struct {
 fn openedChest(app_state: *AppState) ?OpenChest {
     const pos = app_state.chest_open orelse return null;
     const world_map = &app_state.level.world_map;
-    if (world_map.getBlock(pos.x, pos.y, pos.z) != .chest) return null;
+    if (world_map.getBlock(pos) != .chest) return null;
 
-    const pair = world_map.chestPairAt(pos.x, pos.y, pos.z);
-    const upper = world_map.chestAt(pair.upper.x, pair.upper.y, pair.upper.z) orelse return null;
+    const pair = world_map.chestPairAt(pos);
+    const upper = world_map.chestAt(pair.upper) orelse return null;
     const half = pair.lower orelse return .{ .upper = upper, .lower = null };
-    const lower = world_map.chestAt(half.x, half.y, half.z) orelse return null;
+    const lower = world_map.chestAt(half) orelse return null;
     return .{ .upper = upper, .lower = lower };
 }
 
@@ -1280,7 +1271,7 @@ fn respawnPlayer(app_state: *AppState) !void {
     }
 
     if (app_state.player.spawn_point) |bed| {
-        if (world.block_update.bedRespawnSpot(&app_state.level.world_map, bed[0], bed[1], bed[2], 0)) |spot| {
+        if (world.block_update.bedRespawnSpot(&app_state.level.world_map, .init(bed[0], bed[1], bed[2]), 0)) |spot| {
             app_state.player.respawn(spawnPlacement(&app_state.level.world_map, spot));
             app_state.dead = false;
             app_state.level.setOccupantActive(true);
@@ -1362,11 +1353,11 @@ fn takeScreenshot(app_state: *AppState, width: gl.sizei, height: gl.sizei) void 
 fn lookedAtPosition(app_state: *AppState) math.Vec3 {
     const hit = pickedBlock(app_state) orelse return app_state.player.base.position;
 
-    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
     return math.Vec3.init(
-        @as(f64, @floatFromInt(target.x)) + 0.5,
-        @floatFromInt(target.y),
-        @as(f64, @floatFromInt(target.z)) + 0.5,
+        @as(f64, @floatFromInt(target.pos.x)) + 0.5,
+        @floatFromInt(target.pos.y),
+        @as(f64, @floatFromInt(target.pos.z)) + 0.5,
     );
 }
 
@@ -1908,8 +1899,8 @@ fn firstUncoveredBlock(app_state: *AppState, x: i32, z: i32) !world.Block {
     try app_state.level.world_map.ensureDecorated(&app_state.level.generator, @divFloor(x, width), @divFloor(z, width));
 
     var y: i32 = 63;
-    while (app_state.level.world_map.getBlock(x, y + 1, z) != .air) : (y += 1) {}
-    return app_state.level.world_map.getBlock(x, y, z);
+    while (app_state.level.world_map.getBlock(.init(x, y + 1, z)) != .air) : (y += 1) {}
+    return app_state.level.world_map.getBlock(.init(x, y, z));
 }
 
 fn findInitialSpawn(app_state: *AppState) ![3]i32 {
@@ -2337,8 +2328,8 @@ fn wearHeldItem(app_state: *AppState, destroyed: world.Block) !void {
     return interactContext(app_state).wearHeldItem(destroyed);
 }
 
-fn spawnDroppedItem(app_state: *AppState, x: i32, y: i32, z: i32, stack: game.Inventory.ItemStack) !void {
-    return interactContext(app_state).spawnDroppedItem(x, y, z, stack);
+fn spawnDroppedItem(app_state: *AppState, pos: BlockPos, stack: game.Inventory.ItemStack) !void {
+    return interactContext(app_state).spawnDroppedItem(pos, stack);
 }
 
 fn holdStack(app_state: *AppState, held: world.Item) void {
@@ -2353,59 +2344,59 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
     if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
     if (app_state.link) |link| return useBlockRemote(app_state, link);
     if (pickedBlock(app_state)) |hit| {
-        switch (app_state.level.world_map.getBlock(hit.x, hit.y, hit.z)) {
+        switch (app_state.level.world_map.getBlock(hit.pos)) {
             .workbench => {
                 try openWorkbench(app_state);
                 return true;
             },
             .furnace, .burning_furnace => {
-                try openFurnace(app_state, hit.x, hit.y, hit.z);
+                try openFurnace(app_state, hit.pos);
                 return true;
             },
             .chest => {
-                try openChest(app_state, hit.x, hit.y, hit.z);
+                try openChest(app_state, hit.pos);
                 return true;
             },
             .dispenser => {
-                try openDispenser(app_state, hit.x, hit.y, hit.z);
+                try openDispenser(app_state, hit.pos);
                 return true;
             },
             .door_wood => {
-                try world.block_update.toggleDoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
+                try world.block_update.toggleDoor(&app_state.level.world_map, hit.pos);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .door_iron => return true,
             .trapdoor => {
-                try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.x, hit.y, hit.z);
+                try world.block_update.toggleTrapdoor(&app_state.level.world_map, hit.pos);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .cake => {
-                try game.interact.eatCakeSlice(interactContext(app_state), hit.x, hit.y, hit.z);
+                try game.interact.eatCakeSlice(interactContext(app_state), hit.pos);
                 return true;
             },
             .bed => {
-                try sleepInBed(app_state, hit.x, hit.y, hit.z);
+                try sleepInBed(app_state, hit.pos);
                 return true;
             },
             .lever, .button, .repeater_off, .repeater_on => {
-                _ = try world.redstone.activate(&app_state.level.world_map, hit.x, hit.y, hit.z);
+                _ = try world.redstone.activate(&app_state.level.world_map, hit.pos);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .note_block => {
-                _ = try world.note.onActivated(&app_state.level.world_map, hit.x, hit.y, hit.z, .note_block);
+                _ = try world.note.onActivated(&app_state.level.world_map, hit.pos, .note_block);
                 try applyBlockChanges(app_state);
                 return true;
             },
             .jukebox => {
-                if (try game.interact.ejectJukeboxRecord(interactContext(app_state), hit.x, hit.y, hit.z)) return true;
+                if (try game.interact.ejectJukeboxRecord(interactContext(app_state), hit.pos)) return true;
             },
-            .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.x, hit.y, hit.z),
+            .ore_redstone, .ore_redstone_glowing => try game.interact.lightRedstoneOre(interactContext(app_state), hit.pos),
             else => |id| {
                 if (id.def().on_activated) |hook| {
-                    if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, id)) {
+                    if (try hook(&app_state.level.world_map, hit.pos, id)) {
                         try applyBlockChanges(app_state);
                         return true;
                     }
@@ -2418,8 +2409,8 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
 
 const bed_not_valid_line = "Your home bed was missing or obstructed";
 
-fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
-    const found = world.block_update.bedPillowAt(&app_state.level.world_map, x, y, z) orelse return;
+fn sleepInBed(app_state: *AppState, pos: BlockPos) !void {
+    const found = world.block_update.bedPillowAt(&app_state.level.world_map, pos) orelse return;
     const pillow = found.at;
 
     if (app_state.dimension == .nether) {
@@ -2432,12 +2423,12 @@ fn sleepInBed(app_state: *AppState, x: i32, y: i32, z: i32) !void {
             app_state.chat.addMessage(app_state.font, game.bed.occupied_line);
             return;
         }
-        try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], false);
+        try world.block_update.setBedOccupied(&app_state.level.world_map, .init(pillow[0], pillow[1], pillow[2]), false);
     }
 
-    switch (app_state.player.sleepInBedAt(&app_state.level.world_map, app_state.dimension, pillow[0], pillow[1], pillow[2])) {
+    switch (app_state.player.sleepInBedAt(&app_state.level.world_map, app_state.dimension, .init(pillow[0], pillow[1], pillow[2]))) {
         .ok => {
-            try world.block_update.setBedOccupied(&app_state.level.world_map, pillow[0], pillow[1], pillow[2], true);
+            try world.block_update.setBedOccupied(&app_state.level.world_map, .init(pillow[0], pillow[1], pillow[2]), true);
             try applyBlockChanges(app_state);
         },
         .not_possible_now => app_state.chat.addMessage(app_state.font, game.bed.no_sleep_line),
@@ -2509,30 +2500,28 @@ fn interactWithMinecart(app_state: *AppState, id: game.Entity.Id) !bool {
 fn placeSignAtTarget(app_state: *AppState) !bool {
     const hit = pickedBlock(app_state) orelse return false;
     if (hit.face == .down) return false;
-    if (!app_state.level.world_map.getBlock(hit.x, hit.y, hit.z).material().isSolid()) return false;
+    if (!app_state.level.world_map.getBlock(hit.pos).material().isSolid()) return false;
 
-    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.Chunk.height) return false;
-    if (!app_state.level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return false;
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return false;
+    if (!app_state.level.world_map.getBlock(target.pos).isReplaceable()) return false;
 
     if (hit.face == .up) {
         const facing = world.block.signPostFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, .sign_post, facing);
+        try app_state.level.world_map.setBlockAndMetadataWithNotify(target.pos, .sign_post, facing);
     } else {
         try app_state.level.world_map.setBlockAndMetadataWithNotify(
-            target.x,
-            target.y,
-            target.z,
+            target.pos,
             .wall_sign,
             @intFromEnum(hit.face),
         );
     }
 
-    _ = try app_state.level.world_map.addSign(target.x, target.y, target.z);
+    _ = try app_state.level.world_map.addSign(target.pos);
     try app_state.stats.use(app_state.gpa, .{ .item = .sign });
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
-    openSignEditor(app_state, target.x, target.y, target.z);
+    openSignEditor(app_state, target.pos);
     return true;
 }
 
@@ -2571,7 +2560,7 @@ fn useBlockRemote(app_state: *AppState, link: *Link) !bool {
         return true;
     };
 
-    try link.connection.reportPlace(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face), held);
+    try link.connection.reportPlace(app_state.gpa, hit.pos, faceIndex(hit.face), held);
     try openRemoteSignEditor(app_state, hit);
     return true;
 }
@@ -2641,10 +2630,10 @@ fn openRemoteSignEditor(app_state: *AppState, hit: game.raycast.Hit) !void {
     if (stack.id != .item or stack.id.item != .sign) return;
     if (hit.face == .down) return;
 
-    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.Chunk.height) return;
-    _ = try app_state.level.world_map.addSign(target.x, target.y, target.z);
-    openSignEditor(app_state, target.x, target.y, target.z);
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
+    _ = try app_state.level.world_map.addSign(target.pos);
+    openSignEditor(app_state, target.pos);
 }
 
 fn placeBlockAtTarget(app_state: *AppState) !bool {
@@ -2668,7 +2657,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             break :blk held.placedBlock() orelse {
                 if (held.def().on_use) |hook| {
                     if (pickedBlock(app_state)) |hit| {
-                        if (try hook(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face, held, stack.meta)) {
+                        if (try hook(&app_state.level.world_map, hit.pos, hit.face, held, stack.meta)) {
                             try applyBlockChanges(app_state);
                             return true;
                         }
@@ -2681,7 +2670,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     const hit = pickedBlock(app_state) orelse return false;
 
     if (app_state.link) |link| {
-        try link.connection.reportPlace(app_state.gpa, hit.x, hit.y, hit.z, faceIndex(hit.face), .{
+        try link.connection.reportPlace(app_state.gpa, hit.pos, faceIndex(hit.face), .{
             .id = stack.id.numeric(),
             .count = @intCast(stack.count),
             .damage = @bitCast(@as(u16, stack.meta)),
@@ -2690,16 +2679,16 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
         return true;
     }
 
-    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    const px = target.x;
-    const py = target.y;
-    const pz = target.z;
+    const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
+    const px = target.pos.x;
+    const py = target.pos.y;
+    const pz = target.pos.z;
     if (py < 0 or py >= world.Chunk.height) return false;
-    if (!app_state.level.world_map.getBlock(px, py, pz).isReplaceable()) return false;
-    if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, px, py, pz, placed, target.face)) return false;
-    if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(px, py, pz)) return false;
-    const meta = world.block_update.placementMetadata(&app_state.level.world_map, px, py, pz, placed, target.face, stack.blockMeta());
-    try app_state.level.world_map.setBlockAndMetadataWithNotify(px, py, pz, placed, meta);
+    if (!app_state.level.world_map.getBlock(.init(px, py, pz)).isReplaceable()) return false;
+    if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, .init(px, py, pz), placed, target.face)) return false;
+    if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(.init(px, py, pz))) return false;
+    const meta = world.block_update.placementMetadata(&app_state.level.world_map, .init(px, py, pz), placed, target.face, stack.blockMeta());
+    try app_state.level.world_map.setBlockAndMetadataWithNotify(.init(px, py, pz), placed, meta);
     const step_sound = placed.stepSound();
     app_state.level.world_map.playSoundEffect(
         @as(f64, @floatFromInt(px)) + 0.5,
@@ -2711,33 +2700,31 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     );
     if (placed == .furnace) {
         const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
-        _ = try app_state.level.world_map.addFurnace(px, py, pz);
+        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
+        _ = try app_state.level.world_map.addFurnace(.init(px, py, pz));
     }
-    if (placed == .chest) _ = try app_state.level.world_map.addChest(px, py, pz);
+    if (placed == .chest) _ = try app_state.level.world_map.addChest(.init(px, py, pz));
     if (placed == .dispenser) {
         const facing = world.block.dispenserFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
-        _ = try app_state.level.world_map.addDispenser(px, py, pz);
+        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
+        _ = try app_state.level.world_map.addDispenser(.init(px, py, pz));
     }
     if (placed.isStairs()) {
         const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
     }
     if (placed == .pumpkin or placed == .jack_o_lantern) {
         const facing = world.block.pumpkinFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(px, py, pz, facing);
+        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
     }
     try world.redstone.onBlockPlaced(
         &app_state.level.world_map,
-        px,
-        py,
-        pz,
+        .init(px, py, pz),
         placed,
         app_state.player.base.position,
         app_state.player.yaw,
     );
-    _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, px, py, pz);
+    _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, .init(px, py, pz));
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -3077,7 +3064,7 @@ fn spawnRainParticles(app_state: *AppState) !void {
         if (top > py + rain_particle_reach or top < py - rain_particle_reach) continue;
         if (!app_state.level.world_map.biomeAt(x, z).canSpawnLightningBolt()) continue;
 
-        const under = app_state.level.world_map.getBlock(x, top - 1, z);
+        const under = app_state.level.world_map.getBlock(.init(x, top - 1, z));
         if (under == .air) continue;
 
         const at = math.Vec3.init(
@@ -3134,9 +3121,9 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
         const x = px + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const y = py + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
         const z = pz + rand.nextIntBound(display_particle_range) - rand.nextIntBound(display_particle_range);
-        switch (app_state.level.world_map.getBlock(x, y, z)) {
+        switch (app_state.level.world_map.getBlock(.init(x, y, z))) {
             .flowing_lava, .stationary_lava => {
-                if (app_state.level.world_map.getBlock(x, y + 1, z) != .air) continue;
+                if (app_state.level.world_map.getBlock(.init(x, y + 1, z)) != .air) continue;
                 if (rand.nextIntBound(100) != 0) continue;
                 const position = math.Vec3.init(
                     @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()),
@@ -3158,16 +3145,14 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 }
                 try app_state.level.entities.spawnPortalParticles(
                     app_state.gpa,
-                    x,
-                    y,
-                    z,
+                    .init(x, y, z),
                     world.portal.spansX(&app_state.level.world_map, .{ .x = x, .y = y, .z = z }),
                     rand,
                 );
             },
             .flowing_water, .stationary_water => {
                 if (rand.nextIntBound(water_sound_chance) != 0) continue;
-                const meta = app_state.level.world_map.getBlockMetadata(x, y, z);
+                const meta = app_state.level.world_map.getBlockMetadata(.init(x, y, z));
                 if (meta == 0 or meta >= 8) continue;
                 app_state.level.world_map.playSoundEffect(
                     @as(f64, @floatFromInt(x)) + 0.5,
@@ -3192,58 +3177,44 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 try app_state.level.entities.spawnFireParticles(
                     app_state.gpa,
                     &app_state.level.world_map,
-                    x,
-                    y,
-                    z,
+                    .init(x, y, z),
                     rand,
                 );
             },
             .torch => try app_state.level.entities.spawnTorchParticles(
                 app_state.gpa,
-                x,
-                y,
-                z,
-                app_state.level.world_map.getBlockMetadata(x, y, z),
+                .init(x, y, z),
+                app_state.level.world_map.getBlockMetadata(.init(x, y, z)),
                 rand,
             ),
             .redstone_wire => try app_state.level.entities.spawnWireParticles(
                 app_state.gpa,
-                x,
-                y,
-                z,
-                app_state.level.world_map.getBlockMetadata(x, y, z),
+                .init(x, y, z),
+                app_state.level.world_map.getBlockMetadata(.init(x, y, z)),
                 rand,
             ),
             .torch_redstone_on => try app_state.level.entities.spawnRedstoneTorchParticles(
                 app_state.gpa,
-                x,
-                y,
-                z,
-                app_state.level.world_map.getBlockMetadata(x, y, z),
+                .init(x, y, z),
+                app_state.level.world_map.getBlockMetadata(.init(x, y, z)),
                 rand,
             ),
             .repeater_on => try app_state.level.entities.spawnRepeaterParticles(
                 app_state.gpa,
-                x,
-                y,
-                z,
-                app_state.level.world_map.getBlockMetadata(x, y, z),
+                .init(x, y, z),
+                app_state.level.world_map.getBlockMetadata(.init(x, y, z)),
                 rand,
             ),
             .ore_redstone_glowing => try app_state.level.entities.spawnRedstoneOreParticles(
                 app_state.gpa,
                 &app_state.level.world_map,
-                x,
-                y,
-                z,
+                .init(x, y, z),
                 rand,
             ),
             .burning_furnace => try app_state.level.entities.spawnFurnaceParticles(
                 app_state.gpa,
-                x,
-                y,
-                z,
-                app_state.level.world_map.getBlockMetadata(x, y, z),
+                .init(x, y, z),
+                app_state.level.world_map.getBlockMetadata(.init(x, y, z)),
                 rand,
             ),
             else => {},
@@ -3327,9 +3298,7 @@ fn stepFogBrightness(app_state: *AppState) void {
     const position = app_state.player.base.position;
     const light = world.light.brightnessAt(
         &app_state.level.world_map,
-        math.util.floorDouble(position.x),
-        math.util.floorDouble(position.y),
-        math.util.floorDouble(position.z),
+        .init(math.util.floorDouble(position.x), math.util.floorDouble(position.y), math.util.floorDouble(position.z)),
         0,
     );
     const target = render.sky.fogBrightnessTarget(light, @intFromEnum(app_state.settings.render_distance));
@@ -3739,18 +3708,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     var signs = app_state.level.world_map.signs.iterator();
     while (signs.next()) |entry| {
         const pos = entry.key_ptr.*;
-        const id = app_state.level.world_map.getBlock(pos.x, pos.y, pos.z);
+        const id = app_state.level.world_map.getBlock(pos);
         if (!id.isSign()) continue;
-        const meta = app_state.level.world_map.getBlockMetadata(pos.x, pos.y, pos.z);
+        const meta = app_state.level.world_map.getBlockMetadata(pos);
         try render.sign_render.appendBoard(
             &sign_mesh,
             app_state.frame,
             &app_state.level.world_map,
             id,
             meta,
-            pos.x,
-            pos.y,
-            pos.z,
+            pos,
         );
         try render.sign_render.appendText(
             &sign_text_mesh,
@@ -3758,9 +3725,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             app_state.font,
             id,
             meta,
-            pos.x,
-            pos.y,
-            pos.z,
+            pos,
             entry.value_ptr.*,
             null,
         );
@@ -4070,9 +4035,7 @@ fn handBrightness(app_state: *const AppState) f32 {
     const eye = app_state.player.base.position;
     return world.light.brightnessAt(
         &app_state.level.world_map,
-        math.util.floorDouble(eye.x),
-        math.util.floorDouble(eye.y + game.Player.eye_height),
-        math.util.floorDouble(eye.z),
+        .init(math.util.floorDouble(eye.x), math.util.floorDouble(eye.y + game.Player.eye_height), math.util.floorDouble(eye.z)),
         0,
     );
 }
@@ -4425,7 +4388,7 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     const digging = app_state.digging orelse return;
     if (digging.progress <= 0.0) return;
 
-    const id = app_state.level.world_map.getBlock(digging.x, digging.y, digging.z);
+    const id = app_state.level.world_map.getBlock(digging.pos);
     if (id == .air) return;
 
     var mesh: render.MeshBuilder = .{};
@@ -4436,10 +4399,8 @@ fn drawBreakingCrack(app_state: *AppState) !void {
         &app_state.level.world_map,
         app_state.colorizer,
         id,
-        app_state.level.world_map.getBlockMetadata(digging.x, digging.y, digging.z),
-        digging.x,
-        digging.y,
-        digging.z,
+        app_state.level.world_map.getBlockMetadata(digging.pos),
+        digging.pos,
         digging.progress,
     );
 
@@ -4497,8 +4458,8 @@ fn drawSelectionOutline(app_state: *AppState) !void {
 
     var mesh: render.MeshBuilder = .{};
     defer mesh.deinit(app_state.frame);
-    const id = app_state.level.world_map.getBlock(hit.x, hit.y, hit.z);
-    try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z), hit.x, hit.y, hit.z);
+    const id = app_state.level.world_map.getBlock(hit.pos);
+    try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.level.world_map.getBlockMetadata(hit.pos), hit.pos);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -4621,7 +4582,7 @@ pub fn iterate(
                 app_state.textures.water,
                 app_state.player.yaw,
                 app_state.player.pitch,
-                world.light.brightnessAt(&app_state.level.world_map, sample[0], sample[1], sample[2], 0),
+                world.light.brightnessAt(&app_state.level.world_map, .init(sample[0], sample[1], sample[2]), 0),
             );
         }
         const blurred = if (wornBlock(app_state.player)) |id| id == .pumpkin else false;
@@ -4726,9 +4687,9 @@ pub fn iterate(
             app_state.held_stack,
         );
     } else if (app_state.sign_edit) |open| {
-        const id = app_state.level.world_map.getBlock(open.x, open.y, open.z);
-        const meta = app_state.level.world_map.getBlockMetadata(open.x, open.y, open.z);
-        const state = app_state.level.world_map.signAt(open.x, open.y, open.z);
+        const id = app_state.level.world_map.getBlock(open.pos);
+        const meta = app_state.level.world_map.getBlockMetadata(open.pos);
+        const state = app_state.level.world_map.signAt(open.pos);
         try render.screen.edit_sign.draw(ui, open, id, meta, if (state) |value| value.* else .{});
     } else if (app_state.inventory_open) {
         try render.screen.inventory.draw(

@@ -183,8 +183,8 @@ pub fn fits(self: Painting, world_map: *const world.World, others: []const Paint
             const step: i32 = @intCast(column);
             const lift: i32 = @intCast(row);
             const material = switch (self.direction) {
-                0, 2 => world_map.getBlock(origin_x + step, origin_y + lift, self.tile[2]).material(),
-                1, 3 => world_map.getBlock(self.tile[0], origin_y + lift, origin_z + step).material(),
+                0, 2 => world_map.getBlock(.init(origin_x + step, origin_y + lift, self.tile[2])).material(),
+                1, 3 => world_map.getBlock(.init(self.tile[0], origin_y + lift, origin_z + step)).material(),
             };
             if (!material.isSolid()) return false;
         }
@@ -321,7 +321,7 @@ fn wallWorld(gpa: std.mem.Allocator) !world.World {
     var x: i32 = 4;
     while (x <= 12) : (x += 1) {
         var y: i32 = 1;
-        while (y <= 8) : (y += 1) try w.setBlockWithNotify(x, y, 8, .stone);
+        while (y <= 8) : (y += 1) try w.setBlockWithNotify(.init(x, y, 8), .stone);
     }
     return w;
 }
@@ -332,7 +332,7 @@ test "a painting needs solid blocks behind every one of its squares" {
 
     try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
 
-    try w.setBlockWithNotify(8, 4, 8, .air);
+    try w.setBlockWithNotify(.init(8, 4, 8), .air);
     try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
 }
 
@@ -342,7 +342,7 @@ test "a wide painting needs the blocks beside it too" {
 
     try std.testing.expect(place(.{ 8, 4, 8 }, 0, .pool).fits(&w, &.{}, null));
 
-    try w.setBlockWithNotify(7, 4, 8, .air);
+    try w.setBlockWithNotify(.init(7, 4, 8), .air);
     try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .pool).fits(&w, &.{}, null));
     try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
 }
@@ -362,7 +362,7 @@ test "a painting will not hang where a block already stands" {
     defer w.deinit();
 
     try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-    try w.setBlockWithNotify(8, 4, 7, .stone);
+    try w.setBlockWithNotify(.init(8, 4, 7), .stone);
     try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
 }
 
@@ -370,7 +370,7 @@ test "the art is chosen only from the ones that fit the space" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
 
-    try w.setBlockWithNotify(8, 2, 8, .stone);
+    try w.setBlockWithNotify(.init(8, 2, 8), .stone);
 
     var rand = world.JavaRandom.init(1);
     for (0..40) |_| {
@@ -415,7 +415,7 @@ test "a painting stops fitting once its wall is mined away" {
     const hung = [_]Painting{place(.{ 8, 4, 8 }, 0, .kebab)};
     try std.testing.expect(hung[0].fits(&w, &hung, 0));
 
-    try w.setBlockWithNotify(8, 4, 8, .air);
+    try w.setBlockWithNotify(.init(8, 4, 8), .air);
     try std.testing.expect(!hung[0].fits(&w, &hung, 0));
 }
 

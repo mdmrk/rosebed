@@ -7,6 +7,7 @@ const block = @import("block.zig");
 const Block = block.Block;
 const Side = block.Side;
 const block_update = @import("block_update.zig");
+const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const note = @import("note.zig");
 const piston = @import("piston.zig");
@@ -31,46 +32,46 @@ pub fn canProvidePower(id: Block) bool {
     };
 }
 
-fn isPowerProviderOrWire(world_map: anytype, x: i32, y: i32, z: i32, code: ?u2) bool {
-    const id = world_map.getBlock(x, y, z);
+fn isPowerProviderOrWire(world_map: anytype, pos: BlockPos, code: ?u2) bool {
+    const id = world_map.getBlock(pos);
     if (id == .redstone_wire) return true;
     if (id == .air) return false;
     if (canProvidePower(id)) return true;
     if (!id.isRepeater()) return false;
     const want = code orelse return false;
-    return want == repeater_output_code[block.repeaterFacing(world_map.getBlockMetadata(x, y, z))];
+    return want == repeater_output_code[block.repeaterFacing(world_map.getBlockMetadata(pos))];
 }
 
 pub const WireConnections = struct { west: bool, east: bool, north: bool, south: bool };
 
-pub fn wireConnections(world_map: anytype, x: i32, y: i32, z: i32) WireConnections {
+pub fn wireConnections(world_map: anytype, pos: BlockPos) WireConnections {
     var links: WireConnections = .{
-        .west = isPowerProviderOrWire(world_map, x - 1, y, z, 1) or
-            (!world_map.getBlock(x - 1, y, z).isNormalCube() and isPowerProviderOrWire(world_map, x - 1, y - 1, z, null)),
-        .east = isPowerProviderOrWire(world_map, x + 1, y, z, 3) or
-            (!world_map.getBlock(x + 1, y, z).isNormalCube() and isPowerProviderOrWire(world_map, x + 1, y - 1, z, null)),
-        .north = isPowerProviderOrWire(world_map, x, y, z - 1, 2) or
-            (!world_map.getBlock(x, y, z - 1).isNormalCube() and isPowerProviderOrWire(world_map, x, y - 1, z - 1, null)),
-        .south = isPowerProviderOrWire(world_map, x, y, z + 1, 0) or
-            (!world_map.getBlock(x, y, z + 1).isNormalCube() and isPowerProviderOrWire(world_map, x, y - 1, z + 1, null)),
+        .west = isPowerProviderOrWire(world_map, pos.offset(-1, 0, 0), 1) or
+            (!world_map.getBlock(pos.offset(-1, 0, 0)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(-1, -1, 0), null)),
+        .east = isPowerProviderOrWire(world_map, pos.offset(1, 0, 0), 3) or
+            (!world_map.getBlock(pos.offset(1, 0, 0)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(1, -1, 0), null)),
+        .north = isPowerProviderOrWire(world_map, pos.offset(0, 0, -1), 2) or
+            (!world_map.getBlock(pos.offset(0, 0, -1)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(0, -1, -1), null)),
+        .south = isPowerProviderOrWire(world_map, pos.offset(0, 0, 1), 0) or
+            (!world_map.getBlock(pos.offset(0, 0, 1)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(0, -1, 1), null)),
     };
 
-    if (!world_map.getBlock(x, y + 1, z).isNormalCube()) {
-        if (world_map.getBlock(x - 1, y, z).isNormalCube() and isPowerProviderOrWire(world_map, x - 1, y + 1, z, null)) links.west = true;
-        if (world_map.getBlock(x + 1, y, z).isNormalCube() and isPowerProviderOrWire(world_map, x + 1, y + 1, z, null)) links.east = true;
-        if (world_map.getBlock(x, y, z - 1).isNormalCube() and isPowerProviderOrWire(world_map, x, y + 1, z - 1, null)) links.north = true;
-        if (world_map.getBlock(x, y, z + 1).isNormalCube() and isPowerProviderOrWire(world_map, x, y + 1, z + 1, null)) links.south = true;
+    if (!world_map.getBlock(pos.offset(0, 1, 0)).isNormalCube()) {
+        if (world_map.getBlock(pos.offset(-1, 0, 0)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(-1, 1, 0), null)) links.west = true;
+        if (world_map.getBlock(pos.offset(1, 0, 0)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(1, 1, 0), null)) links.east = true;
+        if (world_map.getBlock(pos.offset(0, 0, -1)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(0, 1, -1), null)) links.north = true;
+        if (world_map.getBlock(pos.offset(0, 0, 1)).isNormalCube() and isPowerProviderOrWire(world_map, pos.offset(0, 1, 1), null)) links.south = true;
     }
 
     return links;
 }
 
-fn wirePoweringTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side) bool {
+fn wirePoweringTo(world_map: *const World, pos: BlockPos, side: Side) bool {
     if (!wires_provide_power) return false;
-    if (world_map.getBlockMetadata(x, y, z) == 0) return false;
+    if (world_map.getBlockMetadata(pos) == 0) return false;
     if (side == .up) return true;
 
-    const links = wireConnections(world_map, x, y, z);
+    const links = wireConnections(world_map, pos);
     if (!links.north and !links.east and !links.west and !links.south) {
         return side != .down and side != .up;
     }
@@ -116,10 +117,10 @@ fn switchIndirectlyPoweringTo(metadata: u4, side: Side, floor_faces_up: bool) bo
     };
 }
 
-pub fn isPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side) bool {
-    const metadata = world_map.getBlockMetadata(x, y, z);
-    return switch (world_map.getBlock(x, y, z)) {
-        .redstone_wire => wirePoweringTo(world_map, x, y, z, side),
+pub fn isPoweringTo(world_map: *const World, pos: BlockPos, side: Side) bool {
+    const metadata = world_map.getBlockMetadata(pos);
+    return switch (world_map.getBlock(pos)) {
+        .redstone_wire => wirePoweringTo(world_map, pos, side),
         .torch_redstone_on => torchPoweringTo(metadata, side),
         .lever, .button => block.isPowered(metadata),
         .rail_detector => metadata & block.rail_flag_bit != 0,
@@ -129,11 +130,11 @@ pub fn isPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side)
     };
 }
 
-pub fn isIndirectlyPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side) bool {
-    const metadata = world_map.getBlockMetadata(x, y, z);
-    return switch (world_map.getBlock(x, y, z)) {
-        .redstone_wire => wires_provide_power and wirePoweringTo(world_map, x, y, z, side),
-        .torch_redstone_on, .torch_redstone_off => side == .down and isPoweringTo(world_map, x, y, z, side),
+pub fn isIndirectlyPoweringTo(world_map: *const World, pos: BlockPos, side: Side) bool {
+    const metadata = world_map.getBlockMetadata(pos);
+    return switch (world_map.getBlock(pos)) {
+        .redstone_wire => wires_provide_power and wirePoweringTo(world_map, pos, side),
+        .torch_redstone_on, .torch_redstone_off => side == .down and isPoweringTo(world_map, pos, side),
         .rail_detector => metadata & block.rail_flag_bit != 0 and side == .up,
         .lever => switchIndirectlyPoweringTo(metadata, side, true),
         .button => switchIndirectlyPoweringTo(metadata, side, false),
@@ -143,27 +144,27 @@ pub fn isIndirectlyPoweringTo(world_map: *const World, x: i32, y: i32, z: i32, s
     };
 }
 
-pub fn isBlockGettingPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return isIndirectlyPoweringTo(world_map, x, y - 1, z, .down) or
-        isIndirectlyPoweringTo(world_map, x, y + 1, z, .up) or
-        isIndirectlyPoweringTo(world_map, x, y, z - 1, .north) or
-        isIndirectlyPoweringTo(world_map, x, y, z + 1, .south) or
-        isIndirectlyPoweringTo(world_map, x - 1, y, z, .west) or
-        isIndirectlyPoweringTo(world_map, x + 1, y, z, .east);
+pub fn isBlockGettingPowered(world_map: *const World, pos: BlockPos) bool {
+    return isIndirectlyPoweringTo(world_map, pos.offset(0, -1, 0), .down) or
+        isIndirectlyPoweringTo(world_map, pos.offset(0, 1, 0), .up) or
+        isIndirectlyPoweringTo(world_map, pos.offset(0, 0, -1), .north) or
+        isIndirectlyPoweringTo(world_map, pos.offset(0, 0, 1), .south) or
+        isIndirectlyPoweringTo(world_map, pos.offset(-1, 0, 0), .west) or
+        isIndirectlyPoweringTo(world_map, pos.offset(1, 0, 0), .east);
 }
 
-pub fn isBlockIndirectlyProvidingPowerTo(world_map: *const World, x: i32, y: i32, z: i32, side: Side) bool {
-    if (world_map.getBlock(x, y, z).isNormalCube()) return isBlockGettingPowered(world_map, x, y, z);
-    return isPoweringTo(world_map, x, y, z, side);
+pub fn isBlockIndirectlyProvidingPowerTo(world_map: *const World, pos: BlockPos, side: Side) bool {
+    if (world_map.getBlock(pos).isNormalCube()) return isBlockGettingPowered(world_map, pos);
+    return isPoweringTo(world_map, pos, side);
 }
 
-pub fn isBlockIndirectlyGettingPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return isBlockIndirectlyProvidingPowerTo(world_map, x, y - 1, z, .down) or
-        isBlockIndirectlyProvidingPowerTo(world_map, x, y + 1, z, .up) or
-        isBlockIndirectlyProvidingPowerTo(world_map, x, y, z - 1, .north) or
-        isBlockIndirectlyProvidingPowerTo(world_map, x, y, z + 1, .south) or
-        isBlockIndirectlyProvidingPowerTo(world_map, x - 1, y, z, .west) or
-        isBlockIndirectlyProvidingPowerTo(world_map, x + 1, y, z, .east);
+pub fn isBlockIndirectlyGettingPowered(world_map: *const World, pos: BlockPos) bool {
+    return isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, -1, 0), .down) or
+        isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, 1, 0), .up) or
+        isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, 0, -1), .north) or
+        isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, 0, 1), .south) or
+        isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(-1, 0, 0), .west) or
+        isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(1, 0, 0), .east);
 }
 
 const Propagation = struct {
@@ -177,17 +178,16 @@ const Propagation = struct {
         self.queued.deinit(allocator);
     }
 
-    fn queue(self: *Propagation, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    fn queue(self: *Propagation, pos: BlockPos) std.mem.Allocator.Error!void {
         const allocator = self.world_map.allocator;
-        const pos: World.BlockPos = .{ .x = x, .y = y, .z = z };
         if ((try self.queued.getOrPut(allocator, pos)).found_existing) return;
         try self.pending.append(allocator, pos);
     }
 };
 
-fn maxCurrentStrength(world_map: *const World, x: i32, y: i32, z: i32, current: i32) i32 {
-    if (world_map.getBlock(x, y, z) != .redstone_wire) return current;
-    const strength: i32 = world_map.getBlockMetadata(x, y, z);
+fn maxCurrentStrength(world_map: *const World, pos: BlockPos, current: i32) i32 {
+    if (world_map.getBlock(pos) != .redstone_wire) return current;
+    const strength: i32 = world_map.getBlockMetadata(pos);
     return @max(strength, current);
 }
 
@@ -200,21 +200,13 @@ fn sideStep(index: usize, x: i32, z: i32) [2]i32 {
     };
 }
 
-fn updateStrength(
-    prop: *Propagation,
-    x: i32,
-    y: i32,
-    z: i32,
-    from_x: i32,
-    from_y: i32,
-    from_z: i32,
-) std.mem.Allocator.Error!void {
+fn updateStrength(prop: *Propagation, pos: BlockPos, from: BlockPos) std.mem.Allocator.Error!void {
     const world_map = prop.world_map;
-    const before = world_map.getBlockMetadata(x, y, z);
+    const before = world_map.getBlockMetadata(pos);
     var strength: u4 = 0;
 
     wires_provide_power = false;
-    const forced = isBlockIndirectlyGettingPowered(world_map, x, y, z);
+    const forced = isBlockIndirectlyGettingPowered(world_map, pos);
     wires_provide_power = true;
 
     if (forced) {
@@ -222,22 +214,23 @@ fn updateStrength(
     } else {
         var best: i32 = 0;
         for (0..4) |index| {
-            const step = sideStep(index, x, z);
-            const nx = step[0];
-            const nz = step[1];
+            const step = sideStep(index, pos.x, pos.z);
+            const side: BlockPos = .init(step[0], pos.y, step[1]);
 
-            if (nx != from_x or y != from_y or nz != from_z) {
-                best = maxCurrentStrength(world_map, nx, y, nz, best);
+            if (!std.meta.eql(side, from)) {
+                best = maxCurrentStrength(world_map, side, best);
             }
 
-            if (world_map.getBlock(nx, y, nz).isNormalCube() and !world_map.getBlock(x, y + 1, z).isNormalCube()) {
-                if (nx != from_x or y + 1 != from_y or nz != from_z) {
-                    best = maxCurrentStrength(world_map, nx, y + 1, nz, best);
+            if (world_map.getBlock(side).isNormalCube() and !world_map.getBlock(pos.offset(0, 1, 0)).isNormalCube()) {
+                const above = side.offset(0, 1, 0);
+                if (!std.meta.eql(above, from)) {
+                    best = maxCurrentStrength(world_map, above, best);
                 }
-            } else if (!world_map.getBlock(nx, y, nz).isNormalCube() and
-                (nx != from_x or y - 1 != from_y or nz != from_z))
-            {
-                best = maxCurrentStrength(world_map, nx, y - 1, nz, best);
+            } else if (!world_map.getBlock(side).isNormalCube()) {
+                const below = side.offset(0, -1, 0);
+                if (!std.meta.eql(below, from)) {
+                    best = maxCurrentStrength(world_map, below, best);
+                }
             }
         }
         strength = if (best > 0) @intCast(best - 1) else 0;
@@ -246,118 +239,118 @@ fn updateStrength(
     if (before == strength) return;
 
     world_map.editing_blocks = true;
-    try world_map.setBlockMetadataWithNotify(x, y, z, strength);
+    try world_map.setBlockMetadataWithNotify(pos, strength);
     world_map.editing_blocks = false;
 
     var decremented: i32 = 0;
     for (0..4) |index| {
-        const step = sideStep(index, x, z);
+        const step = sideStep(index, pos.x, pos.z);
         const nx = step[0];
         const nz = step[1];
-        var ny = y - 1;
-        if (world_map.getBlock(nx, y, nz).isNormalCube()) ny += 2;
+        var ny = pos.y - 1;
+        if (world_map.getBlock(.init(nx, pos.y, nz)).isNormalCube()) ny += 2;
 
-        var found = maxCurrentStrength(world_map, nx, y, nz, -1);
-        decremented = world_map.getBlockMetadata(x, y, z);
+        var found = maxCurrentStrength(world_map, .init(nx, pos.y, nz), -1);
+        decremented = world_map.getBlockMetadata(pos);
         if (decremented > 0) decremented -= 1;
-        if (found >= 0 and found != decremented) try updateStrength(prop, nx, y, nz, x, y, z);
+        if (found >= 0 and found != decremented) try updateStrength(prop, .init(nx, pos.y, nz), pos);
 
-        found = maxCurrentStrength(world_map, nx, ny, nz, -1);
-        decremented = world_map.getBlockMetadata(x, y, z);
+        found = maxCurrentStrength(world_map, .init(nx, ny, nz), -1);
+        decremented = world_map.getBlockMetadata(pos);
         if (decremented > 0) decremented -= 1;
-        if (found >= 0 and found != decremented) try updateStrength(prop, nx, ny, nz, x, y, z);
+        if (found >= 0 and found != decremented) try updateStrength(prop, .init(nx, ny, nz), pos);
     }
 
     if (before == 0 or decremented == 0) {
-        try prop.queue(x, y, z);
-        try prop.queue(x - 1, y, z);
-        try prop.queue(x + 1, y, z);
-        try prop.queue(x, y - 1, z);
-        try prop.queue(x, y + 1, z);
-        try prop.queue(x, y, z - 1);
-        try prop.queue(x, y, z + 1);
+        try prop.queue(pos);
+        try prop.queue(pos.offset(-1, 0, 0));
+        try prop.queue(pos.offset(1, 0, 0));
+        try prop.queue(pos.offset(0, -1, 0));
+        try prop.queue(pos.offset(0, 1, 0));
+        try prop.queue(pos.offset(0, 0, -1));
+        try prop.queue(pos.offset(0, 0, 1));
     }
 }
 
-fn updateAndPropagateCurrentStrength(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+fn updateAndPropagateCurrentStrength(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
     var prop: Propagation = .{ .world_map = world_map };
     defer prop.deinit();
 
-    try updateStrength(&prop, x, y, z, x, y, z);
-    for (prop.pending.items) |pos| {
-        try world_map.notifyBlocksOfNeighborChange(pos.x, pos.y, pos.z, .redstone_wire);
+    try updateStrength(&prop, pos, pos);
+    for (prop.pending.items) |wire| {
+        try world_map.notifyBlocksOfNeighborChange(wire, .redstone_wire);
     }
 }
 
-fn notifyWireNeighbors(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    if (world_map.getBlock(x, y, z) != .redstone_wire) return;
-    try world_map.notifyBlocksOfNeighborChange(x, y, z, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x - 1, y, z, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x + 1, y, z, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x, y, z - 1, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x, y, z + 1, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .redstone_wire);
-    try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, .redstone_wire);
+fn notifyWireNeighbors(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    if (world_map.getBlock(pos) != .redstone_wire) return;
+    try world_map.notifyBlocksOfNeighborChange(pos, .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(-1, 0, 0), .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(1, 0, 0), .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, -1), .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, 1), .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), .redstone_wire);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 1, 0), .redstone_wire);
 }
 
-fn notifyWireRing(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    try notifyWireNeighbors(world_map, x - 1, y, z);
-    try notifyWireNeighbors(world_map, x + 1, y, z);
-    try notifyWireNeighbors(world_map, x, y, z - 1);
-    try notifyWireNeighbors(world_map, x, y, z + 1);
+fn notifyWireRing(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    try notifyWireNeighbors(world_map, pos.offset(-1, 0, 0));
+    try notifyWireNeighbors(world_map, pos.offset(1, 0, 0));
+    try notifyWireNeighbors(world_map, pos.offset(0, 0, -1));
+    try notifyWireNeighbors(world_map, pos.offset(0, 0, 1));
 
-    if (world_map.getBlock(x - 1, y, z).isNormalCube()) {
-        try notifyWireNeighbors(world_map, x - 1, y + 1, z);
+    if (world_map.getBlock(pos.offset(-1, 0, 0)).isNormalCube()) {
+        try notifyWireNeighbors(world_map, pos.offset(-1, 1, 0));
     } else {
-        try notifyWireNeighbors(world_map, x - 1, y - 1, z);
+        try notifyWireNeighbors(world_map, pos.offset(-1, -1, 0));
     }
 
-    if (world_map.getBlock(x + 1, y, z).isNormalCube()) {
-        try notifyWireNeighbors(world_map, x + 1, y + 1, z);
+    if (world_map.getBlock(pos.offset(1, 0, 0)).isNormalCube()) {
+        try notifyWireNeighbors(world_map, pos.offset(1, 1, 0));
     } else {
-        try notifyWireNeighbors(world_map, x + 1, y - 1, z);
+        try notifyWireNeighbors(world_map, pos.offset(1, -1, 0));
     }
 
-    if (world_map.getBlock(x, y, z - 1).isNormalCube()) {
-        try notifyWireNeighbors(world_map, x, y + 1, z - 1);
+    if (world_map.getBlock(pos.offset(0, 0, -1)).isNormalCube()) {
+        try notifyWireNeighbors(world_map, pos.offset(0, 1, -1));
     } else {
-        try notifyWireNeighbors(world_map, x, y - 1, z - 1);
+        try notifyWireNeighbors(world_map, pos.offset(0, -1, -1));
     }
 
-    if (world_map.getBlock(x, y, z + 1).isNormalCube()) {
-        try notifyWireNeighbors(world_map, x, y + 1, z + 1);
+    if (world_map.getBlock(pos.offset(0, 0, 1)).isNormalCube()) {
+        try notifyWireNeighbors(world_map, pos.offset(0, 1, 1));
     } else {
-        try notifyWireNeighbors(world_map, x, y - 1, z + 1);
+        try notifyWireNeighbors(world_map, pos.offset(0, -1, 1));
     }
 }
 
-fn notifyAttachment(world_map: *World, x: i32, y: i32, z: i32, id: Block, facing: u4) std.mem.Allocator.Error!void {
-    try world_map.notifyBlocksOfNeighborChange(x, y, z, id);
+fn notifyAttachment(world_map: *World, pos: BlockPos, id: Block, facing: u4) std.mem.Allocator.Error!void {
+    try world_map.notifyBlocksOfNeighborChange(pos, id);
     switch (facing) {
-        1 => try world_map.notifyBlocksOfNeighborChange(x - 1, y, z, id),
-        2 => try world_map.notifyBlocksOfNeighborChange(x + 1, y, z, id),
-        3 => try world_map.notifyBlocksOfNeighborChange(x, y, z - 1, id),
-        4 => try world_map.notifyBlocksOfNeighborChange(x, y, z + 1, id),
-        else => try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id),
+        1 => try world_map.notifyBlocksOfNeighborChange(pos.offset(-1, 0, 0), id),
+        2 => try world_map.notifyBlocksOfNeighborChange(pos.offset(1, 0, 0), id),
+        3 => try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, -1), id),
+        4 => try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, 1), id),
+        else => try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), id),
     }
 }
 
-fn notifyAround(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
-    try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
-    try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, id);
-    try world_map.notifyBlocksOfNeighborChange(x - 1, y, z, id);
-    try world_map.notifyBlocksOfNeighborChange(x + 1, y, z, id);
-    try world_map.notifyBlocksOfNeighborChange(x, y, z - 1, id);
-    try world_map.notifyBlocksOfNeighborChange(x, y, z + 1, id);
+fn notifyAround(world_map: *World, pos: BlockPos, id: Block) std.mem.Allocator.Error!void {
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), id);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 1, 0), id);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(-1, 0, 0), id);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(1, 0, 0), id);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, -1), id);
+    try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 0, 1), id);
 }
 
-fn torchSupportPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return switch (world_map.getBlockMetadata(x, y, z)) {
-        5 => isBlockIndirectlyProvidingPowerTo(world_map, x, y - 1, z, .down),
-        3 => isBlockIndirectlyProvidingPowerTo(world_map, x, y, z - 1, .north),
-        4 => isBlockIndirectlyProvidingPowerTo(world_map, x, y, z + 1, .south),
-        1 => isBlockIndirectlyProvidingPowerTo(world_map, x - 1, y, z, .west),
-        2 => isBlockIndirectlyProvidingPowerTo(world_map, x + 1, y, z, .east),
+fn torchSupportPowered(world_map: *const World, pos: BlockPos) bool {
+    return switch (world_map.getBlockMetadata(pos)) {
+        5 => isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, -1, 0), .down),
+        3 => isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, 0, -1), .north),
+        4 => isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(0, 0, 1), .south),
+        1 => isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(-1, 0, 0), .west),
+        2 => isBlockIndirectlyProvidingPowerTo(world_map, pos.offset(1, 0, 0), .east),
         else => false,
     };
 }
@@ -365,8 +358,7 @@ fn torchSupportPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
 pub const burnout_window: i64 = 100;
 pub const burnout_limit: usize = 8;
 
-fn checkForBurnout(world_map: *World, x: i32, y: i32, z: i32, record: bool) std.mem.Allocator.Error!bool {
-    const pos: World.BlockPos = .{ .x = x, .y = y, .z = z };
+fn checkForBurnout(world_map: *World, pos: BlockPos, record: bool) std.mem.Allocator.Error!bool {
     if (record) {
         try world_map.torch_updates.append(world_map.allocator, .{ .pos = pos, .time = world_map.time });
     }
@@ -380,9 +372,9 @@ fn checkForBurnout(world_map: *World, x: i32, y: i32, z: i32, record: bool) std.
     return false;
 }
 
-fn torchTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
-    const suppressed = torchSupportPowered(world_map, x, y, z);
+fn torchTick(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
+    const suppressed = torchSupportPowered(world_map, pos);
 
     while (world_map.torch_updates.items.len > 0 and
         world_map.time - world_map.torch_updates.items[0].time > burnout_window)
@@ -392,25 +384,25 @@ fn torchTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!
 
     if (id == .torch_redstone_on) {
         if (!suppressed) return;
-        try world_map.setBlockAndMetadataWithNotify(x, y, z, .torch_redstone_off, world_map.getBlockMetadata(x, y, z));
-        if (try checkForBurnout(world_map, x, y, z, true)) {
-            world_map.playFizzAt(x, y, z);
-            try world_map.burnt_out.append(world_map.allocator, .{ .x = x, .y = y, .z = z });
+        try world_map.setBlockAndMetadataWithNotify(pos, .torch_redstone_off, world_map.getBlockMetadata(pos));
+        if (try checkForBurnout(world_map, pos, true)) {
+            world_map.playFizzAt(pos);
+            try world_map.burnt_out.append(world_map.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
         }
         return;
     }
 
     if (suppressed) return;
-    if (try checkForBurnout(world_map, x, y, z, false)) return;
-    try world_map.setBlockAndMetadataWithNotify(x, y, z, .torch_redstone_on, world_map.getBlockMetadata(x, y, z));
+    if (try checkForBurnout(world_map, pos, false)) return;
+    try world_map.setBlockAndMetadataWithNotify(pos, .torch_redstone_on, world_map.getBlockMetadata(pos));
 }
 
-fn repeaterInputPowered(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4) bool {
+fn repeaterInputPowered(world_map: *const World, pos: BlockPos, metadata: u4) bool {
     const source: [3]i32 = switch (block.repeaterFacing(metadata)) {
-        0 => .{ x, y, z + 1 },
-        1 => .{ x - 1, y, z },
-        2 => .{ x, y, z - 1 },
-        3 => .{ x + 1, y, z },
+        0 => .{ pos.x, pos.y, pos.z + 1 },
+        1 => .{ pos.x - 1, pos.y, pos.z },
+        2 => .{ pos.x, pos.y, pos.z - 1 },
+        3 => .{ pos.x + 1, pos.y, pos.z },
     };
     const side: Side = switch (block.repeaterFacing(metadata)) {
         0 => .south,
@@ -419,33 +411,33 @@ fn repeaterInputPowered(world_map: *const World, x: i32, y: i32, z: i32, metadat
         3 => .east,
     };
 
-    if (isBlockIndirectlyProvidingPowerTo(world_map, source[0], source[1], source[2], side)) return true;
-    return world_map.getBlock(source[0], source[1], source[2]) == .redstone_wire and
-        world_map.getBlockMetadata(source[0], source[1], source[2]) > 0;
+    if (isBlockIndirectlyProvidingPowerTo(world_map, .init(source[0], source[1], source[2]), side)) return true;
+    return world_map.getBlock(.init(source[0], source[1], source[2])) == .redstone_wire and
+        world_map.getBlockMetadata(.init(source[0], source[1], source[2])) > 0;
 }
 
-fn repeaterTick(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
-    const metadata = world_map.getBlockMetadata(x, y, z);
-    const powered = repeaterInputPowered(world_map, x, y, z, metadata);
+fn repeaterTick(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
+    const metadata = world_map.getBlockMetadata(pos);
+    const powered = repeaterInputPowered(world_map, pos, metadata);
 
     if (id == .repeater_on and !powered) {
-        try world_map.setBlockAndMetadataWithNotify(x, y, z, .repeater_off, metadata);
+        try world_map.setBlockAndMetadataWithNotify(pos, .repeater_off, metadata);
         return;
     }
     if (id == .repeater_on) return;
 
-    try world_map.setBlockAndMetadataWithNotify(x, y, z, .repeater_on, metadata);
+    try world_map.setBlockAndMetadataWithNotify(pos, .repeater_on, metadata);
     if (!powered) {
-        try world_map.scheduleBlockUpdate(x, y, z, .repeater_on, block.repeaterTickRate(metadata));
+        try world_map.scheduleBlockUpdate(pos, .repeater_on, block.repeaterTickRate(metadata));
     }
 }
 
-fn plateProbeBox(x: i32, y: i32, z: i32) math.Aabb {
+fn plateProbeBox(pos: BlockPos) math.Aabb {
     const margin: f64 = 2.0 / 16.0;
-    const fx: f64 = @floatFromInt(x);
-    const fy: f64 = @floatFromInt(y);
-    const fz: f64 = @floatFromInt(z);
+    const fx: f64 = @floatFromInt(pos.x);
+    const fy: f64 = @floatFromInt(pos.y);
+    const fz: f64 = @floatFromInt(pos.z);
     return math.Aabb.init(
         fx + margin,
         fy,
@@ -456,50 +448,50 @@ fn plateProbeBox(x: i32, y: i32, z: i32) math.Aabb {
     );
 }
 
-fn plateOccupied(world_map: *const World, x: i32, y: i32, z: i32) bool {
+fn plateOccupied(world_map: *const World, pos: BlockPos) bool {
     const probe = world_map.entity_probe orelse return false;
-    const box = plateProbeBox(x, y, z);
-    const living_only = world_map.getBlock(x, y, z) == .pressure_plate_stone;
+    const box = plateProbeBox(pos);
+    const living_only = world_map.getBlock(pos) == .pressure_plate_stone;
     return probe.anyInBox(probe.context, box, living_only);
 }
 
-fn plateSettle(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
-    const was_pressed = world_map.getBlockMetadata(x, y, z) == 1;
-    const pressed = plateOccupied(world_map, x, y, z);
+fn plateSettle(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
+    const was_pressed = world_map.getBlockMetadata(pos) == 1;
+    const pressed = plateOccupied(world_map, pos);
 
     if (pressed != was_pressed) {
-        try world_map.setBlockMetadataWithNotify(x, y, z, if (pressed) 1 else 0);
-        try world_map.notifyBlocksOfNeighborChange(x, y, z, id);
-        try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
-        world_map.playSwitchClick(x, y, z, 0.1, if (pressed) click_on_pitch else click_off_pitch);
+        try world_map.setBlockMetadataWithNotify(pos, if (pressed) 1 else 0);
+        try world_map.notifyBlocksOfNeighborChange(pos, id);
+        try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), id);
+        world_map.playSwitchClick(pos, 0.1, if (pressed) click_on_pitch else click_off_pitch);
     }
 
-    if (pressed) try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+    if (pressed) try world_map.scheduleBlockUpdate(pos, id, id.tickRate());
 }
 
-fn doorPowerChange(world_map: *World, x: i32, y: i32, z: i32, powered: bool) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
-    const metadata = world_map.getBlockMetadata(x, y, z);
+fn doorPowerChange(world_map: *World, pos: BlockPos, powered: bool) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
+    const metadata = world_map.getBlockMetadata(pos);
     if (block.doorIsTop(metadata)) {
-        if (world_map.getBlock(x, y - 1, z) == id) try doorPowerChange(world_map, x, y - 1, z, powered);
+        if (world_map.getBlock(pos.offset(0, -1, 0)) == id) try doorPowerChange(world_map, pos.offset(0, -1, 0), powered);
         return;
     }
     if (block.doorIsOpen(metadata) == powered) return;
-    try block_update.toggleDoor(world_map, x, y, z);
+    try block_update.toggleDoor(world_map, pos);
 }
 
-fn railIsPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return isBlockIndirectlyGettingPowered(world_map, x, y, z) or
-        isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
+fn railIsPowered(world_map: *const World, pos: BlockPos) bool {
+    return isBlockIndirectlyGettingPowered(world_map, pos) or
+        isBlockIndirectlyGettingPowered(world_map, pos.offset(0, 1, 0));
 }
 
-fn poweredRailChain(world_map: *const World, x: i32, y: i32, z: i32, metadata: u4, ahead: bool, depth: u8) bool {
+fn poweredRailChain(world_map: *const World, pos: BlockPos, metadata: u4, ahead: bool, depth: u8) bool {
     if (depth >= 8) return false;
 
-    var cx = x;
-    var cy = y;
-    var cz = z;
+    var cx = pos.x;
+    var cy = pos.y;
+    var cz = pos.z;
     var shape = metadata & block.rail_shape_mask;
     var level = true;
 
@@ -557,52 +549,50 @@ fn poweredRailChain(world_map: *const World, x: i32, y: i32, z: i32, metadata: u
         else => {},
     }
 
-    if (poweredRailLink(world_map, cx, cy, cz, ahead, depth, shape)) return true;
-    return level and poweredRailLink(world_map, cx, cy - 1, cz, ahead, depth, shape);
+    if (poweredRailLink(world_map, .init(cx, cy, cz), ahead, depth, shape)) return true;
+    return level and poweredRailLink(world_map, .init(cx, cy - 1, cz), ahead, depth, shape);
 }
 
-fn poweredRailLink(world_map: *const World, x: i32, y: i32, z: i32, ahead: bool, depth: u8, axis: u4) bool {
-    if (world_map.getBlock(x, y, z) != .rail_powered) return false;
+fn poweredRailLink(world_map: *const World, pos: BlockPos, ahead: bool, depth: u8, axis: u4) bool {
+    if (world_map.getBlock(pos) != .rail_powered) return false;
 
-    const metadata = world_map.getBlockMetadata(x, y, z);
+    const metadata = world_map.getBlockMetadata(pos);
     const shape = metadata & block.rail_shape_mask;
     if (axis == 1 and (shape == 0 or shape == 4 or shape == 5)) return false;
     if (axis == 0 and (shape == 1 or shape == 2 or shape == 3)) return false;
 
     if (metadata & block.rail_flag_bit == 0) return false;
-    if (railIsPowered(world_map, x, y, z)) return true;
-    return poweredRailChain(world_map, x, y, z, metadata, ahead, depth + 1);
+    if (railIsPowered(world_map, pos)) return true;
+    return poweredRailChain(world_map, pos, metadata, ahead, depth + 1);
 }
 
 fn railNeighborChange(
     world_map: *World,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     id: Block,
     source: Block,
 ) std.mem.Allocator.Error!void {
-    if (!rail.canStay(world_map, x, y, z)) return;
+    if (!rail.canStay(world_map, pos)) return;
 
     if (id == .rail_powered) {
-        const metadata = world_map.getBlockMetadata(x, y, z);
+        const metadata = world_map.getBlockMetadata(pos);
         const shape = metadata & block.rail_shape_mask;
-        const live = railIsPowered(world_map, x, y, z) or
-            poweredRailChain(world_map, x, y, z, metadata, true, 0) or
-            poweredRailChain(world_map, x, y, z, metadata, false, 0);
+        const live = railIsPowered(world_map, pos) or
+            poweredRailChain(world_map, pos, metadata, true, 0) or
+            poweredRailChain(world_map, pos, metadata, false, 0);
 
         var changed = false;
         if (live and metadata & block.rail_flag_bit == 0) {
-            try world_map.setBlockMetadataWithNotify(x, y, z, shape | block.rail_flag_bit);
+            try world_map.setBlockMetadataWithNotify(pos, shape | block.rail_flag_bit);
             changed = true;
         } else if (!live and metadata & block.rail_flag_bit != 0) {
-            try world_map.setBlockMetadataWithNotify(x, y, z, shape);
+            try world_map.setBlockMetadataWithNotify(pos, shape);
             changed = true;
         }
 
         if (changed) {
-            try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
-            if (block.railIsSloped(shape)) try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, id);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), id);
+            if (block.railIsSloped(shape)) try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 1, 0), id);
         }
         return;
     }
@@ -610,100 +600,100 @@ fn railNeighborChange(
     if (id != .rail) return;
     if (!canProvidePower(source)) return;
 
-    var logic = rail.Logic.at(world_map, x, y, z);
+    var logic = rail.Logic.at(world_map, pos);
     if (logic.adjacentTracks() != 3) return;
-    try rail.refreshAt(world_map, x, y, z, false);
+    try rail.refreshAt(world_map, pos, false);
 }
 
-fn dispenserIsPowered(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return isBlockIndirectlyGettingPowered(world_map, x, y, z) or
-        isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
+fn dispenserIsPowered(world_map: *const World, pos: BlockPos) bool {
+    return isBlockIndirectlyGettingPowered(world_map, pos) or
+        isBlockIndirectlyGettingPowered(world_map, pos.offset(0, 1, 0));
 }
 
-fn trapdoorPowerChange(world_map: *World, x: i32, y: i32, z: i32, powered: bool) std.mem.Allocator.Error!void {
-    if (block.trapdoorIsOpen(world_map.getBlockMetadata(x, y, z)) == powered) return;
-    try block_update.toggleTrapdoor(world_map, x, y, z);
+fn trapdoorPowerChange(world_map: *World, pos: BlockPos, powered: bool) std.mem.Allocator.Error!void {
+    if (block.trapdoorIsOpen(world_map.getBlockMetadata(pos)) == powered) return;
+    try block_update.toggleTrapdoor(world_map, pos);
 }
 
-pub fn onBlockAdded(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
+pub fn onBlockAdded(world_map: *World, pos: BlockPos, id: Block) std.mem.Allocator.Error!void {
     switch (id) {
         .redstone_wire => {
-            try updateAndPropagateCurrentStrength(world_map, x, y, z);
-            try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, .redstone_wire);
-            try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .redstone_wire);
-            try notifyWireRing(world_map, x, y, z);
+            try updateAndPropagateCurrentStrength(world_map, pos);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 1, 0), .redstone_wire);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), .redstone_wire);
+            try notifyWireRing(world_map, pos);
         },
-        .torch_redstone_on => try notifyAround(world_map, x, y, z, id),
-        .repeater_off, .repeater_on => try notifyAround(world_map, x, y, z, id),
-        .piston, .piston_sticky => try piston.onBlockAdded(world_map, x, y, z),
+        .torch_redstone_on => try notifyAround(world_map, pos, id),
+        .repeater_off, .repeater_on => try notifyAround(world_map, pos, id),
+        .piston, .piston_sticky => try piston.onBlockAdded(world_map, pos),
         else => {},
     }
 }
 
-pub fn onBlockRemoved(world_map: *World, x: i32, y: i32, z: i32, id: Block, metadata: u4) std.mem.Allocator.Error!void {
+pub fn onBlockRemoved(world_map: *World, pos: BlockPos, id: Block, metadata: u4) std.mem.Allocator.Error!void {
     switch (id) {
         .redstone_wire => {
-            try world_map.notifyBlocksOfNeighborChange(x, y + 1, z, .redstone_wire);
-            try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .redstone_wire);
-            try updateAndPropagateCurrentStrength(world_map, x, y, z);
-            try notifyWireRing(world_map, x, y, z);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, 1, 0), .redstone_wire);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), .redstone_wire);
+            try updateAndPropagateCurrentStrength(world_map, pos);
+            try notifyWireRing(world_map, pos);
         },
-        .torch_redstone_on => try notifyAround(world_map, x, y, z, id),
+        .torch_redstone_on => try notifyAround(world_map, pos, id),
         .lever, .button => {
             if (!block.isPowered(metadata)) return;
-            try notifyAttachment(world_map, x, y, z, id, metadata & block.facing_mask);
+            try notifyAttachment(world_map, pos, id, metadata & block.facing_mask);
         },
         .pressure_plate_stone, .pressure_plate_planks => {
             if (metadata == 0) return;
-            try world_map.notifyBlocksOfNeighborChange(x, y, z, id);
-            try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, id);
+            try world_map.notifyBlocksOfNeighborChange(pos, id);
+            try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), id);
         },
-        .piston_head => try piston.onHeadRemoved(world_map, x, y, z, metadata),
+        .piston_head => try piston.onHeadRemoved(world_map, pos, metadata),
         else => {},
     }
 }
 
-pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
+pub fn onNeighborChange(world_map: *World, pos: BlockPos, source: Block) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
     switch (id) {
-        .redstone_wire => try updateAndPropagateCurrentStrength(world_map, x, y, z),
+        .redstone_wire => try updateAndPropagateCurrentStrength(world_map, pos),
         .torch_redstone_off, .torch_redstone_on => {
-            try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+            try world_map.scheduleBlockUpdate(pos, id, id.tickRate());
         },
         .repeater_off, .repeater_on => {
-            const metadata = world_map.getBlockMetadata(x, y, z);
-            const powered = repeaterInputPowered(world_map, x, y, z, metadata);
+            const metadata = world_map.getBlockMetadata(pos);
+            const powered = repeaterInputPowered(world_map, pos, metadata);
             if ((id == .repeater_on) != powered) {
-                try world_map.scheduleBlockUpdate(x, y, z, id, block.repeaterTickRate(metadata));
+                try world_map.scheduleBlockUpdate(pos, id, block.repeaterTickRate(metadata));
             }
         },
         .door_wood, .door_iron => {
             if (!canProvidePower(source)) return;
-            const metadata = world_map.getBlockMetadata(x, y, z);
+            const metadata = world_map.getBlockMetadata(pos);
             if (block.doorIsTop(metadata)) {
-                if (world_map.getBlock(x, y - 1, z) == id) try onNeighborChange(world_map, x, y - 1, z, source);
+                if (world_map.getBlock(pos.offset(0, -1, 0)) == id) try onNeighborChange(world_map, pos.offset(0, -1, 0), source);
                 return;
             }
-            const powered = isBlockIndirectlyGettingPowered(world_map, x, y, z) or
-                isBlockIndirectlyGettingPowered(world_map, x, y + 1, z);
-            try doorPowerChange(world_map, x, y, z, powered);
+            const powered = isBlockIndirectlyGettingPowered(world_map, pos) or
+                isBlockIndirectlyGettingPowered(world_map, pos.offset(0, 1, 0));
+            try doorPowerChange(world_map, pos, powered);
         },
         .trapdoor => {
             if (!canProvidePower(source)) return;
-            try trapdoorPowerChange(world_map, x, y, z, isBlockIndirectlyGettingPowered(world_map, x, y, z));
+            try trapdoorPowerChange(world_map, pos, isBlockIndirectlyGettingPowered(world_map, pos));
         },
         .dispenser => {
             if (!canProvidePower(source)) return;
-            if (!dispenserIsPowered(world_map, x, y, z)) return;
-            try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+            if (!dispenserIsPowered(world_map, pos)) return;
+            try world_map.scheduleBlockUpdate(pos, id, id.tickRate());
         },
         .note_block => {
             if (!canProvidePower(source)) return;
-            try note.onPowerChange(world_map, x, y, z, isBlockGettingPowered(world_map, x, y, z));
+            try note.onPowerChange(world_map, pos, isBlockGettingPowered(world_map, pos));
         },
-        .rail, .rail_powered, .rail_detector => try railNeighborChange(world_map, x, y, z, id, source),
-        .piston, .piston_sticky => try piston.onNeighborChange(world_map, x, y, z),
-        .piston_head => try piston.onHeadNeighborChange(world_map, x, y, z),
+        .rail, .rail_powered, .rail_detector => try railNeighborChange(world_map, pos, id, source),
+        .piston, .piston_sticky => try piston.onNeighborChange(world_map, pos),
+        .piston_head => try piston.onHeadNeighborChange(world_map, pos),
         else => {},
     }
 }
@@ -725,30 +715,30 @@ pub fn handlesTick(id: Block) bool {
     };
 }
 
-pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
+pub fn tick(world_map: *World, pos: BlockPos, id: Block) std.mem.Allocator.Error!void {
     switch (id) {
-        .torch_redstone_off, .torch_redstone_on => try torchTick(world_map, x, y, z),
-        .repeater_off, .repeater_on => try repeaterTick(world_map, x, y, z),
+        .torch_redstone_off, .torch_redstone_on => try torchTick(world_map, pos),
+        .repeater_off, .repeater_on => try repeaterTick(world_map, pos),
         .button => {
-            const metadata = world_map.getBlockMetadata(x, y, z);
+            const metadata = world_map.getBlockMetadata(pos);
             if (!block.isPowered(metadata)) return;
             const facing = metadata & block.facing_mask;
-            try world_map.setBlockMetadataWithNotify(x, y, z, facing);
-            try notifyAttachment(world_map, x, y, z, id, facing);
-            world_map.playSwitchClick(x, y, z, 0.5, click_off_pitch);
+            try world_map.setBlockMetadataWithNotify(pos, facing);
+            try notifyAttachment(world_map, pos, id, facing);
+            world_map.playSwitchClick(pos, 0.5, click_off_pitch);
         },
         .pressure_plate_stone, .pressure_plate_planks => {
-            if (world_map.getBlockMetadata(x, y, z) == 0) return;
-            try plateSettle(world_map, x, y, z);
+            if (world_map.getBlockMetadata(pos) == 0) return;
+            try plateSettle(world_map, pos);
         },
-        .ore_redstone_glowing => try world_map.setBlockWithNotify(x, y, z, .ore_redstone),
+        .ore_redstone_glowing => try world_map.setBlockWithNotify(pos, .ore_redstone),
         .dispenser => {
-            if (dispenserIsPowered(world_map, x, y, z)) try world_map.dispense(x, y, z);
+            if (dispenserIsPowered(world_map, pos)) try world_map.dispense(pos);
         },
         .rail_detector => {
-            if (world_map.getBlockMetadata(x, y, z) & block.rail_flag_bit == 0) return;
-            const occupied = detectorOccupied(world_map, x, y, z);
-            try setDetectorRail(world_map, x, y, z, occupied);
+            if (world_map.getBlockMetadata(pos) & block.rail_flag_bit == 0) return;
+            const occupied = detectorOccupied(world_map, pos);
+            try setDetectorRail(world_map, pos, occupied);
         },
         else => {},
     }
@@ -757,10 +747,10 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Alloca
 const detector_inset: f64 = 2.0 / 16.0;
 const detector_height: f64 = 0.25;
 
-pub fn detectorBox(x: i32, y: i32, z: i32) math.Aabb {
-    const fx: f64 = @floatFromInt(x);
-    const fy: f64 = @floatFromInt(y);
-    const fz: f64 = @floatFromInt(z);
+pub fn detectorBox(pos: BlockPos) math.Aabb {
+    const fx: f64 = @floatFromInt(pos.x);
+    const fy: f64 = @floatFromInt(pos.y);
+    const fz: f64 = @floatFromInt(pos.z);
     return math.Aabb.init(
         fx + detector_inset,
         fy,
@@ -781,77 +771,77 @@ pub fn onMinecartOverRail(world_map: *World, cart: math.Aabb) std.mem.Allocator.
         while (y <= max_y) : (y += 1) {
             var z = math.util.floorDouble(cart.min_z);
             while (z <= max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z) != .rail_detector) continue;
-                if (!detectorBox(x, y, z).intersects(cart)) continue;
-                try setDetectorRail(world_map, x, y, z, true);
+                if (world_map.getBlock(.init(x, y, z)) != .rail_detector) continue;
+                if (!detectorBox(.init(x, y, z)).intersects(cart)) continue;
+                try setDetectorRail(world_map, .init(x, y, z), true);
             }
         }
     }
 }
 
-fn detectorOccupied(world_map: *const World, x: i32, y: i32, z: i32) bool {
+fn detectorOccupied(world_map: *const World, pos: BlockPos) bool {
     const probe = world_map.entity_probe orelse return false;
-    const box = detectorBox(x, y, z);
+    const box = detectorBox(pos);
     return probe.anyInBox(probe.context, box, false);
 }
 
-fn setDetectorRail(world_map: *World, x: i32, y: i32, z: i32, occupied: bool) std.mem.Allocator.Error!void {
-    const metadata = world_map.getBlockMetadata(x, y, z);
+fn setDetectorRail(world_map: *World, pos: BlockPos, occupied: bool) std.mem.Allocator.Error!void {
+    const metadata = world_map.getBlockMetadata(pos);
     const live = metadata & block.rail_flag_bit != 0;
 
     if (occupied and !live) {
-        try world_map.setBlockMetadataWithNotify(x, y, z, metadata | block.rail_flag_bit);
-        try world_map.notifyBlocksOfNeighborChange(x, y, z, .rail_detector);
-        try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .rail_detector);
+        try world_map.setBlockMetadataWithNotify(pos, metadata | block.rail_flag_bit);
+        try world_map.notifyBlocksOfNeighborChange(pos, .rail_detector);
+        try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), .rail_detector);
     }
 
     if (!occupied and live) {
-        try world_map.setBlockMetadataWithNotify(x, y, z, metadata & block.rail_shape_mask);
-        try world_map.notifyBlocksOfNeighborChange(x, y, z, .rail_detector);
-        try world_map.notifyBlocksOfNeighborChange(x, y - 1, z, .rail_detector);
+        try world_map.setBlockMetadataWithNotify(pos, metadata & block.rail_shape_mask);
+        try world_map.notifyBlocksOfNeighborChange(pos, .rail_detector);
+        try world_map.notifyBlocksOfNeighborChange(pos.offset(0, -1, 0), .rail_detector);
     }
 
     if (occupied) {
-        try world_map.scheduleBlockUpdate(x, y, z, .rail_detector, Block.rail_detector.tickRate());
+        try world_map.scheduleBlockUpdate(pos, .rail_detector, Block.rail_detector.tickRate());
     }
 }
 
-pub fn onEntityCollided(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const id = world_map.getBlock(x, y, z);
+pub fn onEntityCollided(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const id = world_map.getBlock(pos);
     if (id != .pressure_plate_stone and id != .pressure_plate_planks) return;
-    if (world_map.getBlockMetadata(x, y, z) == 1) return;
-    try plateSettle(world_map, x, y, z);
+    if (world_map.getBlockMetadata(pos) == 1) return;
+    try plateSettle(world_map, pos);
 }
 
-pub fn lightRedstoneOre(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    if (world_map.getBlock(x, y, z) != .ore_redstone) return;
-    try world_map.setBlockWithNotify(x, y, z, .ore_redstone_glowing);
+pub fn lightRedstoneOre(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    if (world_map.getBlock(pos) != .ore_redstone) return;
+    try world_map.setBlockWithNotify(pos, .ore_redstone_glowing);
 }
 
-pub fn activate(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!bool {
-    const id = world_map.getBlock(x, y, z);
-    const metadata = world_map.getBlockMetadata(x, y, z);
+pub fn activate(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!bool {
+    const id = world_map.getBlock(pos);
+    const metadata = world_map.getBlockMetadata(pos);
     switch (id) {
         .lever => {
             const facing = metadata & block.facing_mask;
             const flipped = block.power_bit - (metadata & block.power_bit);
-            try world_map.setBlockMetadataWithNotify(x, y, z, facing + flipped);
-            world_map.playSwitchClick(x, y, z, 0.5, if (flipped > 0) click_on_pitch else click_off_pitch);
-            try notifyAttachment(world_map, x, y, z, id, facing);
+            try world_map.setBlockMetadataWithNotify(pos, facing + flipped);
+            world_map.playSwitchClick(pos, 0.5, if (flipped > 0) click_on_pitch else click_off_pitch);
+            try notifyAttachment(world_map, pos, id, facing);
             return true;
         },
         .button => {
             if (block.isPowered(metadata)) return true;
             const facing = metadata & block.facing_mask;
-            try world_map.setBlockMetadataWithNotify(x, y, z, facing + block.power_bit);
-            world_map.playSwitchClick(x, y, z, 0.5, click_on_pitch);
-            try notifyAttachment(world_map, x, y, z, id, facing);
-            try world_map.scheduleBlockUpdate(x, y, z, id, id.tickRate());
+            try world_map.setBlockMetadataWithNotify(pos, facing + block.power_bit);
+            world_map.playSwitchClick(pos, 0.5, click_on_pitch);
+            try notifyAttachment(world_map, pos, id, facing);
+            try world_map.scheduleBlockUpdate(pos, id, id.tickRate());
             return true;
         },
         .repeater_off, .repeater_on => {
             const delay = (@as(u4, block.repeaterDelay(metadata)) + 1) << 2 & 12;
-            try world_map.setBlockMetadataWithNotify(x, y, z, delay | (metadata & 3));
+            try world_map.setBlockMetadataWithNotify(pos, delay | (metadata & 3));
             return true;
         },
         else => return false,
@@ -860,19 +850,17 @@ pub fn activate(world_map: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Err
 
 pub fn onBlockPlaced(
     world_map: *World,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     id: Block,
     player: math.Vec3,
     yaw: f32,
 ) std.mem.Allocator.Error!void {
-    if (id.isPistonBase()) return piston.onBlockPlaced(world_map, x, y, z, player, yaw);
+    if (id.isPistonBase()) return piston.onBlockPlaced(world_map, pos, player, yaw);
     if (!id.isRepeater()) return;
     const facing = block.repeaterFacingFromYaw(yaw);
-    try world_map.setBlockMetadataWithNotify(x, y, z, facing);
-    if (repeaterInputPowered(world_map, x, y, z, facing)) {
-        try world_map.scheduleBlockUpdate(x, y, z, id, 1);
+    try world_map.setBlockMetadataWithNotify(pos, facing);
+    if (repeaterInputPowered(world_map, pos, facing)) {
+        try world_map.scheduleBlockUpdate(pos, id, 1);
     }
 }
 
@@ -904,7 +892,7 @@ fn wireWorld(dust: usize) !World {
 
     var i: usize = 0;
     while (i < dust) : (i += 1) {
-        try w.setBlockWithNotify(8 + @as(i32, @intCast(i)), 12, 8, .redstone_wire);
+        try w.setBlockWithNotify(.init(8 + @as(i32, @intCast(i)), 12, 8), .redstone_wire);
     }
     return w;
 }
@@ -915,110 +903,110 @@ test "a lever powers a wire run and the signal fades one level per block" {
     var w = try wireWorld(4);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, floor_lever);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, floor_lever);
 
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 14), w.getBlockMetadata(9, 12, 8));
-    try std.testing.expectEqual(@as(u4, 13), w.getBlockMetadata(10, 12, 8));
-    try std.testing.expectEqual(@as(u4, 12), w.getBlockMetadata(11, 12, 8));
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 14), w.getBlockMetadata(.init(9, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 13), w.getBlockMetadata(.init(10, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 12), w.getBlockMetadata(.init(11, 12, 8)));
 }
 
 test "wire dies back to zero when the lever is switched off again" {
     var w = try wireWorld(3);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, floor_lever);
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(8, 12, 8));
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, floor_lever);
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(8, 12, 8)));
 
-    _ = try activate(&w, 7, 12, 8);
+    _ = try activate(&w, .init(7, 12, 8));
 
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(9, 12, 8));
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(10, 12, 8));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(9, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(10, 12, 8)));
 }
 
 test "a redstone torch goes out when the block it stands on is powered" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .torch_redstone_on, 5);
-    try std.testing.expect(isBlockIndirectlyGettingPowered(&w, 8, 13, 8));
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .torch_redstone_on, 5);
+    try std.testing.expect(isBlockIndirectlyGettingPowered(&w, .init(8, 13, 8)));
 
-    try w.setBlockAndMetadataWithNotify(7, 11, 8, .lever, 2);
-    _ = try activate(&w, 7, 11, 8);
+    try w.setBlockAndMetadataWithNotify(.init(7, 11, 8), .lever, 2);
+    _ = try activate(&w, .init(7, 11, 8));
 
     w.time += 2;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(.init(8, 12, 8)));
 }
 
 test "a torch under a powered block powers the wire beside it" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(8, 12, 8, .stone);
-    try w.setBlockAndMetadataWithNotify(8, 11, 7, .torch_redstone_on, 4);
-    try w.setBlockWithNotify(9, 11, 7, .redstone_wire);
+    w.setBlock(.init(8, 12, 8), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(8, 11, 7), .torch_redstone_on, 4);
+    try w.setBlockWithNotify(.init(9, 11, 7), .redstone_wire);
 
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(9, 11, 7));
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(9, 11, 7)));
 }
 
 test "a wire crossing under a normal cube climbs to wire on top of it" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(9, 12, 8, .stone);
-    try w.setBlockWithNotify(8, 12, 8, .redstone_wire);
-    try w.setBlockWithNotify(9, 13, 8, .redstone_wire);
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, floor_lever);
+    w.setBlock(.init(9, 12, 8), .stone);
+    try w.setBlockWithNotify(.init(8, 12, 8), .redstone_wire);
+    try w.setBlockWithNotify(.init(9, 13, 8), .redstone_wire);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, floor_lever);
 
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 14), w.getBlockMetadata(9, 13, 8));
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 14), w.getBlockMetadata(.init(9, 13, 8)));
 }
 
 test "a repeater relays a signal only in the direction it faces" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(8, 12, 8, .redstone_wire);
-    try w.setBlockAndMetadataWithNotify(9, 12, 8, .repeater_off, 1);
-    try w.setBlockWithNotify(10, 12, 8, .redstone_wire);
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, floor_lever);
+    try w.setBlockWithNotify(.init(8, 12, 8), .redstone_wire);
+    try w.setBlockAndMetadataWithNotify(.init(9, 12, 8), .repeater_off, 1);
+    try w.setBlockWithNotify(.init(10, 12, 8), .redstone_wire);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, floor_lever);
 
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(10, 12, 8));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(10, 12, 8)));
 
     w.time += 2;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(.repeater_on, w.getBlock(9, 12, 8));
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(10, 12, 8));
+    try std.testing.expectEqual(.repeater_on, w.getBlock(.init(9, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(10, 12, 8)));
 }
 
 test "a repeater ignores a signal arriving at its output side" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(9, 12, 8, .repeater_off, 1);
-    try w.setBlockWithNotify(10, 12, 8, .redstone_wire);
-    try w.setBlockAndMetadataWithNotify(11, 12, 8, .lever, floor_lever);
+    try w.setBlockAndMetadataWithNotify(.init(9, 12, 8), .repeater_off, 1);
+    try w.setBlockWithNotify(.init(10, 12, 8), .redstone_wire);
+    try w.setBlockAndMetadataWithNotify(.init(11, 12, 8), .lever, floor_lever);
 
     w.time += 4;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(.repeater_off, w.getBlock(9, 12, 8));
+    try std.testing.expectEqual(.repeater_off, w.getBlock(.init(9, 12, 8)));
 }
 
 test "right-clicking a repeater cycles its delay through four settings" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .repeater_off, 3);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .repeater_off, 3);
 
     for ([4]u4{ 1, 2, 3, 0 }) |expected| {
-        _ = try activate(&w, 8, 12, 8);
-        try std.testing.expectEqual(expected, block.repeaterDelay(w.getBlockMetadata(8, 12, 8)));
-        try std.testing.expectEqual(@as(u2, 3), block.repeaterFacing(w.getBlockMetadata(8, 12, 8)));
+        _ = try activate(&w, .init(8, 12, 8));
+        try std.testing.expectEqual(expected, block.repeaterDelay(w.getBlockMetadata(.init(8, 12, 8))));
+        try std.testing.expectEqual(@as(u2, 3), block.repeaterFacing(w.getBlockMetadata(.init(8, 12, 8))));
     }
 }
 
@@ -1026,64 +1014,64 @@ test "a button pops back out after its twenty tick hold" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(7, 12, 8, .stone);
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .button, 1);
+    w.setBlock(.init(7, 12, 8), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .button, 1);
 
-    _ = try activate(&w, 8, 12, 8);
-    try std.testing.expect(block.isPowered(w.getBlockMetadata(8, 12, 8)));
+    _ = try activate(&w, .init(8, 12, 8));
+    try std.testing.expect(block.isPowered(w.getBlockMetadata(.init(8, 12, 8))));
 
     w.time += 20;
     try w.tickUpdates();
 
-    try std.testing.expect(!block.isPowered(w.getBlockMetadata(8, 12, 8)));
+    try std.testing.expect(!block.isPowered(w.getBlockMetadata(.init(8, 12, 8))));
 }
 
 test "a powered wire opens a wooden door and closes it again" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    _ = try block_update.placeDoor(&w, 9, 12, 8, .door_wood, 0);
-    try w.setBlockWithNotify(8, 12, 8, .redstone_wire);
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5);
-    _ = try activate(&w, 7, 12, 8);
+    _ = try block_update.placeDoor(&w, .init(9, 12, 8), .door_wood, 0);
+    try w.setBlockWithNotify(.init(8, 12, 8), .redstone_wire);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, 5);
+    _ = try activate(&w, .init(7, 12, 8));
 
-    try std.testing.expect(block.doorIsOpen(w.getBlockMetadata(9, 12, 8)));
+    try std.testing.expect(block.doorIsOpen(w.getBlockMetadata(.init(9, 12, 8))));
 
-    _ = try activate(&w, 7, 12, 8);
+    _ = try activate(&w, .init(7, 12, 8));
 
-    try std.testing.expect(!block.doorIsOpen(w.getBlockMetadata(9, 12, 8)));
+    try std.testing.expect(!block.doorIsOpen(w.getBlockMetadata(.init(9, 12, 8))));
 }
 
 test "breaking a lever drops the power it was holding up" {
     var w = try wireWorld(2);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, floor_lever);
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(8, 12, 8));
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, floor_lever);
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(8, 12, 8)));
 
-    try w.setBlockWithNotify(7, 12, 8, .air);
+    try w.setBlockWithNotify(.init(7, 12, 8), .air);
 
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(9, 12, 8));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(9, 12, 8)));
 }
 
 test "a lever with nothing to hang on pops off the wall" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(7, 12, 8, .stone);
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .lever, 1);
-    try std.testing.expectEqual(.lever, w.getBlock(8, 12, 8));
+    w.setBlock(.init(7, 12, 8), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .lever, 1);
+    try std.testing.expectEqual(.lever, w.getBlock(.init(8, 12, 8)));
 
-    try w.setBlockWithNotify(7, 12, 8, .air);
+    try w.setBlockWithNotify(.init(7, 12, 8), .air);
 
-    try std.testing.expectEqual(.air, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 12, 8)));
 }
 
 fn armedDispenser(w: *World, facing: u4) !void {
-    try w.setBlockWithNotify(8, 12, 8, .dispenser);
-    try w.setBlockMetadataWithNotify(8, 12, 8, facing);
-    const state = try w.addDispenser(8, 12, 8);
+    try w.setBlockWithNotify(.init(8, 12, 8), .dispenser);
+    try w.setBlockMetadataWithNotify(.init(8, 12, 8), facing);
+    const state = try w.addDispenser(.init(8, 12, 8));
     state.slot(0).* = .{ .id = .{ .block = .cobblestone }, .count = 3 };
 }
 
@@ -1092,8 +1080,8 @@ test "a lever powering a dispenser makes it hand one item out four ticks later" 
     defer w.deinit();
     try armedDispenser(&w, @intFromEnum(block.Side.south));
 
-    w.setBlock(7, 12, 8, .stone);
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5 | block.power_bit);
+    w.setBlock(.init(7, 12, 8), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, 5 | block.power_bit);
     try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
 
     w.time += Block.dispenser.tickRate();
@@ -1104,7 +1092,7 @@ test "a lever powering a dispenser makes it hand one item out four ticks later" 
     try std.testing.expectEqual(Block.cobblestone, shot.stack.id.block);
     try std.testing.expectEqual(@as(u8, 1), shot.stack.count);
     try std.testing.expectEqual([2]i32{ 0, 1 }, shot.step);
-    try std.testing.expectEqual(@as(u8, 2), w.dispenserAt(8, 12, 8).?.items[0].?.count);
+    try std.testing.expectEqual(@as(u8, 2), w.dispenserAt(.init(8, 12, 8)).?.items[0].?.count);
 }
 
 const SoundLog = struct {
@@ -1119,7 +1107,7 @@ const SoundLog = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *SoundLog) World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -1134,16 +1122,16 @@ test "a dispenser clicks over an item, twangs over an arrow and clicks higher ov
     var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
 
-    try w.dispense(8, 12, 8);
+    try w.dispense(.init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
     try std.testing.expectEqual(@as(f32, 1.0), heard.pitch);
 
-    w.dispenserAt(8, 12, 8).?.slot(0).* = .{ .id = .{ .item = .arrow }, .count = 1 };
-    try w.dispense(8, 12, 8);
+    w.dispenserAt(.init(8, 12, 8)).?.slot(0).* = .{ .id = .{ .item = .arrow }, .count = 1 };
+    try w.dispense(.init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.bow.key, heard.key);
     try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
 
-    try w.dispense(8, 12, 8);
+    try w.dispense(.init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
     try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
 
@@ -1155,13 +1143,13 @@ test "an unpowered dispenser is never scheduled and an empty one queues nothing"
     defer w.deinit();
     try armedDispenser(&w, @intFromEnum(block.Side.west));
 
-    w.setBlock(7, 12, 8, .stone);
+    w.setBlock(.init(7, 12, 8), .stone);
     w.time += Block.dispenser.tickRate();
     try w.tickUpdates();
     try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
 
-    w.dispenserAt(8, 12, 8).?.slot(0).* = null;
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5 | block.power_bit);
+    w.dispenserAt(.init(8, 12, 8)).?.slot(0).* = null;
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, 5 | block.power_bit);
     w.time += Block.dispenser.tickRate();
     try w.tickUpdates();
     try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
@@ -1182,30 +1170,30 @@ test "a dispenser walled in on one side turns away from the wall when it is plac
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(8, 12, 7, .stone);
-    try w.setBlockWithNotify(8, 12, 8, .dispenser);
-    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.south)), w.getBlockMetadata(8, 12, 8));
+    w.setBlock(.init(8, 12, 7), .stone);
+    try w.setBlockWithNotify(.init(8, 12, 8), .dispenser);
+    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.south)), w.getBlockMetadata(.init(8, 12, 8)));
 
-    try w.setBlockWithNotify(8, 12, 8, .air);
-    w.setBlock(8, 12, 7, .air);
-    w.setBlock(9, 12, 8, .stone);
-    try w.setBlockWithNotify(8, 12, 8, .dispenser);
-    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.west)), w.getBlockMetadata(8, 12, 8));
+    try w.setBlockWithNotify(.init(8, 12, 8), .air);
+    w.setBlock(.init(8, 12, 7), .air);
+    w.setBlock(.init(9, 12, 8), .stone);
+    try w.setBlockWithNotify(.init(8, 12, 8), .dispenser);
+    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.west)), w.getBlockMetadata(.init(8, 12, 8)));
 }
 
 test "redstone ore lights up when touched and goes dark on its own" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(8, 12, 8, .ore_redstone);
-    try lightRedstoneOre(&w, 8, 12, 8);
-    try std.testing.expectEqual(.ore_redstone_glowing, w.getBlock(8, 12, 8));
+    w.setBlock(.init(8, 12, 8), .ore_redstone);
+    try lightRedstoneOre(&w, .init(8, 12, 8));
+    try std.testing.expectEqual(.ore_redstone_glowing, w.getBlock(.init(8, 12, 8)));
 
-    try w.scheduleBlockUpdate(8, 12, 8, .ore_redstone_glowing, Block.ore_redstone_glowing.tickRate());
+    try w.scheduleBlockUpdate(.init(8, 12, 8), .ore_redstone_glowing, Block.ore_redstone_glowing.tickRate());
     w.time += 30;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(.ore_redstone, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.ore_redstone, w.getBlock(.init(8, 12, 8)));
 }
 
 const ProbeStub = struct {
@@ -1226,21 +1214,21 @@ test "a pressure plate holds power while it is stood on and springs back after" 
     var stub: ProbeStub = .{};
     w.entity_probe = .{ .context = &stub, .anyInBox = ProbeStub.anyInBox };
 
-    try w.setBlockWithNotify(8, 12, 8, .pressure_plate_planks);
-    try w.setBlockWithNotify(9, 12, 8, .redstone_wire);
+    try w.setBlockWithNotify(.init(8, 12, 8), .pressure_plate_planks);
+    try w.setBlockWithNotify(.init(9, 12, 8), .redstone_wire);
 
     stub.occupied = true;
-    try onEntityCollided(&w, 8, 12, 8);
+    try onEntityCollided(&w, .init(8, 12, 8));
 
-    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(9, 12, 8));
+    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(9, 12, 8)));
 
     stub.occupied = false;
     w.time += 20;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(9, 12, 8));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(9, 12, 8)));
 }
 
 test "a stone plate only listens for mobs where a wooden one listens for anything" {
@@ -1250,12 +1238,12 @@ test "a stone plate only listens for mobs where a wooden one listens for anythin
     var stub: ProbeStub = .{};
     w.entity_probe = .{ .context = &stub, .anyInBox = ProbeStub.anyInBox };
 
-    try w.setBlockWithNotify(8, 12, 8, .pressure_plate_stone);
-    try onEntityCollided(&w, 8, 12, 8);
+    try w.setBlockWithNotify(.init(8, 12, 8), .pressure_plate_stone);
+    try onEntityCollided(&w, .init(8, 12, 8));
     try std.testing.expect(stub.asked_living_only);
 
-    try w.setBlockWithNotify(9, 12, 8, .pressure_plate_planks);
-    try onEntityCollided(&w, 9, 12, 8);
+    try w.setBlockWithNotify(.init(9, 12, 8), .pressure_plate_planks);
+    try onEntityCollided(&w, .init(9, 12, 8));
     try std.testing.expect(!stub.asked_living_only);
 }
 
@@ -1263,45 +1251,45 @@ test "a redstone torch flicked on and off too many times burns out" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .torch_redstone_on, 5);
-    try w.setBlockAndMetadataWithNotify(7, 11, 8, .lever, 2);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .torch_redstone_on, 5);
+    try w.setBlockAndMetadataWithNotify(.init(7, 11, 8), .lever, 2);
 
     for (0..7) |_| {
-        _ = try activate(&w, 7, 11, 8);
+        _ = try activate(&w, .init(7, 11, 8));
         w.time += 2;
         try w.tickUpdates();
-        try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+        try std.testing.expectEqual(.torch_redstone_off, w.getBlock(.init(8, 12, 8)));
 
-        _ = try activate(&w, 7, 11, 8);
+        _ = try activate(&w, .init(7, 11, 8));
         w.time += 2;
         try w.tickUpdates();
-        try std.testing.expectEqual(.torch_redstone_on, w.getBlock(8, 12, 8));
+        try std.testing.expectEqual(.torch_redstone_on, w.getBlock(.init(8, 12, 8)));
     }
 
-    _ = try activate(&w, 7, 11, 8);
+    _ = try activate(&w, .init(7, 11, 8));
     w.time += 2;
     try w.tickUpdates();
-    _ = try activate(&w, 7, 11, 8);
+    _ = try activate(&w, .init(7, 11, 8));
     w.time += 2;
     try w.tickUpdates();
 
-    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(.init(8, 12, 8)));
 }
 
 test "a lever clicks up when it is thrown and down again when it is dropped" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .lever, 5);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .lever, 5);
 
     var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
 
-    _ = try activate(&w, 8, 12, 8);
+    _ = try activate(&w, .init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
     try std.testing.expectEqual(click_on_pitch, heard.pitch);
 
-    _ = try activate(&w, 8, 12, 8);
+    _ = try activate(&w, .init(8, 12, 8));
     try std.testing.expectEqual(click_off_pitch, heard.pitch);
     try std.testing.expectEqual(@as(usize, 2), heard.count);
 }
@@ -1310,13 +1298,13 @@ test "a button clicks in when it is pressed and out again when it pops back" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    w.setBlock(7, 12, 8, .stone);
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .button, 1);
+    w.setBlock(.init(7, 12, 8), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .button, 1);
 
     var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
 
-    _ = try activate(&w, 8, 12, 8);
+    _ = try activate(&w, .init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
     try std.testing.expectEqual(click_on_pitch, heard.pitch);
 
@@ -1333,13 +1321,13 @@ test "a pressure plate clicks down under a step and up again when it springs bac
 
     var stub: ProbeStub = .{};
     w.entity_probe = .{ .context = &stub, .anyInBox = ProbeStub.anyInBox };
-    try w.setBlockWithNotify(8, 12, 8, .pressure_plate_planks);
+    try w.setBlockWithNotify(.init(8, 12, 8), .pressure_plate_planks);
 
     var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
 
     stub.occupied = true;
-    try onEntityCollided(&w, 8, 12, 8);
+    try onEntityCollided(&w, .init(8, 12, 8));
     try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
     try std.testing.expectEqual(click_on_pitch, heard.pitch);
 
@@ -1355,20 +1343,20 @@ test "a torch that burns out leaves a puff of smoke where it stood" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try w.setBlockAndMetadataWithNotify(8, 12, 8, .torch_redstone_on, 5);
-    try w.setBlockAndMetadataWithNotify(7, 11, 8, .lever, 2);
+    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .torch_redstone_on, 5);
+    try w.setBlockAndMetadataWithNotify(.init(7, 11, 8), .lever, 2);
 
     for (0..8) |_| {
-        _ = try activate(&w, 7, 11, 8);
+        _ = try activate(&w, .init(7, 11, 8));
         w.time += 2;
         try w.tickUpdates();
 
-        _ = try activate(&w, 7, 11, 8);
+        _ = try activate(&w, .init(7, 11, 8));
         w.time += 2;
         try w.tickUpdates();
     }
 
-    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(8, 12, 8));
+    try std.testing.expectEqual(.torch_redstone_off, w.getBlock(.init(8, 12, 8)));
     try std.testing.expectEqual(@as(usize, 1), w.burnt_out.items.len);
     try std.testing.expectEqual(World.BlockPos{ .x = 8, .y = 12, .z = 8 }, w.burnt_out.items[0]);
 }

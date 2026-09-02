@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Entity = @import("../Entity.zig");
 
@@ -29,11 +30,11 @@ const spawn_drift: f64 = 0.02;
 
 pub const Outcome = enum { burning, exploded };
 
-pub fn spawnInBlock(x: i32, y: i32, z: i32, fuse: i32, rand: *world.JavaRandom) PrimedTnt {
+pub fn spawnInBlock(pos: BlockPos, fuse: i32, rand: *world.JavaRandom) PrimedTnt {
     return spawn(math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5 - size / 2.0,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5 - size / 2.0,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
     ), fuse, rand);
 }
 
@@ -117,7 +118,7 @@ test "a primed stick of tnt hops upward off the block it was lit in" {
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
-    const lit = PrimedTnt.spawnInBlock(8, 5, 8, world.tnt.fuse_ticks, &rand);
+    const lit = PrimedTnt.spawnInBlock(.init(8, 5, 8), world.tnt.fuse_ticks, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), lit.base.motion.y, 1.0e-9);
     try std.testing.expect(@abs(lit.base.motion.x) <= 0.02);
     try std.testing.expect(@abs(lit.base.motion.z) <= 0.02);
@@ -130,7 +131,7 @@ test "the fuse burns for eighty ticks before the blast" {
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
 
-    var lit = PrimedTnt.spawnInBlock(8, 50, 8, world.tnt.fuse_ticks, &rand);
+    var lit = PrimedTnt.spawnInBlock(.init(8, 50, 8), world.tnt.fuse_ticks, &rand);
     for (0..world.tnt.fuse_ticks) |_| {
         try std.testing.expectEqual(Outcome.burning, lit.tick(&w));
     }
@@ -139,7 +140,7 @@ test "the fuse burns for eighty ticks before the blast" {
 
 test "the flash alternates every five ticks of fuse" {
     var rand = world.JavaRandom.init(0);
-    var lit = PrimedTnt.spawnInBlock(0, 0, 0, 10, &rand);
+    var lit = PrimedTnt.spawnInBlock(.init(0, 0, 0), 10, &rand);
     try std.testing.expect(lit.flashing());
     lit.fuse = 5;
     try std.testing.expect(!lit.flashing());

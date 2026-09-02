@@ -2,6 +2,7 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Stack = block.Stack;
+const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
 
 pub const id_key = "Chest";
@@ -50,7 +51,7 @@ fn storeStack(gpa: std.mem.Allocator, index: u8, stack: Stack) !nbt.Tag {
     return .{ .compound = compound };
 }
 
-pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Chest) !nbt.Tag {
+pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Chest) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
         var owned: nbt.Tag = .{ .compound = compound };
@@ -58,9 +59,9 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Chest) !nbt.
     }
 
     try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = x });
-    try put(gpa, &compound, "y", .{ .int = y });
-    try put(gpa, &compound, "z", .{ .int = z });
+    try put(gpa, &compound, "x", .{ .int = pos.x });
+    try put(gpa, &compound, "y", .{ .int = pos.y });
+    try put(gpa, &compound, "z", .{ .int = pos.z });
 
     var items: std.ArrayList(nbt.Tag) = .empty;
     errdefer {
@@ -95,9 +96,7 @@ fn loadStack(compound: nbt.Compound) ?Stack {
 }
 
 pub const Placed = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     state: Chest,
 };
 
@@ -129,9 +128,11 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 
     return .{
-        .x = nbt.intField(compound, "x") orelse return null,
-        .y = nbt.intField(compound, "y") orelse return null,
-        .z = nbt.intField(compound, "z") orelse return null,
+        .pos = .{
+            .x = nbt.intField(compound, "x") orelse return null,
+            .y = nbt.intField(compound, "y") orelse return null,
+            .z = nbt.intField(compound, "z") orelse return null,
+        },
         .state = state,
     };
 }
@@ -152,21 +153,19 @@ test "a chest survives a round trip through its tile entity compound" {
     original.slot(13).* = .{ .id = .{ .item = .pickaxe_iron }, .count = 1, .meta = 47 };
     original.slot(26).* = .{ .id = .{ .item = .diamond }, .count = 5 };
 
-    var tag = try store(gpa, -18, 40, 7, original);
+    var tag = try store(gpa, .init(-18, 40, 7), original);
     defer nbt.deinit(gpa, &tag);
 
     try std.testing.expectEqual(@as(usize, 3), tag.compound.get("Items").?.list.items.len);
 
     const loaded = load(tag.compound).?;
-    try std.testing.expectEqual(@as(i32, -18), loaded.x);
-    try std.testing.expectEqual(@as(i32, 40), loaded.y);
-    try std.testing.expectEqual(@as(i32, 7), loaded.z);
+    try std.testing.expectEqual(BlockPos.init(-18, 40, 7), loaded.pos);
     try std.testing.expectEqual(original, loaded.state);
 }
 
 test "an empty chest round-trips with no item entries" {
     const gpa = std.testing.allocator;
-    var tag = try store(gpa, 0, 0, 0, .{});
+    var tag = try store(gpa, .init(0, 0, 0), .{});
     defer nbt.deinit(gpa, &tag);
 
     try std.testing.expectEqual(@as(usize, 0), tag.compound.get("Items").?.list.items.len);
@@ -175,7 +174,7 @@ test "an empty chest round-trips with no item entries" {
 
 test "a tile entity of another kind is not read as a chest" {
     const gpa = std.testing.allocator;
-    var tag = try store(gpa, 1, 2, 3, .{});
+    var tag = try store(gpa, .init(1, 2, 3), .{});
     defer nbt.deinit(gpa, &tag);
 
     const stored = tag.compound.getPtr("id").?;

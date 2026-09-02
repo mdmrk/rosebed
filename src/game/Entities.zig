@@ -3,6 +3,7 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const achievements = @import("achievements.zig");
 const Entity = @import("Entity.zig");
@@ -617,16 +618,14 @@ pub fn tickPaintings(
 pub fn dropStack(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     stack: Inventory.ItemStack,
     rand: *world.JavaRandom,
 ) !void {
     const position = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
-        @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
-        @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(pos.x)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(pos.y)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(pos.z)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
     );
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
@@ -740,16 +739,14 @@ fn puffDispenserSmoke(
 pub fn ejectRecord(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     stack: Inventory.ItemStack,
     rand: *world.JavaRandom,
 ) !void {
     const position = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
-        @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat()) * 0.7 + 0.66,
-        @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(pos.x)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
+        @as(f64, @floatFromInt(pos.y)) + @as(f64, rand.nextFloat()) * 0.7 + 0.66,
+        @as(f64, @floatFromInt(pos.z)) + @as(f64, rand.nextFloat()) * 0.7 + 0.15,
     );
     try self.items.append(gpa, ItemEntity.spawn(position, stack, rand));
 }
@@ -827,7 +824,7 @@ pub fn primeTnt(
     lit: world.World.PrimedTnt,
     rand: *world.JavaRandom,
 ) !void {
-    try self.primed.append(gpa, PrimedTnt.spawnInBlock(lit.pos.x, lit.pos.y, lit.pos.z, lit.fuse, rand));
+    try self.primed.append(gpa, PrimedTnt.spawnInBlock(lit.pos, lit.fuse, rand));
 }
 
 pub fn tickPrimed(
@@ -870,11 +867,11 @@ pub fn tickPrimed(
     }
 }
 
-pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, block_id: world.Block) !void {
+pub fn spawnFallingBlock(self: *Entities, gpa: std.mem.Allocator, pos: BlockPos, block_id: world.Block) !void {
     const position = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @floatFromInt(y),
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @floatFromInt(pos.y),
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
     );
     try self.falling_blocks.append(gpa, FallingBlock.spawn(position, block_id));
 }
@@ -884,9 +881,7 @@ pub const destroy_grid: i32 = 4;
 pub fn spawnBlockDestroyParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     tile: u8,
     tint: [3]u8,
     rand: *world.JavaRandom,
@@ -898,15 +893,15 @@ pub fn spawnBlockDestroyParticles(
         while (iy < destroy_grid) : (iy += 1) {
             var iz: i32 = 0;
             while (iz < destroy_grid) : (iz += 1) {
-                const px = @as(f64, @floatFromInt(x)) + (@as(f64, @floatFromInt(ix)) + 0.5) * step;
-                const py = @as(f64, @floatFromInt(y)) + (@as(f64, @floatFromInt(iy)) + 0.5) * step;
-                const pz = @as(f64, @floatFromInt(z)) + (@as(f64, @floatFromInt(iz)) + 0.5) * step;
+                const px = @as(f64, @floatFromInt(pos.x)) + (@as(f64, @floatFromInt(ix)) + 0.5) * step;
+                const py = @as(f64, @floatFromInt(pos.y)) + (@as(f64, @floatFromInt(iy)) + 0.5) * step;
+                const pz = @as(f64, @floatFromInt(pos.z)) + (@as(f64, @floatFromInt(iz)) + 0.5) * step;
                 var shard = Particle.spawn(
                     math.Vec3.init(px, py, pz),
                     math.Vec3.init(
-                        px - @as(f64, @floatFromInt(x)) - 0.5,
-                        py - @as(f64, @floatFromInt(y)) - 0.5,
-                        pz - @as(f64, @floatFromInt(z)) - 0.5,
+                        px - @as(f64, @floatFromInt(pos.x)) - 0.5,
+                        py - @as(f64, @floatFromInt(pos.y)) - 0.5,
+                        pz - @as(f64, @floatFromInt(pos.z)) - 0.5,
                     ),
                     tile,
                     rand,
@@ -926,9 +921,7 @@ pub const hit_shrink: f32 = 0.6;
 pub fn spawnBlockHitParticle(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     side: world.Side,
     bounds: world.block.Bounds,
     tile: u8,
@@ -943,17 +936,17 @@ pub fn spawnBlockHitParticle(
         spread[axis] = rand.nextDouble() * (high[axis] - low[axis] - hit_inset * 2.0) + hit_inset + low[axis];
     }
 
-    var px = @as(f64, @floatFromInt(x)) + spread[0];
-    var py = @as(f64, @floatFromInt(y)) + spread[1];
-    var pz = @as(f64, @floatFromInt(z)) + spread[2];
+    var px = @as(f64, @floatFromInt(pos.x)) + spread[0];
+    var py = @as(f64, @floatFromInt(pos.y)) + spread[1];
+    var pz = @as(f64, @floatFromInt(pos.z)) + spread[2];
 
     switch (side) {
-        world.Side.down => py = @as(f64, @floatFromInt(y)) + low[1] - hit_inset,
-        world.Side.up => py = @as(f64, @floatFromInt(y)) + high[1] + hit_inset,
-        world.Side.north => pz = @as(f64, @floatFromInt(z)) + low[2] - hit_inset,
-        world.Side.south => pz = @as(f64, @floatFromInt(z)) + high[2] + hit_inset,
-        world.Side.west => px = @as(f64, @floatFromInt(x)) + low[0] - hit_inset,
-        world.Side.east => px = @as(f64, @floatFromInt(x)) + high[0] + hit_inset,
+        world.Side.down => py = @as(f64, @floatFromInt(pos.y)) + low[1] - hit_inset,
+        world.Side.up => py = @as(f64, @floatFromInt(pos.y)) + high[1] + hit_inset,
+        world.Side.north => pz = @as(f64, @floatFromInt(pos.z)) + low[2] - hit_inset,
+        world.Side.south => pz = @as(f64, @floatFromInt(pos.z)) + high[2] + hit_inset,
+        world.Side.west => px = @as(f64, @floatFromInt(pos.x)) + low[0] - hit_inset,
+        world.Side.east => px = @as(f64, @floatFromInt(pos.x)) + high[0] + hit_inset,
     }
 
     var shard = Particle.spawn(math.Vec3.init(px, py, pz), math.Vec3.init(0, 0, 0), tile, rand);
@@ -965,10 +958,10 @@ pub const torch_flame_height: f64 = 0.7;
 pub const torch_wall_lift: f64 = 0.22;
 pub const torch_wall_reach: f64 = 0.27;
 
-pub fn torchFlamePosition(x: i32, y: i32, z: i32, metadata: u4) math.Vec3 {
-    const cx = @as(f64, @floatFromInt(x)) + 0.5;
-    const cy = @as(f64, @floatFromInt(y)) + torch_flame_height;
-    const cz = @as(f64, @floatFromInt(z)) + 0.5;
+pub fn torchFlamePosition(pos: BlockPos, metadata: u4) math.Vec3 {
+    const cx = @as(f64, @floatFromInt(pos.x)) + 0.5;
+    const cy = @as(f64, @floatFromInt(pos.y)) + torch_flame_height;
+    const cz = @as(f64, @floatFromInt(pos.z)) + 0.5;
     return switch (metadata) {
         1 => math.Vec3.init(cx - torch_wall_reach, cy + torch_wall_lift, cz),
         2 => math.Vec3.init(cx + torch_wall_reach, cy + torch_wall_lift, cz),
@@ -981,13 +974,11 @@ pub fn torchFlamePosition(x: i32, y: i32, z: i32, metadata: u4) math.Vec3 {
 pub fn spawnTorchParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     metadata: u4,
     rand: *world.JavaRandom,
 ) !void {
-    const position = torchFlamePosition(x, y, z, metadata);
+    const position = torchFlamePosition(pos, metadata);
     const still = math.Vec3.init(0, 0, 0);
     try self.particles.append(gpa, Particle.spawnSmoke(position, still, rand));
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
@@ -1000,15 +991,13 @@ const torch_burnout_inset: f64 = 0.2;
 pub fn spawnTorchBurnoutSmoke(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     rand: *world.JavaRandom,
 ) !void {
     for (0..torch_burnout_particles) |_| {
-        const px = @as(f64, @floatFromInt(x)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
-        const py = @as(f64, @floatFromInt(y)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
-        const pz = @as(f64, @floatFromInt(z)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        const px = @as(f64, @floatFromInt(pos.x)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        const py = @as(f64, @floatFromInt(pos.y)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
+        const pz = @as(f64, @floatFromInt(pos.z)) + rand.nextDouble() * torch_burnout_spread + torch_burnout_inset;
         try self.particles.append(gpa, Particle.spawnSmoke(
             math.Vec3.init(px, py, pz),
             math.Vec3.init(0, 0, 0),
@@ -1025,19 +1014,17 @@ pub fn spawnFireParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     rand: *world.JavaRandom,
 ) !void {
-    const fx: f64 = @floatFromInt(x);
-    const fy: f64 = @floatFromInt(y);
-    const fz: f64 = @floatFromInt(z);
+    const fx: f64 = @floatFromInt(pos.x);
+    const fy: f64 = @floatFromInt(pos.y);
+    const fz: f64 = @floatFromInt(pos.z);
     const still = math.Vec3.init(0, 0, 0);
 
-    const below = world_map.getBlock(x, y - 1, z);
+    const below = world_map.getBlock(pos.offset(0, -1, 0));
     if (!below.isNormalCube() and !below.isFlammable()) {
-        if (world_map.getBlock(x - 1, y, z).isFlammable()) {
+        if (world_map.getBlock(pos.offset(-1, 0, 0)).isFlammable()) {
             for (0..fire_edge_particles) |_| {
                 try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
                     fx + @as(f64, rand.nextFloat()) * fire_edge_inset,
@@ -1046,7 +1033,7 @@ pub fn spawnFireParticles(
                 ), still, rand));
             }
         }
-        if (world_map.getBlock(x + 1, y, z).isFlammable()) {
+        if (world_map.getBlock(pos.offset(1, 0, 0)).isFlammable()) {
             for (0..fire_edge_particles) |_| {
                 try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
                     fx + 1.0 - @as(f64, rand.nextFloat()) * fire_edge_inset,
@@ -1055,7 +1042,7 @@ pub fn spawnFireParticles(
                 ), still, rand));
             }
         }
-        if (world_map.getBlock(x, y, z - 1).isFlammable()) {
+        if (world_map.getBlock(pos.offset(0, 0, -1)).isFlammable()) {
             for (0..fire_edge_particles) |_| {
                 try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
                     fx + @as(f64, rand.nextFloat()),
@@ -1064,7 +1051,7 @@ pub fn spawnFireParticles(
                 ), still, rand));
             }
         }
-        if (world_map.getBlock(x, y, z + 1).isFlammable()) {
+        if (world_map.getBlock(pos.offset(0, 0, 1)).isFlammable()) {
             for (0..fire_edge_particles) |_| {
                 try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
                     fx + @as(f64, rand.nextFloat()),
@@ -1073,7 +1060,7 @@ pub fn spawnFireParticles(
                 ), still, rand));
             }
         }
-        if (world_map.getBlock(x, y + 1, z).isFlammable()) {
+        if (world_map.getBlock(pos.offset(0, 1, 0)).isFlammable()) {
             for (0..fire_edge_particles) |_| {
                 try self.particles.append(gpa, Particle.spawnLargeSmoke(math.Vec3.init(
                     fx + @as(f64, rand.nextFloat()),
@@ -1102,16 +1089,14 @@ const portal_ejection_speed: f64 = 2.0;
 pub fn spawnPortalParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     spans_x: bool,
     rand: *world.JavaRandom,
 ) !void {
     for (0..portal_particles_per_tick) |_| {
-        var px = @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat());
-        const py = @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat());
-        var pz = @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat());
+        var px = @as(f64, @floatFromInt(pos.x)) + @as(f64, rand.nextFloat());
+        const py = @as(f64, @floatFromInt(pos.y)) + @as(f64, rand.nextFloat());
+        var pz = @as(f64, @floatFromInt(pos.z)) + @as(f64, rand.nextFloat());
 
         const side: f64 = @floatFromInt(rand.nextIntBound(2) * 2 - 1);
         var dx = (@as(f64, rand.nextFloat()) - 0.5) * portal_drift_spread;
@@ -1119,10 +1104,10 @@ pub fn spawnPortalParticles(
         var dz = (@as(f64, rand.nextFloat()) - 0.5) * portal_drift_spread;
 
         if (spans_x) {
-            pz = @as(f64, @floatFromInt(z)) + 0.5 + portal_mouth_inset * side;
+            pz = @as(f64, @floatFromInt(pos.z)) + 0.5 + portal_mouth_inset * side;
             dz = @as(f64, rand.nextFloat()) * portal_ejection_speed * side;
         } else {
-            px = @as(f64, @floatFromInt(x)) + 0.5 + portal_mouth_inset * side;
+            px = @as(f64, @floatFromInt(pos.x)) + 0.5 + portal_mouth_inset * side;
             dx = @as(f64, rand.nextFloat()) * portal_ejection_speed * side;
         }
 
@@ -1148,18 +1133,16 @@ fn jittered(value: f64, rand: *world.JavaRandom) f64 {
 pub fn spawnWireParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     metadata: u4,
     rand: *world.JavaRandom,
 ) !void {
     if (metadata == 0) return;
 
     const position = math.Vec3.init(
-        jittered(@as(f64, @floatFromInt(x)) + 0.5, rand),
-        @as(f64, @floatFromInt(y)) + 1.0 / 16.0,
-        jittered(@as(f64, @floatFromInt(z)) + 0.5, rand),
+        jittered(@as(f64, @floatFromInt(pos.x)) + 0.5, rand),
+        @as(f64, @floatFromInt(pos.y)) + 1.0 / 16.0,
+        jittered(@as(f64, @floatFromInt(pos.z)) + 0.5, rand),
     );
 
     const level = @as(f32, @floatFromInt(metadata)) / 15.0;
@@ -1174,15 +1157,13 @@ pub fn spawnWireParticles(
 pub fn spawnRedstoneTorchParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     metadata: u4,
     rand: *world.JavaRandom,
 ) !void {
-    const centre_x = jittered(@as(f64, @floatFromInt(x)) + 0.5, rand);
-    const centre_y = jittered(@as(f64, @floatFromInt(y)) + redstone_torch_height, rand);
-    const centre_z = jittered(@as(f64, @floatFromInt(z)) + 0.5, rand);
+    const centre_x = jittered(@as(f64, @floatFromInt(pos.x)) + 0.5, rand);
+    const centre_y = jittered(@as(f64, @floatFromInt(pos.y)) + redstone_torch_height, rand);
+    const centre_z = jittered(@as(f64, @floatFromInt(pos.z)) + 0.5, rand);
 
     const position = switch (metadata) {
         1 => math.Vec3.init(centre_x - torch_wall_reach, centre_y + torch_wall_lift, centre_z),
@@ -1197,15 +1178,13 @@ pub fn spawnRedstoneTorchParticles(
 pub fn spawnRepeaterParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     metadata: u4,
     rand: *world.JavaRandom,
 ) !void {
-    const centre_x = jittered(@as(f64, @floatFromInt(x)) + 0.5, rand);
-    const centre_y = jittered(@as(f64, @floatFromInt(y)) + repeater_dust_height, rand);
-    const centre_z = jittered(@as(f64, @floatFromInt(z)) + 0.5, rand);
+    const centre_x = jittered(@as(f64, @floatFromInt(pos.x)) + 0.5, rand);
+    const centre_y = jittered(@as(f64, @floatFromInt(pos.y)) + repeater_dust_height, rand);
+    const centre_z = jittered(@as(f64, @floatFromInt(pos.z)) + 0.5, rand);
 
     var along: f64 = 0;
     var across: f64 = 0;
@@ -1234,40 +1213,38 @@ pub fn spawnRedstoneOreParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     rand: *world.JavaRandom,
 ) !void {
     for (0..ore_dust_samples) |sample| {
-        var px = @as(f64, @floatFromInt(x)) + @as(f64, rand.nextFloat());
-        var py = @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat());
-        var pz = @as(f64, @floatFromInt(z)) + @as(f64, rand.nextFloat());
+        var px = @as(f64, @floatFromInt(pos.x)) + @as(f64, rand.nextFloat());
+        var py = @as(f64, @floatFromInt(pos.y)) + @as(f64, rand.nextFloat());
+        var pz = @as(f64, @floatFromInt(pos.z)) + @as(f64, rand.nextFloat());
 
         switch (sample) {
-            0 => if (!world_map.getBlock(x, y + 1, z).isOpaqueCube()) {
-                py = @as(f64, @floatFromInt(y + 1)) + ore_dust_lift;
+            0 => if (!world_map.getBlock(pos.offset(0, 1, 0)).isOpaqueCube()) {
+                py = @as(f64, @floatFromInt(pos.y + 1)) + ore_dust_lift;
             },
-            1 => if (!world_map.getBlock(x, y - 1, z).isOpaqueCube()) {
-                py = @as(f64, @floatFromInt(y)) - ore_dust_lift;
+            1 => if (!world_map.getBlock(pos.offset(0, -1, 0)).isOpaqueCube()) {
+                py = @as(f64, @floatFromInt(pos.y)) - ore_dust_lift;
             },
-            2 => if (!world_map.getBlock(x, y, z + 1).isOpaqueCube()) {
-                pz = @as(f64, @floatFromInt(z + 1)) + ore_dust_lift;
+            2 => if (!world_map.getBlock(pos.offset(0, 0, 1)).isOpaqueCube()) {
+                pz = @as(f64, @floatFromInt(pos.z + 1)) + ore_dust_lift;
             },
-            3 => if (!world_map.getBlock(x, y, z - 1).isOpaqueCube()) {
-                pz = @as(f64, @floatFromInt(z)) - ore_dust_lift;
+            3 => if (!world_map.getBlock(pos.offset(0, 0, -1)).isOpaqueCube()) {
+                pz = @as(f64, @floatFromInt(pos.z)) - ore_dust_lift;
             },
-            4 => if (!world_map.getBlock(x + 1, y, z).isOpaqueCube()) {
-                px = @as(f64, @floatFromInt(x + 1)) + ore_dust_lift;
+            4 => if (!world_map.getBlock(pos.offset(1, 0, 0)).isOpaqueCube()) {
+                px = @as(f64, @floatFromInt(pos.x + 1)) + ore_dust_lift;
             },
-            else => if (!world_map.getBlock(x - 1, y, z).isOpaqueCube()) {
-                px = @as(f64, @floatFromInt(x)) - ore_dust_lift;
+            else => if (!world_map.getBlock(pos.offset(-1, 0, 0)).isOpaqueCube()) {
+                px = @as(f64, @floatFromInt(pos.x)) - ore_dust_lift;
             },
         }
 
-        const inside = px >= @as(f64, @floatFromInt(x)) and px <= @as(f64, @floatFromInt(x + 1)) and
-            py >= 0.0 and py <= @as(f64, @floatFromInt(y + 1)) and
-            pz >= @as(f64, @floatFromInt(z)) and pz <= @as(f64, @floatFromInt(z + 1));
+        const inside = px >= @as(f64, @floatFromInt(pos.x)) and px <= @as(f64, @floatFromInt(pos.x + 1)) and
+            py >= 0.0 and py <= @as(f64, @floatFromInt(pos.y + 1)) and
+            pz >= @as(f64, @floatFromInt(pos.z)) and pz <= @as(f64, @floatFromInt(pos.z + 1));
         if (inside) continue;
 
         try self.particles.append(gpa, Particle.spawnReddust(math.Vec3.init(px, py, pz), .{ 0, 0, 0 }, rand));
@@ -1277,10 +1254,10 @@ pub fn spawnRedstoneOreParticles(
 pub const furnace_mouth_reach: f64 = 0.52;
 pub const furnace_mouth_height: f64 = 6.0 / 16.0;
 
-pub fn furnaceMouthPosition(x: i32, y: i32, z: i32, metadata: u4, rand: *world.JavaRandom) math.Vec3 {
-    const cx = @as(f64, @floatFromInt(x)) + 0.5;
-    const cy = @as(f64, @floatFromInt(y)) + @as(f64, rand.nextFloat()) * furnace_mouth_height;
-    const cz = @as(f64, @floatFromInt(z)) + 0.5;
+pub fn furnaceMouthPosition(pos: BlockPos, metadata: u4, rand: *world.JavaRandom) math.Vec3 {
+    const cx = @as(f64, @floatFromInt(pos.x)) + 0.5;
+    const cy = @as(f64, @floatFromInt(pos.y)) + @as(f64, rand.nextFloat()) * furnace_mouth_height;
+    const cz = @as(f64, @floatFromInt(pos.z)) + 0.5;
     const along = @as(f64, rand.nextFloat()) * 0.6 - 0.3;
 
     return switch (world.block.furnaceFacing(metadata)) {
@@ -1294,13 +1271,11 @@ pub fn furnaceMouthPosition(x: i32, y: i32, z: i32, metadata: u4, rand: *world.J
 pub fn spawnFurnaceParticles(
     self: *Entities,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     metadata: u4,
     rand: *world.JavaRandom,
 ) !void {
-    const position = furnaceMouthPosition(x, y, z, metadata, rand);
+    const position = furnaceMouthPosition(pos, metadata, rand);
     const still = math.Vec3.init(0, 0, 0);
     try self.particles.append(gpa, Particle.spawnSmoke(position, still, rand));
     try self.particles.append(gpa, Particle.spawnFlame(position, still, rand));
@@ -1656,16 +1631,16 @@ fn breakUpMinecart(self: *Entities, gpa: std.mem.Allocator, cart: Minecart, rand
     const y = math.util.floorDouble(cart.base.position.y);
     const z = math.util.floorDouble(cart.base.position.z);
 
-    try self.dropStack(gpa, x, y, z, .{ .id = .{ .item = .minecart }, .count = 1 }, rand);
+    try self.dropStack(gpa, .init(x, y, z), .{ .id = .{ .item = .minecart }, .count = 1 }, rand);
 
     for (cart.items) |maybe| {
         const stack = maybe orelse continue;
-        try self.dropStack(gpa, x, y, z, .{ .id = stack.id, .count = stack.count, .meta = stack.meta }, rand);
+        try self.dropStack(gpa, .init(x, y, z), .{ .id = stack.id, .count = stack.count, .meta = stack.meta }, rand);
     }
 
     if (cart.kind == .empty) return;
     const extra = Minecart.droppedItem(cart.kind);
-    try self.dropStack(gpa, x, y, z, .{ .id = extra, .count = 1 }, rand);
+    try self.dropStack(gpa, .init(x, y, z), .{ .id = extra, .count = 1 }, rand);
 }
 
 pub const BoatRider = struct {
@@ -1691,10 +1666,10 @@ fn breakUpBoat(self: *Entities, gpa: std.mem.Allocator, boat: Boat, rand: *world
     const z = math.util.floorDouble(boat.base.position.z);
 
     for (0..Boat.plank_drops) |_| {
-        try self.dropStack(gpa, x, y, z, .{ .id = .{ .block = .planks }, .count = 1 }, rand);
+        try self.dropStack(gpa, .init(x, y, z), .{ .id = .{ .block = .planks }, .count = 1 }, rand);
     }
     for (0..Boat.stick_drops) |_| {
-        try self.dropStack(gpa, x, y, z, .{ .id = .{ .item = .stick }, .count = 1 }, rand);
+        try self.dropStack(gpa, .init(x, y, z), .{ .id = .{ .item = .stick }, .count = 1 }, rand);
     }
 }
 
@@ -1727,8 +1702,8 @@ pub fn tickBoats(
 
         for (0..4) |corner| {
             const cell = boat.crushedSnow(corner);
-            if (world_map.getBlock(cell[0], cell[1], cell[2]) != .snow_layer) continue;
-            try world_map.setBlockWithNotify(cell[0], cell[1], cell[2], .air);
+            if (world_map.getBlock(.init(cell[0], cell[1], cell[2])) != .snow_layer) continue;
+            try world_map.setBlockWithNotify(.init(cell[0], cell[1], cell[2]), .air);
         }
 
         if (boat.dead) {
@@ -2861,7 +2836,7 @@ test "walking over a dropped stack picks it up" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -2886,7 +2861,7 @@ test "picking up wood or leather earns the achievement that hangs off it" {
         defer entities.deinit(gpa);
 
         var player = Player.spawn(math.Vec3.init(8, 1, 8));
-        try entities.dropStack(gpa, 8, 1, 8, case.stack, &w.rand);
+        try entities.dropStack(gpa, .init(8, 1, 8), case.stack, &w.rand);
         entities.items.items[0].pickup_delay = 0;
         entities.items.items[0].base.position = player.base.position;
 
@@ -2904,7 +2879,7 @@ test "picking up anything else earns nothing" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .planks }, .count = 1 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .planks }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -2926,7 +2901,7 @@ test "a stack that does not fit keeps whatever is left over on the ground" {
     }
     player.inventory.slots[0].?.count = Inventory.max_stack_size - 1;
 
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 5 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 5 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -2945,7 +2920,7 @@ test "picking a stack up leaves a swallow effect behind, a full inventory does n
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -2960,7 +2935,7 @@ test "picking a stack up leaves a swallow effect behind, a full inventory does n
     for (&player.inventory.slots) |*slot| {
         slot.* = .{ .id = .{ .item = .coal }, .count = Inventory.max_stack_size };
     }
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 3 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -2978,7 +2953,7 @@ test "swallow effects are dropped once they have run their three ticks" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
     try entities.tickItems(gpa, &w, &[_]*Player{&player}, &w.rand);
@@ -3000,7 +2975,7 @@ test "an item out of reach of the player is left alone" {
     defer entities.deinit(gpa);
 
     var player = Player.spawn(math.Vec3.init(0, 1, 0));
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
 
     try entities.tickItems(gpa, &w, &[_]*Player{&player}, &w.rand);
@@ -3017,8 +2992,8 @@ test "count sums every kind of entity" {
     var entities: Entities = .{};
     defer entities.deinit(gpa);
 
-    try entities.dropStack(gpa, 0, 1, 0, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
-    try entities.spawnFallingBlock(gpa, 0, 5, 0, .sand);
+    try entities.dropStack(gpa, .init(0, 1, 0), .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    try entities.spawnFallingBlock(gpa, .init(0, 5, 0), .sand);
     try entities.spawnPig(gpa, math.Vec3.init(0, 1, 0));
     try entities.spawnSheep(gpa, math.Vec3.init(0, 1, 0), &w.rand);
     try entities.spawnCow(gpa, math.Vec3.init(0, 1, 0));
@@ -3247,7 +3222,7 @@ test "a pig that runs out of air breathes out a burst of bubbles" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 6);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .stationary_water);
+    w.setBlock(.init(8, 1, 8), .stationary_water);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3299,7 +3274,7 @@ test "an arrow is heard landing, both in a wall and in a mob" {
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
     var y: i32 = 1;
-    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(.init(12, y, 8), .stone);
 
     var heard: SoundLog = .{};
     w.sound_sink = heard.sink();
@@ -3331,7 +3306,7 @@ test "an egg thrown at a wall breaks against it in a puff of shell" {
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
     var y: i32 = 1;
-    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(.init(12, y, 8), .stone);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3356,7 +3331,7 @@ test "a snowball bursts against a wall and hatches nothing" {
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
     var y: i32 = 1;
-    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(.init(12, y, 8), .stone);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3422,7 +3397,7 @@ test "eggs broken against a wall hatch a chicken now and then" {
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
     var y: i32 = 1;
-    while (y <= 4) : (y += 1) try w.setBlockWithNotify(12, y, 8, .stone);
+    while (y <= 4) : (y += 1) try w.setBlockWithNotify(.init(12, y, 8), .stone);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -3487,7 +3462,7 @@ test "a rolling empty cart scoops up a pig it runs into, and a chest cart does n
     var w = try world.testing.flatWorld(gpa, 12);
     defer w.deinit();
     var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
 
@@ -3508,7 +3483,7 @@ fn railedWorld(gpa: std.mem.Allocator) !world.World {
     var w = try world.testing.flatWorld(gpa, 12);
     errdefer w.deinit();
     var step: i32 = 4;
-    while (step <= 14) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+    while (step <= 14) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
     return w;
 }
 
@@ -3580,7 +3555,7 @@ test "a wrecked cart sets its passenger down on top of where it stood" {
     var w = try world.testing.flatWorld(gpa, 12);
     defer w.deinit();
     var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
     var entities: Entities = .{};
@@ -3609,7 +3584,7 @@ test "a chest cart bumps a pig aside instead of carrying it" {
     var w = try world.testing.flatWorld(gpa, 12);
     defer w.deinit();
     var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(step, 12, 8, .rail);
+    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
 
@@ -3775,7 +3750,7 @@ test "an arrow resting in a block is collected back into the quiver" {
         .shake = 2,
         .tile = .{ 8, 0, 8 },
     };
-    arrow.in_tile = w.getBlock(8, 0, 8);
+    arrow.in_tile = w.getBlock(.init(8, 0, 8));
     try entities.arrows.append(gpa, arrow);
 
     try entities.tickArrows(gpa, &w, &[_]*Player{&player}, &rand);
@@ -3877,7 +3852,7 @@ const SplashSound = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *SplashSound) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -3938,8 +3913,8 @@ test "a hit particle lands on the face being mined" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.Side.up, full_cube, 1, .{ 255, 255, 255 }, &rand);
-    try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.Side.west, full_cube, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, .init(5, 9, 3), world.Side.up, full_cube, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, .init(5, 9, 3), world.Side.west, full_cube, 1, .{ 255, 255, 255 }, &rand);
 
     const on_top = entities.particles.items[0];
     try std.testing.expectApproxEqAbs(@as(f64, 10.0 + hit_inset), on_top.base.position.y, 1.0e-9);
@@ -3955,7 +3930,7 @@ test "a hit particle is smaller and slower than a destroy shard" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(4);
-    try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.Side.up, full_cube, 1, .{ 255, 255, 255 }, &rand);
+    try entities.spawnBlockHitParticle(gpa, .init(0, 0, 0), world.Side.up, full_cube, 1, .{ 255, 255, 255 }, &rand);
     const hit = entities.particles.items[0];
 
     var same_rand = world.JavaRandom.init(4);
@@ -3979,7 +3954,7 @@ test "an item within a block of the player is drawn in, one further out is not" 
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     for ([_]f64{ 9.4, 9.5 }) |x| {
-        try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+        try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
         var item = &entities.items.items[entities.items.items.len - 1];
         item.pickup_delay = 0;
         item.base.position = math.Vec3.init(x, 1, 8);
@@ -4002,7 +3977,7 @@ test "a dead player leaves items on the ground" {
 
     var player = Player.spawn(math.Vec3.init(8, 1, 8));
     player.health = 0;
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .block = .stone }, .count = 1 }, &w.rand);
     entities.items.items[0].pickup_delay = 0;
     entities.items.items[0].base.position = player.base.position;
 
@@ -4017,7 +3992,7 @@ test "a torch emits one smoke and one flame from the same point" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(3);
-    try entities.spawnTorchParticles(gpa, 8, 40, 8, 5, &rand);
+    try entities.spawnTorchParticles(gpa, .init(8, 40, 8), 5, &rand);
 
     try std.testing.expectEqual(@as(usize, 2), entities.particles.items.len);
     try std.testing.expectEqual(Particle.Kind.smoke, entities.particles.items[0].kind);
@@ -4029,25 +4004,25 @@ test "a torch emits one smoke and one flame from the same point" {
 }
 
 test "a standing torch burns at its own centre, a wall torch out over its bracket" {
-    const standing = torchFlamePosition(8, 40, 8, 5);
+    const standing = torchFlamePosition(.init(8, 40, 8), 5);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), standing.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 40.7), standing.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), standing.z, 1.0e-9);
-    try std.testing.expectEqual(standing, torchFlamePosition(8, 40, 8, 0));
+    try std.testing.expectEqual(standing, torchFlamePosition(.init(8, 40, 8), 0));
 
-    const west = torchFlamePosition(8, 40, 8, 1);
+    const west = torchFlamePosition(.init(8, 40, 8), 1);
     try std.testing.expectApproxEqAbs(@as(f64, 8.23), west.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 40.92), west.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), west.z, 1.0e-9);
 
-    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(8, 40, 8, 2).x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.23), torchFlamePosition(8, 40, 8, 3).z, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(8, 40, 8, 4).z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(.init(8, 40, 8), 2).x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.23), torchFlamePosition(.init(8, 40, 8), 3).z, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(.init(8, 40, 8), 4).z, 1.0e-9);
 }
 
 test "a torch flame sits above the tip of the model it belongs to" {
     const bounds = world.Block.torch.selectionBounds(5);
-    const flame = torchFlamePosition(0, 0, 0, 5);
+    const flame = torchFlamePosition(.init(0, 0, 0), 5);
     try std.testing.expect(flame.y > bounds.max[1]);
     try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);
 }
@@ -4125,7 +4100,7 @@ test "a painting whose wall is gone falls as an item where it hung" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
-    try w.setBlockWithNotify(8, 4, 8, .stone);
+    try w.setBlockWithNotify(.init(8, 4, 8), .stone);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -4139,7 +4114,7 @@ test "a painting whose wall is gone falls as an item where it hung" {
     try std.testing.expectEqual(@as(usize, 1), entities.paintings.items.len);
     try std.testing.expectEqual(@as(usize, 0), entities.items.items.len);
 
-    try w.setBlockWithNotify(8, 4, 8, .air);
+    try w.setBlockWithNotify(.init(8, 4, 8), .air);
     for (0..Painting.recheck_ticks * 2) |_| {
         try entities.tickPaintings(gpa, &w, &rand);
     }
@@ -4162,7 +4137,7 @@ test "hit particles off a pressure plate stay down at plate height, not mid bloc
     const bounds = plate.selectionBounds(0);
 
     for (0..64) |_| {
-        try entities.spawnBlockHitParticle(gpa, 5, 9, 3, world.Side.up, bounds, 1, .{ 255, 255, 255 }, &rand);
+        try entities.spawnBlockHitParticle(gpa, .init(5, 9, 3), world.Side.up, bounds, 1, .{ 255, 255, 255 }, &rand);
     }
 
     for (entities.particles.items) |particle| {
@@ -4183,7 +4158,7 @@ test "hit particles off a full cube still span the whole block face" {
 
     var rand = world.JavaRandom.init(4);
     for (0..64) |_| {
-        try entities.spawnBlockHitParticle(gpa, 0, 0, 0, world.Side.west, full_cube, 1, .{ 255, 255, 255 }, &rand);
+        try entities.spawnBlockHitParticle(gpa, .init(0, 0, 0), world.Side.west, full_cube, 1, .{ 255, 255, 255 }, &rand);
     }
 
     var lowest: f64 = std.math.floatMax(f64);
@@ -4292,7 +4267,7 @@ test "a mob standing on a cactus is pricked by it" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .cactus);
+    w.setBlock(.init(8, 1, 8), .cactus);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
@@ -4765,7 +4740,7 @@ test "a dropped item is picked up by whichever player reaches it" {
     distant.base.id = 1;
     close_by.base.id = 2;
 
-    try entities.dropStack(gpa, 8, 1, 8, .{ .id = .{ .item = .bone }, .count = 1 }, &rand);
+    try entities.dropStack(gpa, .init(8, 1, 8), .{ .id = .{ .item = .bone }, .count = 1 }, &rand);
     for (entities.items.items) |*dropped| dropped.pickup_delay = 0;
 
     const roster = [_]*Player{ &distant, &close_by };
@@ -4820,7 +4795,7 @@ test "a portal breathes four particles a tick out of the face it presents" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(5);
-    try entities.spawnPortalParticles(gpa, 8, 64, 8, false, &rand);
+    try entities.spawnPortalParticles(gpa, .init(8, 64, 8), false, &rand);
 
     try std.testing.expectEqual(@as(usize, portal_particles_per_tick), entities.particles.items.len);
     for (entities.particles.items) |particle| {
@@ -4839,7 +4814,7 @@ test "a portal that runs along x throws its particles across z instead" {
     defer entities.deinit(gpa);
 
     var rand = world.JavaRandom.init(5);
-    try entities.spawnPortalParticles(gpa, 8, 64, 8, true, &rand);
+    try entities.spawnPortalParticles(gpa, .init(8, 64, 8), true, &rand);
 
     for (entities.particles.items) |particle| {
         try std.testing.expectApproxEqAbs(portal_mouth_inset, @abs(particle.origin.z - 8.5), 1.0e-9);
@@ -5045,7 +5020,7 @@ test "a creeper that reaches the player blows a hole in the world and leaves no 
 
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.creeper));
     try std.testing.expect(player.health < full);
-    try std.testing.expectEqual(.air, w.getBlock(8, 7, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 7, 8)));
 
     for (entities.items.items) |item| {
         try std.testing.expect(item.stack.id != .item or item.stack.id.item != .gunpowder);
@@ -5077,7 +5052,7 @@ test "a creeper killed before its fuse runs out leaves its gunpowder behind" {
         if (item.stack.id == .item and item.stack.id.item == .gunpowder) gunpowder += 1;
     }
     try std.testing.expectEqual(@as(u32, 2), gunpowder);
-    try std.testing.expectEqual(.stone, w.getBlock(8, 0, 8));
+    try std.testing.expectEqual(.stone, w.getBlock(.init(8, 0, 8)));
 }
 
 const SoundLog = struct {
@@ -5091,7 +5066,7 @@ const SoundLog = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *SoundLog) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -5305,13 +5280,13 @@ test "fire standing on the ground smokes from its upper half" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
     defer world_map.deinit();
-    world_map.setBlock(8, 64, 8, .fire);
+    world_map.setBlock(.init(8, 64, 8), .fire);
 
     var entities: Entities = .{};
     defer entities.deinit(gpa);
     var rand = world.JavaRandom.init(7);
 
-    try entities.spawnFireParticles(gpa, &world_map, 8, 64, 8, &rand);
+    try entities.spawnFireParticles(gpa, &world_map, .init(8, 64, 8), &rand);
 
     try std.testing.expectEqual(@as(usize, fire_standing_particles), entities.particles.items.len);
     for (entities.particles.items) |particle| {
@@ -5332,7 +5307,7 @@ test "fire clinging to a wall smokes along that wall only" {
     defer entities.deinit(gpa);
     var rand = world.JavaRandom.init(7);
 
-    try entities.spawnFireParticles(gpa, &world_map, 8, 65, 8, &rand);
+    try entities.spawnFireParticles(gpa, &world_map, .init(8, 65, 8), &rand);
 
     try std.testing.expectEqual(@as(usize, fire_edge_particles), entities.particles.items.len);
     for (entities.particles.items) |particle| {
@@ -5351,7 +5326,7 @@ test "fire with nothing to burn beside it makes no smoke" {
     defer entities.deinit(gpa);
     var rand = world.JavaRandom.init(7);
 
-    try entities.spawnFireParticles(gpa, &world_map, 8, 65, 8, &rand);
+    try entities.spawnFireParticles(gpa, &world_map, .init(8, 65, 8), &rand);
 
     try std.testing.expectEqual(@as(usize, 0), entities.particles.items.len);
 }

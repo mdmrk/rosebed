@@ -88,7 +88,7 @@ fn carveBlocks(
                         .z = math.util.floorDouble(z),
                     };
 
-                    const id = world_map.getBlock(cell.x, cell.y, cell.z);
+                    const id = world_map.getBlock(cell);
                     if (id != .air) strength -= (id.explosionResistance() + ray_step) * ray_step;
                     if (strength > 0.0 and !(try seen.getOrPut(gpa, cell)).found_existing) {
                         try destroyed.append(gpa, cell);
@@ -206,10 +206,10 @@ fn lightFires(
     while (index > 0) {
         index -= 1;
         const cell = destroyed[index];
-        if (world_map.getBlock(cell.x, cell.y, cell.z) != .air) continue;
-        if (!world_map.getBlock(cell.x, cell.y - 1, cell.z).isOpaqueCube()) continue;
+        if (world_map.getBlock(cell) != .air) continue;
+        if (!world_map.getBlock(cell.offset(0, -1, 0)).isOpaqueCube()) continue;
         if (rand.nextIntBound(fire_chance) != 0) continue;
-        try world_map.setBlockWithNotify(cell.x, cell.y, cell.z, .fire);
+        try world_map.setBlockWithNotify(cell, .fire);
     }
 }
 
@@ -226,7 +226,7 @@ fn scatterRubble(
     while (index > 0) {
         index -= 1;
         const cell = destroyed[index];
-        const id = world_map.getBlock(cell.x, cell.y, cell.z);
+        const id = world_map.getBlock(cell);
 
         const puff_x = @as(f64, @as(f32, @floatFromInt(cell.x)) + rand.nextFloat());
         const puff_y = @as(f64, @as(f32, @floatFromInt(cell.y)) + rand.nextFloat());
@@ -254,12 +254,12 @@ fn scatterRubble(
         if (id == .air) continue;
 
         if (id == .tnt) {
-            try world_map.setBlockWithNotify(cell.x, cell.y, cell.z, .air);
-            try world.tnt.primeByExplosion(world_map, cell.x, cell.y, cell.z, rand);
+            try world_map.setBlockWithNotify(cell, .air);
+            try world.tnt.primeByExplosion(world_map, cell, rand);
             continue;
         }
 
-        if (id.drop(world_map.getBlockMetadata(cell.x, cell.y, cell.z), rand)) |stack| {
+        if (id.drop(world_map.getBlockMetadata(cell), rand)) |stack| {
             var kept: u8 = 0;
             for (0..stack.count) |_| {
                 if (rand.nextFloat() <= drop_chance) kept += 1;
@@ -271,7 +271,7 @@ fn scatterRubble(
                 });
             }
         }
-        if (id.isSign()) _ = world_map.removeSign(cell.x, cell.y, cell.z);
-        try world_map.setBlockWithNotify(cell.x, cell.y, cell.z, .air);
+        if (id.isSign()) _ = world_map.removeSign(cell);
+        try world_map.setBlockWithNotify(cell, .air);
     }
 }

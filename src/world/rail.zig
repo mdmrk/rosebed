@@ -2,39 +2,34 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const BlockPos = @import("BlockPos.zig");
 const World = @import("World.zig");
-
-pub const Pos = struct { x: i32, y: i32, z: i32 };
 
 const max_links = 4;
 
 pub const Logic = struct {
     world_map: *World,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     flagged: bool,
-    links: [max_links]Pos = undefined,
+    links: [max_links]BlockPos = undefined,
     count: usize = 0,
 
-    pub fn at(world_map: *World, x: i32, y: i32, z: i32) Logic {
-        const id = world_map.getBlock(x, y, z);
+    pub fn at(world_map: *World, pos: BlockPos) Logic {
+        const id = world_map.getBlock(pos);
         const flagged = block.railIsFlagged(id);
-        const metadata = world_map.getBlockMetadata(x, y, z);
+        const metadata = world_map.getBlockMetadata(pos);
         var self: Logic = .{
             .world_map = world_map,
-            .x = x,
-            .y = y,
-            .z = z,
+            .pos = pos,
             .flagged = flagged,
         };
         self.setConnections(if (flagged) metadata & block.rail_shape_mask else metadata);
         return self;
     }
 
-    fn add(self: *Logic, x: i32, y: i32, z: i32) void {
+    fn add(self: *Logic, pos: BlockPos) void {
         if (self.count == max_links) return;
-        self.links[self.count] = .{ .x = x, .y = y, .z = z };
+        self.links[self.count] = .{ .x = pos.x, .y = pos.y, .z = pos.z };
         self.count += 1;
     }
 
@@ -48,44 +43,44 @@ pub const Logic = struct {
         self.count = 0;
         switch (shape) {
             0 => {
-                self.add(self.x, self.y, self.z - 1);
-                self.add(self.x, self.y, self.z + 1);
+                self.add(self.pos.offset(0, 0, -1));
+                self.add(self.pos.offset(0, 0, 1));
             },
             1 => {
-                self.add(self.x - 1, self.y, self.z);
-                self.add(self.x + 1, self.y, self.z);
+                self.add(self.pos.offset(-1, 0, 0));
+                self.add(self.pos.offset(1, 0, 0));
             },
             2 => {
-                self.add(self.x - 1, self.y, self.z);
-                self.add(self.x + 1, self.y + 1, self.z);
+                self.add(self.pos.offset(-1, 0, 0));
+                self.add(self.pos.offset(1, 1, 0));
             },
             3 => {
-                self.add(self.x - 1, self.y + 1, self.z);
-                self.add(self.x + 1, self.y, self.z);
+                self.add(self.pos.offset(-1, 1, 0));
+                self.add(self.pos.offset(1, 0, 0));
             },
             4 => {
-                self.add(self.x, self.y + 1, self.z - 1);
-                self.add(self.x, self.y, self.z + 1);
+                self.add(self.pos.offset(0, 1, -1));
+                self.add(self.pos.offset(0, 0, 1));
             },
             5 => {
-                self.add(self.x, self.y, self.z - 1);
-                self.add(self.x, self.y + 1, self.z + 1);
+                self.add(self.pos.offset(0, 0, -1));
+                self.add(self.pos.offset(0, 1, 1));
             },
             6 => {
-                self.add(self.x + 1, self.y, self.z);
-                self.add(self.x, self.y, self.z + 1);
+                self.add(self.pos.offset(1, 0, 0));
+                self.add(self.pos.offset(0, 0, 1));
             },
             7 => {
-                self.add(self.x - 1, self.y, self.z);
-                self.add(self.x, self.y, self.z + 1);
+                self.add(self.pos.offset(-1, 0, 0));
+                self.add(self.pos.offset(0, 0, 1));
             },
             8 => {
-                self.add(self.x - 1, self.y, self.z);
-                self.add(self.x, self.y, self.z - 1);
+                self.add(self.pos.offset(-1, 0, 0));
+                self.add(self.pos.offset(0, 0, -1));
             },
             9 => {
-                self.add(self.x + 1, self.y, self.z);
-                self.add(self.x, self.y, self.z - 1);
+                self.add(self.pos.offset(1, 0, 0));
+                self.add(self.pos.offset(0, 0, -1));
             },
             else => {},
         }
@@ -97,7 +92,7 @@ pub const Logic = struct {
             if (self.logicAt(self.links[index])) |neighbour| {
                 var found = neighbour;
                 if (found.isConnectedTo(self)) {
-                    self.links[index] = .{ .x = found.x, .y = found.y, .z = found.z };
+                    self.links[index] = found.pos;
                     index += 1;
                     continue;
                 }
@@ -106,28 +101,28 @@ pub const Logic = struct {
         }
     }
 
-    fn isTrack(self: *const Logic, x: i32, y: i32, z: i32) bool {
-        if (block.isRail(self.world_map.getBlock(x, y, z))) return true;
-        if (block.isRail(self.world_map.getBlock(x, y + 1, z))) return true;
-        return block.isRail(self.world_map.getBlock(x, y - 1, z));
+    fn isTrack(self: *const Logic, pos: BlockPos) bool {
+        if (block.isRail(self.world_map.getBlock(pos))) return true;
+        if (block.isRail(self.world_map.getBlock(pos.offset(0, 1, 0)))) return true;
+        return block.isRail(self.world_map.getBlock(pos.offset(0, -1, 0)));
     }
 
-    fn logicAt(self: *const Logic, pos: Pos) ?Logic {
-        if (block.isRail(self.world_map.getBlock(pos.x, pos.y, pos.z))) {
-            return Logic.at(self.world_map, pos.x, pos.y, pos.z);
+    fn logicAt(self: *const Logic, pos: BlockPos) ?Logic {
+        if (block.isRail(self.world_map.getBlock(pos))) {
+            return Logic.at(self.world_map, pos);
         }
-        if (block.isRail(self.world_map.getBlock(pos.x, pos.y + 1, pos.z))) {
-            return Logic.at(self.world_map, pos.x, pos.y + 1, pos.z);
+        if (block.isRail(self.world_map.getBlock(pos.offset(0, 1, 0)))) {
+            return Logic.at(self.world_map, pos.offset(0, 1, 0));
         }
-        if (block.isRail(self.world_map.getBlock(pos.x, pos.y - 1, pos.z))) {
-            return Logic.at(self.world_map, pos.x, pos.y - 1, pos.z);
+        if (block.isRail(self.world_map.getBlock(pos.offset(0, -1, 0)))) {
+            return Logic.at(self.world_map, pos.offset(0, -1, 0));
         }
         return null;
     }
 
     fn isConnectedTo(self: *const Logic, other: *const Logic) bool {
         for (self.links[0..self.count]) |link| {
-            if (link.x == other.x and link.z == other.z) return true;
+            if (link.x == other.pos.x and link.z == other.pos.z) return true;
         }
         return false;
     }
@@ -141,10 +136,10 @@ pub const Logic = struct {
 
     pub fn adjacentTracks(self: *const Logic) u8 {
         var found: u8 = 0;
-        if (self.isTrack(self.x, self.y, self.z - 1)) found += 1;
-        if (self.isTrack(self.x, self.y, self.z + 1)) found += 1;
-        if (self.isTrack(self.x - 1, self.y, self.z)) found += 1;
-        if (self.isTrack(self.x + 1, self.y, self.z)) found += 1;
+        if (self.isTrack(self.pos.offset(0, 0, -1))) found += 1;
+        if (self.isTrack(self.pos.offset(0, 0, 1))) found += 1;
+        if (self.isTrack(self.pos.offset(-1, 0, 0))) found += 1;
+        if (self.isTrack(self.pos.offset(1, 0, 0))) found += 1;
         return found;
     }
 
@@ -154,11 +149,11 @@ pub const Logic = struct {
     }
 
     fn connectTo(self: *Logic, other: *const Logic) std.mem.Allocator.Error!void {
-        self.add(other.x, other.y, other.z);
-        const north = self.linksTo(self.x, self.z - 1);
-        const south = self.linksTo(self.x, self.z + 1);
-        const west = self.linksTo(self.x - 1, self.z);
-        const east = self.linksTo(self.x + 1, self.z);
+        self.add(other.pos);
+        const north = self.linksTo(self.pos.x, self.pos.z - 1);
+        const south = self.linksTo(self.pos.x, self.pos.z + 1);
+        const west = self.linksTo(self.pos.x - 1, self.pos.z);
+        const east = self.linksTo(self.pos.x + 1, self.pos.z);
 
         var shape: i8 = -1;
         if (north or south) shape = 0;
@@ -180,33 +175,33 @@ pub const Logic = struct {
     fn slopeFor(self: *const Logic, shape: i8) i8 {
         var out = shape;
         if (out == 0) {
-            if (block.isRail(self.world_map.getBlock(self.x, self.y + 1, self.z - 1))) out = 4;
-            if (block.isRail(self.world_map.getBlock(self.x, self.y + 1, self.z + 1))) out = 5;
+            if (block.isRail(self.world_map.getBlock(self.pos.offset(0, 1, -1)))) out = 4;
+            if (block.isRail(self.world_map.getBlock(self.pos.offset(0, 1, 1)))) out = 5;
         }
         if (out == 1) {
-            if (block.isRail(self.world_map.getBlock(self.x + 1, self.y + 1, self.z))) out = 2;
-            if (block.isRail(self.world_map.getBlock(self.x - 1, self.y + 1, self.z))) out = 3;
+            if (block.isRail(self.world_map.getBlock(self.pos.offset(1, 1, 0)))) out = 2;
+            if (block.isRail(self.world_map.getBlock(self.pos.offset(-1, 1, 0)))) out = 3;
         }
         return out;
     }
 
     fn writeShape(self: *Logic, shape: u4) std.mem.Allocator.Error!void {
-        const kept = self.world_map.getBlockMetadata(self.x, self.y, self.z) & block.rail_flag_bit;
+        const kept = self.world_map.getBlockMetadata(self.pos) & block.rail_flag_bit;
         const metadata = if (self.flagged) kept | shape else shape;
-        try self.world_map.setBlockMetadataWithNotify(self.x, self.y, self.z, metadata);
+        try self.world_map.setBlockMetadataWithNotify(self.pos, metadata);
     }
 
-    fn probe(self: *Logic, x: i32, y: i32, z: i32) bool {
-        var neighbour = self.logicAt(.{ .x = x, .y = y, .z = z }) orelse return false;
+    fn probe(self: *Logic, pos: BlockPos) bool {
+        var neighbour = self.logicAt(pos) orelse return false;
         neighbour.refresh();
         return neighbour.canConnect(self);
     }
 
     pub fn place(self: *Logic, powered: bool, force: bool) std.mem.Allocator.Error!void {
-        const north = self.probe(self.x, self.y, self.z - 1);
-        const south = self.probe(self.x, self.y, self.z + 1);
-        const west = self.probe(self.x - 1, self.y, self.z);
-        const east = self.probe(self.x + 1, self.y, self.z);
+        const north = self.probe(self.pos.offset(0, 0, -1));
+        const south = self.probe(self.pos.offset(0, 0, 1));
+        const west = self.probe(self.pos.offset(-1, 0, 0));
+        const east = self.probe(self.pos.offset(1, 0, 0));
 
         var shape: i8 = -1;
         if ((north or south) and !west and !east) shape = 0;
@@ -242,11 +237,11 @@ pub const Logic = struct {
         if (shape < 0) shape = 0;
 
         self.setConnections(@intCast(shape));
-        const kept = self.world_map.getBlockMetadata(self.x, self.y, self.z) & block.rail_flag_bit;
+        const kept = self.world_map.getBlockMetadata(self.pos) & block.rail_flag_bit;
         const written: u4 = if (self.flagged) kept | @as(u4, @intCast(shape)) else @intCast(shape);
 
-        if (!force and self.world_map.getBlockMetadata(self.x, self.y, self.z) == written) return;
-        try self.world_map.setBlockMetadataWithNotify(self.x, self.y, self.z, written);
+        if (!force and self.world_map.getBlockMetadata(self.pos) == written) return;
+        try self.world_map.setBlockMetadataWithNotify(self.pos, written);
 
         for (self.links[0..self.count]) |link| {
             var neighbour = self.logicAt(link) orelse continue;
@@ -256,29 +251,29 @@ pub const Logic = struct {
     }
 };
 
-pub fn refreshAt(world_map: *World, x: i32, y: i32, z: i32, force: bool) std.mem.Allocator.Error!void {
-    if (!block.isRail(world_map.getBlock(x, y, z))) return;
-    var logic = Logic.at(world_map, x, y, z);
+pub fn refreshAt(world_map: *World, pos: BlockPos, force: bool) std.mem.Allocator.Error!void {
+    if (!block.isRail(world_map.getBlock(pos))) return;
+    var logic = Logic.at(world_map, pos);
     const redstone = @import("redstone.zig");
-    try logic.place(redstone.isBlockIndirectlyGettingPowered(world_map, x, y, z), force);
+    try logic.place(redstone.isBlockIndirectlyGettingPowered(world_map, pos), force);
 }
 
-pub fn canStay(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    const id = world_map.getBlock(x, y, z);
-    if (!world_map.getBlock(x, y - 1, z).isNormalCube()) return false;
+pub fn canStay(world_map: *const World, pos: BlockPos) bool {
+    const id = world_map.getBlock(pos);
+    if (!world_map.getBlock(pos.offset(0, -1, 0)).isNormalCube()) return false;
 
-    const shape = block.railShape(id, world_map.getBlockMetadata(x, y, z));
+    const shape = block.railShape(id, world_map.getBlockMetadata(pos));
     return switch (shape) {
-        2 => world_map.getBlock(x + 1, y, z).isNormalCube(),
-        3 => world_map.getBlock(x - 1, y, z).isNormalCube(),
-        4 => world_map.getBlock(x, y, z - 1).isNormalCube(),
-        5 => world_map.getBlock(x, y, z + 1).isNormalCube(),
+        2 => world_map.getBlock(pos.offset(1, 0, 0)).isNormalCube(),
+        3 => world_map.getBlock(pos.offset(-1, 0, 0)).isNormalCube(),
+        4 => world_map.getBlock(pos.offset(0, 0, -1)).isNormalCube(),
+        5 => world_map.getBlock(pos.offset(0, 0, 1)).isNormalCube(),
         else => true,
     };
 }
 
-pub fn canPlaceAt(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    return world_map.getBlock(x, y - 1, z).isNormalCube();
+pub fn canPlaceAt(world_map: *const World, pos: BlockPos) bool {
+    return world_map.getBlock(pos.offset(0, -1, 0)).isNormalCube();
 }
 
 test "a lone rail lies flat along z" {
@@ -286,8 +281,8 @@ test "a lone rail lies flat along z" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(8, 12, 8, .rail);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8));
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
 }
 
 test "a second rail beside the first turns the pair along x" {
@@ -295,11 +290,11 @@ test "a second rail beside the first turns the pair along x" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(8, 12, 8, .rail);
-    try w.setBlockWithNotify(9, 12, 8, .rail);
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
+    try w.setBlockWithNotify(.init(9, 12, 8), .rail);
 
-    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(8, 12, 8));
-    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(9, 12, 8));
+    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(.init(9, 12, 8)));
 }
 
 test "a rail on a corner bends into one of the four curve shapes" {
@@ -307,11 +302,11 @@ test "a rail on a corner bends into one of the four curve shapes" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(9, 12, 8, .rail);
-    try w.setBlockWithNotify(8, 12, 8, .rail);
-    try w.setBlockWithNotify(8, 12, 9, .rail);
+    try w.setBlockWithNotify(.init(9, 12, 8), .rail);
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
+    try w.setBlockWithNotify(.init(8, 12, 9), .rail);
 
-    const corner = w.getBlockMetadata(8, 12, 8);
+    const corner = w.getBlockMetadata(.init(8, 12, 8));
     try std.testing.expectEqual(@as(u4, 6), corner);
 }
 
@@ -320,11 +315,11 @@ test "a rail climbs onto the rail one step above it" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    w.setBlock(9, 12, 8, .stone);
-    try w.setBlockWithNotify(8, 12, 8, .rail);
-    try w.setBlockWithNotify(9, 13, 8, .rail);
+    w.setBlock(.init(9, 12, 8), .stone);
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
+    try w.setBlockWithNotify(.init(9, 13, 8), .rail);
 
-    try std.testing.expectEqual(@as(u4, 2), w.getBlockMetadata(8, 12, 8));
+    try std.testing.expectEqual(@as(u4, 2), w.getBlockMetadata(.init(8, 12, 8)));
 }
 
 test "a lever switches a powered rail on, and its shape still follows the track" {
@@ -332,19 +327,19 @@ test "a lever switches a powered rail on, and its shape still follows the track"
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(8, 12, 8, .rail_powered);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8) & block.rail_flag_bit);
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail_powered);
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)) & block.rail_flag_bit);
 
-    try w.setBlockAndMetadataWithNotify(7, 12, 8, .lever, 5 | block.power_bit);
-    try std.testing.expectEqual(block.rail_flag_bit, w.getBlockMetadata(8, 12, 8) & block.rail_flag_bit);
+    try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, 5 | block.power_bit);
+    try std.testing.expectEqual(block.rail_flag_bit, w.getBlockMetadata(.init(8, 12, 8)) & block.rail_flag_bit);
 
-    try w.setBlockWithNotify(9, 12, 8, .rail_powered);
-    const metadata = w.getBlockMetadata(8, 12, 8);
+    try w.setBlockWithNotify(.init(9, 12, 8), .rail_powered);
+    const metadata = w.getBlockMetadata(.init(8, 12, 8));
     try std.testing.expectEqual(@as(u4, 1), metadata & block.rail_shape_mask);
     try std.testing.expectEqual(block.rail_flag_bit, metadata & block.rail_flag_bit);
 
-    try w.setBlockWithNotify(7, 12, 8, .air);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(8, 12, 8) & block.rail_flag_bit);
+    try w.setBlockWithNotify(.init(7, 12, 8), .air);
+    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)) & block.rail_flag_bit);
 }
 
 test "a powered rail never curves, where a plain rail does" {
@@ -352,11 +347,11 @@ test "a powered rail never curves, where a plain rail does" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try w.setBlockWithNotify(9, 12, 8, .rail);
-    try w.setBlockWithNotify(8, 12, 9, .rail);
-    try w.setBlockWithNotify(8, 12, 8, .rail_powered);
+    try w.setBlockWithNotify(.init(9, 12, 8), .rail);
+    try w.setBlockWithNotify(.init(8, 12, 9), .rail);
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail_powered);
 
-    try std.testing.expect(block.railShape(.rail_powered, w.getBlockMetadata(8, 12, 8)) < 6);
+    try std.testing.expect(block.railShape(.rail_powered, w.getBlockMetadata(.init(8, 12, 8))) < 6);
 }
 
 test "a rail needs solid ground and reports when it has none" {
@@ -364,9 +359,9 @@ test "a rail needs solid ground and reports when it has none" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
 
-    try std.testing.expect(canPlaceAt(&w, 8, 12, 8));
-    try std.testing.expect(!canPlaceAt(&w, 8, 14, 8));
+    try std.testing.expect(canPlaceAt(&w, .init(8, 12, 8)));
+    try std.testing.expect(!canPlaceAt(&w, .init(8, 14, 8)));
 
-    try w.setBlockWithNotify(8, 12, 8, .rail);
-    try std.testing.expect(canStay(&w, 8, 12, 8));
+    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
+    try std.testing.expect(canStay(&w, .init(8, 12, 8)));
 }

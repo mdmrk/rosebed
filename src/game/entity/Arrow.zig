@@ -145,8 +145,8 @@ pub fn settle(self: *Arrow, world_map: *const world.World, rand: *world.JavaRand
         return false;
     }
 
-    const block = world_map.getBlock(self.tile[0], self.tile[1], self.tile[2]);
-    const metadata = world_map.getBlockMetadata(self.tile[0], self.tile[1], self.tile[2]);
+    const block = world_map.getBlock(.init(self.tile[0], self.tile[1], self.tile[2]));
+    const metadata = world_map.getBlockMetadata(.init(self.tile[0], self.tile[1], self.tile[2]));
     if (block == self.in_tile and metadata == self.in_tile_metadata) {
         self.ticks_in_ground += 1;
         if (self.ticks_in_ground == ground_lifetime) self.dead = true;
@@ -163,10 +163,10 @@ pub fn settle(self: *Arrow, world_map: *const world.World, rand: *world.JavaRand
 }
 
 fn buriedInTile(self: Arrow, world_map: *const world.World) bool {
-    const block = world_map.getBlock(self.tile[0], self.tile[1], self.tile[2]);
+    const block = world_map.getBlock(.init(self.tile[0], self.tile[1], self.tile[2]));
     if (!block.isSolid()) return false;
 
-    const bounds = block.selectionBounds(world_map.getBlockMetadata(self.tile[0], self.tile[1], self.tile[2]));
+    const bounds = block.selectionBounds(world_map.getBlockMetadata(.init(self.tile[0], self.tile[1], self.tile[2])));
     const point = [3]f64{ self.base.position.x, self.base.position.y, self.base.position.z };
     for (0..3) |axis| {
         const base: f64 = @floatFromInt(self.tile[axis]);
@@ -188,9 +188,9 @@ pub fn reachedThisTick(self: Arrow, fraction: f64) math.Vec3 {
 }
 
 pub fn stickInto(self: *Arrow, world_map: *const world.World, hit: raycast.Hit) void {
-    self.tile = .{ hit.x, hit.y, hit.z };
-    self.in_tile = world_map.getBlock(hit.x, hit.y, hit.z);
-    self.in_tile_metadata = world_map.getBlockMetadata(hit.x, hit.y, hit.z);
+    self.tile = .{ hit.pos.x, hit.pos.y, hit.pos.z };
+    self.in_tile = world_map.getBlock(hit.pos);
+    self.in_tile_metadata = world_map.getBlockMetadata(hit.pos);
 
     const reach = self.reachedThisTick(hit.distance);
     const dx: f64 = @as(f32, @floatCast(reach.x - self.base.position.x));
@@ -334,7 +334,7 @@ test "an arrow that meets a wall stops just short of it and sticks" {
 
     try std.testing.expect(!arrow.settle(&w, &rand));
     const hit = arrow.blockImpact(&w).?;
-    try std.testing.expectEqual(@as(i32, 10), hit.x);
+    try std.testing.expectEqual(@as(i32, 10), hit.pos.x);
 
     arrow.stickInto(&w, hit);
     _ = arrow.fly();
@@ -391,7 +391,7 @@ test "an arrow left in the ground gives up after a minute" {
     var rand = world.JavaRandom.init(3);
     var arrow: Arrow = .{ .base = Entity.init(math.Vec3.init(8.5, 0.5, 8.5), size, size) };
     arrow.tile = .{ 8, 0, 8 };
-    arrow.in_tile = w.getBlock(8, 0, 8);
+    arrow.in_tile = w.getBlock(.init(8, 0, 8));
     arrow.in_ground = true;
 
     for (0..ground_lifetime - 1) |_| {

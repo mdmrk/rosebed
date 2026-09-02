@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const physics = @import("physics.zig");
 
@@ -160,7 +161,7 @@ pub fn isOnLadder(self: Entity, world_map: *const world.World) bool {
     const x = math.util.floorDouble(self.position.x);
     const y = math.util.floorDouble(self.boundingBox().min_y);
     const z = math.util.floorDouble(self.position.z);
-    return world_map.getBlock(x, y, z) == .ladder;
+    return world_map.getBlock(.init(x, y, z)) == .ladder;
 }
 
 pub fn isOffsetPositionInLiquid(self: Entity, world_map: *const world.World, dx: f64, dy: f64, dz: f64) bool {
@@ -249,13 +250,13 @@ fn trackWalking(self: *Entity, world_map: *const world.World, dx: f64, dz: f64) 
     const x = math.util.floorDouble(self.position.x);
     const y = math.util.floorDouble(self.position.y - 0.2);
     const z = math.util.floorDouble(self.position.z);
-    const under = if (world_map.getBlock(x, y - 1, z) == .fence) world.Block.fence else world_map.getBlock(x, y, z);
+    const under = if (world_map.getBlock(.init(x, y - 1, z)) == .fence) world.Block.fence else world_map.getBlock(.init(x, y, z));
     if (self.distance_walked <= @as(f32, @floatFromInt(self.next_step_distance)) or under == .air) return;
 
     self.next_step_distance += 1;
     self.stepped_on = .{ x, y, z };
 
-    const covered = world_map.getBlock(x, y + 1, z) == .snow_layer;
+    const covered = world_map.getBlock(.init(x, y + 1, z)) == .snow_layer;
     if (!covered and under.material().isLiquid()) return;
 
     const step_sound = if (covered) world.Block.snow_layer.stepSound() else under.stepSound();
@@ -307,14 +308,14 @@ test "landing on a floor grounds the entity and zeroes its vertical motion" {
 test "walking on soul sand damps horizontal motion once per cell touched" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .soul_sand);
+    w.setBlock(.init(8, 1, 8), .soul_sand);
 
     var entity = Entity.init(math.Vec3.init(8.5, 2.0 - 2.0 / 16.0, 8.5), 0.6, 1.8);
     entity.motion = math.Vec3.init(0.2, 0, 0);
     _ = entity.move(&w);
     try std.testing.expectApproxEqAbs(@as(f64, 0.08), entity.motion.x, 1.0e-9);
 
-    w.setBlock(9, 1, 8, .soul_sand);
+    w.setBlock(.init(9, 1, 8), .soul_sand);
     var straddling = Entity.init(math.Vec3.init(9.0, 2.0 - 2.0 / 16.0, 8.5), 0.6, 1.8);
     straddling.motion = math.Vec3.init(0, 0, 0.2);
     _ = straddling.move(&w);
@@ -324,7 +325,7 @@ test "walking on soul sand damps horizontal motion once per cell touched" {
 test "an entity clear of soul sand keeps its motion" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .soul_sand);
+    w.setBlock(.init(8, 1, 8), .soul_sand);
 
     var entity = Entity.init(math.Vec3.init(11.5, 1.0, 11.5), 0.6, 1.8);
     entity.motion = math.Vec3.init(0.2, 0, 0);
@@ -335,7 +336,7 @@ test "an entity clear of soul sand keeps its motion" {
 test "a cobweb caught last tick throttles the next move and drops all momentum" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .web);
+    w.setBlock(.init(8, 1, 8), .web);
 
     var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
     entity.motion = math.Vec3.init(0.4, 0, 0);
@@ -360,7 +361,7 @@ test "a cobweb caught last tick throttles the next move and drops all momentum" 
 test "a cobweb has no collision box to stand on" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .web);
+    w.setBlock(.init(8, 1, 8), .web);
 
     var entity = Entity.init(math.Vec3.init(8.5, 4.0, 8.5), 0.6, 1.8);
     entity.motion.y = -3.5;
@@ -372,8 +373,8 @@ test "a cobweb has no collision box to stand on" {
 test "a ladder is only underfoot when it shares the cell the feet stand in" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .ladder);
-    w.setBlockMetadata(8, 1, 8, 4);
+    w.setBlock(.init(8, 1, 8), .ladder);
+    w.setBlockMetadata(.init(8, 1, 8), 4);
 
     var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
     try std.testing.expect(entity.isOnLadder(&w));
@@ -401,7 +402,7 @@ test "unobstructed movement keeps the entity off the ground" {
 test "an entity that has walked far enough records the block under its feet" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 0, 8, .farmland);
+    w.setBlock(.init(8, 0, 8), .farmland);
 
     var entity = Entity.init(math.Vec3.init(8.5, 1.0, 8.5), 0.6, 1.8);
     try std.testing.expectEqual(@as(?[3]i32, null), entity.stepped_on);

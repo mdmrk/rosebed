@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Block = @import("../block.zig").Block;
+const BlockPos = @import("../BlockPos.zig");
 const Chunk = @import("../Chunk.zig");
 const JavaRandom = @import("../JavaRandom.zig");
 const World = @import("../World.zig");
@@ -282,7 +283,7 @@ pub fn decorateChunk(self: *NetherGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(120) + 4;
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        try springs.generateHell(world_map, x, y, z, .flowing_lava);
+        try springs.generateHell(world_map, .init(x, y, z), .flowing_lava);
     }
 
     var patches = self.rand.nextIntBound(self.rand.nextIntBound(10) + 1) + 1;
@@ -290,7 +291,7 @@ pub fn decorateChunk(self: *NetherGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(120) + 4;
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        try generateFirePatch(world_map, &self.rand, x, y, z);
+        try generateFirePatch(world_map, &self.rand, .init(x, y, z));
     }
 
     patches = self.rand.nextIntBound(self.rand.nextIntBound(10) + 1);
@@ -298,14 +299,14 @@ pub fn decorateChunk(self: *NetherGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(120) + 4;
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        try generateGlowstoneCluster(world_map, &self.rand, x, y, z);
+        try generateGlowstoneCluster(world_map, &self.rand, .init(x, y, z));
     }
 
     for (0..10) |_| {
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(128);
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        try generateGlowstoneCluster(world_map, &self.rand, x, y, z);
+        try generateGlowstoneCluster(world_map, &self.rand, .init(x, y, z));
     }
 
     // Both mushroom rolls are vanilla's nextInt(1): always 0, but they still draw, so
@@ -314,49 +315,49 @@ pub fn decorateChunk(self: *NetherGenerator, world_map: *World, chunk_x: i32, ch
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(128);
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        decorate.generateFlowerPatch(world_map, &self.rand, x, y, z, .mushroom_brown, decorate.mushroomCanStayAt);
+        decorate.generateFlowerPatch(world_map, &self.rand, .init(x, y, z), .mushroom_brown, decorate.mushroomCanStayAt);
     }
 
     if (self.rand.nextIntBound(1) == 0) {
         const x = base_x + self.rand.nextIntBound(16) + 8;
         const y = self.rand.nextIntBound(128);
         const z = base_z + self.rand.nextIntBound(16) + 8;
-        decorate.generateFlowerPatch(world_map, &self.rand, x, y, z, .mushroom_red, decorate.mushroomCanStayAt);
+        decorate.generateFlowerPatch(world_map, &self.rand, .init(x, y, z), .mushroom_red, decorate.mushroomCanStayAt);
     }
 }
 
-fn generateFirePatch(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !void {
+fn generateFirePatch(world_map: *World, rand: *JavaRandom, pos: BlockPos) !void {
     for (0..64) |_| {
-        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
-        const wy = y + rand.nextIntBound(4) - rand.nextIntBound(4);
-        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
-        if (world_map.getBlock(wx, wy, wz) != .air) continue;
-        if (world_map.getBlock(wx, wy - 1, wz) != .netherrack) continue;
-        try world_map.setBlockWithNotify(wx, wy, wz, .fire);
+        const wx = pos.x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = pos.y + rand.nextIntBound(4) - rand.nextIntBound(4);
+        const wz = pos.z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        if (world_map.getBlock(.init(wx, wy, wz)) != .air) continue;
+        if (world_map.getBlock(.init(wx, wy - 1, wz)) != .netherrack) continue;
+        try world_map.setBlockWithNotify(.init(wx, wy, wz), .fire);
     }
 }
 
 const glowstone_spread_attempts = 1500;
 
-fn generateGlowstoneCluster(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !void {
-    if (world_map.getBlock(x, y, z) != .air) return;
-    if (world_map.getBlock(x, y + 1, z) != .netherrack) return;
+fn generateGlowstoneCluster(world_map: *World, rand: *JavaRandom, pos: BlockPos) !void {
+    if (world_map.getBlock(pos) != .air) return;
+    if (world_map.getBlock(pos.offset(0, 1, 0)) != .netherrack) return;
 
-    try world_map.setBlockWithNotify(x, y, z, .glowstone);
+    try world_map.setBlockWithNotify(pos, .glowstone);
 
     for (0..glowstone_spread_attempts) |_| {
-        const wx = x + rand.nextIntBound(8) - rand.nextIntBound(8);
-        const wy = y - rand.nextIntBound(12);
-        const wz = z + rand.nextIntBound(8) - rand.nextIntBound(8);
-        if (world_map.getBlock(wx, wy, wz) != .air) continue;
+        const wx = pos.x + rand.nextIntBound(8) - rand.nextIntBound(8);
+        const wy = pos.y - rand.nextIntBound(12);
+        const wz = pos.z + rand.nextIntBound(8) - rand.nextIntBound(8);
+        if (world_map.getBlock(.init(wx, wy, wz)) != .air) continue;
 
         var touching: u32 = 0;
         for ([_][3]i32{ .{ -1, 0, 0 }, .{ 1, 0, 0 }, .{ 0, -1, 0 }, .{ 0, 1, 0 }, .{ 0, 0, -1 }, .{ 0, 0, 1 } }) |offset| {
-            if (world_map.getBlock(wx + offset[0], wy + offset[1], wz + offset[2]) == .glowstone) touching += 1;
+            if (world_map.getBlock(.init(wx + offset[0], wy + offset[1], wz + offset[2])) == .glowstone) touching += 1;
         }
         if (touching != 1) continue;
 
-        try world_map.setBlockWithNotify(wx, wy, wz, .glowstone);
+        try world_map.setBlockWithNotify(.init(wx, wy, wz), .glowstone);
     }
 }
 
@@ -529,9 +530,9 @@ test "a glowstone cluster hangs from a netherrack ceiling and spreads downwards"
     defer w.deinit();
 
     var rand = JavaRandom.init(7);
-    try generateGlowstoneCluster(&w, &rand, 8, 59, 8);
+    try generateGlowstoneCluster(&w, &rand, .init(8, 59, 8));
 
-    try std.testing.expectEqual(.glowstone, w.getBlock(8, 59, 8));
+    try std.testing.expectEqual(.glowstone, w.getBlock(.init(8, 59, 8)));
 
     var hanging: usize = 0;
     var x: i32 = 0;
@@ -540,7 +541,7 @@ test "a glowstone cluster hangs from a netherrack ceiling and spreads downwards"
         while (z < 16) : (z += 1) {
             var y: i32 = 47;
             while (y < 60) : (y += 1) {
-                if (w.getBlock(x, y, z) == .glowstone) hanging += 1;
+                if (w.getBlock(.init(x, y, z)) == .glowstone) hanging += 1;
             }
         }
     }
@@ -551,17 +552,17 @@ test "a glowstone cluster needs air under netherrack to start" {
     const gpa = std.testing.allocator;
     var w = try netherrackCeiling(gpa);
     defer w.deinit();
-    w.setBlock(8, 59, 8, .netherrack);
+    w.setBlock(.init(8, 59, 8), .netherrack);
 
     var rand = JavaRandom.init(7);
-    try generateGlowstoneCluster(&w, &rand, 8, 59, 8);
-    try std.testing.expectEqual(.netherrack, w.getBlock(8, 59, 8));
+    try generateGlowstoneCluster(&w, &rand, .init(8, 59, 8));
+    try std.testing.expectEqual(.netherrack, w.getBlock(.init(8, 59, 8)));
 
     var open = try netherrackCeiling(gpa);
     defer open.deinit();
-    open.setBlock(8, 70, 8, .air);
-    try generateGlowstoneCluster(&open, &rand, 8, 70, 8);
-    try std.testing.expectEqual(.air, open.getBlock(8, 70, 8));
+    open.setBlock(.init(8, 70, 8), .air);
+    try generateGlowstoneCluster(&open, &rand, .init(8, 70, 8));
+    try std.testing.expectEqual(.air, open.getBlock(.init(8, 70, 8)));
 }
 
 test "fire settles on netherrack and nowhere else" {
@@ -576,16 +577,16 @@ test "fire settles on netherrack and nowhere else" {
     }
 
     var rand = JavaRandom.init(11);
-    try generateFirePatch(&w, &rand, 8, 51, 8);
+    try generateFirePatch(&w, &rand, .init(8, 51, 8));
 
     var lit: usize = 0;
     var x: i32 = 0;
     while (x < 16) : (x += 1) {
         var z: i32 = 0;
         while (z < 16) : (z += 1) {
-            if (w.getBlock(x, 51, z) != .fire) continue;
+            if (w.getBlock(.init(x, 51, z)) != .fire) continue;
             lit += 1;
-            try std.testing.expectEqual(.netherrack, w.getBlock(x, 50, z));
+            try std.testing.expectEqual(.netherrack, w.getBlock(.init(x, 50, z)));
         }
     }
     try std.testing.expect(lit > 0);
@@ -622,6 +623,6 @@ test "a nether world generates and decorates through the World seam" {
     try w.ensureDecorated(&gen, 0, 0);
 
     try std.testing.expect(w.isDecorated(0, 0));
-    try std.testing.expectEqual(.bedrock, w.getBlock(8, 0, 8));
-    try std.testing.expectEqual(.bedrock, w.getBlock(8, 127, 8));
+    try std.testing.expectEqual(.bedrock, w.getBlock(.init(8, 0, 8)));
+    try std.testing.expectEqual(.bedrock, w.getBlock(.init(8, 127, 8)));
 }

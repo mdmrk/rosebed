@@ -2,13 +2,14 @@ const std = @import("std");
 
 const block = @import("../block.zig");
 const Block = @import("../block.zig").Block;
+const BlockPos = @import("../BlockPos.zig");
 const chest = @import("../chest.zig");
 const JavaRandom = @import("../JavaRandom.zig");
 const World = @import("../World.zig");
 
 const room_height: i32 = 3;
 
-pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !bool {
+pub fn generate(world_map: *World, rand: *JavaRandom, pos: BlockPos) !bool {
     const radius_x = rand.nextIntBound(2) + 2;
     const radius_z = rand.nextIntBound(2) + 2;
 
@@ -17,15 +18,15 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !b
     while (dx <= radius_x + 1) : (dx += 1) {
         var dz = -radius_z - 1;
         while (dz <= radius_z + 1) : (dz += 1) {
-            const bottom = world_map.getBlock(x + dx, y - 1, z + dz);
+            const bottom = world_map.getBlock(pos.offset(dx, -1, dz));
             if (!bottom.isSolid()) return false;
-            const top = world_map.getBlock(x + dx, y + room_height + 1, z + dz);
+            const top = world_map.getBlock(.init(pos.x + dx, pos.y + room_height + 1, pos.z + dz));
             if (!top.isSolid()) return false;
 
             const on_perimeter = dx == -radius_x - 1 or dx == radius_x + 1 or dz == -radius_z - 1 or dz == radius_z + 1;
             if (on_perimeter) {
-                const floor_level = world_map.getBlock(x + dx, y, z + dz);
-                const above_floor = world_map.getBlock(x + dx, y + 1, z + dz);
+                const floor_level = world_map.getBlock(pos.offset(dx, 0, dz));
+                const above_floor = world_map.getBlock(pos.offset(dx, 1, dz));
                 if (floor_level == .air and above_floor == .air) openings += 1;
             }
         }
@@ -40,15 +41,15 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !b
             while (dz2 <= radius_z + 1) : (dz2 += 1) {
                 const on_perimeter = dx2 == -radius_x - 1 or dx2 == radius_x + 1 or dz2 == -radius_z - 1 or dz2 == radius_z + 1;
                 if (!on_perimeter and dy != -1) {
-                    world_map.setBlock(x + dx2, y + dy, z + dz2, .air);
+                    world_map.setBlock(pos.offset(dx2, dy, dz2), .air);
                     continue;
                 }
 
-                if (y + dy >= 0 and !world_map.getBlock(x + dx2, y + dy - 1, z + dz2).isSolid()) {
-                    world_map.setBlock(x + dx2, y + dy, z + dz2, .air);
-                } else if (world_map.getBlock(x + dx2, y + dy, z + dz2).isSolid()) {
+                if (pos.y + dy >= 0 and !world_map.getBlock(.init(pos.x + dx2, pos.y + dy - 1, pos.z + dz2)).isSolid()) {
+                    world_map.setBlock(pos.offset(dx2, dy, dz2), .air);
+                } else if (world_map.getBlock(pos.offset(dx2, dy, dz2)).isSolid()) {
                     const wall_id: Block = if (dy == -1 and rand.nextIntBound(4) != 0) .cobblestone_mossy else .cobblestone;
-                    world_map.setBlock(x + dx2, y + dy, z + dz2, wall_id);
+                    world_map.setBlock(pos.offset(dx2, dy, dz2), wall_id);
                 }
             }
         }
@@ -56,19 +57,19 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !b
 
     for (0..2) |_| {
         tries: for (0..3) |_| {
-            const cx = x + rand.nextIntBound(radius_x * 2 + 1) - radius_x;
-            const cz = z + rand.nextIntBound(radius_z * 2 + 1) - radius_z;
-            if (world_map.getBlock(cx, y, cz) != .air) continue;
+            const cx = pos.x + rand.nextIntBound(radius_x * 2 + 1) - radius_x;
+            const cz = pos.z + rand.nextIntBound(radius_z * 2 + 1) - radius_z;
+            if (world_map.getBlock(.init(cx, pos.y, cz)) != .air) continue;
 
             var solid_sides: i32 = 0;
-            if (world_map.getBlock(cx - 1, y, cz).isSolid()) solid_sides += 1;
-            if (world_map.getBlock(cx + 1, y, cz).isSolid()) solid_sides += 1;
-            if (world_map.getBlock(cx, y, cz - 1).isSolid()) solid_sides += 1;
-            if (world_map.getBlock(cx, y, cz + 1).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(.init(cx - 1, pos.y, cz)).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(.init(cx + 1, pos.y, cz)).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(.init(cx, pos.y, cz - 1)).isSolid()) solid_sides += 1;
+            if (world_map.getBlock(.init(cx, pos.y, cz + 1)).isSolid()) solid_sides += 1;
             if (solid_sides != 1) continue;
 
-            world_map.setBlock(cx, y, cz, .chest);
-            const state = try world_map.addChest(cx, y, cz);
+            world_map.setBlock(.init(cx, pos.y, cz), .chest);
+            const state = try world_map.addChest(.init(cx, pos.y, cz));
             for (0..8) |_| {
                 const stack = rollLootItem(rand) orelse continue;
                 state.slot(@intCast(rand.nextIntBound(chest.slot_count))).* = stack;
@@ -77,7 +78,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x: i32, y: i32, z: i32) !b
         }
     }
 
-    world_map.setBlock(x, y, z, .mob_spawner);
+    world_map.setBlock(pos, .mob_spawner);
     _ = rand.nextIntBound(4);
     return true;
 }
@@ -189,21 +190,21 @@ test "a dungeon carves a room and places a spawner in solid stone" {
     var w = try testWorldWithChunk();
     defer w.deinit();
 
-    w.setBlock(11, 40, 8, .air);
-    w.setBlock(11, 41, 8, .air);
-    w.setBlock(12, 40, 8, .air);
-    w.setBlock(12, 41, 8, .air);
+    w.setBlock(.init(11, 40, 8), .air);
+    w.setBlock(.init(11, 41, 8), .air);
+    w.setBlock(.init(12, 40, 8), .air);
+    w.setBlock(.init(12, 41, 8), .air);
 
     var rand = JavaRandom.init(1);
-    const made = try generate(&w, &rand, 8, 40, 8);
+    const made = try generate(&w, &rand, .init(8, 40, 8));
     try std.testing.expect(made);
-    try std.testing.expectEqual(.mob_spawner, w.getBlock(8, 40, 8));
-    try std.testing.expectEqual(.air, w.getBlock(8, 41, 8));
+    try std.testing.expectEqual(.mob_spawner, w.getBlock(.init(8, 40, 8)));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 41, 8)));
 
     var found_wall = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            const id = w.getBlock(@intCast(x), 40, @intCast(z));
+            const id = w.getBlock(.init(@intCast(x), 40, @intCast(z)));
             if (id == .cobblestone or id == .cobblestone_mossy) found_wall = true;
         }
     }
@@ -217,19 +218,19 @@ test "a carved dungeon leaves a stocked chest behind, not a bare block" {
     for (0..24) |seed| {
         var w = try testWorldWithChunk();
         defer w.deinit();
-        w.setBlock(12, 40, 8, .air);
-        w.setBlock(12, 41, 8, .air);
+        w.setBlock(.init(12, 40, 8), .air);
+        w.setBlock(.init(12, 41, 8), .air);
 
         var rand = JavaRandom.init(@intCast(seed));
-        if (!try generate(&w, &rand, 8, 40, 8)) continue;
+        if (!try generate(&w, &rand, .init(8, 40, 8))) continue;
 
         for (0..16) |x| {
             for (0..16) |z| {
                 const cx: i32 = @intCast(x);
                 const cz: i32 = @intCast(z);
-                if (w.getBlock(cx, 40, cz) != .chest) continue;
+                if (w.getBlock(.init(cx, 40, cz)) != .chest) continue;
 
-                const state = w.chestAt(cx, 40, cz) orelse return error.TestUnexpectedResult;
+                const state = w.chestAt(.init(cx, 40, cz)) orelse return error.TestUnexpectedResult;
                 for (state.items) |maybe| {
                     if (maybe != null) slots_used += 1;
                 }
@@ -248,7 +249,7 @@ test "a dungeon refuses to carve into open air" {
     _ = try w.createChunk(0, 0);
 
     var rand = JavaRandom.init(1);
-    const made = try generate(&w, &rand, 8, 40, 8);
+    const made = try generate(&w, &rand, .init(8, 40, 8));
     try std.testing.expect(!made);
 }
 
@@ -266,19 +267,19 @@ test "a dungeon spills across a chunk boundary into the neighbor chunk" {
         }
     }
 
-    w.setBlock(19, 40, 8, .air);
-    w.setBlock(19, 41, 8, .air);
-    w.setBlock(20, 40, 8, .air);
-    w.setBlock(20, 41, 8, .air);
+    w.setBlock(.init(19, 40, 8), .air);
+    w.setBlock(.init(19, 41, 8), .air);
+    w.setBlock(.init(20, 40, 8), .air);
+    w.setBlock(.init(20, 41, 8), .air);
 
     var rand = JavaRandom.init(1);
-    const made = try generate(&w, &rand, 15, 40, 8);
+    const made = try generate(&w, &rand, .init(15, 40, 8));
     try std.testing.expect(made);
 
     var found_wall_in_neighbor = false;
     for (0..16) |x| {
         for (0..16) |z| {
-            const id = w.getBlock(16 + @as(i32, @intCast(x)), 40, @as(i32, @intCast(z)));
+            const id = w.getBlock(.init(16 + @as(i32, @intCast(x)), 40, @as(i32, @intCast(z))));
             if (id == .cobblestone or id == .cobblestone_mossy or id == .air) found_wall_in_neighbor = true;
         }
     }
@@ -289,18 +290,18 @@ test "a dungeon leaves the stone above its room untouched" {
     var w = try testWorldWithChunk();
     defer w.deinit();
 
-    w.setBlock(11, 40, 8, .air);
-    w.setBlock(11, 41, 8, .air);
-    w.setBlock(12, 40, 8, .air);
-    w.setBlock(12, 41, 8, .air);
+    w.setBlock(.init(11, 40, 8), .air);
+    w.setBlock(.init(11, 41, 8), .air);
+    w.setBlock(.init(12, 40, 8), .air);
+    w.setBlock(.init(12, 41, 8), .air);
 
     var rand = JavaRandom.init(1);
-    try std.testing.expect(try generate(&w, &rand, 8, 40, 8));
+    try std.testing.expect(try generate(&w, &rand, .init(8, 40, 8)));
 
-    try std.testing.expectEqual(.air, w.getBlock(8, 43, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 43, 8)));
     for (0..16) |x| {
         for (0..16) |z| {
-            const id = w.getBlock(@intCast(x), 44, @intCast(z));
+            const id = w.getBlock(.init(@intCast(x), 44, @intCast(z)));
             try std.testing.expect(id != .cobblestone and id != .cobblestone_mossy);
         }
     }

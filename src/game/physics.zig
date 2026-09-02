@@ -2,13 +2,14 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const max_colliding_boxes = 64;
 
-fn offsetBox(bounds: world.block.Bounds, x: i32, y: i32, z: i32) math.Aabb {
-    const fx: f64 = @floatFromInt(x);
-    const fy: f64 = @floatFromInt(y);
-    const fz: f64 = @floatFromInt(z);
+fn offsetBox(bounds: world.block.Bounds, pos: BlockPos) math.Aabb {
+    const fx: f64 = @floatFromInt(pos.x);
+    const fy: f64 = @floatFromInt(pos.y);
+    const fz: f64 = @floatFromInt(pos.z);
     return math.Aabb.init(
         fx + bounds.min[0],
         fy + bounds.min[1],
@@ -19,42 +20,42 @@ fn offsetBox(bounds: world.block.Bounds, x: i32, y: i32, z: i32) math.Aabb {
     );
 }
 
-fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z: i32, out: *[2]math.Aabb) usize {
+fn blockBoxes(world_map: *const world.World, id: world.Block, pos: BlockPos, out: *[2]math.Aabb) usize {
     if (id == .cactus) {
-        out[0] = offsetBox(world.block.cactus_collision_bounds, x, y, z);
+        out[0] = offsetBox(world.block.cactus_collision_bounds, pos);
         return 1;
     }
 
     if (id == .soul_sand) {
-        out[0] = offsetBox(world.block.soul_sand_collision_bounds, x, y, z);
+        out[0] = offsetBox(world.block.soul_sand_collision_bounds, pos);
         return 1;
     }
 
     if (id == .fence) {
-        out[0] = offsetBox(world.block.fence_collision_bounds, x, y, z);
+        out[0] = offsetBox(world.block.fence_collision_bounds, pos);
         return 1;
     }
 
     if (id == .farmland) {
-        out[0] = offsetBox(.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }, x, y, z);
+        out[0] = offsetBox(.{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } }, pos);
         return 1;
     }
 
     const bounds = switch (id.shape()) {
-        .door => world.block.doorBounds(world_map.getBlockMetadata(x, y, z)),
-        .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(x, y, z)),
-        .cake => world.block.cakeCollisionBounds(world_map.getBlockMetadata(x, y, z)),
-        .ladder => world.block.ladderBounds(world_map.getBlockMetadata(x, y, z)),
+        .door => world.block.doorBounds(world_map.getBlockMetadata(pos)),
+        .trapdoor => world.block.trapdoorBounds(world_map.getBlockMetadata(pos)),
+        .cake => world.block.cakeCollisionBounds(world_map.getBlockMetadata(pos)),
+        .ladder => world.block.ladderBounds(world_map.getBlockMetadata(pos)),
         .bed => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, world.block.bed_height, 1 } },
         .stairs => {
-            for (world.block.stairsBoxes(world_map.getBlockMetadata(x, y, z)), out) |bounds, *box| {
-                box.* = offsetBox(bounds, x, y, z);
+            for (world.block.stairsBoxes(world_map.getBlockMetadata(pos)), out) |bounds, *box| {
+                box.* = offsetBox(bounds, pos);
             }
             return 2;
         },
-        .piston => world.block.pistonBaseBounds(world_map.getBlockMetadata(x, y, z)),
+        .piston => world.block.pistonBaseBounds(world_map.getBlockMetadata(pos)),
         .piston_moving => {
-            const state = world_map.pistons.get(.{ .x = x, .y = y, .z = z }) orelse return 0;
+            const state = world_map.pistons.get(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return 0;
             if (state.stored == .air or state.stored == .piston_moving) return 0;
             if (!state.stored.hasCollision()) return 0;
 
@@ -63,19 +64,19 @@ fn blockBoxes(world_map: *const world.World, id: world.Block, x: i32, y: i32, z:
             out[0] = offsetBox(.{
                 .min = .{ bounds.min[0] + shift[0], bounds.min[1] + shift[1], bounds.min[2] + shift[2] },
                 .max = .{ bounds.max[0] + shift[0], bounds.max[1] + shift[1], bounds.max[2] + shift[2] },
-            }, x, y, z);
+            }, pos);
             return 1;
         },
         .piston_head => {
-            const metadata = world_map.getBlockMetadata(x, y, z);
-            out[0] = offsetBox(world.block.pistonHeadPlateBounds(metadata), x, y, z);
-            out[1] = offsetBox(world.block.pistonHeadShaftBounds(metadata), x, y, z);
+            const metadata = world_map.getBlockMetadata(pos);
+            out[0] = offsetBox(world.block.pistonHeadPlateBounds(metadata), pos);
+            out[1] = offsetBox(world.block.pistonHeadShaftBounds(metadata), pos);
             return 2;
         },
         .partial => |height| world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, height, 1 } },
         else => world.block.Bounds{ .min = .{ 0, 0, 0 }, .max = .{ 1, 1, 1 } },
     };
-    out[0] = offsetBox(bounds, x, y, z);
+    out[0] = offsetBox(bounds, pos);
     return 1;
 }
 
@@ -94,10 +95,10 @@ fn collidingBoxes(world_map: *const world.World, query: math.Aabb, out: *[max_co
         while (y <= max_y) : (y += 1) {
             var z = min_z;
             while (z <= max_z) : (z += 1) {
-                const id = world_map.getBlock(x, y, z);
+                const id = world_map.getBlock(.init(x, y, z));
                 if (!id.hasCollision()) continue;
                 var boxes: [2]math.Aabb = undefined;
-                const emitted = blockBoxes(world_map, id, x, y, z, &boxes);
+                const emitted = blockBoxes(world_map, id, .init(x, y, z), &boxes);
                 for (boxes[0..emitted]) |box| {
                     if (count == max_colliding_boxes) break;
                     out[count] = box;
@@ -243,9 +244,7 @@ const flow_acceleration: f64 = 0.014;
 
 pub fn groundFriction(world_map: *const world.World, box: math.Aabb, x: f64, z: f64, air_friction: f32) f32 {
     const below = world_map.getBlock(
-        math.util.floorDouble(x),
-        math.util.floorDouble(box.min_y) - 1,
-        math.util.floorDouble(z),
+        .init(math.util.floorDouble(x), math.util.floorDouble(box.min_y) - 1, math.util.floorDouble(z)),
     );
     const slipperiness = if (below == .air) world.block.default_slipperiness else below.slipperiness();
     return slipperiness * air_friction;
@@ -255,9 +254,9 @@ pub fn walkAcceleration(friction: f32) f32 {
     return 0.1 * (0.16277136 / (friction * friction * friction));
 }
 
-pub fn fluidSurface(world_map: *const world.World, x: i32, y: i32, z: i32) f64 {
-    const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z));
-    return @as(f64, @floatFromInt(y + 1)) - @as(f64, air);
+pub fn fluidSurface(world_map: *const world.World, pos: BlockPos) f64 {
+    const air = world.fluid.percentAir(world_map.getBlockMetadata(pos));
+    return @as(f64, @floatFromInt(pos.y + 1)) - @as(f64, air);
 }
 
 pub fn handleWaterMovement(world_map: *const world.World, box: math.Aabb) ?math.Vec3 {
@@ -280,10 +279,10 @@ pub fn handleWaterMovement(world_map: *const world.World, box: math.Aabb) ?math.
         while (y < max_y) : (y += 1) {
             var z = min_z;
             while (z < max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z).material() != .water) continue;
-                if (@as(f64, @floatFromInt(max_y)) < fluidSurface(world_map, x, y, z)) continue;
+                if (world_map.getBlock(.init(x, y, z)).material() != .water) continue;
+                if (@as(f64, @floatFromInt(max_y)) < fluidSurface(world_map, .init(x, y, z))) continue;
                 touching = true;
-                flow = flow.add(world.fluid.flowVector(world_map, x, y, z));
+                flow = flow.add(world.fluid.flowVector(world_map, .init(x, y, z)));
             }
         }
     }
@@ -343,7 +342,7 @@ pub fn countTouchedBlocks(world_map: *const world.World, box: math.Aabb, id: wor
 
     var count: u32 = 0;
     while (cells.next()) |cell| {
-        if (world_map.getBlock(cell[0], cell[1], cell[2]) == id) count += 1;
+        if (world_map.getBlock(.init(cell[0], cell[1], cell[2])) == id) count += 1;
     }
     return count;
 }
@@ -366,8 +365,8 @@ pub fn isBoxInMaterial(world_map: *const world.World, box: math.Aabb, material: 
         while (y < max_y) : (y += 1) {
             var z = min_z;
             while (z < max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z).material() != material) continue;
-                const meta = world_map.getBlockMetadata(x, y, z);
+                if (world_map.getBlock(.init(x, y, z)).material() != material) continue;
+                const meta = world_map.getBlockMetadata(.init(x, y, z));
                 const top: f64 = @floatFromInt(y + 1);
                 const surface = if (meta < 8) top - @as(f64, @floatFromInt(meta)) / 8.0 else top;
                 if (surface >= box.min_y) return true;
@@ -416,7 +415,7 @@ pub fn isAnyLiquid(world_map: *const world.World, box: math.Aabb) bool {
         while (y < max_y) : (y += 1) {
             var z = min_z;
             while (z < max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z).isLiquid()) return true;
+                if (world_map.getBlock(.init(x, y, z)).isLiquid()) return true;
             }
         }
     }
@@ -438,7 +437,7 @@ pub fn isInLava(world_map: *const world.World, box: math.Aabb) bool {
         while (y < max_y) : (y += 1) {
             var z = min_z;
             while (z < max_z) : (z += 1) {
-                if (world_map.getBlock(x, y, z).material() == .lava) return true;
+                if (world_map.getBlock(.init(x, y, z)).material() == .lava) return true;
             }
         }
     }
@@ -463,9 +462,9 @@ pub fn isInsideMaterial(world_map: *const world.World, material: world.Material,
     const x = math.util.floorDouble(eye_x);
     const y = math.util.floorDouble(eye_y);
     const z = math.util.floorDouble(eye_z);
-    if (world_map.getBlock(x, y, z).material() != material) return false;
+    if (world_map.getBlock(.init(x, y, z)).material() != material) return false;
 
-    const air = world.fluid.percentAir(world_map.getBlockMetadata(x, y, z)) - 1.0 / 9.0;
+    const air = world.fluid.percentAir(world_map.getBlockMetadata(.init(x, y, z))) - 1.0 / 9.0;
     const surface: f32 = @as(f32, @floatFromInt(y + 1)) - air;
     return eye_y < @as(f64, surface);
 }
@@ -496,7 +495,7 @@ test "falling onto a floor stops the vertical offset at the surface" {
 test "walking into a wall clamps the horizontal offset at the surface" {
     var w = try testWorldWithFloor(0);
     defer w.deinit();
-    w.setBlock(2, 0, 0, .stone);
+    w.setBlock(.init(2, 0, 0), .stone);
     const aabb = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
     const result = moveEntity(&w, aabb, 0.5, 0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), result.dx, 1.0e-9);
@@ -516,14 +515,14 @@ test "open air applies the full requested movement" {
 test "a single slab is half a block tall to walk onto, a double slab a whole one" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, .slab);
+    w.setBlock(.init(2, 1, 0), .slab);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const onto_slab = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_slab.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), onto_slab.aabb.min_y, 1.0e-9);
 
-    w.setBlock(2, 1, 0, .slab_double);
+    w.setBlock(.init(2, 1, 0), .slab_double);
     const onto_double = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
     try std.testing.expectApproxEqAbs(@as(f64, 0.4), onto_double.dx, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), onto_double.aabb.min_y, 1.0e-9);
@@ -532,8 +531,8 @@ test "a single slab is half a block tall to walk onto, a double slab a whole one
 test "a stair's tread is walked onto while its tall half blocks the way" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, .stairs_cobblestone);
-    w.setBlockMetadata(2, 1, 0, 0);
+    w.setBlock(.init(2, 1, 0), .stairs_cobblestone);
+    w.setBlockMetadata(.init(2, 1, 0), 0);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const onto_tread = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
@@ -548,7 +547,7 @@ test "a stair's tread is walked onto while its tall half blocks the way" {
 test "a rise of half a block is stepped over when the entity has step height" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, .stone);
+    w.setBlock(.init(2, 1, 0), .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
@@ -560,7 +559,7 @@ test "a rise of half a block is stepped over when the entity has step height" {
 test "the same rise stops an entity that cannot step" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, .stone);
+    w.setBlock(.init(2, 1, 0), .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const blocked = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0, true, false, 0, &.{});
@@ -572,7 +571,7 @@ test "the same rise stops an entity that cannot step" {
 test "a step that lands mid-block locks out stepping until the offset decays" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(2, 1, 0, .stone);
+    w.setBlock(.init(2, 1, 0), .stone);
 
     const aabb = math.Aabb.init(1.2, 1.5, -0.3, 1.8, 2.4, 0.3);
     const stepped = moveEntityStepping(&w, aabb, 0.4, -0.08, 0, 0.5, true, false, 0, &.{});
@@ -628,8 +627,8 @@ test "a source block counts as submerged right up to the top of its block" {
 test "a shallow flowing block leaves an air gap the camera can see out of" {
     var w = try waterWorld();
     defer w.deinit();
-    w.setBlock(8, 4, 8, .flowing_water);
-    w.setBlockMetadata(8, 4, 8, 4);
+    w.setBlock(.init(8, 4, 8), .flowing_water);
+    w.setBlockMetadata(.init(8, 4, 8), 4);
     try std.testing.expect(!isInsideWater(&w, 8.5, 4.9, 8.5));
     try std.testing.expect(isInsideWater(&w, 8.5, 4.4, 8.5));
 }
@@ -645,7 +644,7 @@ test "stepping out of water needs a free, dry space to move into" {
 test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(9, 1, 8, .cactus);
+    w.setBlock(.init(9, 1, 8), .cactus);
 
     const walking = math.Aabb.init(7.7, 1.0, 7.7, 8.3, 2.8, 8.3);
     const into = moveEntity(&w, walking, 1.0, 0, 0);
@@ -659,7 +658,7 @@ test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
 test "soul sand is two sixteenths short, so an entity stands sunk into its cell" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .soul_sand);
+    w.setBlock(.init(8, 1, 8), .soul_sand);
 
     const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -3.0, 0);
@@ -669,7 +668,7 @@ test "soul sand is two sixteenths short, so an entity stands sunk into its cell"
 test "farmland is walked on as a whole cube even though it renders shaved" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .farmland);
+    w.setBlock(.init(8, 1, 8), .farmland);
 
     const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -4.0, 0);
@@ -679,8 +678,8 @@ test "farmland is walked on as a whole cube even though it renders shaved" {
 test "a crop is walked straight through" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .farmland);
-    w.setBlock(8, 2, 8, .crops);
+    w.setBlock(.init(8, 1, 8), .farmland);
+    w.setBlock(.init(8, 2, 8), .crops);
 
     const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
     const into = moveEntity(&w, walking, 2.0, 0, 0);
@@ -690,7 +689,7 @@ test "a crop is walked straight through" {
 test "a fence stands half a block taller than its own cell" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .fence);
+    w.setBlock(.init(8, 1, 8), .fence);
 
     const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -4.0, 0);
@@ -700,8 +699,8 @@ test "a fence stands half a block taller than its own cell" {
 test "a fence blocks a walker whose feet are already above the fence's cell" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(7, 1, 8, .stone);
-    w.setBlock(8, 1, 8, .fence);
+    w.setBlock(.init(7, 1, 8), .stone);
+    w.setBlock(.init(8, 1, 8), .fence);
 
     const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
     const into = moveEntity(&w, walking, 1.0, 0, 0);
@@ -711,9 +710,9 @@ test "a fence blocks a walker whose feet are already above the fence's cell" {
 test "a ladder is a two-sixteenth panel that only blocks the wall it hangs on" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(9, 1, 8, .stone);
-    w.setBlock(8, 1, 8, .ladder);
-    w.setBlockMetadata(8, 1, 8, 4);
+    w.setBlock(.init(9, 1, 8), .stone);
+    w.setBlock(.init(8, 1, 8), .ladder);
+    w.setBlockMetadata(.init(8, 1, 8), 4);
 
     const walking = math.Aabb.init(7.2, 1.0, 7.7, 7.8, 2.8, 8.3);
     const into = moveEntity(&w, walking, 1.5, 0, 0);
@@ -723,7 +722,7 @@ test "a ladder is a two-sixteenth panel that only blocks the wall it hangs on" {
 test "a box counts as touching the cell it barely overlaps, but not the one it only abuts" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    w.setBlock(9, 1, 8, .cactus);
+    w.setBlock(.init(9, 1, 8), .cactus);
 
     const brushing = math.Aabb.init(8.2, 1.0, 7.7, 9.05, 2.8, 8.3);
     try std.testing.expect(touchesBlock(&w, brushing, .cactus));
@@ -740,9 +739,9 @@ test "a box counts as touching the cell it barely overlaps, but not the one it o
 test "a closed door stops an entity walking into it" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, .door_wood, 180));
+    try std.testing.expect(try world.block_update.placeDoor(&w, .init(8, 1, 8), .door_wood, 180));
 
-    const closed = world.block.doorBounds(w.getBlockMetadata(8, 1, 8));
+    const closed = world.block.doorBounds(w.getBlockMetadata(.init(8, 1, 8)));
     const aabb = math.Aabb.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
     const blocked = moveEntity(&w, aabb, 0, 0, 2.0);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0) + @as(f64, closed.min[2]), blocked.aabb.max_z, 1.0e-9);
@@ -751,8 +750,8 @@ test "a closed door stops an entity walking into it" {
 test "an open door leaves the doorway clear" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, 8, 1, 8, .door_wood, 180));
-    try world.block_update.toggleDoor(&w, 8, 1, 8);
+    try std.testing.expect(try world.block_update.placeDoor(&w, .init(8, 1, 8), .door_wood, 180));
+    try world.block_update.toggleDoor(&w, .init(8, 1, 8));
 
     const aabb = math.Aabb.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
     const through = moveEntity(&w, aabb, 0, 0, 2.0);
@@ -762,8 +761,8 @@ test "an open door leaves the doorway clear" {
 fn trapdoorWorld(metadata: u4) !world.World {
     var w = try testWorldWithFloor(1);
     errdefer w.deinit();
-    w.setBlock(8, 1, 9, .stone);
-    try w.setBlockAndMetadataWithNotify(8, 1, 8, .trapdoor, metadata);
+    w.setBlock(.init(8, 1, 9), .stone);
+    try w.setBlockAndMetadataWithNotify(.init(8, 1, 8), .trapdoor, metadata);
     return w;
 }
 
@@ -798,17 +797,17 @@ test "a one block rise is jumpable, open air and a taller wall are not" {
 
     try std.testing.expect(!stepIsJumpable(&w, box, east));
 
-    w.setBlock(2, 0, 0, .stone);
+    w.setBlock(.init(2, 0, 0), .stone);
     try std.testing.expect(stepIsJumpable(&w, box, east));
 
-    w.setBlock(2, 1, 0, .stone);
+    w.setBlock(.init(2, 1, 0), .stone);
     try std.testing.expect(!stepIsJumpable(&w, box, east));
 }
 
 test "a rise behind the entity is not jumpable" {
     var w = try testWorldWithFloor(0);
     defer w.deinit();
-    w.setBlock(2, 0, 0, .stone);
+    w.setBlock(.init(2, 0, 0), .stone);
     const box = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
     try std.testing.expect(!stepIsJumpable(&w, box, .{ -1, 0, 0 }));
 }

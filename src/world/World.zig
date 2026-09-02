@@ -6,6 +6,7 @@ const math = @import("math");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
+pub const BlockPos = @import("BlockPos.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("Chunk.zig");
 const dispenser = @import("dispenser.zig");
@@ -50,16 +51,6 @@ pub const EntityIo = struct {
 
 pub const ChunkCoord = struct { x: i32, z: i32 };
 
-pub const BlockPos = struct {
-    x: i32,
-    y: i32,
-    z: i32,
-
-    pub fn offset(self: BlockPos, dx: i32, dy: i32, dz: i32) BlockPos {
-        return .{ .x = self.x + dx, .y = self.y + dy, .z = self.z + dz };
-    }
-};
-
 pub const DroppedBlock = struct { pos: BlockPos, stack: block.Stack };
 pub const Dispensed = struct { pos: BlockPos, step: [2]i32, stack: block.Stack };
 
@@ -71,7 +62,7 @@ pub const TorchUpdate = struct { pos: BlockPos, time: i64 };
 
 pub const Access = struct {
     context: *anyopaque,
-    markBlockNeedsUpdate: *const fn (context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void,
+    markBlockNeedsUpdate: *const fn (context: *anyopaque, pos: BlockPos) std.mem.Allocator.Error!void,
     updateAllRenderers: *const fn (context: *anyopaque) std.mem.Allocator.Error!void,
 };
 
@@ -83,7 +74,7 @@ pub const EntityProbe = struct {
 pub const SoundSink = struct {
     context: *anyopaque,
     playSound: *const fn (context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void,
-    playRecord: *const fn (context: *anyopaque, name: ?[]const u8, x: i32, y: i32, z: i32) void,
+    playRecord: *const fn (context: *anyopaque, name: ?[]const u8, pos: BlockPos) void,
 };
 
 pub const ScheduledTick = struct {
@@ -161,7 +152,7 @@ sound_sink: ?SoundSink = null,
 note_sink: ?NoteSink = null,
 weather: Weather = .{},
 has_sky: bool = true,
-strikes: std.ArrayList(Strike) = .empty,
+strikes: std.ArrayList(BlockPos) = .empty,
 access: ?Access = null,
 persistence: ?Persistence = null,
 entity_io: ?EntityIo = null,
@@ -234,17 +225,17 @@ pub fn tickWeather(self: *World) void {
 pub fn findTopSolidBlock(self: *const World, x: i32, z: i32) i32 {
     var y: i32 = Chunk.height - 1;
     while (y > 0) : (y -= 1) {
-        const material = self.getBlock(x, y, z).material();
+        const material = self.getBlock(.init(x, y, z)).material();
         if (material.isSolid() or material.isLiquid()) return y + 1;
     }
     return -1;
 }
 
-pub fn canBlockBeRainedOn(self: *const World, x: i32, y: i32, z: i32) bool {
+pub fn canBlockBeRainedOn(self: *const World, pos: BlockPos) bool {
     if (!self.weather.isRaining()) return false;
-    if (!self.canBlockSeeTheSky(x, y, z)) return false;
-    if (self.findTopSolidBlock(x, z) > y) return false;
-    return self.biomeAt(x, z).canSpawnLightningBolt();
+    if (!self.canBlockSeeTheSky(pos)) return false;
+    if (self.findTopSolidBlock(pos.x, pos.z) > pos.y) return false;
+    return self.biomeAt(pos.x, pos.z).canSpawnLightningBolt();
 }
 
 pub fn init(allocator: std.mem.Allocator) World {
@@ -561,10 +552,10 @@ fn floorMod(value: i32, divisor: i32) i32 {
     return @mod(value, divisor);
 }
 
-pub fn getBlock(self: *const World, x: i32, y: i32, z: i32) Block {
-    if (y < 0 or y >= Chunk.height) return .air;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return .air;
-    return chunk.getBlock(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
+pub fn getBlock(self: *const World, pos: BlockPos) Block {
+    if (pos.y < 0 or pos.y >= Chunk.height) return .air;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return .air;
+    return chunk.getBlock(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)));
 }
 
 pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
@@ -574,53 +565,53 @@ pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
     return biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z));
 }
 
-pub fn setBlock(self: *World, x: i32, y: i32, z: i32, id: Block) void {
-    if (y < 0 or y >= Chunk.height) return;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
-    chunk.setBlock(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), id);
+pub fn setBlock(self: *World, pos: BlockPos, id: Block) void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return;
+    chunk.setBlock(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)), id);
 }
 
-pub fn getSkyLight(self: *const World, x: i32, y: i32, z: i32) u4 {
-    if (y < 0) return 0;
-    if (y >= Chunk.height) return 15;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
-    return chunk.getSkyLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
+pub fn getSkyLight(self: *const World, pos: BlockPos) u4 {
+    if (pos.y < 0) return 0;
+    if (pos.y >= Chunk.height) return 15;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return 0;
+    return chunk.getSkyLight(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)));
 }
 
-pub fn setSkyLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= Chunk.height) return;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
-    chunk.setSkyLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
+pub fn setSkyLight(self: *World, pos: BlockPos, value: u4) void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return;
+    chunk.setSkyLight(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)), value);
 }
 
-pub fn getBlockLight(self: *const World, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= Chunk.height) return 0;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
-    return chunk.getBlockLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
+pub fn getBlockLight(self: *const World, pos: BlockPos) u4 {
+    if (pos.y < 0 or pos.y >= Chunk.height) return 0;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return 0;
+    return chunk.getBlockLight(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)));
 }
 
-pub fn setBlockLight(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= Chunk.height) return;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
-    chunk.setBlockLight(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
+pub fn setBlockLight(self: *World, pos: BlockPos, value: u4) void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return;
+    chunk.setBlockLight(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)), value);
 }
 
-pub fn getBlockMetadata(self: *const World, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= Chunk.height) return 0;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return 0;
-    return chunk.getBlockMetadata(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)));
+pub fn getBlockMetadata(self: *const World, pos: BlockPos) u4 {
+    if (pos.y < 0 or pos.y >= Chunk.height) return 0;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return 0;
+    return chunk.getBlockMetadata(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)));
 }
 
-pub fn setBlockMetadata(self: *World, x: i32, y: i32, z: i32, value: u4) void {
-    if (y < 0 or y >= Chunk.height) return;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
-    chunk.setBlockMetadata(@intCast(floorMod(x, Chunk.width)), @intCast(y), @intCast(floorMod(z, Chunk.width)), value);
+pub fn setBlockMetadata(self: *World, pos: BlockPos, value: u4) void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return;
+    chunk.setBlockMetadata(@intCast(floorMod(pos.x, Chunk.width)), @intCast(pos.y), @intCast(floorMod(pos.z, Chunk.width)), value);
 }
 
-pub fn canBlockSeeTheSky(self: *const World, x: i32, y: i32, z: i32) bool {
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return false;
-    const height = chunk.getHeightValue(@intCast(floorMod(x, Chunk.width)), @intCast(floorMod(z, Chunk.width)));
-    return y >= height;
+pub fn canBlockSeeTheSky(self: *const World, pos: BlockPos) bool {
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return false;
+    const height = chunk.getHeightValue(@intCast(floorMod(pos.x, Chunk.width)), @intCast(floorMod(pos.z, Chunk.width)));
+    return pos.y >= height;
 }
 
 pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x: i32, max_y: i32, max_z: i32) bool {
@@ -636,80 +627,80 @@ pub fn chunksExist(self: *const World, min_x: i32, min_y: i32, min_z: i32, max_x
     return true;
 }
 
-pub fn markChanged(self: *World, x: i32, y: i32, z: i32) !void {
-    try self.changed.append(self.allocator, .{ .x = x, .y = y, .z = z });
-    if (self.access) |access| try access.markBlockNeedsUpdate(access.context, x, y, z);
+pub fn markChanged(self: *World, pos: BlockPos) !void {
+    try self.changed.append(self.allocator, pos);
+    if (self.access) |access| try access.markBlockNeedsUpdate(access.context, pos);
 }
 
 pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
     if (self.access) |access| try access.updateAllRenderers(access.context);
 }
 
-pub fn playIgniteAt(self: *World, x: i32, y: i32, z: i32) void {
+pub fn playIgniteAt(self: *World, pos: BlockPos) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         assets.sounds.fire.ignite,
         1.0,
         self.rand.nextFloat() * 0.4 + 0.8,
     );
 }
 
-pub fn playFizzAt(self: *World, x: i32, y: i32, z: i32) void {
+pub fn playFizzAt(self: *World, pos: BlockPos) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         assets.sounds.random.fizz,
         0.5,
         2.6 + (self.rand.nextFloat() - self.rand.nextFloat()) * 0.8,
     );
 }
 
-pub fn playSwitchClick(self: *const World, x: i32, y: i32, z: i32, y_offset: f64, pitch: f32) void {
+pub fn playSwitchClick(self: *const World, pos: BlockPos, y_offset: f64, pitch: f32) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + y_offset,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + y_offset,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         assets.sounds.random.click,
         0.3,
         pitch,
     );
 }
 
-pub fn playDispenserFailure(self: *const World, x: i32, y: i32, z: i32) void {
+pub fn playDispenserFailure(self: *const World, pos: BlockPos) void {
     self.playSoundEffect(
-        @floatFromInt(x),
-        @floatFromInt(y),
-        @floatFromInt(z),
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
         assets.sounds.random.click,
         1.0,
         1.2,
     );
 }
 
-pub fn playDispenserShot(self: *const World, x: i32, y: i32, z: i32, stack: block.Stack) void {
+pub fn playDispenserShot(self: *const World, pos: BlockPos, stack: block.Stack) void {
     const launched = switch (stack.id) {
         .item => |id| id == .arrow or id == .egg or id == .snowball,
         .block => false,
     };
     self.playSoundEffect(
-        @floatFromInt(x),
-        @floatFromInt(y),
-        @floatFromInt(z),
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
         if (launched) assets.sounds.random.bow else assets.sounds.random.click,
         1.0,
         if (launched) 1.2 else 1.0,
     );
 }
 
-pub fn playDoorToggle(self: *World, x: i32, y: i32, z: i32) void {
+pub fn playDoorToggle(self: *World, pos: BlockPos) void {
     const sound = if (self.rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
     self.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         sound,
         1.0,
         self.rand.nextFloat() * 0.1 + 0.9,
@@ -721,153 +712,153 @@ pub fn playSoundEffect(self: *const World, x: f64, y: f64, z: f64, sound: assets
     sink.playSound(sink.context, sound, x, y, z, volume, pitch);
 }
 
-pub fn playRecord(self: *const World, name: ?[]const u8, x: i32, y: i32, z: i32) void {
+pub fn playRecord(self: *const World, name: ?[]const u8, pos: BlockPos) void {
     const sink = self.sound_sink orelse return;
-    sink.playRecord(sink.context, name, x, y, z);
+    sink.playRecord(sink.context, name, pos.x, pos.y, pos.z);
 }
 
-pub fn onBlockHit(self: *World, x: i32, y: i32, z: i32, side: block.Side) !void {
+pub fn onBlockHit(self: *World, pos: BlockPos, side: block.Side) !void {
     const step = side.step();
-    const fire_x = x + step[0];
-    const fire_y = y + step[1];
-    const fire_z = z + step[2];
-    if (self.getBlock(fire_x, fire_y, fire_z) != .fire) return;
+    const fire_x = pos.x + step[0];
+    const fire_y = pos.y + step[1];
+    const fire_z = pos.z + step[2];
+    if (self.getBlock(.init(fire_x, fire_y, fire_z)) != .fire) return;
 
-    self.playFizzAt(fire_x, fire_y, fire_z);
-    try self.setBlockWithNotify(fire_x, fire_y, fire_z, .air);
+    self.playFizzAt(.init(fire_x, fire_y, fire_z));
+    try self.setBlockWithNotify(.init(fire_x, fire_y, fire_z), .air);
 }
 
-pub fn setBlockWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block) !void {
-    try self.setBlockAndMetadataWithNotify(x, y, z, id, 0);
+pub fn setBlockWithNotify(self: *World, pos: BlockPos, id: Block) !void {
+    try self.setBlockAndMetadataWithNotify(pos, id, 0);
 }
 
-pub fn setBlockAndMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, id: Block, meta: u4) !void {
-    if (y < 0 or y >= Chunk.height) return;
-    const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return;
-    const local_x: u32 = @intCast(floorMod(x, Chunk.width));
-    const local_z: u32 = @intCast(floorMod(z, Chunk.width));
-    const previous = chunk.getBlock(local_x, @intCast(y), local_z);
-    const previous_meta = chunk.getBlockMetadata(local_x, @intCast(y), local_z);
-    chunk.setBlock(local_x, @intCast(y), local_z, id);
-    if (previous != id) try redstone.onBlockRemoved(self, x, y, z, previous, previous_meta);
-    chunk.setBlockMetadata(local_x, @intCast(y), local_z, meta);
-    if (previous != id) leaf_decay.onBlockRemoved(self, x, y, z, previous);
-    try self.onBlockAdded(x, y, z, id);
-    try self.notifyBlockChange(x, y, z);
+pub fn setBlockAndMetadataWithNotify(self: *World, pos: BlockPos, id: Block, meta: u4) !void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    const chunk = self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) orelse return;
+    const local_x: u32 = @intCast(floorMod(pos.x, Chunk.width));
+    const local_z: u32 = @intCast(floorMod(pos.z, Chunk.width));
+    const previous = chunk.getBlock(local_x, @intCast(pos.y), local_z);
+    const previous_meta = chunk.getBlockMetadata(local_x, @intCast(pos.y), local_z);
+    chunk.setBlock(local_x, @intCast(pos.y), local_z, id);
+    if (previous != id) try redstone.onBlockRemoved(self, pos, previous, previous_meta);
+    chunk.setBlockMetadata(local_x, @intCast(pos.y), local_z, meta);
+    if (previous != id) leaf_decay.onBlockRemoved(self, pos, previous);
+    try self.onBlockAdded(pos, id);
+    try self.notifyBlockChange(pos);
 }
 
-pub fn setBlockMetadataWithNotify(self: *World, x: i32, y: i32, z: i32, meta: u4) !void {
-    if (y < 0 or y >= Chunk.height) return;
-    if (self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) == null) return;
-    self.setBlockMetadata(x, y, z, meta);
-    try self.notifyBlockChange(x, y, z);
+pub fn setBlockMetadataWithNotify(self: *World, pos: BlockPos, meta: u4) !void {
+    if (pos.y < 0 or pos.y >= Chunk.height) return;
+    if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) return;
+    self.setBlockMetadata(pos, meta);
+    try self.notifyBlockChange(pos);
 }
 
-pub fn furnaceAt(self: *World, x: i32, y: i32, z: i32) ?*furnace.Furnace {
-    return self.furnaces.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn furnaceAt(self: *World, pos: BlockPos) ?*furnace.Furnace {
+    return self.furnaces.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addFurnace(self: *World, x: i32, y: i32, z: i32) !*furnace.Furnace {
-    const entry = try self.furnaces.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addFurnace(self: *World, pos: BlockPos) !*furnace.Furnace {
+    const entry = try self.furnaces.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
-pub fn removeFurnace(self: *World, x: i32, y: i32, z: i32) ?furnace.Furnace {
-    const removed = self.furnaces.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeFurnace(self: *World, pos: BlockPos) ?furnace.Furnace {
+    const removed = self.furnaces.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
-pub fn chestAt(self: *World, x: i32, y: i32, z: i32) ?*chest.Chest {
-    return self.chests.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn chestAt(self: *World, pos: BlockPos) ?*chest.Chest {
+    return self.chests.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addChest(self: *World, x: i32, y: i32, z: i32) !*chest.Chest {
-    const entry = try self.chests.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addChest(self: *World, pos: BlockPos) !*chest.Chest {
+    const entry = try self.chests.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
 pub const ChestPair = struct { upper: BlockPos, lower: ?BlockPos = null };
 
-pub fn chestPairAt(self: *World, x: i32, y: i32, z: i32) ChestPair {
-    const here: BlockPos = .{ .x = x, .y = y, .z = z };
-    if (self.getBlock(x - 1, y, z) == .chest) return .{ .upper = .{ .x = x - 1, .y = y, .z = z }, .lower = here };
-    if (self.getBlock(x + 1, y, z) == .chest) return .{ .upper = here, .lower = .{ .x = x + 1, .y = y, .z = z } };
-    if (self.getBlock(x, y, z - 1) == .chest) return .{ .upper = .{ .x = x, .y = y, .z = z - 1 }, .lower = here };
-    if (self.getBlock(x, y, z + 1) == .chest) return .{ .upper = here, .lower = .{ .x = x, .y = y, .z = z + 1 } };
+pub fn chestPairAt(self: *World, pos: BlockPos) ChestPair {
+    const here: BlockPos = .{ .x = pos.x, .y = pos.y, .z = pos.z };
+    if (self.getBlock(pos.offset(-1, 0, 0)) == .chest) return .{ .upper = .{ .x = pos.x - 1, .y = pos.y, .z = pos.z }, .lower = here };
+    if (self.getBlock(pos.offset(1, 0, 0)) == .chest) return .{ .upper = here, .lower = .{ .x = pos.x + 1, .y = pos.y, .z = pos.z } };
+    if (self.getBlock(pos.offset(0, 0, -1)) == .chest) return .{ .upper = .{ .x = pos.x, .y = pos.y, .z = pos.z - 1 }, .lower = here };
+    if (self.getBlock(pos.offset(0, 0, 1)) == .chest) return .{ .upper = here, .lower = .{ .x = pos.x, .y = pos.y, .z = pos.z + 1 } };
     return .{ .upper = here };
 }
 
-fn hasNeighborChest(self: *World, x: i32, y: i32, z: i32) bool {
-    if (self.getBlock(x, y, z) != .chest) return false;
-    return self.getBlock(x - 1, y, z) == .chest or self.getBlock(x + 1, y, z) == .chest or
-        self.getBlock(x, y, z - 1) == .chest or self.getBlock(x, y, z + 1) == .chest;
+fn hasNeighborChest(self: *World, pos: BlockPos) bool {
+    if (self.getBlock(pos) != .chest) return false;
+    return self.getBlock(pos.offset(-1, 0, 0)) == .chest or self.getBlock(pos.offset(1, 0, 0)) == .chest or
+        self.getBlock(pos.offset(0, 0, -1)) == .chest or self.getBlock(pos.offset(0, 0, 1)) == .chest;
 }
 
-pub fn canPlaceChestAt(self: *World, x: i32, y: i32, z: i32) bool {
+pub fn canPlaceChestAt(self: *World, pos: BlockPos) bool {
     var adjacent: u8 = 0;
-    if (self.getBlock(x - 1, y, z) == .chest) adjacent += 1;
-    if (self.getBlock(x + 1, y, z) == .chest) adjacent += 1;
-    if (self.getBlock(x, y, z - 1) == .chest) adjacent += 1;
-    if (self.getBlock(x, y, z + 1) == .chest) adjacent += 1;
+    if (self.getBlock(pos.offset(-1, 0, 0)) == .chest) adjacent += 1;
+    if (self.getBlock(pos.offset(1, 0, 0)) == .chest) adjacent += 1;
+    if (self.getBlock(pos.offset(0, 0, -1)) == .chest) adjacent += 1;
+    if (self.getBlock(pos.offset(0, 0, 1)) == .chest) adjacent += 1;
     if (adjacent > 1) return false;
 
-    return !self.hasNeighborChest(x - 1, y, z) and !self.hasNeighborChest(x + 1, y, z) and
-        !self.hasNeighborChest(x, y, z - 1) and !self.hasNeighborChest(x, y, z + 1);
+    return !self.hasNeighborChest(pos.offset(-1, 0, 0)) and !self.hasNeighborChest(pos.offset(1, 0, 0)) and
+        !self.hasNeighborChest(pos.offset(0, 0, -1)) and !self.hasNeighborChest(pos.offset(0, 0, 1));
 }
 
-pub fn chestIsBlocked(self: *World, x: i32, y: i32, z: i32) bool {
-    if (self.getBlock(x, y + 1, z).isNormalCube()) return true;
-    if (self.getBlock(x - 1, y, z) == .chest and self.getBlock(x - 1, y + 1, z).isNormalCube()) return true;
-    if (self.getBlock(x + 1, y, z) == .chest and self.getBlock(x + 1, y + 1, z).isNormalCube()) return true;
-    if (self.getBlock(x, y, z - 1) == .chest and self.getBlock(x, y + 1, z - 1).isNormalCube()) return true;
-    if (self.getBlock(x, y, z + 1) == .chest and self.getBlock(x, y + 1, z + 1).isNormalCube()) return true;
+pub fn chestIsBlocked(self: *World, pos: BlockPos) bool {
+    if (self.getBlock(pos.offset(0, 1, 0)).isNormalCube()) return true;
+    if (self.getBlock(pos.offset(-1, 0, 0)) == .chest and self.getBlock(pos.offset(-1, 1, 0)).isNormalCube()) return true;
+    if (self.getBlock(pos.offset(1, 0, 0)) == .chest and self.getBlock(pos.offset(1, 1, 0)).isNormalCube()) return true;
+    if (self.getBlock(pos.offset(0, 0, -1)) == .chest and self.getBlock(pos.offset(0, 1, -1)).isNormalCube()) return true;
+    if (self.getBlock(pos.offset(0, 0, 1)) == .chest and self.getBlock(pos.offset(0, 1, 1)).isNormalCube()) return true;
     return false;
 }
 
-pub fn signAt(self: *World, x: i32, y: i32, z: i32) ?*sign.Sign {
-    return self.signs.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn signAt(self: *World, pos: BlockPos) ?*sign.Sign {
+    return self.signs.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addSign(self: *World, x: i32, y: i32, z: i32) !*sign.Sign {
-    const entry = try self.signs.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addSign(self: *World, pos: BlockPos) !*sign.Sign {
+    const entry = try self.signs.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
-pub fn removeSign(self: *World, x: i32, y: i32, z: i32) ?sign.Sign {
-    const removed = self.signs.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeSign(self: *World, pos: BlockPos) ?sign.Sign {
+    const removed = self.signs.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
-pub fn jukeboxAt(self: *World, x: i32, y: i32, z: i32) ?*jukebox.Jukebox {
-    return self.jukeboxes.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn jukeboxAt(self: *World, pos: BlockPos) ?*jukebox.Jukebox {
+    return self.jukeboxes.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addJukebox(self: *World, x: i32, y: i32, z: i32) !*jukebox.Jukebox {
-    const entry = try self.jukeboxes.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addJukebox(self: *World, pos: BlockPos) !*jukebox.Jukebox {
+    const entry = try self.jukeboxes.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
-pub fn removeJukebox(self: *World, x: i32, y: i32, z: i32) ?jukebox.Jukebox {
-    const removed = self.jukeboxes.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeJukebox(self: *World, pos: BlockPos) ?jukebox.Jukebox {
+    const removed = self.jukeboxes.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
-pub fn noteAt(self: *World, x: i32, y: i32, z: i32) ?*note.Note {
-    return self.notes.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn noteAt(self: *World, pos: BlockPos) ?*note.Note {
+    return self.notes.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addNote(self: *World, x: i32, y: i32, z: i32) !*note.Note {
-    const entry = try self.notes.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addNote(self: *World, pos: BlockPos) !*note.Note {
+    const entry = try self.notes.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
-pub fn removeNote(self: *World, x: i32, y: i32, z: i32) ?note.Note {
-    const removed = self.notes.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeNote(self: *World, pos: BlockPos) ?note.Note {
+    const removed = self.notes.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
@@ -878,25 +869,25 @@ pub fn forgetOrphanNotes(self: *World) !void {
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
-        if (self.getBlock(pos.x, pos.y, pos.z) == .note_block) continue;
+        if (self.getBlock(pos) == .note_block) continue;
         try self.note_updates.append(self.allocator, pos);
     }
 
     for (self.note_updates.items) |pos| _ = self.notes.remove(pos);
 }
 
-pub fn playNoteAt(self: *World, x: i32, y: i32, z: i32, instrument: note.Instrument, pitch: u8) void {
+pub fn playNoteAt(self: *World, pos: BlockPos, instrument: note.Instrument, pitch: u8) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
         instrument.soundName(),
         note_volume,
         note.pitchOf(pitch),
     );
 
     const sink = self.note_sink orelse return;
-    sink.playNote(sink.context, x, y, z, instrument, pitch);
+    sink.playNote(sink.context, pos, instrument, pitch);
 }
 
 pub const note_volume: f32 = 3.0;
@@ -905,46 +896,44 @@ pub const NoteSink = struct {
     context: *anyopaque,
     playNote: *const fn (
         context: *anyopaque,
-        x: i32,
-        y: i32,
-        z: i32,
+        pos: BlockPos,
         instrument: note.Instrument,
         pitch: u8,
     ) void,
 };
 
-pub fn dispenserAt(self: *World, x: i32, y: i32, z: i32) ?*dispenser.Dispenser {
-    return self.dispensers.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn dispenserAt(self: *World, pos: BlockPos) ?*dispenser.Dispenser {
+    return self.dispensers.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addDispenser(self: *World, x: i32, y: i32, z: i32) !*dispenser.Dispenser {
-    const entry = try self.dispensers.getOrPut(self.allocator, .{ .x = x, .y = y, .z = z });
+pub fn addDispenser(self: *World, pos: BlockPos) !*dispenser.Dispenser {
+    const entry = try self.dispensers.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     if (!entry.found_existing) entry.value_ptr.* = .{};
     return entry.value_ptr;
 }
 
-pub fn removeDispenser(self: *World, x: i32, y: i32, z: i32) ?dispenser.Dispenser {
-    const removed = self.dispensers.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeDispenser(self: *World, pos: BlockPos) ?dispenser.Dispenser {
+    const removed = self.dispensers.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
-pub fn movingPistonAt(self: *World, x: i32, y: i32, z: i32) ?*piston.Moving {
-    return self.pistons.getPtr(.{ .x = x, .y = y, .z = z });
+pub fn movingPistonAt(self: *World, pos: BlockPos) ?*piston.Moving {
+    return self.pistons.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
 
-pub fn addMovingPiston(self: *World, x: i32, y: i32, z: i32, state: piston.Moving) !void {
-    try self.pistons.put(self.allocator, .{ .x = x, .y = y, .z = z }, state);
+pub fn addMovingPiston(self: *World, pos: BlockPos, state: piston.Moving) !void {
+    try self.pistons.put(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z }, state);
 }
 
-pub fn removeMovingPiston(self: *World, x: i32, y: i32, z: i32) ?piston.Moving {
-    const removed = self.pistons.fetchRemove(.{ .x = x, .y = y, .z = z }) orelse return null;
+pub fn removeMovingPiston(self: *World, pos: BlockPos) ?piston.Moving {
+    const removed = self.pistons.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
     return removed.value;
 }
 
-pub fn finishMovingPiston(self: *World, x: i32, y: i32, z: i32) !void {
-    const state = self.removeMovingPiston(x, y, z) orelse return;
-    if (self.getBlock(x, y, z) != .piston_moving) return;
-    try self.setBlockAndMetadataWithNotify(x, y, z, state.stored, state.stored_metadata);
+pub fn finishMovingPiston(self: *World, pos: BlockPos) !void {
+    const state = self.removeMovingPiston(pos) orelse return;
+    if (self.getBlock(pos) != .piston_moving) return;
+    try self.setBlockAndMetadataWithNotify(pos, state.stored, state.stored_metadata);
 }
 
 pub const PistonShove = struct {
@@ -961,7 +950,7 @@ pub fn tickPistons(self: *World) !void {
     var it = self.pistons.iterator();
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
-        if (self.getBlock(pos.x, pos.y, pos.z) != .piston_moving) {
+        if (self.getBlock(pos) != .piston_moving) {
             try self.piston_updates.append(self.allocator, pos);
             continue;
         }
@@ -991,7 +980,7 @@ pub fn tickPistons(self: *World) !void {
     }
 
     for (self.piston_updates.items) |pos| {
-        try self.finishMovingPiston(pos.x, pos.y, pos.z);
+        try self.finishMovingPiston(pos);
         _ = self.pistons.remove(pos);
     }
 }
@@ -1005,7 +994,7 @@ pub fn tickFurnaces(self: *World) !void {
 
     var it = self.furnaces.iterator();
     while (it.next()) |entry| {
-        if (!isFurnaceBlock(self.getBlock(entry.key_ptr.x, entry.key_ptr.y, entry.key_ptr.z))) {
+        if (!isFurnaceBlock(self.getBlock(entry.key_ptr.*))) {
             try self.furnace_updates.append(self.allocator, entry.key_ptr.*);
             continue;
         }
@@ -1014,7 +1003,7 @@ pub fn tickFurnaces(self: *World) !void {
 
     for (self.furnace_updates.items) |pos| {
         const state = self.furnaces.get(pos) orelse continue;
-        const id = self.getBlock(pos.x, pos.y, pos.z);
+        const id = self.getBlock(pos);
         if (!isFurnaceBlock(id)) {
             _ = self.furnaces.remove(pos);
             continue;
@@ -1022,8 +1011,8 @@ pub fn tickFurnaces(self: *World) !void {
 
         const lit: Block = if (state.isBurning()) .burning_furnace else .furnace;
         if (id == lit) continue;
-        const meta = self.getBlockMetadata(pos.x, pos.y, pos.z);
-        try self.setBlockAndMetadataWithNotify(pos.x, pos.y, pos.z, lit, meta);
+        const meta = self.getBlockMetadata(pos);
+        try self.setBlockAndMetadataWithNotify(pos, lit, meta);
     }
 }
 
@@ -1034,7 +1023,7 @@ pub fn spillOrphanChests(self: *World) !void {
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
-        if (self.getBlock(pos.x, pos.y, pos.z) == .chest) continue;
+        if (self.getBlock(pos) == .chest) continue;
 
         for (entry.value_ptr.items) |maybe_stack| {
             const stack = maybe_stack orelse continue;
@@ -1053,7 +1042,7 @@ pub fn spillOrphanJukeboxes(self: *World) !void {
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
-        if (self.getBlock(pos.x, pos.y, pos.z) == .jukebox) continue;
+        if (self.getBlock(pos) == .jukebox) continue;
 
         if (entry.value_ptr.record) |record| {
             try self.dropped.append(self.allocator, .{ .pos = pos, .stack = .{ .id = .{ .item = record }, .count = 1 } });
@@ -1071,7 +1060,7 @@ pub fn spillOrphanDispensers(self: *World) !void {
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
-        if (self.getBlock(pos.x, pos.y, pos.z) == .dispenser) continue;
+        if (self.getBlock(pos) == .dispenser) continue;
 
         for (entry.value_ptr.items) |maybe_stack| {
             const stack = maybe_stack orelse continue;
@@ -1083,16 +1072,16 @@ pub fn spillOrphanDispensers(self: *World) !void {
     for (self.dispenser_updates.items) |pos| _ = self.dispensers.remove(pos);
 }
 
-pub fn dispense(self: *World, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
-    const step = block.dispenserStep(self.getBlockMetadata(x, y, z));
-    const state = self.dispensers.getPtr(.{ .x = x, .y = y, .z = z }) orelse return;
+pub fn dispense(self: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const step = block.dispenserStep(self.getBlockMetadata(pos));
+    const state = self.dispensers.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return;
     const stack = state.takeRandomStack(&self.rand) orelse {
-        self.playDispenserFailure(x, y, z);
+        self.playDispenserFailure(pos);
         return;
     };
-    self.playDispenserShot(x, y, z, stack);
+    self.playDispenserShot(pos, stack);
     try self.dispensed.append(self.allocator, .{
-        .pos = .{ .x = x, .y = y, .z = z },
+        .pos = .{ .x = pos.x, .y = pos.y, .z = pos.z },
         .step = step,
         .stack = stack,
     });
@@ -1103,49 +1092,49 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
     while (it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try furnace.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try furnace.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var chests_it = self.chests.iterator();
     while (chests_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try chest.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try chest.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var signs_it = self.signs.iterator();
     while (signs_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try sign.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try sign.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var pistons_it = self.pistons.iterator();
     while (pistons_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try piston.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try piston.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var jukeboxes_it = self.jukeboxes.iterator();
     while (jukeboxes_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try jukebox.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try jukebox.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var notes_it = self.notes.iterator();
     while (notes_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try note.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try note.store(self.allocator, pos, entry.value_ptr.*));
     }
 
     var dispensers_it = self.dispensers.iterator();
     while (dispensers_it.next()) |entry| {
         const pos = entry.key_ptr.*;
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
-        try out.append(self.allocator, try dispenser.store(self.allocator, pos.x, pos.y, pos.z, entry.value_ptr.*));
+        try out.append(self.allocator, try dispenser.store(self.allocator, pos, entry.value_ptr.*));
     }
 }
 
@@ -1153,63 +1142,63 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     _ = gpa;
     const self: *World = @ptrCast(@alignCast(context));
     if (sign.load(compound)) |placed| {
-        (try self.addSign(placed.x, placed.y, placed.z)).* = placed.state;
+        (try self.addSign(placed.pos)).* = placed.state;
         return;
     }
     if (piston.load(compound)) |placed| {
-        try self.addMovingPiston(placed.x, placed.y, placed.z, placed.state);
+        try self.addMovingPiston(placed.pos, placed.state);
         return;
     }
     if (chest.load(compound)) |placed| {
-        (try self.addChest(placed.x, placed.y, placed.z)).* = placed.state;
+        (try self.addChest(placed.pos)).* = placed.state;
         return;
     }
     if (jukebox.load(compound)) |placed| {
-        (try self.addJukebox(placed.x, placed.y, placed.z)).* = placed.state;
+        (try self.addJukebox(placed.pos)).* = placed.state;
         return;
     }
     if (note.load(compound)) |placed| {
-        (try self.addNote(placed.x, placed.y, placed.z)).* = placed.state;
+        (try self.addNote(placed.pos)).* = placed.state;
         return;
     }
     if (dispenser.load(compound)) |placed| {
-        (try self.addDispenser(placed.x, placed.y, placed.z)).* = placed.state;
+        (try self.addDispenser(placed.pos)).* = placed.state;
         return;
     }
     const placed = furnace.load(compound) orelse return;
-    (try self.addFurnace(placed.x, placed.y, placed.z)).* = placed.state;
+    (try self.addFurnace(placed.pos)).* = placed.state;
 }
 
-pub fn notifyBlockChange(self: *World, x: i32, y: i32, z: i32) !void {
-    try self.markChanged(x, y, z);
-    try self.notifyBlocksOfNeighborChange(x, y, z, self.getBlock(x, y, z));
+pub fn notifyBlockChange(self: *World, pos: BlockPos) !void {
+    try self.markChanged(pos);
+    try self.notifyBlocksOfNeighborChange(pos, self.getBlock(pos));
 }
 
-pub fn notifyBlocksOfNeighborChange(self: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {
+pub fn notifyBlocksOfNeighborChange(self: *World, pos: BlockPos, source: Block) std.mem.Allocator.Error!void {
     if (self.editing_blocks) return;
-    try self.onNeighborBlockChange(x - 1, y, z, source);
-    try self.onNeighborBlockChange(x + 1, y, z, source);
-    try self.onNeighborBlockChange(x, y - 1, z, source);
-    try self.onNeighborBlockChange(x, y + 1, z, source);
-    try self.onNeighborBlockChange(x, y, z - 1, source);
-    try self.onNeighborBlockChange(x, y, z + 1, source);
+    try self.onNeighborBlockChange(pos.offset(-1, 0, 0), source);
+    try self.onNeighborBlockChange(pos.offset(1, 0, 0), source);
+    try self.onNeighborBlockChange(pos.offset(0, -1, 0), source);
+    try self.onNeighborBlockChange(pos.offset(0, 1, 0), source);
+    try self.onNeighborBlockChange(pos.offset(0, 0, -1), source);
+    try self.onNeighborBlockChange(pos.offset(0, 0, 1), source);
 }
 
-fn onBlockAdded(self: *World, x: i32, y: i32, z: i32, id: Block) std.mem.Allocator.Error!void {
-    if (id == .fire and self.getBlock(x, y - 1, z) == .obsidian) _ = try portal.tryCreate(self, .{ .x = x, .y = y, .z = z });
-    if (id.isLiquid()) try fluid.onBlockAdded(self, x, y, z);
-    if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
-    if (id == .dispenser) try self.setBlockMetadataWithNotify(x, y, z, self.dispenserDefaultFacing(x, y, z));
-    if (block.isRail(id)) try rail.refreshAt(self, x, y, z, true);
-    if (id == .tnt) try tnt.onBlockAdded(self, x, y, z);
-    try redstone.onBlockAdded(self, x, y, z, id);
+fn onBlockAdded(self: *World, pos: BlockPos, id: Block) std.mem.Allocator.Error!void {
+    if (id == .fire and self.getBlock(pos.offset(0, -1, 0)) == .obsidian) _ = try portal.tryCreate(self, pos);
+    if (id.isLiquid()) try fluid.onBlockAdded(self, pos);
+    if (id.isFalling()) try self.scheduleBlockUpdate(pos, id, id.tickRate());
+    if (id == .dispenser) try self.setBlockMetadataWithNotify(pos, self.dispenserDefaultFacing(pos));
+    if (block.isRail(id)) try rail.refreshAt(self, pos, true);
+    if (id == .tnt) try tnt.onBlockAdded(self, pos);
+    try redstone.onBlockAdded(self, pos, id);
 }
 
-fn dispenserDefaultFacing(self: *const World, x: i32, y: i32, z: i32) u4 {
-    const north = self.getBlock(x, y, z - 1).isOpaqueCube();
-    const south = self.getBlock(x, y, z + 1).isOpaqueCube();
-    const west = self.getBlock(x - 1, y, z).isOpaqueCube();
-    const east = self.getBlock(x + 1, y, z).isOpaqueCube();
+fn dispenserDefaultFacing(self: *const World, pos: BlockPos) u4 {
+    const north = self.getBlock(pos.offset(0, 0, -1)).isOpaqueCube();
+    const south = self.getBlock(pos.offset(0, 0, 1)).isOpaqueCube();
+    const west = self.getBlock(pos.offset(-1, 0, 0)).isOpaqueCube();
+    const east = self.getBlock(pos.offset(1, 0, 0)).isOpaqueCube();
 
     var facing: u4 = @intFromEnum(block.Side.south);
     if (north and !south) facing = @intFromEnum(block.Side.south);
@@ -1219,29 +1208,29 @@ fn dispenserDefaultFacing(self: *const World, x: i32, y: i32, z: i32) u4 {
     return facing;
 }
 
-fn onNeighborBlockChange(self: *World, x: i32, y: i32, z: i32, source: Block) std.mem.Allocator.Error!void {
-    const id = self.getBlock(x, y, z);
-    if (id.isLiquid()) try fluid.onNeighborChange(self, x, y, z);
-    if (id.isFalling()) try self.scheduleBlockUpdate(x, y, z, id, id.tickRate());
-    if (id == .tnt) try tnt.onNeighborChange(self, x, y, z, source);
-    try block_update.onNeighborChange(self, x, y, z);
-    try redstone.onNeighborChange(self, x, y, z, source);
+fn onNeighborBlockChange(self: *World, pos: BlockPos, source: Block) std.mem.Allocator.Error!void {
+    const id = self.getBlock(pos);
+    if (id.isLiquid()) try fluid.onNeighborChange(self, pos);
+    if (id.isFalling()) try self.scheduleBlockUpdate(pos, id, id.tickRate());
+    if (id == .tnt) try tnt.onNeighborChange(self, pos, source);
+    try block_update.onNeighborChange(self, pos);
+    try redstone.onNeighborChange(self, pos, source);
 }
 
-pub fn scheduleBlockUpdate(self: *World, x: i32, y: i32, z: i32, id: Block, delay: u32) std.mem.Allocator.Error!void {
+pub fn scheduleBlockUpdate(self: *World, pos: BlockPos, id: Block, delay: u32) std.mem.Allocator.Error!void {
     const radius = load_radius;
-    if (!self.chunksExist(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius)) return;
+    if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) return;
 
     if (self.scheduled_updates_are_immediate) {
-        if (self.getBlock(x, y, z) != id) return;
-        if (id.isLiquid()) try fluid.tick(self, x, y, z);
-        if (id.isFalling()) try block_update.tickFalling(self, x, y, z);
-        if (redstone.handlesTick(id)) try redstone.tick(self, x, y, z, id);
+        if (self.getBlock(pos) != id) return;
+        if (id.isLiquid()) try fluid.tick(self, pos);
+        if (id.isFalling()) try block_update.tickFalling(self, pos);
+        if (redstone.handlesTick(id)) try redstone.tick(self, pos, id);
         return;
     }
 
     const entry: ScheduledTick = .{
-        .pos = .{ .x = x, .y = y, .z = z },
+        .pos = .{ .x = pos.x, .y = pos.y, .z = pos.z },
         .id = id,
         .time = self.time + delay,
     };
@@ -1271,11 +1260,11 @@ pub fn tickUpdates(self: *World) !void {
     for (self.due.items) |entry| {
         const pos = entry.pos;
         if (!self.chunksExist(pos.x - radius, pos.y - radius, pos.z - radius, pos.x + radius, pos.y + radius, pos.z + radius)) continue;
-        if (self.getBlock(pos.x, pos.y, pos.z) != entry.id) continue;
-        if (entry.id.isLiquid()) try fluid.tick(self, pos.x, pos.y, pos.z);
-        if (entry.id.isFalling()) try block_update.tickFalling(self, pos.x, pos.y, pos.z);
-        if (redstone.handlesTick(entry.id)) try redstone.tick(self, pos.x, pos.y, pos.z, entry.id);
-        if (entry.id.def().on_tick) |hook| try hook(self, pos.x, pos.y, pos.z, entry.id);
+        if (self.getBlock(pos) != entry.id) continue;
+        if (entry.id.isLiquid()) try fluid.tick(self, pos);
+        if (entry.id.isFalling()) try block_update.tickFalling(self, pos);
+        if (redstone.handlesTick(entry.id)) try redstone.tick(self, pos, entry.id);
+        if (entry.id.def().on_tick) |hook| try hook(self, pos, entry.id);
     }
 }
 
@@ -1287,8 +1276,6 @@ pub const lightning_odds: i32 = 100000;
 pub const snow_odds: i32 = 16;
 pub const frost_light_limit: u4 = 10;
 
-pub const Strike = struct { x: i32, y: i32, z: i32 };
-
 fn settleFrost(self: *World, chunk: *Chunk, x: i32, z: i32, local_x: u32, local_z: u32) !void {
     if (!self.biomeAt(x, z).snows()) return;
 
@@ -1296,21 +1283,21 @@ fn settleFrost(self: *World, chunk: *Chunk, x: i32, z: i32, local_x: u32, local_
     if (y < 0 or y >= Chunk.height) return;
     if (chunk.getBlockLight(local_x, @intCast(y), local_z) >= frost_light_limit) return;
 
-    const below = self.getBlock(x, y - 1, z);
+    const below = self.getBlock(.init(x, y - 1, z));
     if (self.weather.isRaining() and
-        self.getBlock(x, y, z) == .air and
-        block_update.canPlaceAt(self, x, y, z, .snow_layer) and
+        self.getBlock(.init(x, y, z)) == .air and
+        block_update.canPlaceAt(self, .init(x, y, z), .snow_layer) and
         below != .air and below != .ice and below.material().isSolid())
     {
-        try self.setBlockWithNotify(x, y, z, .snow_layer);
+        try self.setBlockWithNotify(.init(x, y, z), .snow_layer);
     }
 
-    if (below == .stationary_water and self.getBlockMetadata(x, y - 1, z) == 0) {
-        try self.setBlockWithNotify(x, y - 1, z, .ice);
+    if (below == .stationary_water and self.getBlockMetadata(.init(x, y - 1, z)) == 0) {
+        try self.setBlockWithNotify(.init(x, y - 1, z), .ice);
     }
 }
 
-pub fn takeStrikes(self: *World) []const Strike {
+pub fn takeStrikes(self: *World) []const BlockPos {
     return self.strikes.items;
 }
 
@@ -1333,8 +1320,8 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
                 const strike_x = base_x + @as(i32, @intCast(bits & 15));
                 const strike_z = base_z + @as(i32, @intCast((bits >> 8) & 15));
                 const strike_y = self.findTopSolidBlock(strike_x, strike_z);
-                if (self.canBlockBeRainedOn(strike_x, strike_y, strike_z)) {
-                    try self.strikes.append(self.allocator, .{ .x = strike_x, .y = strike_y, .z = strike_z });
+                if (self.canBlockBeRainedOn(.init(strike_x, strike_y, strike_z))) {
+                    try self.strikes.append(self.allocator, .init(strike_x, strike_y, strike_z));
                     self.weather.flash = Weather.flash_ticks;
                 }
             }
@@ -1359,10 +1346,10 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
                 const at_z = chunk_z * Chunk.width + @as(i32, @intCast(local_z));
 
                 if (sampled == .leaves) {
-                    try leaf_decay.tick(self, at_x, at_y, at_z);
+                    try leaf_decay.tick(self, .init(at_x, at_y, at_z));
                     continue;
                 }
-                if (sampled.def().on_random_tick) |hook| try hook(self, at_x, at_y, at_z, sampled);
+                if (sampled.def().on_random_tick) |hook| try hook(self, .init(at_x, at_y, at_z), sampled);
             }
         }
     }
@@ -1380,7 +1367,7 @@ const HeardSound = struct {
         self.pitch = pitch;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *HeardSound) SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -1397,12 +1384,12 @@ test "punching a block puts out the fire standing on the face that was hit" {
     var heard: HeardSound = .{};
     w.sound_sink = heard.sink();
 
-    try w.onBlockHit(8, 5, 8, .north);
-    try std.testing.expectEqual(.fire, w.getBlock(8, 6, 8));
+    try w.onBlockHit(.init(8, 5, 8), .north);
+    try std.testing.expectEqual(.fire, w.getBlock(.init(8, 6, 8)));
     try std.testing.expectEqualStrings("", heard.key);
 
-    try w.onBlockHit(8, 5, 8, .up);
-    try std.testing.expectEqual(.air, w.getBlock(8, 6, 8));
+    try w.onBlockHit(.init(8, 5, 8), .up);
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 6, 8)));
     try std.testing.expectEqualStrings(assets.sounds.random.fizz.key, heard.key);
     try std.testing.expectEqual(@as(f32, 0.5), heard.volume);
     try std.testing.expect(heard.pitch >= 2.6 - 0.8 and heard.pitch <= 2.6 + 0.8);
@@ -1417,8 +1404,8 @@ test "block access spans chunk boundaries using world coordinates" {
     const b = try w.createChunk(1, 0);
     b.setBlock(0, 5, 0, .dirt);
 
-    try std.testing.expectEqual(.stone, w.getBlock(15, 5, 0));
-    try std.testing.expectEqual(.dirt, w.getBlock(16, 5, 0));
+    try std.testing.expectEqual(.stone, w.getBlock(.init(15, 5, 0)));
+    try std.testing.expectEqual(.dirt, w.getBlock(.init(16, 5, 0)));
 }
 
 test "a lit furnace swaps the block for its burning id, keeping its facing" {
@@ -1427,21 +1414,21 @@ test "a lit furnace swaps the block for its burning id, keeping its facing" {
     _ = try w.createChunk(0, 0);
 
     const facing: u4 = @intFromEnum(block.Side.west);
-    try w.setBlockAndMetadataWithNotify(3, 10, 4, .furnace, facing);
-    const state = try w.addFurnace(3, 10, 4);
+    try w.setBlockAndMetadataWithNotify(.init(3, 10, 4), .furnace, facing);
+    const state = try w.addFurnace(.init(3, 10, 4));
     state.input = .{ .id = .{ .block = .sand }, .count = 1 };
     state.fuel = .{ .id = .{ .item = .coal }, .count = 1 };
 
     try w.tickFurnaces();
-    try std.testing.expectEqual(.burning_furnace, w.getBlock(3, 10, 4));
-    try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
-    try std.testing.expect(w.furnaceAt(3, 10, 4).?.isBurning());
+    try std.testing.expectEqual(.burning_furnace, w.getBlock(.init(3, 10, 4)));
+    try std.testing.expectEqual(facing, w.getBlockMetadata(.init(3, 10, 4)));
+    try std.testing.expect(w.furnaceAt(.init(3, 10, 4)).?.isBurning());
 
-    w.furnaceAt(3, 10, 4).?.burn_time = 1;
-    w.furnaceAt(3, 10, 4).?.fuel = null;
+    w.furnaceAt(.init(3, 10, 4)).?.burn_time = 1;
+    w.furnaceAt(.init(3, 10, 4)).?.fuel = null;
     try w.tickFurnaces();
-    try std.testing.expectEqual(.furnace, w.getBlock(3, 10, 4));
-    try std.testing.expectEqual(facing, w.getBlockMetadata(3, 10, 4));
+    try std.testing.expectEqual(.furnace, w.getBlock(.init(3, 10, 4)));
+    try std.testing.expectEqual(facing, w.getBlockMetadata(.init(3, 10, 4)));
 }
 
 test "a furnace whose block is gone is forgotten on the next tick" {
@@ -1449,12 +1436,12 @@ test "a furnace whose block is gone is forgotten on the next tick" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try w.setBlockAndMetadataWithNotify(1, 5, 1, .furnace, 3);
-    _ = try w.addFurnace(1, 5, 1);
-    w.setBlock(1, 5, 1, .air);
+    try w.setBlockAndMetadataWithNotify(.init(1, 5, 1), .furnace, 3);
+    _ = try w.addFurnace(.init(1, 5, 1));
+    w.setBlock(.init(1, 5, 1), .air);
 
     try w.tickFurnaces();
-    try std.testing.expect(w.furnaceAt(1, 5, 1) == null);
+    try std.testing.expect(w.furnaceAt(.init(1, 5, 1)) == null);
 }
 
 test "breaking a furnace hands back what it held" {
@@ -1462,13 +1449,13 @@ test "breaking a furnace hands back what it held" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    const state = try w.addFurnace(2, 6, 2);
+    const state = try w.addFurnace(.init(2, 6, 2));
     state.output = .{ .id = .{ .item = .ingot_iron }, .count = 3 };
 
-    const removed = w.removeFurnace(2, 6, 2).?;
+    const removed = w.removeFurnace(.init(2, 6, 2)).?;
     try std.testing.expectEqual(@as(u8, 3), removed.output.?.count);
-    try std.testing.expect(w.furnaceAt(2, 6, 2) == null);
-    try std.testing.expectEqual(@as(?furnace.Furnace, null), w.removeFurnace(2, 6, 2));
+    try std.testing.expect(w.furnaceAt(.init(2, 6, 2)) == null);
+    try std.testing.expectEqual(@as(?furnace.Furnace, null), w.removeFurnace(.init(2, 6, 2)));
 }
 
 test "a chest whose block is gone spills what it held and is forgotten" {
@@ -1476,18 +1463,18 @@ test "a chest whose block is gone spills what it held and is forgotten" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try w.setBlockWithNotify(4, 7, 5, .chest);
-    const state = try w.addChest(4, 7, 5);
+    try w.setBlockWithNotify(.init(4, 7, 5), .chest);
+    const state = try w.addChest(.init(4, 7, 5));
     state.slot(2).* = .{ .id = .{ .item = .diamond }, .count = 3 };
     state.slot(9).* = .{ .id = .{ .block = .planks }, .count = 64 };
 
     try w.spillOrphanChests();
-    try std.testing.expect(w.chestAt(4, 7, 5) != null);
+    try std.testing.expect(w.chestAt(.init(4, 7, 5)) != null);
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 
-    w.setBlock(4, 7, 5, .air);
+    w.setBlock(.init(4, 7, 5), .air);
     try w.spillOrphanChests();
-    try std.testing.expect(w.chestAt(4, 7, 5) == null);
+    try std.testing.expect(w.chestAt(.init(4, 7, 5)) == null);
     try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
     try std.testing.expectEqual(Block.planks, w.dropped.items[1].stack.id.block);
 }
@@ -1496,11 +1483,11 @@ test "a chest in an unloaded chunk keeps its contents" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
 
-    const state = try w.addChest(100, 40, 100);
+    const state = try w.addChest(.init(100, 40, 100));
     state.slot(0).* = .{ .id = .{ .item = .diamond }, .count = 1 };
 
     try w.spillOrphanChests();
-    try std.testing.expect(w.chestAt(100, 40, 100) != null);
+    try std.testing.expect(w.chestAt(.init(100, 40, 100)) != null);
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
 }
 
@@ -1509,17 +1496,17 @@ test "chests pair with the lower coordinate first, the way InventoryLargeChest s
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try w.setBlockWithNotify(4, 7, 5, .chest);
-    const lone = w.chestPairAt(4, 7, 5);
+    try w.setBlockWithNotify(.init(4, 7, 5), .chest);
+    const lone = w.chestPairAt(.init(4, 7, 5));
     try std.testing.expectEqual(@as(?BlockPos, null), lone.lower);
     try std.testing.expectEqual(@as(i32, 4), lone.upper.x);
 
-    try w.setBlockWithNotify(5, 7, 5, .chest);
-    const west = w.chestPairAt(4, 7, 5);
+    try w.setBlockWithNotify(.init(5, 7, 5), .chest);
+    const west = w.chestPairAt(.init(4, 7, 5));
     try std.testing.expectEqual(@as(i32, 4), west.upper.x);
     try std.testing.expectEqual(@as(i32, 5), west.lower.?.x);
 
-    const east = w.chestPairAt(5, 7, 5);
+    const east = w.chestPairAt(.init(5, 7, 5));
     try std.testing.expectEqual(@as(i32, 4), east.upper.x);
     try std.testing.expectEqual(@as(i32, 5), east.lower.?.x);
 }
@@ -1529,15 +1516,15 @@ test "a third chest cannot join a pair, and none may make a neighbour a triple" 
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try std.testing.expect(w.canPlaceChestAt(4, 7, 5));
-    try w.setBlockWithNotify(4, 7, 5, .chest);
-    try std.testing.expect(w.canPlaceChestAt(5, 7, 5));
-    try w.setBlockWithNotify(5, 7, 5, .chest);
+    try std.testing.expect(w.canPlaceChestAt(.init(4, 7, 5)));
+    try w.setBlockWithNotify(.init(4, 7, 5), .chest);
+    try std.testing.expect(w.canPlaceChestAt(.init(5, 7, 5)));
+    try w.setBlockWithNotify(.init(5, 7, 5), .chest);
 
-    try std.testing.expect(!w.canPlaceChestAt(6, 7, 5));
-    try std.testing.expect(!w.canPlaceChestAt(4, 7, 6));
-    try std.testing.expect(!w.canPlaceChestAt(5, 7, 4));
-    try std.testing.expect(w.canPlaceChestAt(4, 7, 8));
+    try std.testing.expect(!w.canPlaceChestAt(.init(6, 7, 5)));
+    try std.testing.expect(!w.canPlaceChestAt(.init(4, 7, 6)));
+    try std.testing.expect(!w.canPlaceChestAt(.init(5, 7, 4)));
+    try std.testing.expect(w.canPlaceChestAt(.init(4, 7, 8)));
 }
 
 test "a solid block over either half seals the chest shut" {
@@ -1545,22 +1532,22 @@ test "a solid block over either half seals the chest shut" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    try w.setBlockWithNotify(4, 7, 5, .chest);
-    try w.setBlockWithNotify(5, 7, 5, .chest);
-    try std.testing.expect(!w.chestIsBlocked(4, 7, 5));
+    try w.setBlockWithNotify(.init(4, 7, 5), .chest);
+    try w.setBlockWithNotify(.init(5, 7, 5), .chest);
+    try std.testing.expect(!w.chestIsBlocked(.init(4, 7, 5)));
 
-    try w.setBlockWithNotify(5, 8, 5, .stone);
-    try std.testing.expect(w.chestIsBlocked(4, 7, 5));
-    try std.testing.expect(w.chestIsBlocked(5, 7, 5));
+    try w.setBlockWithNotify(.init(5, 8, 5), .stone);
+    try std.testing.expect(w.chestIsBlocked(.init(4, 7, 5)));
+    try std.testing.expect(w.chestIsBlocked(.init(5, 7, 5)));
 
-    try w.setBlockWithNotify(5, 8, 5, .glass);
-    try std.testing.expect(!w.chestIsBlocked(4, 7, 5));
+    try w.setBlockWithNotify(.init(5, 8, 5), .glass);
+    try std.testing.expect(!w.chestIsBlocked(.init(4, 7, 5)));
 }
 
 test "reading an unloaded chunk returns air" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
-    try std.testing.expectEqual(.air, w.getBlock(1000, 5, 1000));
+    try std.testing.expectEqual(.air, w.getBlock(.init(1000, 5, 1000)));
 }
 
 test "negative coordinates resolve to the correct chunk" {
@@ -1568,16 +1555,16 @@ test "negative coordinates resolve to the correct chunk" {
     defer w.deinit();
     const neg = try w.createChunk(-1, -1);
     neg.setBlock(15, 5, 15, .stone);
-    try std.testing.expectEqual(.stone, w.getBlock(-1, 5, -1));
-    try std.testing.expectEqual(.air, w.getBlock(-2, 5, -1));
+    try std.testing.expectEqual(.stone, w.getBlock(.init(-1, 5, -1)));
+    try std.testing.expectEqual(.air, w.getBlock(.init(-2, 5, -1)));
 }
 
 test "setBlock writes through to the owning chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
     _ = try w.createChunk(0, 0);
-    w.setBlock(3, 10, 4, .stone);
-    try std.testing.expectEqual(.stone, w.getBlock(3, 10, 4));
+    w.setBlock(.init(3, 10, 4), .stone);
+    try std.testing.expectEqual(.stone, w.getBlock(.init(3, 10, 4)));
 }
 
 test "ensureDecorated shape-generates the full 3x3 neighbor block" {
@@ -1642,8 +1629,8 @@ test "stepping a chunk decorates it exactly as one ensureDecorated call would" {
         for (0..128) |y| {
             for (0..16) |z| {
                 try std.testing.expectEqual(
-                    whole.getBlock(@intCast(x), @intCast(y), @intCast(z)),
-                    stepped.getBlock(@intCast(x), @intCast(y), @intCast(z)),
+                    whole.getBlock(.init(@intCast(x), @intCast(y), @intCast(z))),
+                    stepped.getBlock(.init(@intCast(x), @intCast(y), @intCast(z))),
                 );
             }
         }
@@ -1664,7 +1651,7 @@ test "ensureDecorated only decorates a chunk once" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                before[idx] = w.getBlock(@intCast(x), @intCast(y), @intCast(z));
+                before[idx] = w.getBlock(.init(@intCast(x), @intCast(y), @intCast(z)));
                 idx += 1;
             }
         }
@@ -1676,7 +1663,7 @@ test "ensureDecorated only decorates a chunk once" {
     for (0..16) |x| {
         for (0..128) |y| {
             for (0..16) |z| {
-                try std.testing.expectEqual(before[idx], w.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+                try std.testing.expectEqual(before[idx], w.getBlock(.init(@intCast(x), @intCast(y), @intCast(z))));
                 idx += 1;
             }
         }
@@ -1749,7 +1736,7 @@ test "a world with a save reloads its chunks from disk instead of regenerating t
         world_map.persistence = .{ .handle = &handle, .io = io };
 
         try world_map.ensureDecorated(generator, 0, 0);
-        world_map.setBlock(4, 100, 6, .glowstone);
+        world_map.setBlock(.init(4, 100, 6), .glowstone);
         try world_map.saveLoadedChunks();
     }
 
@@ -1784,7 +1771,7 @@ test "a second save skips chunks that have not changed since the first" {
     const chunk = world_map.getChunk(0, 0).?;
     try std.testing.expect(!chunk.modified);
 
-    world_map.setBlock(4, 100, 6, .glowstone);
+    world_map.setBlock(.init(4, 100, 6), .glowstone);
     try std.testing.expect(chunk.modified);
     try world_map.saveLoadedChunks();
     try std.testing.expect(!chunk.modified);
@@ -1835,13 +1822,13 @@ test "a chunk keeps being written while it still holds the entities it stored" {
     world_map.persistence = .{ .handle = &handle, .io = io };
 
     try world_map.ensureDecorated(generator, 0, 0);
-    (try world_map.addSign(3, 90, 5)).* = .{};
+    (try world_map.addSign(.init(3, 90, 5))).* = .{};
     try world_map.saveLoadedChunks();
 
     const chunk = world_map.getChunk(0, 0).?;
     try std.testing.expect(chunk.stored_entities);
 
-    _ = world_map.removeSign(3, 90, 5);
+    _ = world_map.removeSign(.init(3, 90, 5));
     chunk.modified = false;
     try world_map.saveLoadedChunks();
     try std.testing.expect(!chunk.stored_entities);
@@ -1880,7 +1867,7 @@ test "an incremental save round writes every loaded chunk a few at a time" {
         var cx: i32 = 0;
         while (cx < 2) : (cx += 1) {
             _ = try world_map.getOrGenerateChunk(generator, cx, 0);
-            world_map.setBlock(cx * 16 + 1, 90, 1, .glowstone);
+            world_map.setBlock(.init(cx * 16 + 1, 90, 1), .glowstone);
         }
 
         try world_map.beginSaveRound();
@@ -1898,7 +1885,7 @@ test "an incremental save round writes every loaded chunk a few at a time" {
     var cx: i32 = 0;
     while (cx < 2) : (cx += 1) {
         _ = try reloaded.getOrGenerateChunk(generator, cx, 0);
-        try std.testing.expectEqual(.glowstone, reloaded.getBlock(cx * 16 + 1, 90, 1));
+        try std.testing.expectEqual(.glowstone, reloaded.getBlock(.init(cx * 16 + 1, 90, 1)));
     }
 }
 
@@ -1925,8 +1912,8 @@ test "moving the clock drags the pending scheduled ticks along with it" {
     for ([_][2]i32{ .{ 0, 0 }, .{ 1, 0 }, .{ 0, 1 }, .{ 1, 1 } }) |coord| _ = try w.createChunk(coord[0], coord[1]);
 
     w.time = 100;
-    w.setBlock(8, 10, 8, .flowing_water);
-    try w.scheduleBlockUpdate(8, 10, 8, .flowing_water, 5);
+    w.setBlock(.init(8, 10, 8), .flowing_water);
+    try w.scheduleBlockUpdate(.init(8, 10, 8), .flowing_water, 5);
     try std.testing.expectEqual(@as(i64, 105), w.scheduled.items[0].time);
 
     w.setTime(18000);
@@ -1953,13 +1940,13 @@ test "day and night follow how much skylight is taken away" {
 
 var hook_hits: usize = 0;
 
-fn countHook(_: *World, _: i32, _: i32, _: i32, _: Block) std.mem.Allocator.Error!void {
+fn countHook(_: *World, _: BlockPos, _: Block) std.mem.Allocator.Error!void {
     hook_hits += 1;
 }
 
-fn clearHook(world_map: *World, x: i32, y: i32, z: i32, _: Block) std.mem.Allocator.Error!void {
+fn clearHook(world_map: *World, pos: BlockPos, _: Block) std.mem.Allocator.Error!void {
     hook_hits += 1;
-    try world_map.setBlockWithNotify(x, y, z, .air);
+    try world_map.setBlockWithNotify(pos, .air);
 }
 
 fn loadedWorld(allocator: std.mem.Allocator) !World {
@@ -1983,8 +1970,8 @@ test "a registered block's scheduled tick hook runs when its update falls due" {
     var w = try loadedWorld(std.testing.allocator);
     defer w.deinit();
 
-    w.setBlock(8, 5, 8, custom);
-    try w.scheduleBlockUpdate(8, 5, 8, custom, 1);
+    w.setBlock(.init(8, 5, 8), custom);
+    try w.scheduleBlockUpdate(.init(8, 5, 8), custom, 1);
     w.time += 2;
     try w.tickUpdates();
 
@@ -1997,8 +1984,8 @@ test "a block with no tick hook costs nothing on the same path" {
     var w = try loadedWorld(std.testing.allocator);
     defer w.deinit();
 
-    w.setBlock(8, 5, 8, .stone);
-    try w.scheduleBlockUpdate(8, 5, 8, .stone, 1);
+    w.setBlock(.init(8, 5, 8), .stone);
+    try w.scheduleBlockUpdate(.init(8, 5, 8), .stone, 1);
     w.time += 2;
     try w.tickUpdates();
 
@@ -2015,8 +2002,8 @@ test "a registered block's neighbour hook runs when the block beside it changes"
     var w = try loadedWorld(std.testing.allocator);
     defer w.deinit();
 
-    w.setBlock(8, 5, 8, custom);
-    try w.setBlockWithNotify(9, 5, 8, .stone);
+    w.setBlock(.init(8, 5, 8), custom);
+    try w.setBlockWithNotify(.init(9, 5, 8), .stone);
 
     try std.testing.expect(hook_hits >= 1);
 }
@@ -2031,10 +2018,10 @@ test "a neighbour hook that removes its own block stops the support check runnin
     var w = try loadedWorld(std.testing.allocator);
     defer w.deinit();
 
-    w.setBlock(8, 5, 8, custom);
-    try w.setBlockWithNotify(9, 5, 8, .stone);
+    w.setBlock(.init(8, 5, 8), custom);
+    try w.setBlockWithNotify(.init(9, 5, 8), .stone);
 
-    try std.testing.expectEqual(.air, w.getBlock(8, 5, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 5, 8)));
     try std.testing.expect(hook_hits >= 1);
 }
 

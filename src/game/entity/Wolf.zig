@@ -272,9 +272,9 @@ fn approachOwner(
 
             const x = corner_x + @as(i32, @intCast(ox));
             const z = corner_z + @as(i32, @intCast(oz));
-            if (!world_map.getBlock(x, floor_y - 1, z).isOpaqueCube()) continue;
-            if (world_map.getBlock(x, floor_y, z).isOpaqueCube()) continue;
-            if (world_map.getBlock(x, floor_y + 1, z).isOpaqueCube()) continue;
+            if (!world_map.getBlock(.init(x, floor_y - 1, z)).isOpaqueCube()) continue;
+            if (world_map.getBlock(.init(x, floor_y, z)).isOpaqueCube()) continue;
+            if (world_map.getBlock(.init(x, floor_y + 1, z)).isOpaqueCube()) continue;
 
             const landing = math.Vec3.init(
                 @as(f64, @floatFromInt(x)) + 0.5,
@@ -1194,7 +1194,7 @@ test "a wall between the wolf and the player hides the player from it" {
     try std.testing.expect(wolf.canSee(&w, player));
 
     var y: u32 = 1;
-    while (y <= 3) : (y += 1) w.setBlock(10, @intCast(y), 8, .stone);
+    while (y <= 3) : (y += 1) w.setBlock(.init(10, @intCast(y), 8), .stone);
     try std.testing.expect(!wolf.canSee(&w, player));
 }
 

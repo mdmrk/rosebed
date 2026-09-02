@@ -4,6 +4,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
 
@@ -43,8 +44,8 @@ const Fluid = enum {
         };
     }
 
-    fn at(world_map: anytype, x: i32, y: i32, z: i32) ?Fluid {
-        return Fluid.of(world_map.getBlock(x, y, z).material());
+    fn at(world_map: anytype, pos: BlockPos) ?Fluid {
+        return Fluid.of(world_map.getBlock(pos).material());
     }
 
     fn material(self: Fluid) block.Material {
@@ -79,38 +80,38 @@ const Fluid = enum {
         return id.material() == self.material();
     }
 
-    fn flowDecay(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) i32 {
-        if (!self.holds(world_map.getBlock(x, y, z))) return -1;
-        return world_map.getBlockMetadata(x, y, z);
+    fn flowDecay(self: Fluid, world_map: anytype, pos: BlockPos) i32 {
+        if (!self.holds(world_map.getBlock(pos))) return -1;
+        return world_map.getBlockMetadata(pos);
     }
 
-    fn effectiveFlowDecay(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) i32 {
-        const decay = self.flowDecay(world_map, x, y, z);
+    fn effectiveFlowDecay(self: Fluid, world_map: anytype, pos: BlockPos) i32 {
+        const decay = self.flowDecay(world_map, pos);
         if (decay >= max_decay) return 0;
         return decay;
     }
 
-    fn isSource(self: Fluid, world_map: *const World, x: i32, y: i32, z: i32) bool {
-        return self.holds(world_map.getBlock(x, y, z)) and world_map.getBlockMetadata(x, y, z) == 0;
+    fn isSource(self: Fluid, world_map: *const World, pos: BlockPos) bool {
+        return self.holds(world_map.getBlock(pos)) and world_map.getBlockMetadata(pos) == 0;
     }
 
-    fn canDisplace(self: Fluid, world_map: *const World, x: i32, y: i32, z: i32) bool {
-        const target = world_map.getBlock(x, y, z).material();
+    fn canDisplace(self: Fluid, world_map: *const World, pos: BlockPos) bool {
+        const target = world_map.getBlock(pos).material();
         if (target == self.material()) return false;
         if (target == .lava) return false;
-        return !blocksFlow(world_map, x, y, z);
+        return !blocksFlow(world_map, pos);
     }
 
-    fn isBlockSolid(self: Fluid, world_map: anytype, x: i32, y: i32, z: i32) bool {
-        const target = world_map.getBlock(x, y, z).material();
+    fn isBlockSolid(self: Fluid, world_map: anytype, pos: BlockPos) bool {
+        const target = world_map.getBlock(pos).material();
         if (target == self.material()) return false;
         if (target == .ice) return false;
         return target.isSolid();
     }
 };
 
-fn blocksFlow(world_map: *const World, x: i32, y: i32, z: i32) bool {
-    const id = world_map.getBlock(x, y, z);
+fn blocksFlow(world_map: *const World, pos: BlockPos) bool {
+    const id = world_map.getBlock(pos);
     if (id == .reed) return true;
     return id.isSolid();
 }
@@ -119,8 +120,8 @@ const Smallest = struct {
     decay: i32,
     adjacent_sources: u32,
 
-    fn merge(self: Smallest, fluid: Fluid, world_map: *const World, x: i32, y: i32, z: i32) Smallest {
-        var decay = fluid.flowDecay(world_map, x, y, z);
+    fn merge(self: Smallest, fluid: Fluid, world_map: *const World, pos: BlockPos) Smallest {
+        var decay = fluid.flowDecay(world_map, pos);
         if (decay < 0) return self;
 
         var adjacent_sources = self.adjacent_sources;
@@ -134,39 +135,39 @@ const Smallest = struct {
     }
 };
 
-fn calculateFlowCost(fluid: Fluid, world_map: *const World, x: i32, y: i32, z: i32, distance: u32, came_from: usize) u32 {
+fn calculateFlowCost(fluid: Fluid, world_map: *const World, pos: BlockPos, distance: u32, came_from: usize) u32 {
     var cost: u32 = 1000;
 
     for (flow_order, 0..) |direction, index| {
         if (index / 2 == came_from / 2 and index != came_from) continue;
 
-        const nx = x + direction.dx;
-        const nz = z + direction.dz;
-        if (blocksFlow(world_map, nx, y, nz)) continue;
-        if (fluid.isSource(world_map, nx, y, nz)) continue;
+        const nx = pos.x + direction.dx;
+        const nz = pos.z + direction.dz;
+        if (blocksFlow(world_map, .init(nx, pos.y, nz))) continue;
+        if (fluid.isSource(world_map, .init(nx, pos.y, nz))) continue;
 
-        if (!blocksFlow(world_map, nx, y - 1, nz)) return distance;
-        if (distance < 4) cost = @min(cost, calculateFlowCost(fluid, world_map, nx, y, nz, distance + 1, index));
+        if (!blocksFlow(world_map, .init(nx, pos.y - 1, nz))) return distance;
+        if (distance < 4) cost = @min(cost, calculateFlowCost(fluid, world_map, .init(nx, pos.y, nz), distance + 1, index));
     }
 
     return cost;
 }
 
-fn optimalFlowDirections(fluid: Fluid, world_map: *const World, x: i32, y: i32, z: i32) [4]bool {
+fn optimalFlowDirections(fluid: Fluid, world_map: *const World, pos: BlockPos) [4]bool {
     var costs: [4]u32 = undefined;
 
     for (flow_order, 0..) |direction, index| {
         costs[index] = 1000;
 
-        const nx = x + direction.dx;
-        const nz = z + direction.dz;
-        if (blocksFlow(world_map, nx, y, nz)) continue;
-        if (fluid.isSource(world_map, nx, y, nz)) continue;
+        const nx = pos.x + direction.dx;
+        const nz = pos.z + direction.dz;
+        if (blocksFlow(world_map, .init(nx, pos.y, nz))) continue;
+        if (fluid.isSource(world_map, .init(nx, pos.y, nz))) continue;
 
-        costs[index] = if (!blocksFlow(world_map, nx, y - 1, nz))
+        costs[index] = if (!blocksFlow(world_map, .init(nx, pos.y - 1, nz)))
             0
         else
-            calculateFlowCost(fluid, world_map, nx, y, nz, 1, index);
+            calculateFlowCost(fluid, world_map, .init(nx, pos.y, nz), 1, index);
     }
 
     const cheapest = @min(@min(costs[0], costs[1]), @min(costs[2], costs[3]));
@@ -176,31 +177,31 @@ fn optimalFlowDirections(fluid: Fluid, world_map: *const World, x: i32, y: i32, 
     return optimal;
 }
 
-fn flowInto(fluid: Fluid, world_map: *World, x: i32, y: i32, z: i32, decay: u4) !void {
-    if (!fluid.canDisplace(world_map, x, y, z)) return;
+fn flowInto(fluid: Fluid, world_map: *World, pos: BlockPos, decay: u4) !void {
+    if (!fluid.canDisplace(world_map, pos)) return;
 
-    const washed_away = world_map.getBlock(x, y, z);
+    const washed_away = world_map.getBlock(pos);
     if (washed_away != .air and fluid == .water) {
-        const meta = world_map.getBlockMetadata(x, y, z);
+        const meta = world_map.getBlockMetadata(pos);
         if (washed_away.drop(meta, &world_map.rand)) |stack| {
             try world_map.dropped.append(world_map.allocator, .{
-                .pos = .{ .x = x, .y = y, .z = z },
+                .pos = .{ .x = pos.x, .y = pos.y, .z = pos.z },
                 .stack = stack,
             });
         }
     }
 
-    try world_map.setBlockAndMetadataWithNotify(x, y, z, fluid.flowing(), decay);
+    try world_map.setBlockAndMetadataWithNotify(pos, fluid.flowing(), decay);
 }
 
-fn settle(fluid: Fluid, world_map: *World, x: i32, y: i32, z: i32) !void {
-    const meta = world_map.getBlockMetadata(x, y, z);
-    world_map.setBlock(x, y, z, fluid.stationary());
-    world_map.setBlockMetadata(x, y, z, meta);
-    try world_map.markChanged(x, y, z);
+fn settle(fluid: Fluid, world_map: *World, pos: BlockPos) !void {
+    const meta = world_map.getBlockMetadata(pos);
+    world_map.setBlock(pos, fluid.stationary());
+    world_map.setBlockMetadata(pos, meta);
+    try world_map.markChanged(pos);
 }
 
-fn checkForHarden(fluid: Fluid, world_map: *World, x: i32, y: i32, z: i32) !void {
+fn checkForHarden(fluid: Fluid, world_map: *World, pos: BlockPos) !void {
     if (fluid != .lava) return;
 
     const touches_water = for ([_][3]i32{
@@ -210,70 +211,70 @@ fn checkForHarden(fluid: Fluid, world_map: *World, x: i32, y: i32, z: i32) !void
         .{ 1, 0, 0 },
         .{ 0, 1, 0 },
     }) |offset| {
-        if (world_map.getBlock(x + offset[0], y + offset[1], z + offset[2]).material() == .water) break true;
+        if (world_map.getBlock(pos.offset(offset[0], offset[1], offset[2])).material() == .water) break true;
     } else false;
     if (!touches_water) return;
 
-    const meta = world_map.getBlockMetadata(x, y, z);
+    const meta = world_map.getBlockMetadata(pos);
     if (meta == 0) {
-        try world_map.setBlockWithNotify(x, y, z, .obsidian);
+        try world_map.setBlockWithNotify(pos, .obsidian);
     } else if (meta <= 4) {
-        try world_map.setBlockWithNotify(x, y, z, .cobblestone);
+        try world_map.setBlockWithNotify(pos, .cobblestone);
     }
 
-    triggerLavaMixEffects(world_map, x, y, z);
+    triggerLavaMixEffects(world_map, pos);
 }
 
-fn triggerLavaMixEffects(world_map: *World, x: i32, y: i32, z: i32) void {
-    world_map.playFizzAt(x, y, z);
+fn triggerLavaMixEffects(world_map: *World, pos: BlockPos) void {
+    world_map.playFizzAt(pos);
 }
 
-pub fn onBlockAdded(world_map: *World, x: i32, y: i32, z: i32) !void {
-    const fluid = Fluid.at(world_map, x, y, z) orelse return;
-    try checkForHarden(fluid, world_map, x, y, z);
+pub fn onBlockAdded(world_map: *World, pos: BlockPos) !void {
+    const fluid = Fluid.at(world_map, pos) orelse return;
+    try checkForHarden(fluid, world_map, pos);
 
-    if (world_map.getBlock(x, y, z) != fluid.flowing()) return;
-    try world_map.scheduleBlockUpdate(x, y, z, fluid.flowing(), fluid.flowing().tickRate());
+    if (world_map.getBlock(pos) != fluid.flowing()) return;
+    try world_map.scheduleBlockUpdate(pos, fluid.flowing(), fluid.flowing().tickRate());
 }
 
-pub fn onNeighborChange(world_map: *World, x: i32, y: i32, z: i32) !void {
-    const fluid = Fluid.at(world_map, x, y, z) orelse return;
-    try checkForHarden(fluid, world_map, x, y, z);
+pub fn onNeighborChange(world_map: *World, pos: BlockPos) !void {
+    const fluid = Fluid.at(world_map, pos) orelse return;
+    try checkForHarden(fluid, world_map, pos);
 
-    if (world_map.getBlock(x, y, z) != fluid.stationary()) return;
+    if (world_map.getBlock(pos) != fluid.stationary()) return;
 
-    const meta = world_map.getBlockMetadata(x, y, z);
-    world_map.setBlock(x, y, z, fluid.flowing());
-    world_map.setBlockMetadata(x, y, z, meta);
-    try world_map.markChanged(x, y, z);
-    try world_map.scheduleBlockUpdate(x, y, z, fluid.flowing(), fluid.flowing().tickRate());
+    const meta = world_map.getBlockMetadata(pos);
+    world_map.setBlock(pos, fluid.flowing());
+    world_map.setBlockMetadata(pos, meta);
+    try world_map.markChanged(pos);
+    try world_map.scheduleBlockUpdate(pos, fluid.flowing(), fluid.flowing().tickRate());
 }
 
-pub fn tick(world_map: *World, x: i32, y: i32, z: i32) !void {
-    const fluid = Fluid.at(world_map, x, y, z) orelse return;
+pub fn tick(world_map: *World, pos: BlockPos) !void {
+    const fluid = Fluid.at(world_map, pos) orelse return;
     const spread_per_block = fluid.spreadPerBlock();
 
-    var decay = fluid.flowDecay(world_map, x, y, z);
+    var decay = fluid.flowDecay(world_map, pos);
     var settles = true;
 
     if (decay > 0) {
         var smallest: Smallest = .{ .decay = -100, .adjacent_sources = 0 };
-        smallest = smallest.merge(fluid, world_map, x - 1, y, z);
-        smallest = smallest.merge(fluid, world_map, x + 1, y, z);
-        smallest = smallest.merge(fluid, world_map, x, y, z - 1);
-        smallest = smallest.merge(fluid, world_map, x, y, z + 1);
+        smallest = smallest.merge(fluid, world_map, pos.offset(-1, 0, 0));
+        smallest = smallest.merge(fluid, world_map, pos.offset(1, 0, 0));
+        smallest = smallest.merge(fluid, world_map, pos.offset(0, 0, -1));
+        smallest = smallest.merge(fluid, world_map, pos.offset(0, 0, 1));
 
         var settled = smallest.decay + spread_per_block;
         if (settled >= max_decay or smallest.decay < 0) settled = -1;
 
-        const above = fluid.flowDecay(world_map, x, y + 1, z);
+        const above = fluid.flowDecay(world_map, pos.offset(0, 1, 0));
         if (above >= 0) settled = if (above >= max_decay) above else above + max_decay;
 
         if (smallest.adjacent_sources >= 2 and fluid == .water) {
-            const below = world_map.getBlock(x, y - 1, z).material();
+            const below = world_map.getBlock(pos.offset(0, -1, 0)).material();
             if (below.isSolid()) {
                 settled = 0;
-            } else if (below == fluid.material() and world_map.getBlockMetadata(x, y, z) == 0) {
+            } else if (below == fluid.material() and world_map.getBlockMetadata(pos) == 0) {
                 settled = 0;
             }
         }
@@ -286,51 +287,51 @@ pub fn tick(world_map: *World, x: i32, y: i32, z: i32) !void {
         if (settled != decay) {
             decay = settled;
             if (settled < 0) {
-                try world_map.setBlockWithNotify(x, y, z, .air);
+                try world_map.setBlockWithNotify(pos, .air);
             } else {
-                try world_map.setBlockMetadataWithNotify(x, y, z, @intCast(settled));
-                try world_map.scheduleBlockUpdate(x, y, z, fluid.flowing(), fluid.flowing().tickRate());
-                try world_map.notifyBlocksOfNeighborChange(x, y, z, fluid.flowing());
+                try world_map.setBlockMetadataWithNotify(pos, @intCast(settled));
+                try world_map.scheduleBlockUpdate(pos, fluid.flowing(), fluid.flowing().tickRate());
+                try world_map.notifyBlocksOfNeighborChange(pos, fluid.flowing());
             }
         } else if (settles) {
-            try settle(fluid, world_map, x, y, z);
+            try settle(fluid, world_map, pos);
         }
     } else {
-        try settle(fluid, world_map, x, y, z);
+        try settle(fluid, world_map, pos);
     }
 
-    if (fluid.canDisplace(world_map, x, y - 1, z)) {
+    if (fluid.canDisplace(world_map, pos.offset(0, -1, 0))) {
         const below_decay = if (decay >= max_decay) decay else decay + max_decay;
-        try world_map.setBlockAndMetadataWithNotify(x, y - 1, z, fluid.flowing(), @intCast(below_decay));
+        try world_map.setBlockAndMetadataWithNotify(pos.offset(0, -1, 0), fluid.flowing(), @intCast(below_decay));
         return;
     }
 
     if (decay < 0) return;
-    if (decay != 0 and !blocksFlow(world_map, x, y - 1, z)) return;
+    if (decay != 0 and !blocksFlow(world_map, pos.offset(0, -1, 0))) return;
 
     const spread_decay: i32 = if (decay >= max_decay) 1 else decay + spread_per_block;
     if (spread_decay >= max_decay) return;
 
-    const optimal = optimalFlowDirections(fluid, world_map, x, y, z);
+    const optimal = optimalFlowDirections(fluid, world_map, pos);
     for (flow_order, optimal) |direction, allowed| {
         if (!allowed) continue;
-        try flowInto(fluid, world_map, x + direction.dx, y, z + direction.dz, @intCast(spread_decay));
+        try flowInto(fluid, world_map, pos.offset(direction.dx, 0, direction.dz), @intCast(spread_decay));
     }
 }
 
-pub fn flowVector(world_map: anytype, x: i32, y: i32, z: i32) math.Vec3 {
+pub fn flowVector(world_map: anytype, pos: BlockPos) math.Vec3 {
     var vector = math.Vec3.init(0, 0, 0);
-    const fluid = Fluid.at(world_map, x, y, z) orelse return vector;
-    const decay = fluid.effectiveFlowDecay(world_map, x, y, z);
+    const fluid = Fluid.at(world_map, pos) orelse return vector;
+    const decay = fluid.effectiveFlowDecay(world_map, pos);
 
     for (vector_order) |direction| {
-        const nx = x + direction.dx;
-        const nz = z + direction.dz;
-        var neighbor_decay = fluid.effectiveFlowDecay(world_map, nx, y, nz);
+        const nx = pos.x + direction.dx;
+        const nz = pos.z + direction.dz;
+        var neighbor_decay = fluid.effectiveFlowDecay(world_map, .init(nx, pos.y, nz));
 
         if (neighbor_decay < 0) {
-            if (world_map.getBlock(nx, y, nz).material().isSolid()) continue;
-            neighbor_decay = fluid.effectiveFlowDecay(world_map, nx, y - 1, nz);
+            if (world_map.getBlock(.init(nx, pos.y, nz)).material().isSolid()) continue;
+            neighbor_decay = fluid.effectiveFlowDecay(world_map, .init(nx, pos.y - 1, nz));
             if (neighbor_decay < 0) continue;
             const difference: f64 = @floatFromInt(neighbor_decay - (decay - max_decay));
             vector = vector.add(math.Vec3.init(
@@ -348,23 +349,23 @@ pub fn flowVector(world_map: anytype, x: i32, y: i32, z: i32) math.Vec3 {
         }
     }
 
-    if (world_map.getBlockMetadata(x, y, z) >= falling) {
-        const blocked = fluid.isBlockSolid(world_map, x, y, z - 1) or
-            fluid.isBlockSolid(world_map, x, y, z + 1) or
-            fluid.isBlockSolid(world_map, x - 1, y, z) or
-            fluid.isBlockSolid(world_map, x + 1, y, z) or
-            fluid.isBlockSolid(world_map, x, y + 1, z - 1) or
-            fluid.isBlockSolid(world_map, x, y + 1, z + 1) or
-            fluid.isBlockSolid(world_map, x - 1, y + 1, z) or
-            fluid.isBlockSolid(world_map, x + 1, y + 1, z);
+    if (world_map.getBlockMetadata(pos) >= falling) {
+        const blocked = fluid.isBlockSolid(world_map, pos.offset(0, 0, -1)) or
+            fluid.isBlockSolid(world_map, pos.offset(0, 0, 1)) or
+            fluid.isBlockSolid(world_map, pos.offset(-1, 0, 0)) or
+            fluid.isBlockSolid(world_map, pos.offset(1, 0, 0)) or
+            fluid.isBlockSolid(world_map, pos.offset(0, 1, -1)) or
+            fluid.isBlockSolid(world_map, pos.offset(0, 1, 1)) or
+            fluid.isBlockSolid(world_map, pos.offset(-1, 1, 0)) or
+            fluid.isBlockSolid(world_map, pos.offset(1, 1, 0));
         if (blocked) vector = vector.normalize().add(math.Vec3.init(0, -6, 0));
     }
 
     return vector.normalize();
 }
 
-pub fn flowAngle(world_map: anytype, x: i32, y: i32, z: i32) ?f32 {
-    const vector = flowVector(world_map, x, y, z);
+pub fn flowAngle(world_map: anytype, pos: BlockPos) ?f32 {
+    const vector = flowVector(world_map, pos);
     if (vector.x == 0.0 and vector.z == 0.0) return null;
     return @floatCast(std.math.atan2(vector.z, vector.x) - std.math.pi * 0.5);
 }
@@ -400,12 +401,12 @@ fn runTicks(world_map: *World, count: usize) !void {
     }
 }
 
-fn placeSource(world_map: *World, x: i32, y: i32, z: i32) !void {
-    try world_map.setBlockAndMetadataWithNotify(x, y, z, .flowing_water, 0);
+fn placeSource(world_map: *World, pos: BlockPos) !void {
+    try world_map.setBlockAndMetadataWithNotify(pos, .flowing_water, 0);
 }
 
-fn placeLava(world_map: *World, x: i32, y: i32, z: i32, decay: u4) !void {
-    try world_map.setBlockAndMetadataWithNotify(x, y, z, .flowing_lava, decay);
+fn placeLava(world_map: *World, pos: BlockPos, decay: u4) !void {
+    try world_map.setBlockAndMetadataWithNotify(pos, .flowing_lava, decay);
 }
 
 test "getPercentAir matches BlockFluid's level-to-height table" {
@@ -419,17 +420,17 @@ test "a source settles into stationary water and spreads to its four neighbours"
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 100);
 
-    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
-    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(.init(8, 64, 8)));
 
     for ([_][2]i32{ .{ -1, 0 }, .{ 1, 0 }, .{ 0, -1 }, .{ 0, 1 } }) |offset| {
         const x = 8 + offset[0];
         const z = 8 + offset[1];
-        try std.testing.expect(Fluid.water.holds(world_map.getBlock(x, 64, z)));
-        try std.testing.expectEqual(@as(u4, 1), world_map.getBlockMetadata(x, 64, z));
+        try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(x, 64, z))));
+        try std.testing.expectEqual(@as(u4, 1), world_map.getBlockMetadata(.init(x, 64, z)));
     }
 }
 
@@ -437,26 +438,26 @@ test "water spreads exactly seven blocks from a source" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 100);
 
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(15, 64, 8)));
-    try std.testing.expectEqual(@as(u4, 7), world_map.getBlockMetadata(15, 64, 8));
-    try std.testing.expectEqual(.air, world_map.getBlock(16, 64, 8));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(15, 64, 8))));
+    try std.testing.expectEqual(@as(u4, 7), world_map.getBlockMetadata(.init(15, 64, 8)));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(16, 64, 8)));
 }
 
 test "water falls straight down and marks the falling metadata bit" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(8, 63, 8, .air);
-    world_map.setBlock(8, 62, 8, .air);
-    try placeSource(&world_map, 8, 64, 8);
+    world_map.setBlock(.init(8, 63, 8), .air);
+    world_map.setBlock(.init(8, 62, 8), .air);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 20);
 
     for ([_]i32{ 63, 62 }) |y| {
-        try std.testing.expect(Fluid.water.holds(world_map.getBlock(8, y, 8)));
-        try std.testing.expect(world_map.getBlockMetadata(8, y, 8) >= falling);
+        try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(8, y, 8))));
+        try std.testing.expect(world_map.getBlockMetadata(.init(8, y, 8)) >= falling);
     }
 }
 
@@ -464,30 +465,30 @@ test "two sources one block apart turn the gap between them into a source" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 7, 64, 8);
-    try placeSource(&world_map, 9, 64, 8);
+    try placeSource(&world_map, .init(7, 64, 8));
+    try placeSource(&world_map, .init(9, 64, 8));
     try runTicks(&world_map, 20);
 
-    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
-    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(.init(8, 64, 8)));
 }
 
 test "removing the source drains every block it filled" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 100);
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(12, 64, 8)));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(12, 64, 8))));
 
-    try world_map.setBlockWithNotify(8, 64, 8, .air);
+    try world_map.setBlockWithNotify(.init(8, 64, 8), .air);
     try runTicks(&world_map, 200);
 
     var x: i32 = 1;
     while (x <= 15) : (x += 1) {
         var z: i32 = 1;
         while (z <= 15) : (z += 1) {
-            try std.testing.expectEqual(.air, world_map.getBlock(x, 64, z));
+            try std.testing.expectEqual(.air, world_map.getBlock(.init(x, 64, z)));
         }
     }
 }
@@ -496,14 +497,14 @@ test "flowing water prefers the direction with a hole to fall into" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(11, 63, 8, .air);
-    try placeSource(&world_map, 8, 64, 8);
+    world_map.setBlock(.init(11, 63, 8), .air);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 10);
 
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
-    try std.testing.expectEqual(.air, world_map.getBlock(7, 64, 8));
-    try std.testing.expectEqual(.air, world_map.getBlock(8, 64, 7));
-    try std.testing.expectEqual(.air, world_map.getBlock(8, 64, 9));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(9, 64, 8))));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(7, 64, 8)));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(8, 64, 7)));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(8, 64, 9)));
 }
 
 test "a solid wall stops water from spreading through it" {
@@ -511,29 +512,29 @@ test "a solid wall stops water from spreading through it" {
     defer world_map.deinit();
 
     var z: i32 = 0;
-    while (z < 16) : (z += 1) world_map.setBlock(10, 64, z, .stone);
+    while (z < 16) : (z += 1) world_map.setBlock(.init(10, 64, z), .stone);
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 100);
 
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
-    try std.testing.expectEqual(.stone, world_map.getBlock(10, 64, 8));
-    try std.testing.expectEqual(.air, world_map.getBlock(11, 64, 8));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(9, 64, 8))));
+    try std.testing.expectEqual(.stone, world_map.getBlock(.init(10, 64, 8)));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(11, 64, 8)));
 }
 
 test "water washes a flower away and leaves its drop behind" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(9, 64, 8, .rose);
-    try placeSource(&world_map, 8, 64, 8);
+    world_map.setBlock(.init(9, 64, 8), .rose);
+    try placeSource(&world_map, .init(8, 64, 8));
 
     for (0..6) |_| {
         world_map.time += 1;
         try world_map.tickUpdates();
     }
 
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(9, 64, 8))));
 
     var found_rose = false;
     for (world_map.dropped.items) |drop| {
@@ -546,25 +547,25 @@ test "breaking a block beside settled water lets it flow back in" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(8, 64, 8, .stationary_water);
-    world_map.setBlock(9, 64, 8, .stone);
+    world_map.setBlock(.init(8, 64, 8), .stationary_water);
+    world_map.setBlock(.init(9, 64, 8), .stone);
     try runTicks(&world_map, 5);
-    try std.testing.expectEqual(.stationary_water, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.stationary_water, world_map.getBlock(.init(8, 64, 8)));
 
-    try world_map.setBlockWithNotify(9, 64, 8, .air);
+    try world_map.setBlockWithNotify(.init(9, 64, 8), .air);
     try runTicks(&world_map, 10);
 
-    try std.testing.expect(Fluid.water.holds(world_map.getBlock(9, 64, 8)));
+    try std.testing.expect(Fluid.water.holds(world_map.getBlock(.init(9, 64, 8))));
 }
 
 test "the flow vector points away from the source" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 20);
 
-    const flow = flowVector(&world_map, 10, 64, 8);
+    const flow = flowVector(&world_map, .init(10, 64, 8));
     try std.testing.expect(flow.x > 0.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), flow.z, 1.0e-9);
 }
@@ -573,43 +574,43 @@ test "still water has no flow direction to rotate its surface texture" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeSource(&world_map, 8, 64, 8);
+    try placeSource(&world_map, .init(8, 64, 8));
     try runTicks(&world_map, 20);
 
-    try std.testing.expect(flowAngle(&world_map, 8, 64, 8) == null);
-    try std.testing.expect(flowAngle(&world_map, 10, 64, 8) != null);
+    try std.testing.expect(flowAngle(&world_map, .init(8, 64, 8)) == null);
+    try std.testing.expect(flowAngle(&world_map, .init(10, 64, 8)) != null);
 }
 
 test "a lava source spreads exactly three blocks and settles into stationary lava" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeLava(&world_map, 8, 64, 8, 0);
+    try placeLava(&world_map, .init(8, 64, 8), 0);
     try runTicks(&world_map, 200);
 
-    try std.testing.expectEqual(.stationary_lava, world_map.getBlock(8, 64, 8));
-    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(8, 64, 8));
+    try std.testing.expectEqual(.stationary_lava, world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expectEqual(@as(u4, 0), world_map.getBlockMetadata(.init(8, 64, 8)));
 
     for ([_]u4{ 2, 4, 6 }, 1..) |expected, distance| {
         const x = 8 + @as(i32, @intCast(distance));
-        try std.testing.expect(Fluid.lava.holds(world_map.getBlock(x, 64, 8)));
-        try std.testing.expectEqual(expected, world_map.getBlockMetadata(x, 64, 8));
+        try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(x, 64, 8))));
+        try std.testing.expectEqual(expected, world_map.getBlockMetadata(.init(x, 64, 8)));
     }
-    try std.testing.expectEqual(.air, world_map.getBlock(12, 64, 8));
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(12, 64, 8)));
 }
 
 test "lava falls straight down and marks the falling metadata bit" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(8, 63, 8, .air);
-    world_map.setBlock(8, 62, 8, .air);
-    try placeLava(&world_map, 8, 64, 8, 0);
+    world_map.setBlock(.init(8, 63, 8), .air);
+    world_map.setBlock(.init(8, 62, 8), .air);
+    try placeLava(&world_map, .init(8, 64, 8), 0);
     try runTicks(&world_map, 200);
 
     for ([_]i32{ 63, 62 }) |y| {
-        try std.testing.expect(Fluid.lava.holds(world_map.getBlock(8, y, 8)));
-        try std.testing.expect(world_map.getBlockMetadata(8, y, 8) >= falling);
+        try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(8, y, 8))));
+        try std.testing.expect(world_map.getBlockMetadata(.init(8, y, 8)) >= falling);
     }
 }
 
@@ -617,10 +618,10 @@ test "water beside a lava source hardens it into obsidian" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeLava(&world_map, 8, 64, 8, 0);
-    try world_map.setBlockWithNotify(9, 64, 8, .stationary_water);
+    try placeLava(&world_map, .init(8, 64, 8), 0);
+    try world_map.setBlockWithNotify(.init(9, 64, 8), .stationary_water);
 
-    try std.testing.expectEqual(.obsidian, world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.obsidian, world_map.getBlock(.init(8, 64, 8)));
 }
 
 test "water beside flowing lava hardens it into cobblestone up to level four" {
@@ -628,10 +629,10 @@ test "water beside flowing lava hardens it into cobblestone up to level four" {
         var world_map = try testWorld(64);
         defer world_map.deinit();
 
-        try placeLava(&world_map, 8, 64, 8, decay);
-        try world_map.setBlockWithNotify(9, 64, 8, .stationary_water);
+        try placeLava(&world_map, .init(8, 64, 8), decay);
+        try world_map.setBlockWithNotify(.init(9, 64, 8), .stationary_water);
 
-        try std.testing.expectEqual(.cobblestone, world_map.getBlock(8, 64, 8));
+        try std.testing.expectEqual(.cobblestone, world_map.getBlock(.init(8, 64, 8)));
     }
 }
 
@@ -639,33 +640,33 @@ test "water leaves thinner lava molten" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    try placeLava(&world_map, 8, 64, 8, 6);
-    try world_map.setBlockWithNotify(9, 64, 8, .stationary_water);
+    try placeLava(&world_map, .init(8, 64, 8), 6);
+    try world_map.setBlockWithNotify(.init(9, 64, 8), .stationary_water);
 
-    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(8, 64, 8)));
+    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(8, 64, 8))));
 }
 
 test "lava flowing towards water hardens where the two meet" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(10, 64, 8, .stationary_water);
-    try placeLava(&world_map, 8, 64, 8, 0);
+    world_map.setBlock(.init(10, 64, 8), .stationary_water);
+    try placeLava(&world_map, .init(8, 64, 8), 0);
     try runTicks(&world_map, 200);
 
-    try std.testing.expectEqual(.cobblestone, world_map.getBlock(9, 64, 8));
-    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(8, 64, 8)));
+    try std.testing.expectEqual(.cobblestone, world_map.getBlock(.init(9, 64, 8)));
+    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(8, 64, 8))));
 }
 
 test "lava washes water away instead of dropping it as an item" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
 
-    world_map.setBlock(8, 63, 8, .air);
-    world_map.setBlock(8, 62, 8, .stationary_water);
-    try placeLava(&world_map, 8, 64, 8, 0);
+    world_map.setBlock(.init(8, 63, 8), .air);
+    world_map.setBlock(.init(8, 62, 8), .stationary_water);
+    try placeLava(&world_map, .init(8, 64, 8), 0);
     try runTicks(&world_map, 200);
 
-    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(8, 62, 8)));
+    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(8, 62, 8))));
     try std.testing.expectEqual(@as(usize, 0), world_map.dropped.items.len);
 }

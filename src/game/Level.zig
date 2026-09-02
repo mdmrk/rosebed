@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
@@ -104,8 +105,8 @@ pub fn reseed(self: *Level, gpa: std.mem.Allocator, dimension: world.Dimension, 
     self.generator = try world.Generator.init(gpa, dimension, seed);
 }
 
-pub fn dropStackAt(self: *Level, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, stack: Inventory.ItemStack) !void {
-    try self.entities.dropStack(gpa, x, y, z, stack, &self.world_map.rand);
+pub fn dropStackAt(self: *Level, gpa: std.mem.Allocator, pos: BlockPos, stack: Inventory.ItemStack) !void {
+    try self.entities.dropStack(gpa, pos, stack, &self.world_map.rand);
 }
 
 pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !void {
@@ -131,7 +132,7 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
     while (it.next()) |coord| try world.light.relightChunk(gpa, &self.world_map, coord.x, coord.z);
 
     for (self.world_map.dropped.items) |drop| {
-        try self.dropStackAt(gpa, drop.pos.x, drop.pos.y, drop.pos.z, .{
+        try self.dropStackAt(gpa, drop.pos, .{
             .id = drop.stack.id,
             .count = drop.stack.count,
             .meta = drop.stack.meta,
@@ -140,7 +141,7 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
     self.world_map.dropped.clearRetainingCapacity();
 
     for (self.world_map.falling.items) |fall| {
-        try self.entities.spawnFallingBlock(gpa, fall.pos.x, fall.pos.y, fall.pos.z, fall.id);
+        try self.entities.spawnFallingBlock(gpa, fall.pos, fall.id);
     }
     self.world_map.falling.clearRetainingCapacity();
 
@@ -155,7 +156,7 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
     self.world_map.dispensed.clearRetainingCapacity();
 
     for (self.world_map.burnt_out.items) |pos| {
-        try self.entities.spawnTorchBurnoutSmoke(gpa, pos.x, pos.y, pos.z, &self.world_map.rand);
+        try self.entities.spawnTorchBurnoutSmoke(gpa, pos, &self.world_map.rand);
     }
     self.world_map.burnt_out.clearRetainingCapacity();
 }
@@ -267,12 +268,12 @@ fn tickFallingBlocks(self: *Level, gpa: std.mem.Allocator) !void {
         const y: i32 = @intFromFloat(@floor(block.base.position.y));
         const z: i32 = @intFromFloat(@floor(block.base.position.z));
 
-        const landing_empty = !self.world_map.getBlock(x, y, z).isSolid();
-        const support_solid = !self.world_map.getBlock(x, y - 1, z).canFallInto();
+        const landing_empty = !self.world_map.getBlock(.init(x, y, z)).isSolid();
+        const support_solid = !self.world_map.getBlock(.init(x, y - 1, z)).canFallInto();
         if (outcome == .landed and landing_empty and support_solid) {
-            try self.world_map.setBlockWithNotify(x, y, z, block.block_id);
+            try self.world_map.setBlockWithNotify(.init(x, y, z), block.block_id);
         } else {
-            try self.dropStackAt(gpa, x, y, z, .{ .id = .{ .block = block.block_id }, .count = 1 });
+            try self.dropStackAt(gpa, .init(x, y, z), .{ .id = .{ .block = block.block_id }, .count = 1 });
         }
 
         _ = self.entities.falling_blocks.swapRemove(index);
@@ -282,7 +283,7 @@ fn tickFallingBlocks(self: *Level, gpa: std.mem.Allocator) !void {
 fn collideWithBlocks(self: *Level, box: math.Aabb) !void {
     var cells = physics.touchedCells(box);
     while (cells.next()) |cell| {
-        try world.redstone.onEntityCollided(&self.world_map, cell[0], cell[1], cell[2]);
+        try world.redstone.onEntityCollided(&self.world_map, .init(cell[0], cell[1], cell[2]));
     }
 }
 
@@ -328,12 +329,12 @@ fn walkOnBlocks(self: *Level, gpa: std.mem.Allocator) !void {
 }
 
 fn walkedOn(self: *Level, gpa: std.mem.Allocator, at: [3]i32) !void {
-    try world.farming.trample(&self.world_map, at[0], at[1], at[2]);
+    try world.farming.trample(&self.world_map, .init(at[0], at[1], at[2]));
 
-    const id = self.world_map.getBlock(at[0], at[1], at[2]);
+    const id = self.world_map.getBlock(.init(at[0], at[1], at[2]));
     if (id != .ore_redstone and id != .ore_redstone_glowing) return;
-    try self.entities.spawnRedstoneOreParticles(gpa, &self.world_map, at[0], at[1], at[2], &self.world_map.rand);
-    try world.redstone.lightRedstoneOre(&self.world_map, at[0], at[1], at[2]);
+    try self.entities.spawnRedstoneOreParticles(gpa, &self.world_map, .init(at[0], at[1], at[2]), &self.world_map.rand);
+    try world.redstone.lightRedstoneOre(&self.world_map, .init(at[0], at[1], at[2]));
 }
 
 fn pressPressurePlates(self: *Level) !void {
@@ -514,9 +515,9 @@ const Recorder = struct {
         };
     }
 
-    fn mark(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    fn mark(context: *anyopaque, pos: BlockPos) std.mem.Allocator.Error!void {
         const self: *Recorder = @ptrCast(@alignCast(context));
-        try self.blocks.append(self.gpa, .{ .x = x, .y = y, .z = z });
+        try self.blocks.append(self.gpa, .{ .x = pos.x, .y = pos.y, .z = pos.z });
     }
 
     fn redraw(context: *anyopaque) std.mem.Allocator.Error!void {
@@ -524,9 +525,9 @@ const Recorder = struct {
         self.redraws += 1;
     }
 
-    fn sawBlockAt(self: *const Recorder, x: i32, y: i32, z: i32) bool {
-        for (self.blocks.items) |pos| {
-            if (pos.x == x and pos.y == y and pos.z == z) return true;
+    fn sawBlockAt(self: *const Recorder, pos: BlockPos) bool {
+        for (self.blocks.items) |seen| {
+            if (std.meta.eql(seen, pos)) return true;
         }
         return false;
     }
@@ -541,9 +542,9 @@ test "the world access hears about a block change the moment it is made" {
     defer recorder.deinit();
     level.world_map.access = recorder.access();
 
-    try level.world_map.setBlockWithNotify(4, 0, 4, .air);
+    try level.world_map.setBlockWithNotify(.init(4, 0, 4), .air);
 
-    try std.testing.expect(recorder.sawBlockAt(4, 0, 4));
+    try std.testing.expect(recorder.sawBlockAt(.init(4, 0, 4)));
 }
 
 test "a block broken during the tick reaches the world access" {
@@ -561,10 +562,10 @@ test "a block broken during the tick reaches the world access" {
     defer recorder.deinit();
     level.world_map.access = recorder.access();
 
-    try level.world_map.setBlockWithNotify(4, 0, 4, .air);
+    try level.world_map.setBlockWithNotify(.init(4, 0, 4), .air);
     try level.tick(gpa, arena.allocator());
 
-    try std.testing.expect(recorder.sawBlockAt(4, 0, 4));
+    try std.testing.expect(recorder.sawBlockAt(.init(4, 0, 4)));
     try std.testing.expectEqual(@as(usize, 0), level.world_map.changed.items.len);
 }
 
@@ -580,10 +581,10 @@ test "a level with no world access attached still ticks" {
     try enterLevel(gpa, &level, &player);
 
     try std.testing.expect(level.world_map.access == null);
-    try level.world_map.setBlockWithNotify(4, 0, 4, .air);
+    try level.world_map.setBlockWithNotify(.init(4, 0, 4), .air);
     try level.tick(gpa, arena.allocator());
 
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(4, 0, 4));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(4, 0, 4)));
 }
 
 test "the light crossing a step asks the front end to redraw everything" {
@@ -631,9 +632,9 @@ test "lit tnt becomes an entity, burns down its fuse and blows a hole in the gro
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
 
-    try level.world_map.setBlockWithNotify(4, 1, 4, .tnt);
-    try level.world_map.setBlockWithNotify(4, 1, 4, .air);
-    try world.tnt.primeByPlayer(&level.world_map, 4, 1, 4);
+    try level.world_map.setBlockWithNotify(.init(4, 1, 4), .tnt);
+    try level.world_map.setBlockWithNotify(.init(4, 1, 4), .air);
+    try world.tnt.primeByPlayer(&level.world_map, .init(4, 1, 4));
 
     try level.tick(gpa, arena.allocator());
     try std.testing.expectEqual(@as(usize, 1), level.entities.primed.items.len);
@@ -645,7 +646,7 @@ test "lit tnt becomes an entity, burns down its fuse and blows a hole in the gro
     }
 
     try std.testing.expectEqual(@as(usize, 0), level.entities.primed.items.len);
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(4, 0, 4));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(4, 0, 4)));
 }
 
 test "a stick of tnt caught in a blast is lit rather than smashed" {
@@ -659,17 +660,17 @@ test "a stick of tnt caught in a blast is lit rather than smashed" {
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
 
-    try level.world_map.setBlockWithNotify(4, 1, 4, .tnt);
-    try level.world_map.setBlockWithNotify(6, 1, 4, .tnt);
-    try level.world_map.setBlockWithNotify(6, 1, 4, .air);
-    try world.tnt.primeByPlayer(&level.world_map, 6, 1, 4);
+    try level.world_map.setBlockWithNotify(.init(4, 1, 4), .tnt);
+    try level.world_map.setBlockWithNotify(.init(6, 1, 4), .tnt);
+    try level.world_map.setBlockWithNotify(.init(6, 1, 4), .air);
+    try world.tnt.primeByPlayer(&level.world_map, .init(6, 1, 4));
 
     for (0..world.tnt.fuse_ticks + 2) |_| {
         try level.tick(gpa, arena.allocator());
-        if (level.world_map.getBlock(4, 1, 4) != .tnt) break;
+        if (level.world_map.getBlock(.init(4, 1, 4)) != .tnt) break;
     }
 
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(4, 1, 4));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(4, 1, 4)));
     try std.testing.expectEqual(@as(usize, 1), level.entities.primed.items.len);
     for (level.entities.items.items) |dropped| {
         try std.testing.expect(!dropped.stack.id.eql(.{ .block = .tnt }));
@@ -686,7 +687,7 @@ test "a falling block that lands becomes a block again" {
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
-    try level.entities.spawnFallingBlock(gpa, 4, 6, 4, .sand);
+    try level.entities.spawnFallingBlock(gpa, .init(4, 6, 4), .sand);
 
     for (0..60) |_| {
         try level.tick(gpa, arena.allocator());
@@ -694,7 +695,7 @@ test "a falling block that lands becomes a block again" {
     }
 
     try std.testing.expectEqual(@as(usize, 0), level.entities.falling_blocks.items.len);
-    try std.testing.expectEqual(world.Block.sand, level.world_map.getBlock(4, 1, 4));
+    try std.testing.expectEqual(world.Block.sand, level.world_map.getBlock(.init(4, 1, 4)));
 }
 
 test "an inactive occupant does not stand on pressure plates" {
@@ -705,17 +706,17 @@ test "an inactive occupant does not stand on pressure plates" {
     var level = try testLevel(gpa);
     defer level.deinit(gpa);
 
-    try level.world_map.setBlockWithNotify(8, 1, 8, .pressure_plate_stone);
+    try level.world_map.setBlockWithNotify(.init(8, 1, 8), .pressure_plate_stone);
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
     level.setOccupantActive(false);
     try level.tick(gpa, arena.allocator());
     level.setOccupantActive(true);
-    try std.testing.expectEqual(@as(u4, 0), level.world_map.getBlockMetadata(8, 1, 8));
+    try std.testing.expectEqual(@as(u4, 0), level.world_map.getBlockMetadata(.init(8, 1, 8)));
 
     try level.tick(gpa, arena.allocator());
-    try std.testing.expectEqual(@as(u4, 1), level.world_map.getBlockMetadata(8, 1, 8));
+    try std.testing.expectEqual(@as(u4, 1), level.world_map.getBlockMetadata(.init(8, 1, 8)));
 }
 
 test "closing a world empties it but keeps the random stream running" {
@@ -808,7 +809,7 @@ test "a level with nobody in it does not tick" {
     try std.testing.expectEqual(@as(u64, 0), level.tick_count);
 }
 
-fn lightPortalAt(level: *Level, x: i32, y: i32, z: i32) !void {
+fn lightPortalAt(level: *Level, pos: BlockPos) !void {
     var across: i32 = -1;
     while (across <= 2) : (across += 1) {
         var up: i32 = -1;
@@ -816,10 +817,10 @@ fn lightPortalAt(level: *Level, x: i32, y: i32, z: i32) !void {
             const on_frame = across == -1 or across == 2 or up == -1 or up == 3;
             const corner = (across == -1 or across == 2) and (up == -1 or up == 3);
             if (!on_frame or corner) continue;
-            level.world_map.setBlock(x + across, y + up, z, .obsidian);
+            level.world_map.setBlock(pos.offset(across, up, 0), .obsidian);
         }
     }
-    try std.testing.expect(try world.portal.tryCreate(&level.world_map, .{ .x = x, .y = y, .z = z }));
+    try std.testing.expect(try world.portal.tryCreate(&level.world_map, .{ .x = pos.x, .y = pos.y, .z = pos.z }));
 }
 
 test "a player standing in a portal is marked for travel, and one beside it is not" {
@@ -829,7 +830,7 @@ test "a player standing in a portal is marked for travel, and one beside it is n
 
     var level = try testLevel(gpa);
     defer level.deinit(gpa);
-    try lightPortalAt(&level, 8, 1, 8);
+    try lightPortalAt(&level, .init(8, 1, 8));
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.time_until_portal = 0;
@@ -851,7 +852,7 @@ test "an inactive occupant does not walk into portals either" {
 
     var level = try testLevel(gpa);
     defer level.deinit(gpa);
-    try lightPortalAt(&level, 8, 1, 8);
+    try lightPortalAt(&level, .init(8, 1, 8));
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     player.time_until_portal = 0;

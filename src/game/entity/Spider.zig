@@ -316,7 +316,7 @@ test "a spider sees the player through a wall, unlike every other monster" {
     const players = Animal.Players.one(&player);
 
     var y: u32 = 1;
-    while (y <= 4) : (y += 1) w.setBlock(10, @intCast(y), 8, .stone);
+    while (y <= 4) : (y += 1) w.setBlock(.init(10, @intCast(y), 8), .stone);
 
     try std.testing.expectEqual(
         @as(Animal.Entity.Id, 1),
@@ -413,7 +413,7 @@ test "a spider walks up a wall it has run into" {
     while (wall_y <= 4) : (wall_y += 1) {
         var wall_z: i32 = 6;
         while (wall_z <= 11) : (wall_z += 1) {
-            w.setBlock(10, @intCast(wall_y), wall_z, .stone);
+            w.setBlock(.init(10, @intCast(wall_y), wall_z), .stone);
         }
     }
 

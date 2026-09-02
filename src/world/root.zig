@@ -6,6 +6,7 @@ pub const Side = block.Side;
 pub const Stack = block.Stack;
 pub const Id = block.Id;
 pub const block_update = @import("block_update.zig");
+pub const BlockPos = @import("BlockPos.zig");
 pub const chest = @import("chest.zig");
 pub const Chunk = @import("Chunk.zig");
 pub const chunk_nbt = @import("chunk_nbt.zig");

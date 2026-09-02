@@ -4,22 +4,10 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const testing = @import("testing.zig");
 const World = @import("World.zig");
-
-pub const Point = struct {
-    x: i32,
-    y: i32,
-    z: i32,
-
-    pub fn distanceTo(self: Point, other: Point) f32 {
-        const dx: f32 = @floatFromInt(other.x - self.x);
-        const dy: f32 = @floatFromInt(other.y - self.y);
-        const dz: f32 = @floatFromInt(other.z - self.z);
-        return @sqrt(dx * dx + dy * dy + dz * dz);
-    }
-};
 
 pub const Size = struct { x: i32, y: i32, z: i32 };
 
@@ -44,7 +32,7 @@ pub const Mob = struct {
 };
 
 pub const Path = struct {
-    points: []Point,
+    points: []BlockPos,
     index: usize = 0,
 
     pub fn deinit(self: *Path, gpa: std.mem.Allocator) void {
@@ -60,7 +48,7 @@ pub const Path = struct {
         return self.index >= self.points.len;
     }
 
-    pub fn destination(self: Path) ?Point {
+    pub fn destination(self: Path) ?BlockPos {
         if (self.points.len == 0) return null;
         return self.points[self.points.len - 1];
     }
@@ -79,7 +67,7 @@ pub const Path = struct {
 const Clearance = enum { blocked, water, lava, open };
 
 const Node = struct {
-    point: Point,
+    point: BlockPos,
     total_distance: f32 = 0,
     distance_to_next: f32 = 0,
     priority: f32 = 0,
@@ -92,7 +80,7 @@ const Finder = struct {
     gpa: std.mem.Allocator,
     world_map: *const World,
     nodes: std.ArrayList(Node) = .empty,
-    lookup: std.AutoHashMapUnmanaged(Point, u32) = .empty,
+    lookup: std.AutoHashMapUnmanaged(BlockPos, u32) = .empty,
     heap: std.ArrayList(u32) = .empty,
 
     fn deinit(self: *Finder) void {
@@ -101,7 +89,7 @@ const Finder = struct {
         self.heap.deinit(self.gpa);
     }
 
-    fn openPoint(self: *Finder, point: Point) !u32 {
+    fn openPoint(self: *Finder, point: BlockPos) !u32 {
         const entry = try self.lookup.getOrPut(self.gpa, point);
         if (entry.found_existing) return entry.value_ptr.*;
 
@@ -190,14 +178,14 @@ const Finder = struct {
         self.nodes.items[index].heap_index = slot;
     }
 
-    fn clearance(self: *Finder, base: Point, size: Size) Clearance {
+    fn clearance(self: *Finder, base: BlockPos, size: Size) Clearance {
         var x = base.x;
         while (x < base.x + size.x) : (x += 1) {
             var y = base.y;
             while (y < base.y + size.y) : (y += 1) {
                 var z = base.z;
                 while (z < base.z + size.z) : (z += 1) {
-                    const id = self.world_map.getBlock(x, y, z);
+                    const id = self.world_map.getBlock(.init(x, y, z));
                     if (id == .air) continue;
                     const material = id.material();
                     if (material.isSolid()) return .blocked;
@@ -209,7 +197,7 @@ const Finder = struct {
         return .open;
     }
 
-    fn safePoint(self: *Finder, base: Point, size: Size, step_up: i32) !?u32 {
+    fn safePoint(self: *Finder, base: BlockPos, size: Size, step_up: i32) !?u32 {
         var y = base.y;
         var found: ?u32 = null;
 
@@ -217,9 +205,9 @@ const Finder = struct {
             found = try self.openPoint(base);
         }
 
-        if (found == null and step_up > 0 and self.clearance(.{ .x = base.x, .y = base.y + step_up, .z = base.z }, size) == .open) {
+        if (found == null and step_up > 0 and self.clearance(base.offset(0, step_up, 0), size) == .open) {
             y += step_up;
-            found = try self.openPoint(.{ .x = base.x, .y = y, .z = base.z });
+            found = try self.openPoint(.init(base.x, y, base.z));
         }
 
         if (found == null) return null;
@@ -227,29 +215,29 @@ const Finder = struct {
         var dropped: i32 = 0;
         var below: Clearance = .blocked;
         while (y > 0) {
-            below = self.clearance(.{ .x = base.x, .y = y - 1, .z = base.z }, size);
+            below = self.clearance(.init(base.x, y - 1, base.z), size);
             if (below != .open) break;
 
             dropped += 1;
             if (dropped >= 4) return null;
 
             y -= 1;
-            if (y > 0) found = try self.openPoint(.{ .x = base.x, .y = y, .z = base.z });
+            if (y > 0) found = try self.openPoint(.init(base.x, y, base.z));
         }
 
         if (below == .lava) return null;
         return found;
     }
 
-    fn findOptions(self: *Finder, from: u32, size: Size, target: Point, max_distance: f32, out: *[4]u32) !usize {
+    fn findOptions(self: *Finder, from: u32, size: Size, target: BlockPos, max_distance: f32, out: *[4]u32) !usize {
         const origin = self.nodes.items[from].point;
-        const step_up: i32 = if (self.clearance(.{ .x = origin.x, .y = origin.y + 1, .z = origin.z }, size) == .open) 1 else 0;
+        const step_up: i32 = if (self.clearance(origin.offset(0, 1, 0), size) == .open) 1 else 0;
 
-        const candidates = [4]Point{
-            .{ .x = origin.x, .y = origin.y, .z = origin.z + 1 },
-            .{ .x = origin.x - 1, .y = origin.y, .z = origin.z },
-            .{ .x = origin.x + 1, .y = origin.y, .z = origin.z },
-            .{ .x = origin.x, .y = origin.y, .z = origin.z - 1 },
+        const candidates = [4]BlockPos{
+            origin.offset(0, 0, 1),
+            origin.offset(-1, 0, 0),
+            origin.offset(1, 0, 0),
+            origin.offset(0, 0, -1),
         };
 
         var count: usize = 0;
@@ -264,7 +252,7 @@ const Finder = struct {
         return count;
     }
 
-    fn buildPath(self: *Finder, end: u32) ![]Point {
+    fn buildPath(self: *Finder, end: u32) ![]BlockPos {
         var length: usize = 1;
         var walk = end;
         while (self.nodes.items[walk].previous) |previous| {
@@ -272,7 +260,7 @@ const Finder = struct {
             walk = previous;
         }
 
-        const points = try self.gpa.alloc(Point, length);
+        const points = try self.gpa.alloc(BlockPos, length);
         var slot = length;
         walk = end;
         while (true) {
@@ -283,7 +271,7 @@ const Finder = struct {
         return points;
     }
 
-    fn search(self: *Finder, start: u32, target: u32, size: Size, max_distance: f32) !?[]Point {
+    fn search(self: *Finder, start: u32, target: u32, size: Size, max_distance: f32) !?[]BlockPos {
         const target_point = self.nodes.items[target].point;
 
         self.nodes.items[start].total_distance = 0;
@@ -361,18 +349,16 @@ pub fn toBlock(
     gpa: std.mem.Allocator,
     world_map: *const World,
     mob: Mob,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     max_distance: f32,
 ) !?Path {
     return toPosition(
         gpa,
         world_map,
         mob,
-        @as(f64, @as(f32, @floatFromInt(x)) + 0.5),
-        @as(f64, @as(f32, @floatFromInt(y)) + 0.5),
-        @as(f64, @as(f32, @floatFromInt(z)) + 0.5),
+        @as(f64, @as(f32, @floatFromInt(pos.x)) + 0.5),
+        @as(f64, @as(f32, @floatFromInt(pos.y)) + 0.5),
+        @as(f64, @as(f32, @floatFromInt(pos.z)) + 0.5),
         max_distance,
     );
 }
@@ -390,8 +376,8 @@ fn walledWorld(gpa: std.mem.Allocator, floor_height: u32) !World {
     while (x < Chunk.width) : (x += 1) {
         var z: i32 = 0;
         while (z < Chunk.width) : (z += 1) {
-            w.setBlock(x, top, z, .stone);
-            w.setBlock(x, top + 1, z, .stone);
+            w.setBlock(.init(x, top, z), .stone);
+            w.setBlock(.init(x, top + 1, z), .stone);
         }
     }
     return w;
@@ -402,8 +388,8 @@ fn carve(w: *World, top: i32, x0: i32, x1: i32, z0: i32, z1: i32) void {
     while (x <= x1) : (x += 1) {
         var z = z0;
         while (z <= z1) : (z += 1) {
-            w.setBlock(x, top, z, .air);
-            w.setBlock(x, top + 1, z, .air);
+            w.setBlock(.init(x, top, z), .air);
+            w.setBlock(.init(x, top + 1, z), .air);
         }
     }
 }
@@ -413,12 +399,12 @@ test "a pig-sized mob walks a straight line across open ground" {
     var w = try testing.flatWorld(gpa, 1);
     defer w.deinit();
 
-    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 10, 1, 8, 16.0)).?;
+    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(10, 1, 8), 16.0)).?;
     defer path.deinit(gpa);
 
     try std.testing.expectEqual(@as(usize, 7), path.points.len);
-    try std.testing.expectEqual(Point{ .x = 4, .y = 1, .z = 8 }, path.points[0]);
-    try std.testing.expectEqual(Point{ .x = 10, .y = 1, .z = 8 }, path.points[path.points.len - 1]);
+    try std.testing.expectEqual(BlockPos.init(4, 1, 8), path.points[0]);
+    try std.testing.expectEqual(BlockPos.init(10, 1, 8), path.points[path.points.len - 1]);
 }
 
 test "a wall in the way is routed around through the gap" {
@@ -429,14 +415,14 @@ test "a wall in the way is routed around through the gap" {
     carve(&w, 1, 2, 12, 2, 14);
     var z: i32 = 2;
     while (z <= 12) : (z += 1) {
-        w.setBlock(7, 1, z, .stone);
-        w.setBlock(7, 2, z, .stone);
+        w.setBlock(.init(7, 1, z), .stone);
+        w.setBlock(.init(7, 2, z), .stone);
     }
 
-    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 10, 1, 8, 16.0)).?;
+    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(10, 1, 8), 16.0)).?;
     defer path.deinit(gpa);
 
-    try std.testing.expectEqual(Point{ .x = 10, .y = 1, .z = 8 }, path.points[path.points.len - 1]);
+    try std.testing.expectEqual(BlockPos.init(10, 1, 8), path.points[path.points.len - 1]);
 
     var went_around = false;
     for (path.points) |point| {
@@ -454,13 +440,13 @@ test "a one-block rise is stepped up onto" {
     var x: i32 = 6;
     while (x <= 10) : (x += 1) {
         var z: i32 = 6;
-        while (z <= 10) : (z += 1) w.setBlock(x, 1, z, .stone);
+        while (z <= 10) : (z += 1) w.setBlock(.init(x, 1, z), .stone);
     }
 
-    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 8, 2, 8, 16.0)).?;
+    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(8, 2, 8), 16.0)).?;
     defer path.deinit(gpa);
 
-    try std.testing.expectEqual(Point{ .x = 8, .y = 2, .z = 8 }, path.points[path.points.len - 1]);
+    try std.testing.expectEqual(BlockPos.init(8, 2, 8), path.points[path.points.len - 1]);
 }
 
 test "a lava moat is never crossed" {
@@ -470,9 +456,9 @@ test "a lava moat is never crossed" {
 
     carve(&w, 1, 2, 13, 7, 9);
     var z: i32 = 7;
-    while (z <= 9) : (z += 1) w.setBlock(7, 1, z, .stationary_lava);
+    while (z <= 9) : (z += 1) w.setBlock(.init(7, 1, z), .stationary_lava);
 
-    const path = try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 12, 1, 8, 16.0);
+    const path = try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(12, 1, 8), 16.0);
     if (path) |found| {
         var owned = found;
         defer owned.deinit(gpa);
@@ -491,11 +477,11 @@ test "a drop of more than three blocks is not taken" {
         var z: i32 = 7;
         while (z <= 9) : (z += 1) {
             var y: i32 = 1;
-            while (y < 9) : (y += 1) w.setBlock(x, y, z, .air);
+            while (y < 9) : (y += 1) w.setBlock(.init(x, y, z), .air);
         }
     }
 
-    const path = try toBlock(gpa, &w, pigAt(4.5, 9, 8.5), 12, 9, 8, 16.0);
+    const path = try toBlock(gpa, &w, pigAt(4.5, 9, 8.5), .init(12, 9, 8), 16.0);
     if (path) |found| {
         var owned = found;
         defer owned.deinit(gpa);
@@ -510,7 +496,7 @@ test "an unreachable target still yields the closest approach" {
 
     carve(&w, 1, 2, 8, 7, 9);
 
-    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 12, 1, 8, 16.0)).?;
+    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(12, 1, 8), 16.0)).?;
     defer path.deinit(gpa);
 
     const end = path.destination().?;
@@ -522,7 +508,7 @@ test "the walked position is centred in the block for a pig-sized mob" {
     var w = try testing.flatWorld(gpa, 1);
     defer w.deinit();
 
-    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), 6, 1, 8, 16.0)).?;
+    var path = (try toBlock(gpa, &w, pigAt(4.5, 1, 8.5), .init(6, 1, 8), 16.0)).?;
     defer path.deinit(gpa);
 
     const position = path.position(pigAt(4.5, 1, 8.5));

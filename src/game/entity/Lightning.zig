@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Entity = @import("../Entity.zig");
 
@@ -40,23 +41,21 @@ pub fn scorch(self: *const Lightning, world_map: *world.World, rand: *world.Java
     const x = math.util.floorDouble(self.base.position.x);
     const y = math.util.floorDouble(self.base.position.y);
     const z = math.util.floorDouble(self.base.position.z);
-    try lightFire(world_map, x, y, z);
+    try lightFire(world_map, .init(x, y, z));
 
     for (0..scatter_fires) |_| {
         try lightFire(
             world_map,
-            x + rand.nextIntBound(3) - 1,
-            y + rand.nextIntBound(3) - 1,
-            z + rand.nextIntBound(3) - 1,
+            .init(x + rand.nextIntBound(3) - 1, y + rand.nextIntBound(3) - 1, z + rand.nextIntBound(3) - 1),
         );
     }
 }
 
-fn lightFire(world_map: *world.World, x: i32, y: i32, z: i32) !void {
-    if (y < 0 or y >= world.Chunk.height) return;
-    if (world_map.getBlock(x, y, z) != .air) return;
-    if (!world.block_update.canPlaceAt(world_map, x, y, z, .fire)) return;
-    try world_map.setBlockWithNotify(x, y, z, .fire);
+fn lightFire(world_map: *world.World, pos: BlockPos) !void {
+    if (pos.y < 0 or pos.y >= world.Chunk.height) return;
+    if (world_map.getBlock(pos) != .air) return;
+    if (!world.block_update.canPlaceAt(world_map, pos, .fire)) return;
+    try world_map.setBlockWithNotify(pos, .fire);
 }
 
 pub const Step = struct {
@@ -135,7 +134,7 @@ test "a bolt sets the ground alight where it lands" {
     const bolt = Lightning.strike(math.Vec3.init(8, 4, 8), &rand);
     try bolt.scorch(&w, &rand);
 
-    try std.testing.expectEqual(world.Block.fire, w.getBlock(8, 4, 8));
+    try std.testing.expectEqual(world.Block.fire, w.getBlock(.init(8, 4, 8)));
 }
 
 test "the strike box reaches out three blocks and six up" {

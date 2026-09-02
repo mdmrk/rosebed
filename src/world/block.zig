@@ -2,6 +2,7 @@ const std = @import("std");
 
 const assets = @import("assets");
 
+const BlockPos = @import("BlockPos.zig");
 const farming = @import("farming.zig");
 const item = @import("item.zig");
 const Item = item.Item;
@@ -251,10 +252,10 @@ pub const Def = struct {
     selection_bounds: ?*const fn (Block, u4) Bounds = null,
     cross_tile: ?*const fn (Block, u4) u8 = null,
     display_name: ?*const fn (Block, u4) []const u8 = null,
-    on_tick: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
-    on_random_tick: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
-    on_neighbor_change: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void = null,
-    on_activated: ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!bool = null,
+    on_tick: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
+    on_random_tick: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
+    on_neighbor_change: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
+    on_activated: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!bool = null,
 };
 
 const vanilla_keys: [256][]const u8 = keysFromEnum();
@@ -994,7 +995,7 @@ pub const Block = enum(u8) {
         return self.def().replaceable;
     }
 
-    fn vanillaRandomTick(self: Block) ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void {
+    fn vanillaRandomTick(self: Block) ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void {
         return switch (self) {
             .locked_chest => rotAway,
             .crops => farming.tickCrops,
@@ -1003,7 +1004,7 @@ pub const Block = enum(u8) {
         };
     }
 
-    fn vanillaNeighborChange(self: Block) ?*const fn (*World, i32, i32, i32, Block) std.mem.Allocator.Error!void {
+    fn vanillaNeighborChange(self: Block) ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void {
         return switch (self) {
             .farmland => farming.onFarmlandNeighborChange,
             else => null,
@@ -2104,8 +2105,8 @@ const chest_front_tile: u8 = 27;
 const chest_large_front_tile: u8 = 42;
 const chest_large_back_tile: u8 = 58;
 
-fn rotAway(world_map: *World, x: i32, y: i32, z: i32, _: Block) std.mem.Allocator.Error!void {
-    try world_map.setBlockWithNotify(x, y, z, .air);
+fn rotAway(world_map: *World, pos: BlockPos, _: Block) std.mem.Allocator.Error!void {
+    try world_map.setBlockWithNotify(pos, .air);
 }
 
 pub const ChestRing = struct {

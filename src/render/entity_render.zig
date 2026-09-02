@@ -3,6 +3,7 @@ const std = @import("std");
 const game = @import("game");
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Atlas = @import("Atlas.zig");
 const chunk_mesher = @import("chunk_mesher.zig");
@@ -16,7 +17,7 @@ const white = [4]u8{ 255, 255, 255, 255 };
 
 fn brightnessOf(world_map: *const world.World, base: game.Entity) f32 {
     const sample = base.lightSamplePosition();
-    return world.light.brightnessAt(world_map, sample[0], sample[1], sample[2], 0);
+    return world.light.brightnessAt(world_map, .init(sample[0], sample[1], sample[2]), 0);
 }
 
 pub const stack_copy_seed: i64 = 187;
@@ -254,10 +255,10 @@ pub fn appendEntityShadow(
         while (y <= max_y) : (y += 1) {
             var z = math.util.floorDouble(center.z - size);
             while (z <= max_z) : (z += 1) {
-                const below = world_map.getBlock(x, y - 1, z);
+                const below = world_map.getBlock(.init(x, y - 1, z));
                 if (below == .air or !below.renderAsNormalBlock()) continue;
-                if (world.light.levelAt(world_map, x, y, z) <= 3) continue;
-                try appendShadowOnBlock(mesh, gpa, world_map, center, size, fade, x, y, z);
+                if (world.light.levelAt(world_map, .init(x, y, z)) <= 3) continue;
+                try appendShadowOnBlock(mesh, gpa, world_map, center, size, fade, .init(x, y, z));
             }
         }
     }
@@ -290,18 +291,16 @@ fn appendShadowOnBlock(
     center: math.Vec3,
     size: f32,
     fade: f32,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
 ) !void {
-    const plane_y: f64 = @floatFromInt(y);
-    const brightness = world.light.brightnessAt(world_map, x, y, z, 0);
+    const plane_y: f64 = @floatFromInt(pos.y);
+    const brightness = world.light.brightnessAt(world_map, pos, 0);
     const strength = (fade - (center.y - plane_y) / 2.0) * 0.5 * brightness;
     if (strength < 0.0) return;
 
     const alpha: u8 = @intFromFloat(@min(strength, 1.0) * 255.0);
-    const west: f32 = @floatFromInt(x);
-    const north: f32 = @floatFromInt(z);
+    const west: f32 = @floatFromInt(pos.x);
+    const north: f32 = @floatFromInt(pos.z);
     const east = west + 1.0;
     const south = north + 1.0;
     const top = @as(f32, @floatCast(plane_y)) + 1.0 / 64.0;
@@ -354,9 +353,7 @@ pub fn appendMovingPiston(
             &view,
             state.stored,
             state.stored_metadata,
-            pos.x,
-            pos.y,
-            pos.z,
+            pos,
             carried,
             chunk_mesher.piston_shaft_length / 2.0,
             options,
@@ -372,9 +369,7 @@ pub fn appendMovingPiston(
             &view,
             .piston_head,
             world.block.pistonFacingValue(state.facing) | sticky,
-            pos.x,
-            pos.y,
-            pos.z,
+            pos,
             carried,
             if (progress < 0.5) chunk_mesher.piston_shaft_length else chunk_mesher.piston_shaft_length / 2.0,
             options,
@@ -386,9 +381,7 @@ pub fn appendMovingPiston(
             &view,
             state.stored,
             state.stored_metadata | world.block.piston_flag,
-            pos.x,
-            pos.y,
-            pos.z,
+            pos,
             cell,
             colorizer,
             chunk_mesher.climateAt(&view, pos.x, pos.z),
@@ -403,9 +396,7 @@ pub fn appendMovingPiston(
         &view,
         state.stored,
         state.stored_metadata,
-        pos.x,
-        pos.y,
-        pos.z,
+        pos,
         carried,
         colorizer,
         chunk_mesher.climateAt(&view, pos.x, pos.z),
@@ -1339,7 +1330,7 @@ test "a dropped block is lit by the item lamps, and its shading turns as it spin
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
     defer world_map.deinit();
-    world_map.setBlockLight(8, 64, 8, 15);
+    world_map.setBlockLight(.init(8, 64, 8), 15);
 
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
@@ -1401,7 +1392,7 @@ test "an item resting on a lit block lays its shadow on the surface below it" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
     defer world_map.deinit();
-    world_map.setBlockLight(8, 64, 8, 15);
+    world_map.setBlockLight(.init(8, 64, 8), 15);
 
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
@@ -1432,7 +1423,7 @@ test "a chicken on a lit block lays a shadow, and a smaller one than a cow" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
     defer world_map.deinit();
-    world_map.setBlockLight(8, 64, 8, 15);
+    world_map.setBlockLight(.init(8, 64, 8), 15);
 
     const viewer = math.Vec3.init(8.5, 66, 8.5);
     const standing = math.Vec3.init(8.5, 64, 8.5);
@@ -1478,7 +1469,7 @@ test "an item casts no shadow in the dark or with nothing solid under it" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
     defer world_map.deinit();
-    world_map.setBlockLight(8, 70, 8, 15);
+    world_map.setBlockLight(.init(8, 70, 8), 15);
 
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
@@ -1637,7 +1628,7 @@ test "primed tnt renders as a full cube that flashes white as the fuse burns" {
 
     var dark: MeshBuilder = .{};
     defer dark.deinit(gpa);
-    var lit = game.PrimedTnt.spawnInBlock(0, 4, 0, 17, &rand);
+    var lit = game.PrimedTnt.spawnInBlock(.init(0, 4, 0), 17, &rand);
     try appendPrimedTnt(&dark, gpa, &world_map, lit, 0);
     try std.testing.expectEqual(@as(usize, 6 * 4), dark.vertices.items.len);
     try std.testing.expectEqual(@as(f32, 0.0), lit.flashWhitening(0));
@@ -2483,7 +2474,7 @@ fn paintingTileBrightness(
         2 => x = math.util.floorDouble(painting.position.x - @as(f64, across / 16.0)),
         3 => z = math.util.floorDouble(painting.position.z + @as(f64, across / 16.0)),
     }
-    return world.light.brightnessAt(world_map, x, y, z, 0);
+    return world.light.brightnessAt(world_map, .init(x, y, z), 0);
 }
 
 const arrow_scale: f32 = 0.05625;
@@ -3767,13 +3758,13 @@ test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
         defer world_map.deinit();
 
         const step = world.block.bedStep(facing);
-        world_map.setBlock(8, 64, 8, .bed);
-        world_map.setBlockMetadata(8, 64, 8, @as(u4, facing) | world.block.bed_pillow_bit);
-        world_map.setBlock(8 - step[0], 64, 8 - step[1], .bed);
-        world_map.setBlockMetadata(8 - step[0], 64, 8 - step[1], facing);
+        world_map.setBlock(.init(8, 64, 8), .bed);
+        world_map.setBlockMetadata(.init(8, 64, 8), @as(u4, facing) | world.block.bed_pillow_bit);
+        world_map.setBlock(.init(8 - step[0], 64, 8 - step[1]), .bed);
+        world_map.setBlockMetadata(.init(8 - step[0], 64, 8 - step[1]), facing);
 
         var player = game.Player.spawn(.{ .x = 8.5, .y = 64, .z = 8.5 });
-        player.layInBed(&world_map, 8, 64, 8);
+        player.layInBed(&world_map, .init(8, 64, 8));
         player.base.prev_position = player.base.position;
 
         const reach = try sleepingHeadOffset(&world_map, gpa, player);

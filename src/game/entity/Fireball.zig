@@ -192,7 +192,7 @@ test "a fireball aimed at a wall reports where it would strike it" {
 
     ball.settle(&w);
     const hit = ball.blockImpact(&w).?;
-    try std.testing.expectEqual(@as(i32, 12), hit.x);
+    try std.testing.expectEqual(@as(i32, 12), hit.pos.x);
 
     ball.base.motion = math.Vec3.init(-4.0, 0, 0);
     try std.testing.expect(ball.blockImpact(&w) == null);

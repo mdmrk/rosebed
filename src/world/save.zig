@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 
 const block = @import("block.zig");
+const BlockPos = @import("BlockPos.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("Chunk.zig");
 const chunk_nbt = @import("chunk_nbt.zig");
@@ -937,16 +938,14 @@ test "a furnace written with its chunk comes back mid-smelt" {
     };
 
     const tile_entities = try gpa.alloc(nbt.Tag, 1);
-    tile_entities[0] = try furnace.store(gpa, 33, 64, -71, state);
+    tile_entities[0] = try furnace.store(gpa, .init(33, 64, -71), state);
     try world.writeChunk(gpa, io, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), tile_entities);
 
     var sink: FurnaceSink = .{};
     _ = (try world.readChunk(gpa, io, 2, -5, null, .{ .context = &sink, .visit = FurnaceSink.visit })).?;
 
     const found = sink.found.?;
-    try std.testing.expectEqual(@as(i32, 33), found.x);
-    try std.testing.expectEqual(@as(i32, 64), found.y);
-    try std.testing.expectEqual(@as(i32, -71), found.z);
+    try std.testing.expectEqual(BlockPos.init(33, 64, -71), found.pos);
     try std.testing.expectEqual(state, found.state);
 }
 
@@ -975,15 +974,15 @@ test "a chest written with its chunk comes back with its contents" {
     state.slot(26).* = .{ .id = .{ .block = .wool }, .count = 12, .meta = 14 };
 
     const tile_entities = try gpa.alloc(nbt.Tag, 1);
-    tile_entities[0] = try chest.store(gpa, 33, 64, -71, state);
+    tile_entities[0] = try chest.store(gpa, .init(33, 64, -71), state);
     try world.writeChunk(gpa, io, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), tile_entities);
 
     var sink: ChestSink = .{};
     _ = (try world.readChunk(gpa, io, 2, -5, null, .{ .context = &sink, .visit = ChestSink.visit })).?;
 
     const found = sink.found.?;
-    try std.testing.expectEqual(@as(i32, 33), found.x);
-    try std.testing.expectEqual(@as(i32, -71), found.z);
+    try std.testing.expectEqual(@as(i32, 33), found.pos.x);
+    try std.testing.expectEqual(@as(i32, -71), found.pos.z);
     try std.testing.expectEqual(state, found.state);
 }
 

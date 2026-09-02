@@ -14,13 +14,13 @@ const blast_is_flaming = true;
 pub fn blowUp(gpa: std.mem.Allocator, level: *Level, pillow: [3]i32, metadata: u4) !void {
     var x = pillow[0];
     var z = pillow[2];
-    try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+    try level.world_map.setBlockWithNotify(.init(x, pillow[1], z), .air);
 
     const step = world.block.bedStep(world.block.bedFacing(metadata));
     x += step[0];
     z += step[1];
-    if (level.world_map.getBlock(x, pillow[1], z) == .bed) {
-        try level.world_map.setBlockWithNotify(x, pillow[1], z, .air);
+    if (level.world_map.getBlock(.init(x, pillow[1], z)) == .bed) {
+        try level.world_map.setBlockWithNotify(.init(x, pillow[1], z), .air);
     }
 
     try explosion.detonate(

@@ -326,7 +326,7 @@ fn sampleColumn(world_map: *const World, x: i32, z: i32, depth: *i32) Sampled {
     if (top <= 1) return .{ .top = top, .id = id };
 
     while (true) {
-        id = world_map.getBlock(x, top - 1, z);
+        id = world_map.getBlock(.init(x, top - 1, z));
         var covering = true;
         if (id == .air) {
             covering = false;
@@ -336,7 +336,7 @@ fn sampleColumn(world_map: *const World, x: i32, z: i32, depth: *i32) Sampled {
 
         if (!covering) {
             top -= 1;
-            id = world_map.getBlock(x, top - 1, z);
+            id = world_map.getBlock(.init(x, top - 1, z));
             if (top <= 0) return .{ .top = top, .id = id };
             continue;
         }
@@ -345,7 +345,7 @@ fn sampleColumn(world_map: *const World, x: i32, z: i32, depth: *i32) Sampled {
 
         var below = top - 1;
         while (true) {
-            const under = world_map.getBlock(x, below, z);
+            const under = world_map.getBlock(.init(x, below, z));
             below -= 1;
             depth.* += 1;
             if (below <= 0 or under == .air or !under.material().isLiquid()) return .{ .top = top, .id = id };

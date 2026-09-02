@@ -12,11 +12,11 @@ pub const frame_width = 2;
 pub const frame_height = 3;
 
 fn blockAt(world_map: anytype, pos: BlockPos) Block {
-    return world_map.getBlock(pos.x, pos.y, pos.z);
+    return world_map.getBlock(pos);
 }
 
 fn setBlockAt(world_map: *World, pos: BlockPos, id: Block) !void {
-    try world_map.setBlockWithNotify(pos.x, pos.y, pos.z, id);
+    try world_map.setBlockWithNotify(pos, id);
 }
 
 pub fn spansX(world_map: anytype, pos: BlockPos) bool {
@@ -138,8 +138,8 @@ pub fn findExisting(world_map: *const World, from: math.Vec3) ?math.Vec3 {
             const dz = @as(f64, @floatFromInt(z)) + 0.5 - from.z;
             var y: i32 = 127;
             while (y >= 0) : (y -= 1) {
-                if (world_map.getBlock(x, y, z) != .portal) continue;
-                while (world_map.getBlock(x, y - 1, z) == .portal) y -= 1;
+                if (world_map.getBlock(.init(x, y, z)) != .portal) continue;
+                while (world_map.getBlock(.init(x, y - 1, z)) == .portal) y -= 1;
 
                 const dy = @as(f64, @floatFromInt(y)) + 0.5 - from.y;
                 const distance = dx * dx + dy * dy + dz * dz;
@@ -203,8 +203,8 @@ fn searchPlacement(world_map: *const World, from: math.Vec3, first_orientation: 
             const dz = @as(f64, @floatFromInt(z)) + 0.5 - from.z;
             var y: i32 = 127;
             column: while (y >= 0) : (y -= 1) {
-                if (world_map.getBlock(x, y, z) != .air) continue;
-                while (y > 0 and world_map.getBlock(x, y - 1, z) == .air) y -= 1;
+                if (world_map.getBlock(.init(x, y, z)) != .air) continue;
+                while (y > 0 and world_map.getBlock(.init(x, y - 1, z)) == .air) y -= 1;
 
                 var orientation = first_orientation;
                 while (orientation < first_orientation + orientations) : (orientation += 1) {
@@ -297,7 +297,7 @@ pub fn create(world_map: *World, rand: *JavaRandom, from: math.Vec3) !void {
             var up: i32 = -1;
             while (up < 4) : (up += 1) {
                 const cell = origin.offset((across - 1) * step_x, up, (across - 1) * step_z);
-                try world_map.notifyBlocksOfNeighborChange(cell.x, cell.y, cell.z, blockAt(world_map, cell));
+                try world_map.notifyBlocksOfNeighborChange(cell, blockAt(world_map, cell));
             }
         }
     }
@@ -334,7 +334,7 @@ fn obsidianFrameWorld(gpa: std.mem.Allocator, along_x: bool) !World {
             const on_frame = across == -1 or across == frame_width or up == -1 or up == frame_height;
             const corner = (across == -1 or across == frame_width) and (up == -1 or up == frame_height);
             if (!on_frame or corner) continue;
-            w.setBlock(8 + step_x * across, 64 + up, 8 + step_z * across, .obsidian);
+            w.setBlock(.init(8 + step_x * across, 64 + up, 8 + step_z * across), .obsidian);
         }
     }
     return w;
@@ -357,7 +357,7 @@ test "lighting a fire inside a finished obsidian frame fills it with portal bloc
             while (up < frame_height) : (up += 1) {
                 try std.testing.expectEqual(
                     .portal,
-                    w.getBlock(8 + step_x * across, 64 + up, 8 + step_z * across),
+                    w.getBlock(.init(8 + step_x * across, 64 + up, 8 + step_z * across)),
                 );
             }
         }
@@ -369,10 +369,10 @@ test "a frame with a hole in it does not light" {
     var w = try obsidianFrameWorld(gpa, true);
     defer w.deinit();
 
-    w.setBlock(8, 67, 8, .air);
+    w.setBlock(.init(8, 67, 8), .air);
 
     try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
-    try std.testing.expectEqual(.air, w.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 64, 8)));
 }
 
 test "a frame blocked by something other than fire does not light" {
@@ -380,7 +380,7 @@ test "a frame blocked by something other than fire does not light" {
     var w = try obsidianFrameWorld(gpa, true);
     defer w.deinit();
 
-    w.setBlock(9, 65, 8, .stone);
+    w.setBlock(.init(9, 65, 8), .stone);
 
     try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 }
@@ -390,10 +390,10 @@ test "fire already burning in the frame does not stop it lighting" {
     var w = try obsidianFrameWorld(gpa, true);
     defer w.deinit();
 
-    w.setBlock(8, 64, 8, .fire);
+    w.setBlock(.init(8, 64, 8), .fire);
 
     try std.testing.expect(try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
-    try std.testing.expectEqual(.portal, w.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.portal, w.getBlock(.init(8, 64, 8)));
 }
 
 test "obsidian on neither axis, or both, leaves the frame unlit" {
@@ -404,8 +404,8 @@ test "obsidian on neither axis, or both, leaves the frame unlit" {
 
     try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 
-    w.setBlock(7, 64, 8, .obsidian);
-    w.setBlock(8, 64, 7, .obsidian);
+    w.setBlock(.init(7, 64, 8), .obsidian);
+    w.setBlock(.init(8, 64, 7), .obsidian);
     try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
 }
 
@@ -420,10 +420,10 @@ test "knocking the frame out breaks the portal blocks that leaned on it" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    w.setBlock(8, 63, 8, .air);
+    w.setBlock(.init(8, 63, 8), .air);
     try onNeighborChange(&w, .{ .x = 8, .y = 64, .z = 8 });
 
-    try std.testing.expectEqual(.air, w.getBlock(8, 64, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 64, 8)));
 }
 
 test "a portal block in a whole frame survives its neighbours changing" {
@@ -436,7 +436,7 @@ test "a portal block in a whole frame survives its neighbours changing" {
         var up: i32 = 0;
         while (up < frame_height) : (up += 1) {
             try onNeighborChange(&w, .{ .x = 8 + across, .y = 64 + up, .z = 8 });
-            try std.testing.expectEqual(.portal, w.getBlock(8 + across, 64 + up, 8));
+            try std.testing.expectEqual(.portal, w.getBlock(.init(8 + across, 64 + up, 8)));
         }
     }
 }
@@ -446,10 +446,10 @@ test "a portal too tall for its frame breaks" {
     var w = try litPortalWorld(gpa);
     defer w.deinit();
 
-    w.setBlock(8, 67, 8, .portal);
+    w.setBlock(.init(8, 67, 8), .portal);
     try onNeighborChange(&w, .{ .x = 8, .y = 67, .z = 8 });
 
-    try std.testing.expectEqual(.air, w.getBlock(8, 67, 8));
+    try std.testing.expectEqual(.air, w.getBlock(.init(8, 67, 8)));
 }
 
 test "the teleporter lands on the nearest portal, centred in its mouth" {
@@ -505,7 +505,7 @@ test "the teleporter carves a fresh portal where none exists, and lands in it" {
     const at_x: i32 = @intFromFloat(@floor(landed.x));
     const at_y: i32 = @intFromFloat(@floor(landed.y));
     const at_z: i32 = @intFromFloat(@floor(landed.z));
-    try std.testing.expectEqual(.portal, w.getBlock(at_x, at_y, at_z));
+    try std.testing.expectEqual(.portal, w.getBlock(.init(at_x, at_y, at_z)));
     try std.testing.expect(findExisting(&w, math.Vec3.init(8.5, 64.0, 8.5)) != null);
 }
 
@@ -529,9 +529,9 @@ test "a portal carved out of thin air still gets an obsidian frame under it" {
     const at_y: i32 = @intFromFloat(@floor(landed.y));
     const at_z: i32 = @intFromFloat(@floor(landed.z));
 
-    try std.testing.expectEqual(.portal, w.getBlock(at_x, at_y, at_z));
+    try std.testing.expectEqual(.portal, w.getBlock(.init(at_x, at_y, at_z)));
     try std.testing.expect(at_y >= 70 and at_y <= 118);
-    try std.testing.expectEqual(.obsidian, w.getBlock(at_x, at_y - 1, at_z));
+    try std.testing.expectEqual(.obsidian, w.getBlock(.init(at_x, at_y - 1, at_z)));
 }
 
 test "a portal lights the frame it stands in" {
@@ -542,8 +542,8 @@ test "a portal lights the frame it stands in" {
     const light = @import("light.zig");
     try light.relightChunk(gpa, &w, 0, 0);
 
-    try std.testing.expectEqual(@as(u4, 11), w.getBlockLight(8, 64, 8));
-    try std.testing.expectEqual(@as(u4, 10), w.getBlockLight(8, 64, 9));
+    try std.testing.expectEqual(@as(u4, 11), w.getBlockLight(.init(8, 64, 8)));
+    try std.testing.expectEqual(@as(u4, 10), w.getBlockLight(.init(8, 64, 9)));
 }
 
 test "arriving in the nether carves a portal into real nether terrain" {
@@ -573,8 +573,8 @@ test "arriving in the nether carves a portal into real nether terrain" {
     const at_y: i32 = @intFromFloat(@floor(landed.y));
     const at_z: i32 = @intFromFloat(@floor(landed.z));
 
-    try std.testing.expectEqual(.portal, w.getBlock(at_x, at_y, at_z));
-    try std.testing.expectEqual(.obsidian, w.getBlock(at_x, at_y - 1, at_z));
+    try std.testing.expectEqual(.portal, w.getBlock(.init(at_x, at_y, at_z)));
+    try std.testing.expectEqual(.obsidian, w.getBlock(.init(at_x, at_y - 1, at_z)));
 
     const found_again = findExisting(&w, math.Vec3.init(from_x, 70.0, from_z)).?;
     try std.testing.expectApproxEqAbs(landed.x, found_again.x, 1.0e-9);

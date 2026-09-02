@@ -82,12 +82,12 @@ pub fn railAt(world_map: *const world.World, x: f64, y: f64, z: f64) ?math.Vec3 
     const cx = math.util.floorDouble(x);
     var cy = math.util.floorDouble(y);
     const cz = math.util.floorDouble(z);
-    if (world.block.isRail(world_map.getBlock(cx, cy - 1, cz))) cy -= 1;
+    if (world.block.isRail(world_map.getBlock(.init(cx, cy - 1, cz)))) cy -= 1;
 
-    const id = world_map.getBlock(cx, cy, cz);
+    const id = world_map.getBlock(.init(cx, cy, cz));
     if (!world.block.isRail(id)) return null;
 
-    const shape = world.block.railShape(id, world_map.getBlockMetadata(cx, cy, cz));
+    const shape = world.block.railShape(id, world_map.getBlockMetadata(.init(cx, cy, cz)));
     if (shape > 9) return null;
 
     const rails = track[shape];
@@ -126,12 +126,12 @@ pub fn railAhead(world_map: *const world.World, x: f64, y: f64, z: f64, offset: 
     const cx = math.util.floorDouble(x);
     var cy = math.util.floorDouble(y);
     const cz = math.util.floorDouble(z);
-    if (world.block.isRail(world_map.getBlock(cx, cy - 1, cz))) cy -= 1;
+    if (world.block.isRail(world_map.getBlock(.init(cx, cy - 1, cz)))) cy -= 1;
 
-    const id = world_map.getBlock(cx, cy, cz);
+    const id = world_map.getBlock(.init(cx, cy, cz));
     if (!world.block.isRail(id)) return null;
 
-    const shape = world.block.railShape(id, world_map.getBlockMetadata(cx, cy, cz));
+    const shape = world.block.railShape(id, world_map.getBlockMetadata(.init(cx, cy, cz)));
     if (shape > 9) return null;
 
     const rails = track[shape];
@@ -178,9 +178,9 @@ pub fn tick(
     const cx = math.util.floorDouble(start.x);
     var cy = math.util.floorDouble(start.y);
     const cz = math.util.floorDouble(start.z);
-    if (world.block.isRail(world_map.getBlock(cx, cy - 1, cz))) cy -= 1;
+    if (world.block.isRail(world_map.getBlock(.init(cx, cy - 1, cz)))) cy -= 1;
 
-    const id = world_map.getBlock(cx, cy, cz);
+    const id = world_map.getBlock(.init(cx, cy, cz));
     if (world.block.isRail(id)) {
         self.rideRail(world_map, obstacles, id, cx, cy, cz, has_rider, &step);
     } else {
@@ -204,7 +204,7 @@ fn rideRail(
     step: *Step,
 ) void {
     const before = railAt(world_map, self.centre().x, self.centre().y, self.centre().z);
-    const metadata = world_map.getBlockMetadata(cx, cy, cz);
+    const metadata = world_map.getBlockMetadata(.init(cx, cy, cz));
     const shape = world.block.railShape(id, metadata);
     if (shape > 9) return;
 
@@ -367,15 +367,15 @@ fn rideRail(
         self.base.motion.x += self.base.motion.x / rolling * boost;
         self.base.motion.z += self.base.motion.z / rolling * boost;
     } else if (shape == 1) {
-        if (world_map.getBlock(cx - 1, cy, cz).isNormalCube()) {
+        if (world_map.getBlock(.init(cx - 1, cy, cz)).isNormalCube()) {
             self.base.motion.x = nudge;
-        } else if (world_map.getBlock(cx + 1, cy, cz).isNormalCube()) {
+        } else if (world_map.getBlock(.init(cx + 1, cy, cz)).isNormalCube()) {
             self.base.motion.x = -nudge;
         }
     } else if (shape == 0) {
-        if (world_map.getBlock(cx, cy, cz - 1).isNormalCube()) {
+        if (world_map.getBlock(.init(cx, cy, cz - 1)).isNormalCube()) {
             self.base.motion.z = nudge;
-        } else if (world_map.getBlock(cx, cy, cz + 1).isNormalCube()) {
+        } else if (world_map.getBlock(.init(cx, cy, cz + 1)).isNormalCube()) {
             self.base.motion.z = -nudge;
         }
     }
@@ -584,9 +584,9 @@ fn railWorld(shape_along_x: bool) !world.World {
     var step: i32 = 4;
     while (step <= 12) : (step += 1) {
         if (shape_along_x) {
-            try w.setBlockWithNotify(step, 12, 8, .rail);
+            try w.setBlockWithNotify(.init(step, 12, 8), .rail);
         } else {
-            try w.setBlockWithNotify(8, 12, step, .rail);
+            try w.setBlockWithNotify(.init(8, 12, step), .rail);
         }
     }
     return w;
@@ -626,7 +626,7 @@ test "a minecart rolls along the rail it was pushed down and stays on it" {
 test "a minecart driven into a wall on the rails stops dead" {
     var w = try railWorld(true);
     defer w.deinit();
-    try w.setBlockWithNotify(9, 12, 8, .stone);
+    try w.setBlockWithNotify(.init(9, 12, 8), .stone);
 
     var cart = Minecart.spawn(math.Vec3.init(6.5, 12.0, 8.5), .empty);
     cart.base.motion = math.Vec3.init(0.3, 0, 0);
@@ -644,7 +644,7 @@ test "the rail lookahead reads the next rail's height, sloped or not" {
     const flat = Minecart.railAt(&w, 8.5, 12.5, 8.5).?;
     try std.testing.expectApproxEqAbs(flat.y, level.y, 1.0e-9);
 
-    try w.setBlockMetadataWithNotify(9, 12, 8, 3);
+    try w.setBlockMetadataWithNotify(.init(9, 12, 8), 3);
     const climbing = Minecart.railAhead(&w, 8.5, 12.5, 8.5, 0.6).?;
     try std.testing.expect(climbing.y > level.y);
 
@@ -666,8 +666,8 @@ test "a minecart left alone on level track coasts to a halt" {
 test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
     var boosted = try railWorld(true);
     defer boosted.deinit();
-    try boosted.setBlockWithNotify(8, 12, 8, .rail_powered);
-    try boosted.setBlockMetadataWithNotify(8, 12, 8, 1 | world.block.rail_flag_bit);
+    try boosted.setBlockWithNotify(.init(8, 12, 8), .rail_powered);
+    try boosted.setBlockMetadataWithNotify(.init(8, 12, 8), 1 | world.block.rail_flag_bit);
 
     var fast = Minecart.spawn(math.Vec3.init(8.5, 12.0, 8.5), .empty);
     fast.base.motion = math.Vec3.init(0.1, 0, 0);
@@ -677,8 +677,8 @@ test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
 
     var braked = try railWorld(true);
     defer braked.deinit();
-    try braked.setBlockWithNotify(8, 12, 8, .rail_powered);
-    try braked.setBlockMetadataWithNotify(8, 12, 8, 1);
+    try braked.setBlockWithNotify(.init(8, 12, 8), .rail_powered);
+    try braked.setBlockMetadataWithNotify(.init(8, 12, 8), 1);
 
     var slow = Minecart.spawn(math.Vec3.init(8.5, 12.0, 8.5), .empty);
     slow.base.motion = math.Vec3.init(0.1, 0, 0);

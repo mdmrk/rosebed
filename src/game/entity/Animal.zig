@@ -4,6 +4,7 @@ const assets = @import("assets");
 pub const default_hurt_sound = assets.sounds.random.hurt;
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 const testing_world = world.testing;
 
 pub const Entity = @import("../Entity.zig");
@@ -64,7 +65,7 @@ path: ?world.pathfinder.Path = null,
 killer: ?Attacker = null,
 riding: Entity.Id = Entity.no_id,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
-path_weight: *const fn (*const world.World, i32, i32, i32) f32 = blockPathWeight,
+path_weight: *const fn (*const world.World, BlockPos) f32 = blockPathWeight,
 action_state: *const fn (
     *Animal,
     std.mem.Allocator,
@@ -340,14 +341,14 @@ fn isInsideOpaqueBlock(self: Animal, world_map: *const world.World) bool {
         const x = math.util.floorDouble(self.base.position.x + dx);
         const y = math.util.floorDouble(self.base.position.y + self.eyeHeight() + dy);
         const z = math.util.floorDouble(self.base.position.z + dz);
-        if (world_map.getBlock(x, y, z).isOpaqueCube()) return true;
+        if (world_map.getBlock(.init(x, y, z)).isOpaqueCube()) return true;
     }
     return false;
 }
 
-pub fn blockPathWeight(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
-    if (world_map.getBlock(x, y - 1, z) == .grass) return 10.0;
-    return world.light.brightnessAt(world_map, x, y, z, 0) - 0.5;
+pub fn blockPathWeight(world_map: *const world.World, pos: BlockPos) f32 {
+    if (world_map.getBlock(pos.offset(0, -1, 0)) == .grass) return 10.0;
+    return world.light.brightnessAt(world_map, pos, 0) - 0.5;
 }
 
 pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
@@ -356,9 +357,9 @@ pub fn canSpawnHere(self: Animal, world_map: *const world.World) bool {
     const y = math.util.floorDouble(box.min_y);
     const z = math.util.floorDouble(self.base.position.z);
 
-    if (world_map.getBlock(x, y - 1, z) != .grass) return false;
-    if (@max(world_map.getSkyLight(x, y, z), world_map.getBlockLight(x, y, z)) <= 8) return false;
-    if (self.path_weight(world_map, x, y, z) < 0.0) return false;
+    if (world_map.getBlock(.init(x, y - 1, z)) != .grass) return false;
+    if (@max(world_map.getSkyLight(.init(x, y, z)), world_map.getBlockLight(.init(x, y, z))) <= 8) return false;
+    if (self.path_weight(world_map, .init(x, y, z)) < 0.0) return false;
 
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
 }
@@ -617,7 +618,7 @@ pub fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const w
         const x = math.util.floorDouble(self.base.position.x + @as(f64, @floatFromInt(rand.nextIntBound(13))) - 6.0);
         const y = math.util.floorDouble(self.base.position.y + @as(f64, @floatFromInt(rand.nextIntBound(7))) - 3.0);
         const z = math.util.floorDouble(self.base.position.z + @as(f64, @floatFromInt(rand.nextIntBound(13))) - 6.0);
-        const weight = self.path_weight(world_map, x, y, z);
+        const weight = self.path_weight(world_map, .init(x, y, z));
         if (weight > best_weight) {
             best_weight = weight;
             best = .{ x, y, z };
@@ -625,7 +626,7 @@ pub fn findWanderPath(self: *Animal, gpa: std.mem.Allocator, world_map: *const w
     }
 
     const target = best orelse return;
-    const found = try world.pathfinder.toBlock(gpa, world_map, self.pathMob(), target[0], target[1], target[2], wander_radius);
+    const found = try world.pathfinder.toBlock(gpa, world_map, self.pathMob(), .init(target[0], target[1], target[2]), wander_radius);
     self.setPath(gpa, found);
 }
 
@@ -1164,7 +1165,7 @@ test "an animal held under water drowns once its air runs out" {
     var w = try testing_world.flatWorld(gpa, 6);
     defer w.deinit();
 
-    w.setBlock(8, 1, 8, .stationary_water);
+    w.setBlock(.init(8, 1, 8), .stationary_water);
 
     var rand = world.JavaRandom.init(0);
     var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
@@ -1305,8 +1306,8 @@ test "grass is the preferred ground to wander onto" {
 
     w.getChunk(0, 0).?.setBlock(4, 0, 8, .grass);
 
-    try std.testing.expectEqual(@as(f32, 10.0), blockPathWeight(&w, 4, 1, 8));
-    try std.testing.expect(blockPathWeight(&w, 12, 1, 8) < 10.0);
+    try std.testing.expectEqual(@as(f32, 10.0), blockPathWeight(&w, .init(4, 1, 8)));
+    try std.testing.expect(blockPathWeight(&w, .init(12, 1, 8)) < 10.0);
 }
 
 test "an animal only spawns on lit grass" {
@@ -1330,7 +1331,7 @@ test "a taller animal needs the headroom its own height asks for" {
     var w = try grassWorld(gpa);
     defer w.deinit();
 
-    w.setBlock(8, 2, 8, .stone);
+    w.setBlock(.init(8, 2, 8), .stone);
 
     const short = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.9, .height = 0.9 });
     const tall = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.9, .height = 1.3 });

@@ -5,6 +5,7 @@ const math = @import("math");
 const net = @import("net");
 const remote = @import("remote");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Session = @import("Session.zig");
 
@@ -35,26 +36,24 @@ const Pair = struct {
         self.client_level.deinit(self.gpa);
     }
 
-    fn blockNeedsUpdate(context: *anyopaque, x: i32, y: i32, z: i32) std.mem.Allocator.Error!void {
+    fn blockNeedsUpdate(context: *anyopaque, pos: BlockPos) std.mem.Allocator.Error!void {
         const self: *Pair = @ptrCast(@alignCast(context));
-        if (y < 0 or y >= world.Chunk.height) return;
-        const block = self.server_level.world_map.getBlock(x, y, z);
-        const metadata = self.server_level.world_map.getBlockMetadata(x, y, z);
-        self.session.sendBlockChange(self.gpa, x, y, z, block, metadata) catch return error.OutOfMemory;
+        if (pos.y < 0 or pos.y >= world.Chunk.height) return;
+        const block = self.server_level.world_map.getBlock(pos);
+        const metadata = self.server_level.world_map.getBlockMetadata(pos);
+        self.session.sendBlockChange(self.gpa, pos, block, metadata) catch return error.OutOfMemory;
     }
 
     fn redrawAll(_: *anyopaque) std.mem.Allocator.Error!void {}
 
     fn playNote(
         context: *anyopaque,
-        x: i32,
-        y: i32,
-        z: i32,
+        pos: BlockPos,
         instrument: world.note.Instrument,
         pitch: u8,
     ) void {
         const self: *Pair = @ptrCast(@alignCast(context));
-        self.session.sendNote(self.gpa, x, y, z, instrument, pitch) catch {};
+        self.session.sendNote(self.gpa, pos, instrument, pitch) catch {};
     }
 
     fn start(self: *Pair) !void {
@@ -143,7 +142,7 @@ const Pair = struct {
         const z: i32 = @intFromFloat(@floor(feet.z));
 
         var y: i32 = world.Chunk.height - 1;
-        while (y > 0 and !self.server_level.world_map.getBlock(x, y, z).isSolid()) : (y -= 1) {}
+        while (y > 0 and !self.server_level.world_map.getBlock(.init(x, y, z)).isSolid()) : (y -= 1) {}
 
         const stand: math.Vec3 = .{
             .x = @as(f64, @floatFromInt(x)) + 0.5,
@@ -218,14 +217,14 @@ test "a block the client digs is broken on the server and echoed back" {
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
 
-    try std.testing.expect(pair.server_level.world_map.getBlock(x, y, z) != .air);
-    try std.testing.expect(pair.client_level.world_map.getBlock(x, y, z) != .air);
+    try std.testing.expect(pair.server_level.world_map.getBlock(.init(x, y, z)) != .air);
+    try std.testing.expect(pair.client_level.world_map.getBlock(.init(x, y, z)) != .air);
 
-    try pair.connection.reportDig(gpa, x, y, z, 1);
+    try pair.connection.reportDig(gpa, .init(x, y, z), 1);
     try pair.settle(2);
 
-    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(x, y, z));
-    try std.testing.expectEqual(world.Block.air, pair.client_level.world_map.getBlock(x, y, z));
+    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(.init(x, y, z)));
+    try std.testing.expectEqual(world.Block.air, pair.client_level.world_map.getBlock(.init(x, y, z)));
 }
 
 test "a block the client places appears on both sides" {
@@ -238,21 +237,21 @@ test "a block the client places appears on both sides" {
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
 
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .air);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .air);
     try pair.settle(2);
 
     const holder = pair.session.player.?;
     holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .planks }, .count = 2 };
 
-    try pair.connection.reportPlace(gpa, x, y, z, 1, .{
+    try pair.connection.reportPlace(gpa, .init(x, y, z), 1, .{
         .id = @intFromEnum(world.Block.planks),
         .count = 2,
         .damage = 0,
     });
     try pair.settle(2);
 
-    try std.testing.expectEqual(world.Block.planks, pair.server_level.world_map.getBlock(x, y + 1, z));
-    try std.testing.expectEqual(world.Block.planks, pair.client_level.world_map.getBlock(x, y + 1, z));
+    try std.testing.expectEqual(world.Block.planks, pair.server_level.world_map.getBlock(.init(x, y + 1, z)));
+    try std.testing.expectEqual(world.Block.planks, pair.client_level.world_map.getBlock(.init(x, y + 1, z)));
     try std.testing.expectEqual(@as(u8, 1), holder.inventory.slots[holder.inventory.selected].?.count);
 }
 
@@ -786,7 +785,7 @@ test "a dropped item on the server becomes a dropped item on the client" {
     try pair.settle(6);
 
     const at = pair.session.player.?.base.position;
-    try pair.server_level.dropStackAt(gpa, @intFromFloat(at.x), @intFromFloat(at.y), @intFromFloat(at.z), .{
+    try pair.server_level.dropStackAt(gpa, .init(@intFromFloat(at.x), @intFromFloat(at.y), @intFromFloat(at.z)), .{
         .id = .{ .item = .diamond },
         .count = 3,
     });
@@ -886,7 +885,7 @@ const SoundLog = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *SoundLog) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
@@ -1191,16 +1190,16 @@ test "a lever the client right-clicks is thrown by the server" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockAndMetadataWithNotify(x, y + 1, z, .lever, 5);
+    try pair.server_level.world_map.setBlockAndMetadataWithNotify(.init(x, y + 1, z), .lever, 5);
     try pair.settle(2);
 
-    const before = pair.server_level.world_map.getBlockMetadata(x, y + 1, z);
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    const before = pair.server_level.world_map.getBlockMetadata(.init(x, y + 1, z));
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
-    const after = pair.server_level.world_map.getBlockMetadata(x, y + 1, z);
+    const after = pair.server_level.world_map.getBlockMetadata(.init(x, y + 1, z));
     try std.testing.expect(before != after);
-    try std.testing.expectEqual(after, pair.client_level.world_map.getBlockMetadata(x, y + 1, z));
+    try std.testing.expectEqual(after, pair.client_level.world_map.getBlockMetadata(.init(x, y + 1, z)));
 }
 
 test "the block a client asks for is only placed if the server agrees it is held" {
@@ -1212,17 +1211,17 @@ test "the block a client asks for is only placed if the server agrees it is held
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .air);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .air);
     try pair.settle(2);
 
-    try pair.connection.reportPlace(gpa, x, y, z, 1, .{
+    try pair.connection.reportPlace(gpa, .init(x, y, z), 1, .{
         .id = @intFromEnum(world.Block.block_diamond),
         .count = 64,
         .damage = 0,
     });
     try pair.settle(2);
 
-    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(x, y + 1, z));
+    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(.init(x, y + 1, z)));
 }
 
 test "one player punching another takes health off on the server" {
@@ -1252,24 +1251,24 @@ test "a sign one player writes is readable by the other" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockAndMetadataWithNotify(x, y + 1, z, .sign_post, 0);
+    try pair.server_level.world_map.setBlockAndMetadataWithNotify(.init(x, y + 1, z), .sign_post, 0);
     try pair.settle(2);
 
     var post: world.sign.Sign = .{};
     post.setLine(0, "hello");
     post.setLine(2, "rosebed");
-    try pair.connection.reportSign(gpa, x, y + 1, z, &post);
+    try pair.connection.reportSign(gpa, .init(x, y + 1, z), &post);
     try pair.pumpToServer();
 
-    const stored = pair.server_level.world_map.signAt(x, y + 1, z).?;
+    const stored = pair.server_level.world_map.signAt(.init(x, y + 1, z)).?;
     try std.testing.expectEqualStrings("hello", stored.line(0));
     try std.testing.expectEqualStrings("rosebed", stored.line(2));
     try std.testing.expect(pair.session.takeSign() != null);
 
-    try pair.session.sendSign(gpa, x, y + 1, z, stored);
+    try pair.session.sendSign(gpa, .init(x, y + 1, z), stored);
     _ = try pair.pumpToClient();
 
-    const mirrored = pair.client_level.world_map.signAt(x, y + 1, z).?;
+    const mirrored = pair.client_level.world_map.signAt(.init(x, y + 1, z)).?;
     try std.testing.expectEqualStrings("hello", mirrored.line(0));
     try std.testing.expectEqualStrings("rosebed", mirrored.line(2));
 }
@@ -1283,20 +1282,20 @@ test "a chest the client opens is filled in from the server's copy" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .chest);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .chest);
     try pair.settle(2);
 
-    (try pair.server_level.world_map.addChest(x, y + 1, z)).items[3] =
+    (try pair.server_level.world_map.addChest(.init(x, y + 1, z))).items[3] =
         .{ .id = .{ .item = .diamond }, .count = 5 };
 
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
     try std.testing.expect(pair.connection.opened != null);
     try std.testing.expectEqual(remote.Connection.window_chest, pair.connection.opened.?.kind);
     try std.testing.expectEqual(@as(usize, world.chest.slot_count), pair.connection.opened.?.store);
 
-    const mirrored = pair.client_level.world_map.chestAt(x, y + 1, z).?;
+    const mirrored = pair.client_level.world_map.chestAt(.init(x, y + 1, z)).?;
     try std.testing.expect(mirrored.items[3].?.id.eql(.{ .item = .diamond }));
     try std.testing.expectEqual(@as(u8, 5), mirrored.items[3].?.count);
 }
@@ -1310,20 +1309,20 @@ test "taking from an open chest moves the stack on the server" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .chest);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .chest);
     try pair.settle(2);
 
-    (try pair.server_level.world_map.addChest(x, y + 1, z)).items[0] =
+    (try pair.server_level.world_map.addChest(.init(x, y + 1, z))).items[0] =
         .{ .id = .{ .block = .stone }, .count = 12 };
 
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
     // Shift-click slot 0 straight into the player's inventory.
     try pair.connection.reportWindowClick(gpa, 0, false, true, null);
     try pair.pumpToServer();
 
-    try std.testing.expect(pair.server_level.world_map.chestAt(x, y + 1, z).?.items[0] == null);
+    try std.testing.expect(pair.server_level.world_map.chestAt(.init(x, y + 1, z)).?.items[0] == null);
     var carried_total: u16 = 0;
     for (pair.session.player.?.inventory.slots) |slot| {
         const stack = slot orelse continue;
@@ -1341,15 +1340,15 @@ test "a furnace window carries its burn and cook progress across" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .furnace);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .furnace);
     try pair.settle(2);
 
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
     try std.testing.expectEqual(remote.Connection.window_furnace, pair.connection.opened.?.kind);
 
-    const fire = pair.server_level.world_map.furnaceAt(x, y + 1, z).?;
+    const fire = pair.server_level.world_map.furnaceAt(.init(x, y + 1, z)).?;
     fire.input = .{ .id = .{ .block = .ore_iron }, .count = 1 };
     fire.cook_time = 77;
     fire.burn_time = 300;
@@ -1358,7 +1357,7 @@ test "a furnace window carries its burn and cook progress across" {
     try pair.session.syncWindow(gpa, &pair.server_level);
     _ = try pair.pumpToClient();
 
-    const seen = pair.client_level.world_map.furnaceAt(x, y + 1, z).?;
+    const seen = pair.client_level.world_map.furnaceAt(.init(x, y + 1, z)).?;
     try std.testing.expect(seen.input.?.id.eql(.{ .block = .ore_iron }));
     try std.testing.expectEqual(@as(i16, 77), seen.cook_time);
     try std.testing.expectEqual(@as(i16, 300), seen.burn_time);
@@ -1374,10 +1373,10 @@ test "a workbench window crafts on the server and hands back the result" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .workbench);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .workbench);
     try pair.settle(2);
 
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
     try std.testing.expectEqual(remote.Connection.window_workbench, pair.connection.opened.?.kind);
 
@@ -1402,9 +1401,9 @@ test "closing a workbench spills its grid back into the world" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .workbench);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .workbench);
     try pair.settle(2);
-    try pair.connection.reportPlace(gpa, x, y + 1, z, 1, null);
+    try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
     pair.session.workbench[4] = .{ .id = .{ .block = .planks }, .count = 3 };
@@ -1557,9 +1556,9 @@ test "digging a block the server counts as mined shows in the tally" {
 
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    const broken = pair.server_level.world_map.getBlock(x, y, z);
+    const broken = pair.server_level.world_map.getBlock(.init(x, y, z));
 
-    try pair.connection.reportDig(gpa, x, y, z, 1);
+    try pair.connection.reportDig(gpa, .init(x, y, z), 1);
     try pair.settle(2);
 
     const awards = try pair.connection.takeAwards(gpa);
@@ -1575,8 +1574,8 @@ test "digging a block the server counts as mined shows in the tally" {
 fn standNoteBlock(pair: *Pair) ![3]i32 {
     const ground = pair.standOnGround();
     const x, const y, const z = .{ ground[0], ground[1], ground[2] };
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 1, z, .note_block);
-    try pair.server_level.world_map.setBlockWithNotify(x, y + 2, z, .air);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 1, z), .note_block);
+    try pair.server_level.world_map.setBlockWithNotify(.init(x, y + 2, z), .air);
     try pair.settle(2);
     return .{ x, y + 1, z };
 }
@@ -1590,10 +1589,10 @@ test "right clicking a note block tunes it up and sounds it for everyone" {
 
     const at = try standNoteBlock(&pair);
 
-    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.connection.reportPlace(gpa, .init(at[0], at[1], at[2]), 1, null);
     try pair.pumpToServer();
 
-    try std.testing.expectEqual(@as(u8, 1), pair.server_level.world_map.noteAt(at[0], at[1], at[2]).?.note);
+    try std.testing.expectEqual(@as(u8, 1), pair.server_level.world_map.noteAt(.init(at[0], at[1], at[2])).?.note);
 
     var heard: std.ArrayList(net.packet.Packet) = .empty;
     defer freeAllPackets(gpa, &heard);
@@ -1620,10 +1619,10 @@ test "the block below the note block picks the instrument sent down the wire" {
     try pair.settle(6);
 
     const at = try standNoteBlock(&pair);
-    try pair.server_level.world_map.setBlockWithNotify(at[0], at[1] - 1, at[2], .glass);
+    try pair.server_level.world_map.setBlockWithNotify(.init(at[0], at[1] - 1, at[2]), .glass);
     try pair.settle(2);
 
-    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.connection.reportPlace(gpa, .init(at[0], at[1], at[2]), 1, null);
     try pair.pumpToServer();
 
     var heard: std.ArrayList(net.packet.Packet) = .empty;
@@ -1646,10 +1645,10 @@ test "punching a note block plays it without breaking it" {
 
     const at = try standNoteBlock(&pair);
 
-    try pair.connection.reportDigStart(gpa, at[0], at[1], at[2], 1);
+    try pair.connection.reportDigStart(gpa, .init(at[0], at[1], at[2]), 1);
     try pair.pumpToServer();
 
-    try std.testing.expectEqual(world.Block.note_block, pair.server_level.world_map.getBlock(at[0], at[1], at[2]));
+    try std.testing.expectEqual(world.Block.note_block, pair.server_level.world_map.getBlock(.init(at[0], at[1], at[2])));
 
     var heard: std.ArrayList(net.packet.Packet) = .empty;
     defer freeAllPackets(gpa, &heard);
@@ -1672,7 +1671,7 @@ test "a note the server sounds turns into a note particle on the client" {
     var spawned: usize = 0;
     pair.client_level.world_map.note_sink = .{ .context = &spawned, .playNote = countClientNote };
 
-    try pair.session.sendNote(gpa, 8, 70, 8, .snare, 12);
+    try pair.session.sendNote(gpa, .init(8, 70, 8), .snare, 12);
     _ = try pair.pumpToClient();
 
     try std.testing.expectEqual(@as(usize, 1), spawned);
@@ -1680,9 +1679,7 @@ test "a note the server sounds turns into a note particle on the client" {
 
 fn countClientNote(
     context: *anyopaque,
-    _: i32,
-    _: i32,
-    _: i32,
+    _: BlockPos,
     _: world.note.Instrument,
     _: u8,
 ) void {
@@ -1698,15 +1695,15 @@ test "breaking a note block forgets how it was tuned" {
     try pair.settle(6);
 
     const at = try standNoteBlock(&pair);
-    try pair.connection.reportPlace(gpa, at[0], at[1], at[2], 1, null);
+    try pair.connection.reportPlace(gpa, .init(at[0], at[1], at[2]), 1, null);
     try pair.pumpToServer();
-    try std.testing.expect(pair.server_level.world_map.noteAt(at[0], at[1], at[2]) != null);
+    try std.testing.expect(pair.server_level.world_map.noteAt(.init(at[0], at[1], at[2])) != null);
 
-    try pair.connection.reportDig(gpa, at[0], at[1], at[2], 1);
+    try pair.connection.reportDig(gpa, .init(at[0], at[1], at[2]), 1);
     try pair.settle(2);
 
-    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(at[0], at[1], at[2]));
-    try std.testing.expect(pair.server_level.world_map.noteAt(at[0], at[1], at[2]) == null);
+    try std.testing.expectEqual(world.Block.air, pair.server_level.world_map.getBlock(.init(at[0], at[1], at[2])));
+    try std.testing.expect(pair.server_level.world_map.noteAt(.init(at[0], at[1], at[2])) == null);
 }
 
 test "the server tells the client when it starts and stops raining" {
@@ -1788,7 +1785,7 @@ test "a bolt on the client flashes and fades without setting fires" {
     }
 
     try std.testing.expectEqual(@as(usize, 0), pair.client_level.entities.bolts.items.len);
-    try std.testing.expect(pair.client_level.world_map.getBlock(ground[0], ground[1] + 1, ground[2]) != .fire);
+    try std.testing.expect(pair.client_level.world_map.getBlock(.init(ground[0], ground[1] + 1, ground[2])) != .fire);
 }
 
 test "rain eases in on the client once the server says it started" {

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Font = @import("Font.zig");
 const item_lighting = @import("item_lighting.zig");
@@ -59,8 +60,8 @@ pub fn poseAt(id: world.Block, metadata: u4, x: f32, y: f32, z: f32) Pose {
     return .{ .origin = origin, .turn = turn, .offset = .{ 0, wall_drop, wall_back } };
 }
 
-pub fn poseFor(id: world.Block, metadata: u4, x: i32, y: i32, z: i32) Pose {
-    return poseAt(id, metadata, @floatFromInt(x), @floatFromInt(y), @floatFromInt(z));
+pub fn poseFor(id: world.Block, metadata: u4, pos: BlockPos) Pose {
+    return poseAt(id, metadata, @floatFromInt(pos.x), @floatFromInt(pos.y), @floatFromInt(pos.z));
 }
 
 fn placeSince(mesh: *MeshBuilder, first_vertex: usize, pose: Pose) void {
@@ -122,19 +123,17 @@ pub fn appendBoard(
     world_map: *const world.World,
     id: world.Block,
     metadata: u4,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
 ) !void {
     try appendBoardAt(
         mesh,
         gpa,
-        world.light.brightnessAt(world_map, x, y, z, 0),
+        world.light.brightnessAt(world_map, pos, 0),
         id,
         metadata,
-        @floatFromInt(x),
-        @floatFromInt(y),
-        @floatFromInt(z),
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
     );
 }
 
@@ -149,9 +148,7 @@ pub fn appendText(
     font: Font,
     id: world.Block,
     metadata: u4,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     state: world.sign.Sign,
     highlighted_line: ?usize,
 ) !void {
@@ -161,9 +158,9 @@ pub fn appendText(
         font,
         id,
         metadata,
-        @floatFromInt(x),
-        @floatFromInt(y),
-        @floatFromInt(z),
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
         state,
         highlighted_line,
     );
@@ -256,25 +253,25 @@ test "the board's faces are shaded by the way they point once the sign is placed
 }
 
 test "a sign post turns with its metadata, a wall sign with the face it hangs on" {
-    const post = poseFor(.sign_post, 4, 8, 64, 8);
+    const post = poseFor(.sign_post, 4, .init(8, 64, 8));
     try std.testing.expectApproxEqAbs(@as(f32, -std.math.pi / 2.0), post.turn, 1.0e-6);
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, post.offset);
 
-    const facing_south = poseFor(.wall_sign, 3, 8, 64, 8);
+    const facing_south = poseFor(.wall_sign, 3, .init(8, 64, 8));
     try std.testing.expectApproxEqAbs(@as(f32, 0), facing_south.turn, 1.0e-6);
 
-    const facing_north = poseFor(.wall_sign, 2, 8, 64, 8);
+    const facing_north = poseFor(.wall_sign, 2, .init(8, 64, 8));
     try std.testing.expectApproxEqAbs(@as(f32, -std.math.pi), facing_north.turn, 1.0e-6);
 
-    const facing_west = poseFor(.wall_sign, 5, 8, 64, 8);
+    const facing_west = poseFor(.wall_sign, 5, .init(8, 64, 8));
     try std.testing.expectApproxEqAbs(@as(f32, std.math.pi / 2.0), facing_west.turn, 1.0e-6);
 }
 
 test "a wall sign is pulled back against the block it hangs on, a post is not" {
-    const post = poseFor(.sign_post, 0, 0, 0, 0);
+    const post = poseFor(.sign_post, 0, .init(0, 0, 0));
     try std.testing.expectEqual(@as(f32, 0), post.offset[2]);
 
-    const wall = poseFor(.wall_sign, 3, 0, 0, 0);
+    const wall = poseFor(.wall_sign, 3, .init(0, 0, 0));
     try std.testing.expectEqual(wall_back, wall.offset[2]);
     try std.testing.expectEqual(wall_drop, wall.offset[1]);
 }
@@ -294,11 +291,11 @@ test "a post carries its stick, a wall sign does not" {
 
     var post: MeshBuilder = .{};
     defer post.deinit(gpa);
-    try appendBoard(&post, gpa, &world_map, .sign_post, 0, 8, 5, 8);
+    try appendBoard(&post, gpa, &world_map, .sign_post, 0, .init(8, 5, 8));
 
     var wall: MeshBuilder = .{};
     defer wall.deinit(gpa);
-    try appendBoard(&wall, gpa, &world_map, .wall_sign, 3, 8, 5, 8);
+    try appendBoard(&wall, gpa, &world_map, .wall_sign, 3, .init(8, 5, 8));
 
     try std.testing.expectEqual(@as(usize, 48), post.vertices.items.len);
     try std.testing.expectEqual(@as(usize, 24), wall.vertices.items.len);

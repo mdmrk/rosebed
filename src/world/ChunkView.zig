@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
+const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
 
@@ -67,27 +68,27 @@ fn localZ(z: i32) u32 {
     return @intCast(@mod(z, Chunk.width));
 }
 
-pub fn getBlock(self: *const ChunkView, x: i32, y: i32, z: i32) Block {
-    if (y < 0 or y >= Chunk.height) return .air;
-    const chunk = self.chunkFor(x, z) orelse return .air;
-    return chunk.getBlock(localX(x), @intCast(y), localZ(z));
+pub fn getBlock(self: *const ChunkView, pos: BlockPos) Block {
+    if (pos.y < 0 or pos.y >= Chunk.height) return .air;
+    const chunk = self.chunkFor(pos.x, pos.z) orelse return .air;
+    return chunk.getBlock(localX(pos.x), @intCast(pos.y), localZ(pos.z));
 }
 
-pub fn getSkyLight(self: *const ChunkView, x: i32, y: i32, z: i32) u4 {
-    if (y < 0) return 0;
-    if (y >= Chunk.height) return 15;
-    const chunk = self.chunkFor(x, z) orelse return 0;
-    return chunk.getSkyLight(localX(x), @intCast(y), localZ(z));
+pub fn getSkyLight(self: *const ChunkView, pos: BlockPos) u4 {
+    if (pos.y < 0) return 0;
+    if (pos.y >= Chunk.height) return 15;
+    const chunk = self.chunkFor(pos.x, pos.z) orelse return 0;
+    return chunk.getSkyLight(localX(pos.x), @intCast(pos.y), localZ(pos.z));
 }
 
-pub fn getBlockLight(self: *const ChunkView, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= Chunk.height) return 0;
-    const chunk = self.chunkFor(x, z) orelse return 0;
-    return chunk.getBlockLight(localX(x), @intCast(y), localZ(z));
+pub fn getBlockLight(self: *const ChunkView, pos: BlockPos) u4 {
+    if (pos.y < 0 or pos.y >= Chunk.height) return 0;
+    const chunk = self.chunkFor(pos.x, pos.z) orelse return 0;
+    return chunk.getBlockLight(localX(pos.x), @intCast(pos.y), localZ(pos.z));
 }
 
-pub fn getBlockMetadata(self: *const ChunkView, x: i32, y: i32, z: i32) u4 {
-    if (y < 0 or y >= Chunk.height) return 0;
-    const chunk = self.chunkFor(x, z) orelse return 0;
-    return chunk.getBlockMetadata(localX(x), @intCast(y), localZ(z));
+pub fn getBlockMetadata(self: *const ChunkView, pos: BlockPos) u4 {
+    if (pos.y < 0 or pos.y >= Chunk.height) return 0;
+    const chunk = self.chunkFor(pos.x, pos.z) orelse return 0;
+    return chunk.getBlockMetadata(localX(pos.x), @intCast(pos.y), localZ(pos.z));
 }

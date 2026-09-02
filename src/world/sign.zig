@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
 
 pub const id_key = "Sign";
@@ -45,7 +46,7 @@ fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nb
 
 const line_keys = [line_count][]const u8{ "Text1", "Text2", "Text3", "Text4" };
 
-pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Sign) !nbt.Tag {
+pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Sign) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
         var owned: nbt.Tag = .{ .compound = compound };
@@ -53,9 +54,9 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Sign) !nbt.T
     }
 
     try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = x });
-    try put(gpa, &compound, "y", .{ .int = y });
-    try put(gpa, &compound, "z", .{ .int = z });
+    try put(gpa, &compound, "x", .{ .int = pos.x });
+    try put(gpa, &compound, "y", .{ .int = pos.y });
+    try put(gpa, &compound, "z", .{ .int = pos.z });
 
     for (line_keys, 0..) |key, index| {
         try put(gpa, &compound, key, .{ .string = try gpa.dupe(u8, state.line(index)) });
@@ -65,9 +66,7 @@ pub fn store(gpa: std.mem.Allocator, x: i32, y: i32, z: i32, state: Sign) !nbt.T
 }
 
 pub const Placed = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     state: Sign,
 };
 
@@ -94,9 +93,11 @@ pub fn load(compound: nbt.Compound) ?Placed {
     }
 
     return .{
-        .x = nbt.intField(compound, "x") orelse return null,
-        .y = nbt.intField(compound, "y") orelse return null,
-        .z = nbt.intField(compound, "z") orelse return null,
+        .pos = .{
+            .x = nbt.intField(compound, "x") orelse return null,
+            .y = nbt.intField(compound, "y") orelse return null,
+            .z = nbt.intField(compound, "z") orelse return null,
+        },
         .state = state,
     };
 }
@@ -146,13 +147,11 @@ test "a sign's four lines survive a trip through NBT" {
     state.setLine(2, "to the mine");
     state.setLine(3, "mind the lava");
 
-    var tag = try store(gpa, 4, 63, -7, state);
+    var tag = try store(gpa, .init(4, 63, -7), state);
     defer nbt.deinit(gpa, &tag);
 
     const restored = load(tag.compound).?;
-    try std.testing.expectEqual(@as(i32, 4), restored.x);
-    try std.testing.expectEqual(@as(i32, 63), restored.y);
-    try std.testing.expectEqual(@as(i32, -7), restored.z);
+    try std.testing.expectEqual(BlockPos.init(4, 63, -7), restored.pos);
     try std.testing.expectEqualStrings("Welcome", restored.state.line(0));
     try std.testing.expectEqualStrings("", restored.state.line(1));
     try std.testing.expectEqualStrings("to the mine", restored.state.line(2));

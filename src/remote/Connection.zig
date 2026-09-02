@@ -5,6 +5,7 @@ const game = @import("game");
 const math = @import("math");
 const net = @import("net");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Connection = @This();
 
@@ -229,7 +230,7 @@ fn handlePlaying(
         .sleep => |body| {
             if (body.state != net.packet.enter_bed_state) return;
             const player = self.playerById(level, @bitCast(body.entity_id)) orelse return;
-            player.layInBed(&level.world_map, body.x, body.y, body.z);
+            player.layInBed(&level.world_map, .init(body.x, body.y, body.z));
         },
         .destroy_entity => |body| {
             const id: game.Entity.Id = @bitCast(body.entity_id);
@@ -277,9 +278,7 @@ fn handlePlaying(
             try self.awarded.append(gpa, .{ .stat = stat, .amount = body.amount });
         },
         .play_note_block => |body| level.world_map.playNoteAt(
-            body.x,
-            body.y,
-            body.z,
+            .init(body.x, body.y, body.z),
             @enumFromInt(body.instrument),
             body.pitch,
         ),
@@ -311,7 +310,7 @@ fn handlePlaying(
         },
         .update_sign => |body| {
             const y: i32 = body.y;
-            const post = try level.world_map.addSign(body.x, y, body.z);
+            const post = try level.world_map.addSign(.init(body.x, y, body.z));
             for (body.lines, 0..) |text, index| post.setLine(index, text);
         },
         .open_window => |body| try self.openWindow(level, body),
@@ -864,9 +863,9 @@ fn mapChunk(
 }
 
 fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block: u8, metadata: u8) !void {
-    level.world_map.setBlock(x, @intCast(y), z, @enumFromInt(block));
-    level.world_map.setBlockMetadata(x, @intCast(y), z, @truncate(metadata));
-    try level.world_map.markChanged(x, @intCast(y), z);
+    level.world_map.setBlock(.init(x, @intCast(y), z), @enumFromInt(block));
+    level.world_map.setBlockMetadata(.init(x, @intCast(y), z), @truncate(metadata));
+    try level.world_map.markChanged(.init(x, @intCast(y), z));
 }
 
 fn multiBlockChange(self: *Connection, level: *game.Level, body: anytype) !void {
@@ -985,16 +984,14 @@ pub fn reportWindowClick(
 pub fn reportSign(
     self: *Connection,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     post: *const world.sign.Sign,
 ) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .update_sign = .{
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
     } });
 }
@@ -1043,7 +1040,7 @@ fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?
             return &self.workbench[slot - craft_input_start];
         },
         window_furnace => {
-            const fire = level.world_map.furnaceAt(open.at[0], open.at[1], open.at[2]) orelse return null;
+            const fire = level.world_map.furnaceAt(.init(open.at[0], open.at[1], open.at[2])) orelse return null;
             return switch (slot) {
                 0 => &fire.input,
                 1 => &fire.fuel,
@@ -1052,7 +1049,7 @@ fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?
             };
         },
         window_dispenser => {
-            const trap = level.world_map.dispenserAt(open.at[0], open.at[1], open.at[2]) orelse return null;
+            const trap = level.world_map.dispenserAt(.init(open.at[0], open.at[1], open.at[2])) orelse return null;
             return trap.slot(slot);
         },
         window_chest => {
@@ -1060,9 +1057,9 @@ fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?
                 const cart = level.entities.minecartById(open.cart) orelse return null;
                 return cart.slot(slot);
             }
-            const pair = level.world_map.chestPairAt(open.at[0], open.at[1], open.at[2]);
+            const pair = level.world_map.chestPairAt(.init(open.at[0], open.at[1], open.at[2]));
             const half = if (slot < world.chest.slot_count) pair.upper else (pair.lower orelse return null);
-            const box = level.world_map.chestAt(half.x, half.y, half.z) orelse return null;
+            const box = level.world_map.chestAt(half) orelse return null;
             return box.slot(slot % world.chest.slot_count);
         },
         else => return null,
@@ -1102,13 +1099,13 @@ fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
     }
 
     switch (body.kind) {
-        window_furnace => _ = try level.world_map.addFurnace(open.at[0], open.at[1], open.at[2]),
-        window_dispenser => _ = try level.world_map.addDispenser(open.at[0], open.at[1], open.at[2]),
+        window_furnace => _ = try level.world_map.addFurnace(.init(open.at[0], open.at[1], open.at[2])),
+        window_dispenser => _ = try level.world_map.addDispenser(.init(open.at[0], open.at[1], open.at[2])),
         window_chest => {
             if (open.cart == game.Entity.no_id) {
-                const pair = level.world_map.chestPairAt(open.at[0], open.at[1], open.at[2]);
-                _ = try level.world_map.addChest(pair.upper.x, pair.upper.y, pair.upper.z);
-                if (pair.lower) |at| _ = try level.world_map.addChest(at.x, at.y, at.z);
+                const pair = level.world_map.chestPairAt(.init(open.at[0], open.at[1], open.at[2]));
+                _ = try level.world_map.addChest(pair.upper);
+                if (pair.lower) |at| _ = try level.world_map.addChest(at);
             }
         },
         else => {},
@@ -1118,8 +1115,8 @@ fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
     self.window_action = 0;
 }
 
-pub fn aimAtBlock(self: *Connection, x: i32, y: i32, z: i32) void {
-    self.aiming_at = .{ x, y, z };
+pub fn aimAtBlock(self: *Connection, pos: BlockPos) void {
+    self.aiming_at = .{ pos.x, pos.y, pos.z };
     self.aiming_cart = game.Entity.no_id;
 }
 
@@ -1190,7 +1187,7 @@ fn setProgress(self: *Connection, level: *game.Level, body: anytype) void {
     const open = self.opened orelse return;
     if (body.window_id != open.id or open.kind != window_furnace) return;
 
-    const fire = level.world_map.furnaceAt(open.at[0], open.at[1], open.at[2]) orelse return;
+    const fire = level.world_map.furnaceAt(.init(open.at[0], open.at[1], open.at[2])) orelse return;
     switch (body.bar) {
         0 => fire.cook_time = body.value,
         1 => fire.burn_time = body.value,
@@ -1237,24 +1234,24 @@ pub fn reportRespawn(self: *Connection, gpa: std.mem.Allocator) !void {
 pub const dig_started: u8 = 0;
 pub const dig_finished: u8 = 2;
 
-pub fn reportDigStart(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
+pub fn reportDigStart(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, face: u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .block_dig = .{
         .status = dig_started,
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .face = face,
     } });
 }
 
-pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, x: i32, y: i32, z: i32, face: u8) !void {
+pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, face: u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .block_dig = .{
         .status = dig_finished,
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .face = face,
     } });
 }
@@ -1280,18 +1277,16 @@ pub fn reportUseInAir(self: *Connection, gpa: std.mem.Allocator, held: ?net.pack
 pub fn reportPlace(
     self: *Connection,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     face: u8,
     held: ?net.packet.Stack,
 ) !void {
     if (self.state != .playing) return;
-    self.aimAtBlock(x, y, z);
+    self.aimAtBlock(pos);
     try self.send(gpa, .{ .place = .{
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .face = face,
         .held = held,
     } });
@@ -1446,9 +1441,9 @@ test "a map chunk from the server becomes a real chunk in the world" {
 
     try std.testing.expectEqual(@as(usize, 1), connection.loaded_chunks);
     try std.testing.expect(level.world_map.isDecorated(2, -3));
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(2 * 16 + 5, 40, -3 * 16 + 5));
-    try std.testing.expectEqual(@as(u4, 6), level.world_map.getBlockMetadata(2 * 16 + 1, 40, -3 * 16 + 2));
-    try std.testing.expectEqual(@as(u4, 15), level.world_map.getSkyLight(2 * 16 + 3, 41, -3 * 16 + 3));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(2 * 16 + 5, 40, -3 * 16 + 5)));
+    try std.testing.expectEqual(@as(u4, 6), level.world_map.getBlockMetadata(.init(2 * 16 + 1, 40, -3 * 16 + 2)));
+    try std.testing.expectEqual(@as(u4, 15), level.world_map.getSkyLight(.init(2 * 16 + 3, 41, -3 * 16 + 3)));
 }
 
 test "a block change from the server lands in the world" {
@@ -1469,8 +1464,8 @@ test "a block change from the server lands in the world" {
         .metadata = 3,
     } });
 
-    try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(5, 70, 6));
-    try std.testing.expectEqual(@as(u4, 3), level.world_map.getBlockMetadata(5, 70, 6));
+    try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(.init(5, 70, 6)));
+    try std.testing.expectEqual(@as(u4, 3), level.world_map.getBlockMetadata(.init(5, 70, 6)));
 }
 
 test "a multi block change unpacks each coordinate the way vanilla packs it" {
@@ -1495,9 +1490,9 @@ test "a multi block change unpacks each coordinate the way vanilla packs it" {
         .metadata = &.{ 0, 2 },
     } });
 
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(16 + 3, 64, 16 + 9));
-    try std.testing.expectEqual(world.Block.glass, level.world_map.getBlock(16 + 15, 100, 16 + 0));
-    try std.testing.expectEqual(@as(u4, 2), level.world_map.getBlockMetadata(16 + 15, 100, 16 + 0));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(16 + 3, 64, 16 + 9)));
+    try std.testing.expectEqual(world.Block.glass, level.world_map.getBlock(.init(16 + 15, 100, 16 + 0)));
+    try std.testing.expectEqual(@as(u4, 2), level.world_map.getBlockMetadata(.init(16 + 15, 100, 16 + 0)));
 }
 
 test "the position the server sends is applied to the player and acknowledged" {

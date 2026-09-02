@@ -407,9 +407,7 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
                 self.base.motion.z *= ground_friction;
             }
             const block = world_map.getBlock(
-                math.util.floorDouble(self.base.position.x),
-                math.util.floorDouble(self.base.position.y),
-                math.util.floorDouble(self.base.position.z),
+                .init(math.util.floorDouble(self.base.position.x), math.util.floorDouble(self.base.position.y), math.util.floorDouble(self.base.position.z)),
             );
             if (block.material().isLiquid() or block.isSolid()) self.expire();
         },
@@ -490,9 +488,7 @@ pub fn tick(self: *Particle, world_map: *const world.World, rand: *world.JavaRan
             _ = self.base.move(world_map);
             self.applyDrag(bubble_drag);
             const block = world_map.getBlock(
-                math.util.floorDouble(self.base.position.x),
-                math.util.floorDouble(self.base.position.y),
-                math.util.floorDouble(self.base.position.z),
+                .init(math.util.floorDouble(self.base.position.x), math.util.floorDouble(self.base.position.y), math.util.floorDouble(self.base.position.z)),
             );
             if (block.material() != .water) self.expire();
         },

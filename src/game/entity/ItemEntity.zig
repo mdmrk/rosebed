@@ -130,7 +130,7 @@ test "canPickUp is false until the pickup delay elapses" {
 test "an item lying on a cactus is whittled away and destroyed" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
-    w.setBlock(8, 1, 8, .cactus);
+    w.setBlock(.init(8, 1, 8), .cactus);
 
     var rand = world.JavaRandom.init(0);
     var item = ItemEntity.spawn(math.Vec3.init(8.5, 2.0 - 1.0 / 16.0, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);

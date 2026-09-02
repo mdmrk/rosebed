@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
@@ -194,15 +195,15 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
     };
 }
 
-fn canSpawnAtLocation(category: Category, world_map: *const world.World, x: i32, y: i32, z: i32) bool {
+fn canSpawnAtLocation(category: Category, world_map: *const world.World, pos: BlockPos) bool {
     if (category.material() == .water) {
-        return world_map.getBlock(x, y, z).material().isLiquid() and
-            !world_map.getBlock(x, y + 1, z).isOpaqueCube();
+        return world_map.getBlock(pos).material().isLiquid() and
+            !world_map.getBlock(pos.offset(0, 1, 0)).isOpaqueCube();
     }
-    return world_map.getBlock(x, y - 1, z).isOpaqueCube() and
-        !world_map.getBlock(x, y, z).isOpaqueCube() and
-        !world_map.getBlock(x, y, z).material().isLiquid() and
-        !world_map.getBlock(x, y + 1, z).isOpaqueCube();
+    return world_map.getBlock(pos.offset(0, -1, 0)).isOpaqueCube() and
+        !world_map.getBlock(pos).isOpaqueCube() and
+        !world_map.getBlock(pos).material().isLiquid() and
+        !world_map.getBlock(pos.offset(0, 1, 0)).isOpaqueCube();
 }
 
 fn anyPlayerWithin(players: []const Animal.PlayerView, x: f64, y: f64, z: f64, range: f64) bool {
@@ -306,8 +307,8 @@ fn spawnInChunk(
     const origin_y = rand.nextIntBound(world.Chunk.height);
     const origin_z = chunk_z * world.Chunk.width + rand.nextIntBound(world.Chunk.width);
 
-    if (world_map.getBlock(origin_x, origin_y, origin_z).isOpaqueCube()) return 0;
-    if (world_map.getBlock(origin_x, origin_y, origin_z).material() != category.material()) return 0;
+    if (world_map.getBlock(.init(origin_x, origin_y, origin_z)).isOpaqueCube()) return 0;
+    if (world_map.getBlock(.init(origin_x, origin_y, origin_z)).material() != category.material()) return 0;
 
     var spawned: u32 = 0;
     for (0..pack_attempts) |_| {
@@ -319,7 +320,7 @@ fn spawnInChunk(
             x += rand.nextIntBound(pack_spread) - rand.nextIntBound(pack_spread);
             y += rand.nextIntBound(1) - rand.nextIntBound(1);
             z += rand.nextIntBound(pack_spread) - rand.nextIntBound(pack_spread);
-            if (!canSpawnAtLocation(category, world_map, x, y, z)) continue;
+            if (!canSpawnAtLocation(category, world_map, .init(x, y, z))) continue;
 
             const at_x: f64 = @as(f64, @floatFromInt(x)) + 0.5;
             const at_y: f64 = @floatFromInt(y);
@@ -547,9 +548,7 @@ fn spawnUntilFirstAnimal(
 fn expectStandingOnGrass(world_map: *const world.World, animal: Animal) !void {
     try std.testing.expectApproxEqAbs(@as(f64, surface + 1), animal.base.position.y, 1.0e-9);
     try std.testing.expectEqual(.grass, world_map.getBlock(
-        math.util.floorDouble(animal.base.position.x),
-        surface,
-        math.util.floorDouble(animal.base.position.z),
+        .init(math.util.floorDouble(animal.base.position.x), surface, math.util.floorDouble(animal.base.position.z)),
     ));
 }
 
@@ -742,9 +741,7 @@ test "squid spawn into water, and only into water" {
     while (shoal.next()) |squid| {
         const at = squid.animal.base.position;
         try std.testing.expectEqual(.stationary_water, w.getBlock(
-            math.util.floorDouble(at.x),
-            math.util.floorDouble(at.y),
-            math.util.floorDouble(at.z),
+            .init(math.util.floorDouble(at.x), math.util.floorDouble(at.y), math.util.floorDouble(at.z)),
         ));
     }
 }
@@ -798,9 +795,7 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
         const at = slime.animal.base.position;
         try std.testing.expect(at.y < Slime.spawn_ceiling);
         try std.testing.expectEqual(.stone, w.getBlock(
-            math.util.floorDouble(at.x),
-            math.util.floorDouble(at.y) - 1,
-            math.util.floorDouble(at.z),
+            .init(math.util.floorDouble(at.x), math.util.floorDouble(at.y) - 1, math.util.floorDouble(at.z)),
         ));
         try std.testing.expect(slime.size == 1 or slime.size == 2 or slime.size == 4);
     }
@@ -836,9 +831,7 @@ test "zombies spawn in the overworld's dark caverns, and never in the daylight" 
     while (shamblers.next()) |zombie| {
         const at = zombie.animal.base.position;
         try std.testing.expectEqual(.stone, w.getBlock(
-            math.util.floorDouble(at.x),
-            math.util.floorDouble(at.y) - 1,
-            math.util.floorDouble(at.z),
+            .init(math.util.floorDouble(at.x), math.util.floorDouble(at.y) - 1, math.util.floorDouble(at.z)),
         ));
     }
 }
@@ -889,9 +882,7 @@ test "the nether fills its caverns with pig zombies as well as ghasts" {
     while (horde.next()) |pig_zombie| {
         const at = pig_zombie.animal.base.position;
         try std.testing.expectEqual(.stone, w.getBlock(
-            math.util.floorDouble(at.x),
-            math.util.floorDouble(at.y) - 1,
-            math.util.floorDouble(at.z),
+            .init(math.util.floorDouble(at.x), math.util.floorDouble(at.y) - 1, math.util.floorDouble(at.z)),
         ));
         try std.testing.expectEqual(@as(i32, 0), pig_zombie.anger_level);
     }
@@ -1170,8 +1161,8 @@ pub fn performSleepSpawning(
             const kind = kinds[@intCast(rand.nextIntBound(@intCast(kinds.len)))];
 
             var y = start_y;
-            while (y > 2 and !world_map.getBlock(x, y - 1, z).isOpaqueCube()) y -= 1;
-            while (!canSpawnAtLocation(.monster, world_map, x, y, z) and
+            while (y > 2 and !world_map.getBlock(.init(x, y - 1, z)).isOpaqueCube()) y -= 1;
+            while (!canSpawnAtLocation(.monster, world_map, .init(x, y, z)) and
                 y < start_y + night_spawn_lift and
                 y < night_spawn_ceiling) : (y += 1)
             {}
@@ -1184,9 +1175,7 @@ pub fn performSleepSpawning(
             );
             const bedside = world.block_update.bedRespawnSpot(
                 world_map,
-                math.util.floorDouble(anchor.x),
-                math.util.floorDouble(anchor.y),
-                math.util.floorDouble(anchor.z),
+                .init(math.util.floorDouble(anchor.x), math.util.floorDouble(anchor.y), math.util.floorDouble(anchor.z)),
                 1,
             ) orelse [3]i32{ x, y + 1, z };
 

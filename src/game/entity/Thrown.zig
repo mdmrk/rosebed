@@ -249,7 +249,7 @@ test "an egg that meets a wall reports where it would strike it" {
     egg.settle(&w);
 
     const hit = egg.blockImpact(&w).?;
-    try std.testing.expectEqual(@as(i32, 10), hit.x);
+    try std.testing.expectEqual(@as(i32, 10), hit.pos.x);
 }
 
 test "an egg trails bubbles once it is under water" {

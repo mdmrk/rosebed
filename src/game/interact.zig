@@ -3,6 +3,7 @@ const std = @import("std");
 const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Entities = @import("Entities.zig");
 const Entity = @import("Entity.zig");
@@ -84,8 +85,8 @@ pub const Context = struct {
         try ctx.damageHeldItem(cost);
     }
 
-    pub fn spawnDroppedItem(ctx: Context, x: i32, y: i32, z: i32, stack: Inventory.ItemStack) !void {
-        try ctx.level.dropStackAt(ctx.gpa, x, y, z, stack);
+    pub fn spawnDroppedItem(ctx: Context, pos: BlockPos, stack: Inventory.ItemStack) !void {
+        try ctx.level.dropStackAt(ctx.gpa, pos, stack);
     }
 
     pub fn holdStack(ctx: Context, held: world.Item) void {
@@ -114,16 +115,14 @@ pub const Context = struct {
     }
 };
 
-pub fn ejectJukeboxRecord(ctx: Context, x: i32, y: i32, z: i32) !bool {
-    if (ctx.level.world_map.getBlockMetadata(x, y, z) == 0) return false;
+pub fn ejectJukeboxRecord(ctx: Context, pos: BlockPos) !bool {
+    if (ctx.level.world_map.getBlockMetadata(pos) == 0) return false;
 
-    const taken = try world.jukebox.takeRecord(&ctx.level.world_map, x, y, z);
+    const taken = try world.jukebox.takeRecord(&ctx.level.world_map, pos);
     const record = taken orelse return true;
     try ctx.level.entities.ejectRecord(
         ctx.gpa,
-        x,
-        y,
-        z,
+        pos,
         .{ .id = .{ .item = record }, .count = 1 },
         &ctx.level.world_map.rand,
     );
@@ -131,28 +130,26 @@ pub fn ejectJukeboxRecord(ctx: Context, x: i32, y: i32, z: i32) !bool {
     return true;
 }
 
-pub fn lightRedstoneOre(ctx: Context, x: i32, y: i32, z: i32) !void {
+pub fn lightRedstoneOre(ctx: Context, pos: BlockPos) !void {
     try ctx.level.entities.spawnRedstoneOreParticles(
         ctx.gpa,
         &ctx.level.world_map,
-        x,
-        y,
-        z,
+        pos,
         &ctx.level.world_map.rand,
     );
-    try world.redstone.lightRedstoneOre(&ctx.level.world_map, x, y, z);
+    try world.redstone.lightRedstoneOre(&ctx.level.world_map, pos);
     try ctx.applyBlockChanges();
 }
 
-pub fn eatCakeSlice(ctx: Context, x: i32, y: i32, z: i32) !void {
+pub fn eatCakeSlice(ctx: Context, pos: BlockPos) !void {
     if (ctx.player.health >= 20) return;
     ctx.player.heal(3);
 
-    const eaten = ctx.level.world_map.getBlockMetadata(x, y, z) + 1;
+    const eaten = ctx.level.world_map.getBlockMetadata(pos) + 1;
     if (eaten >= world.block.cake_slices) {
-        try ctx.level.world_map.setBlockWithNotify(x, y, z, .air);
+        try ctx.level.world_map.setBlockWithNotify(pos, .air);
     } else {
-        try ctx.level.world_map.setBlockMetadataWithNotify(x, y, z, @intCast(eaten));
+        try ctx.level.world_map.setBlockMetadataWithNotify(pos, @intCast(eaten));
     }
     try ctx.applyBlockChanges();
 }
@@ -172,7 +169,7 @@ pub fn hangPaintingAtTarget(ctx: Context) !bool {
 
     const direction = Painting.directionFromFace(hit.face) orelse return false;
     const hung = Painting.pickArt(
-        .{ hit.x, hit.y, hit.z },
+        .{ hit.pos.x, hit.pos.y, hit.pos.z },
         direction,
         &ctx.level.world_map,
         ctx.level.entities.paintings.items,
@@ -303,12 +300,12 @@ pub fn interactWithWolf(ctx: Context, animal: *Animal, held: ?world.Item) !bool 
 pub fn strikeFlintAtTarget(ctx: Context) !bool {
     const hit = ctx.pickedBlock() orelse return false;
 
-    const target = world.block_update.placementTarget(&ctx.level.world_map, hit.x, hit.y, hit.z, hit.face);
-    if (target.y < 0 or target.y >= world.Chunk.height) return false;
+    const target = world.block_update.placementTarget(&ctx.level.world_map, hit.pos, hit.face);
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return false;
 
-    if (ctx.level.world_map.getBlock(target.x, target.y, target.z) == .air) {
-        ctx.level.world_map.playIgniteAt(target.x, target.y, target.z);
-        try ctx.level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
+    if (ctx.level.world_map.getBlock(target.pos) == .air) {
+        ctx.level.world_map.playIgniteAt(target.pos);
+        try ctx.level.world_map.setBlockWithNotify(target.pos, .fire);
         try ctx.applyBlockChanges();
     }
 
@@ -327,16 +324,16 @@ pub fn useBucket(ctx: Context, held: world.Item, fill: world.item.Fill) !bool {
 
     switch (fill) {
         .empty => {
-            const scooped = try world.block_update.scoopLiquid(&ctx.level.world_map, hit.x, hit.y, hit.z) orelse return false;
+            const scooped = try world.block_update.scoopLiquid(&ctx.level.world_map, hit.pos) orelse return false;
             ctx.holdStack(scooped.bucketItem());
         },
         .milk => ctx.holdStack(.bucket),
         .water, .lava => {
             const step = hit.face.step();
-            const px = hit.x + step[0];
-            const py = hit.y + step[1];
-            const pz = hit.z + step[2];
-            if (!try world.block_update.pourLiquid(&ctx.level.world_map, px, py, pz, fill)) return false;
+            const px = hit.pos.x + step[0];
+            const py = hit.pos.y + step[1];
+            const pz = hit.pos.z + step[2];
+            if (!try world.block_update.pourLiquid(&ctx.level.world_map, .init(px, py, pz), fill)) return false;
             ctx.holdStack(.bucket);
         },
     }
@@ -348,7 +345,7 @@ pub fn useBucket(ctx: Context, held: world.Item, fill: world.item.Fill) !bool {
 
 pub fn tillWithHoe(ctx: Context, held: world.Item) !bool {
     const hit = ctx.pickedBlock() orelse return false;
-    if (!try world.farming.till(&ctx.level.world_map, hit.x, hit.y, hit.z, hit.face)) return false;
+    if (!try world.farming.till(&ctx.level.world_map, hit.pos, hit.face)) return false;
 
     try ctx.stats.use(ctx.gpa, .{ .item = held });
     try ctx.damageHeldItem(1);
@@ -358,7 +355,7 @@ pub fn tillWithHoe(ctx: Context, held: world.Item) !bool {
 
 pub fn plantSeedsAtTarget(ctx: Context) !bool {
     const hit = ctx.pickedBlock() orelse return false;
-    if (!try world.farming.plant(&ctx.level.world_map, hit.x, hit.y, hit.z, hit.face)) return false;
+    if (!try world.farming.plant(&ctx.level.world_map, hit.pos, hit.face)) return false;
 
     try ctx.stats.use(ctx.gpa, .{ .item = .seeds });
     ctx.consumeSelectedStack();
@@ -374,7 +371,7 @@ pub fn placeDoorAtTarget(ctx: Context, held: world.Item) !bool {
     };
     const hit = ctx.pickedBlock() orelse return false;
     if (hit.face != .up) return false;
-    if (!try world.block_update.placeDoor(&ctx.level.world_map, hit.x, hit.y + 1, hit.z, placed, ctx.player.yaw)) return false;
+    if (!try world.block_update.placeDoor(&ctx.level.world_map, hit.pos.offset(0, 1, 0), placed, ctx.player.yaw)) return false;
 
     try ctx.stats.use(ctx.gpa, .{ .item = held });
     ctx.consumeSelectedStack();
@@ -385,7 +382,7 @@ pub fn placeDoorAtTarget(ctx: Context, held: world.Item) !bool {
 pub fn placeBedAtTarget(ctx: Context) !bool {
     const hit = ctx.pickedBlock() orelse return false;
     if (hit.face != .up) return false;
-    if (!try world.block_update.placeBed(&ctx.level.world_map, hit.x, hit.y + 1, hit.z, ctx.player.yaw)) return false;
+    if (!try world.block_update.placeBed(&ctx.level.world_map, hit.pos.offset(0, 1, 0), ctx.player.yaw)) return false;
 
     try ctx.stats.use(ctx.gpa, .{ .item = .bed });
     ctx.consumeSelectedStack();
@@ -395,10 +392,10 @@ pub fn placeBedAtTarget(ctx: Context) !bool {
 
 pub fn insertRecordAtTarget(ctx: Context, record: world.Item) !bool {
     const hit = ctx.pickedBlock() orelse return false;
-    if (ctx.level.world_map.getBlock(hit.x, hit.y, hit.z) != .jukebox) return false;
-    if (ctx.level.world_map.getBlockMetadata(hit.x, hit.y, hit.z) != 0) return false;
+    if (ctx.level.world_map.getBlock(hit.pos) != .jukebox) return false;
+    if (ctx.level.world_map.getBlockMetadata(hit.pos) != 0) return false;
 
-    try world.jukebox.insertRecord(&ctx.level.world_map, hit.x, hit.y, hit.z, record);
+    try world.jukebox.insertRecord(&ctx.level.world_map, hit.pos, record);
     try ctx.stats.use(ctx.gpa, .{ .item = record });
     ctx.consumeSelectedStack();
     try ctx.applyBlockChanges();
@@ -413,13 +410,13 @@ pub fn placeBoatAtTarget(ctx: Context) !bool {
         boat_reach,
     ) orelse return false;
 
-    const on_snow = ctx.level.world_map.getBlock(hit.x, hit.y, hit.z) == .snow_layer;
-    const floor = if (on_snow) hit.y - 1 else hit.y;
+    const on_snow = ctx.level.world_map.getBlock(hit.pos) == .snow_layer;
+    const floor = if (on_snow) hit.pos.y - 1 else hit.pos.y;
 
     _ = try ctx.level.entities.spawnBoat(ctx.gpa, math.Vec3.init(
-        @as(f64, @floatFromInt(hit.x)) + 0.5,
+        @as(f64, @floatFromInt(hit.pos.x)) + 0.5,
         @as(f64, @floatFromInt(floor)) + 1.0,
-        @as(f64, @floatFromInt(hit.z)) + 0.5,
+        @as(f64, @floatFromInt(hit.pos.z)) + 0.5,
     ));
     try ctx.stats.use(ctx.gpa, .{ .item = .boat });
     ctx.consumeSelectedStack();
@@ -428,12 +425,12 @@ pub fn placeBoatAtTarget(ctx: Context) !bool {
 
 pub fn placeMinecartAtTarget(ctx: Context, kind: Minecart.Kind) !bool {
     const hit = ctx.pickedBlock() orelse return false;
-    if (!world.block.isRail(ctx.level.world_map.getBlock(hit.x, hit.y, hit.z))) return false;
+    if (!world.block.isRail(ctx.level.world_map.getBlock(hit.pos))) return false;
 
     _ = try ctx.level.entities.spawnMinecart(ctx.gpa, math.Vec3.init(
-        @as(f64, @floatFromInt(hit.x)) + 0.5,
-        @as(f64, @floatFromInt(hit.y)) + 0.5,
-        @as(f64, @floatFromInt(hit.z)) + 0.5,
+        @as(f64, @floatFromInt(hit.pos.x)) + 0.5,
+        @as(f64, @floatFromInt(hit.pos.y)) + 0.5,
+        @as(f64, @floatFromInt(hit.pos.z)) + 0.5,
     ), kind);
     try ctx.stats.use(ctx.gpa, ctx.player.inventory.selectedStack().?.id);
     ctx.consumeSelectedStack();
@@ -454,7 +451,7 @@ const BowSound = struct {
         self.count += 1;
     }
 
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: i32, _: i32, _: i32) void {}
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
 
     fn sink(self: *BowSound) world.World.SoundSink {
         return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };

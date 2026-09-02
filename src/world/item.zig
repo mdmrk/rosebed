@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
+const BlockPos = @import("BlockPos.zig");
 const Side = @import("block.zig").Side;
 const World = @import("World.zig");
 
@@ -216,7 +217,7 @@ pub const Def = struct {
     max_stack_size: u8 = 64,
     icon_tile: ?*const fn (Item, u16) ?u8 = null,
     display_name: ?*const fn (Item, u16) []const u8 = null,
-    on_use: ?*const fn (*World, i32, i32, i32, Side, Item, u16) std.mem.Allocator.Error!bool = null,
+    on_use: ?*const fn (*World, BlockPos, Side, Item, u16) std.mem.Allocator.Error!bool = null,
 };
 
 pub const first_item_id: u16 = 256;

@@ -5,6 +5,7 @@ const game = @import("game");
 const math = @import("math");
 const net = @import("net");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Session = @This();
 
@@ -811,26 +812,26 @@ fn spillOnDeath(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !voi
     for (&player.inventory.slots) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.dropStackAt(gpa, .init(x, y, z), stack);
     }
     for (&player.inventory.armor) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.dropStackAt(gpa, .init(x, y, z), stack);
     }
     for (&self.crafting) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.dropStackAt(gpa, .init(x, y, z), stack);
     }
     for (&self.workbench) |*slot| {
         const stack = slot.* orelse continue;
         slot.* = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.dropStackAt(gpa, .init(x, y, z), stack);
     }
     if (self.carried) |stack| {
         self.carried = null;
-        try level.dropStackAt(gpa, x, y, z, stack);
+        try level.dropStackAt(gpa, .init(x, y, z), stack);
     }
 }
 
@@ -1261,22 +1262,22 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
         },
         .workbench => window.addGrid(&self.workbench, game.Window.workbench_side),
         .chest => |pair| {
-            const upper = level.world_map.chestAt(pair.upper.x, pair.upper.y, pair.upper.z) orelse return window;
+            const upper = level.world_map.chestAt(pair.upper) orelse return window;
             window.addStore(&upper.items, .chest);
             if (pair.lower) |at| {
-                const lower = level.world_map.chestAt(at.x, at.y, at.z) orelse return window;
+                const lower = level.world_map.chestAt(at) orelse return window;
                 window.addStore(&lower.items, .chest);
             }
         },
         .furnace => |at| {
-            const fire = level.world_map.furnaceAt(at.x, at.y, at.z) orelse return window;
+            const fire = level.world_map.furnaceAt(at) orelse return window;
             window.add(.{ .stack = &fire.input });
             window.add(.{ .stack = &fire.fuel });
             window.add(.{ .stack = &fire.output, .kind = .output });
             window.store_count = window.count;
         },
         .dispenser => |at| {
-            const trap = level.world_map.dispenserAt(at.x, at.y, at.z) orelse return window;
+            const trap = level.world_map.dispenserAt(at) orelse return window;
             window.addStore(&trap.items, .chest);
         },
         .minecart => |id| {
@@ -1365,7 +1366,7 @@ fn sendProgress(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !voi
             return;
         },
     };
-    const fire = level.world_map.furnaceAt(at.x, at.y, at.z) orelse return;
+    const fire = level.world_map.furnaceAt(at) orelse return;
     const now: [3]i16 = .{ fire.cook_time, fire.burn_time, fire.item_burn_time };
 
     for (now, 0..) |value, bar| {
@@ -1572,9 +1573,7 @@ pub const note_range: f64 = 64.0;
 pub fn sendNote(
     self: *Session,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     instrument: world.note.Instrument,
     pitch: u8,
 ) !void {
@@ -1582,16 +1581,16 @@ pub fn sendNote(
     const player = self.player orelse return;
 
     const at = math.Vec3.init(
-        @as(f64, @floatFromInt(x)) + 0.5,
-        @as(f64, @floatFromInt(y)) + 0.5,
-        @as(f64, @floatFromInt(z)) + 0.5,
+        @as(f64, @floatFromInt(pos.x)) + 0.5,
+        @as(f64, @floatFromInt(pos.y)) + 0.5,
+        @as(f64, @floatFromInt(pos.z)) + 0.5,
     );
     if (player.base.position.distanceTo(at) > note_range) return;
 
     try self.send(gpa, .{ .play_note_block = .{
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .instrument = @intFromEnum(instrument),
         .pitch = pitch,
     } });
@@ -1682,10 +1681,10 @@ pub fn sendChat(self: *Session, gpa: std.mem.Allocator, line: []const u8) !void 
     try self.send(gpa, .{ .chat = .{ .message = line } });
 }
 
-fn withinReach(player: *const game.Player, x: i32, y: i32, z: i32) bool {
-    const dx = player.base.position.x - (@as(f64, @floatFromInt(x)) + 0.5);
-    const dy = player.base.position.y - (@as(f64, @floatFromInt(y)) + 0.5);
-    const dz = player.base.position.z - (@as(f64, @floatFromInt(z)) + 0.5);
+fn withinReach(player: *const game.Player, pos: BlockPos) bool {
+    const dx = player.base.position.x - (@as(f64, @floatFromInt(pos.x)) + 0.5);
+    const dy = player.base.position.y - (@as(f64, @floatFromInt(pos.y)) + 0.5);
+    const dz = player.base.position.z - (@as(f64, @floatFromInt(pos.z)) + 0.5);
     return dx * dx + dy * dy + dz * dz <= reach_squared;
 }
 
@@ -1703,28 +1702,28 @@ fn digBlock(
 ) !void {
     const player = self.player orelse return;
     const height: i32 = y;
-    if (!withinReach(player, x, height, z)) return;
+    if (!withinReach(player, .init(x, height, z))) return;
 
     if (status == dig_started) {
-        if (face <= 5) try level.world_map.onBlockHit(x, height, z, @enumFromInt(face));
+        if (face <= 5) try level.world_map.onBlockHit(.init(x, height, z), @enumFromInt(face));
 
-        const punched = level.world_map.getBlock(x, height, z);
+        const punched = level.world_map.getBlock(.init(x, height, z));
         if (punched == .tnt and holdingFlintAndSteel(player)) {
-            return world.tnt.markLit(&level.world_map, x, height, z);
+            return world.tnt.markLit(&level.world_map, .init(x, height, z));
         }
-        return world.note.onPunched(&level.world_map, x, height, z);
+        return world.note.onPunched(&level.world_map, .init(x, height, z));
     }
     if (status != dig_finished) return;
 
-    const broken = level.world_map.getBlock(x, height, z);
+    const broken = level.world_map.getBlock(.init(x, height, z));
     if (broken == .air) return;
 
-    const meta = level.world_map.getBlockMetadata(x, height, z);
+    const meta = level.world_map.getBlockMetadata(.init(x, height, z));
     const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
-    try level.world_map.setBlockWithNotify(x, height, z, .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, x, height, z);
-    _ = level.world_map.removeSign(x, height, z);
-    _ = level.world_map.removeNote(x, height, z);
+    try level.world_map.setBlockWithNotify(.init(x, height, z), .air);
+    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, .init(x, height, z));
+    _ = level.world_map.removeSign(.init(x, height, z));
+    _ = level.world_map.removeNote(.init(x, height, z));
     const held = player.inventory.selectedStack();
     const harvested = broken.harvestableWith(held);
     if (harvested) {
@@ -1737,7 +1736,7 @@ fn digBlock(
     else
         broken.drop(meta, &level.world_map.rand);
     if (drop) |dropped| {
-        try level.dropStackAt(gpa, x, height, z, .{
+        try level.dropStackAt(gpa, .init(x, height, z), .{
             .id = dropped.id,
             .count = dropped.count,
             .meta = dropped.meta,
@@ -1746,7 +1745,7 @@ fn digBlock(
     if (harvested) {
         var extra: [3]world.block.Stack = undefined;
         for (broken.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
-            try level.dropStackAt(gpa, x, height, z, .{
+            try level.dropStackAt(gpa, .init(x, height, z), .{
                 .id = dropped.id,
                 .count = dropped.count,
                 .meta = dropped.meta,
@@ -1760,57 +1759,57 @@ fn holdingFlintAndSteel(player: *const game.Player) bool {
     return stack.id.eql(.{ .item = .flint_and_steel });
 }
 
-fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: i32, y: i32, z: i32) !bool {
-    const standing = level.world_map.getBlock(x, y, z);
+fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos: BlockPos) !bool {
+    const standing = level.world_map.getBlock(pos);
     switch (standing) {
         .workbench => {
             try self.openContainer(gpa, level, .workbench, window_workbench, "Crafting");
             return true;
         },
         .chest => {
-            if (level.world_map.chestIsBlocked(x, y, z)) return true;
-            const pair = level.world_map.chestPairAt(x, y, z);
-            _ = try level.world_map.addChest(pair.upper.x, pair.upper.y, pair.upper.z);
-            if (pair.lower) |at| _ = try level.world_map.addChest(at.x, at.y, at.z);
+            if (level.world_map.chestIsBlocked(pos)) return true;
+            const pair = level.world_map.chestPairAt(pos);
+            _ = try level.world_map.addChest(pair.upper);
+            if (pair.lower) |at| _ = try level.world_map.addChest(at);
             const title = if (pair.lower == null) "Chest" else "Large chest";
             try self.openContainer(gpa, level, .{ .chest = pair }, window_chest, title);
             return true;
         },
         .furnace, .burning_furnace => {
-            _ = try level.world_map.addFurnace(x, y, z);
-            try self.openContainer(gpa, level, .{ .furnace = .{ .x = x, .y = y, .z = z } }, window_furnace, "Furnace");
+            _ = try level.world_map.addFurnace(pos);
+            try self.openContainer(gpa, level, .{ .furnace = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, window_furnace, "Furnace");
             return true;
         },
         .dispenser => {
-            _ = try level.world_map.addDispenser(x, y, z);
-            try self.openContainer(gpa, level, .{ .dispenser = .{ .x = x, .y = y, .z = z } }, window_dispenser, "Trap");
+            _ = try level.world_map.addDispenser(pos);
+            try self.openContainer(gpa, level, .{ .dispenser = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, window_dispenser, "Trap");
             return true;
         },
         else => {},
     }
     switch (standing) {
         .door_wood => {
-            try world.block_update.toggleDoor(&level.world_map, x, y, z);
+            try world.block_update.toggleDoor(&level.world_map, pos);
             return true;
         },
         .door_iron => return true,
         .trapdoor => {
-            try world.block_update.toggleTrapdoor(&level.world_map, x, y, z);
+            try world.block_update.toggleTrapdoor(&level.world_map, pos);
             return true;
         },
         .lever, .button, .repeater_off, .repeater_on => {
-            _ = try world.redstone.activate(&level.world_map, x, y, z);
+            _ = try world.redstone.activate(&level.world_map, pos);
             return true;
         },
-        .note_block => return world.note.onActivated(&level.world_map, x, y, z, .note_block),
+        .note_block => return world.note.onActivated(&level.world_map, pos, .note_block),
         .bed => {
-            try self.sleepInBed(gpa, level, x, y, z);
+            try self.sleepInBed(gpa, level, pos);
             return true;
         },
         .jukebox, .cake => return true,
         else => {
             const hook = standing.def().on_activated orelse return false;
-            return hook(&level.world_map, x, y, z, standing);
+            return hook(&level.world_map, pos, standing);
         },
     }
 }
@@ -1827,20 +1826,18 @@ fn useBucket(
     self: *Session,
     level: *game.Level,
     fill: world.item.Fill,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     face: world.block.Side,
 ) !void {
     switch (fill) {
         .empty => {
-            const scooped = try world.block_update.scoopLiquid(&level.world_map, x, y, z) orelse return;
+            const scooped = try world.block_update.scoopLiquid(&level.world_map, pos) orelse return;
             self.holdStack(scooped.bucketItem());
         },
         .milk => self.holdStack(.bucket),
         .water, .lava => {
             const step = face.step();
-            if (!try world.block_update.pourLiquid(&level.world_map, x + step[0], y + step[1], z + step[2], fill)) return;
+            if (!try world.block_update.pourLiquid(&level.world_map, pos.offset(step[0], step[1], step[2]), fill)) return;
             self.holdStack(.bucket);
         },
     }
@@ -1852,44 +1849,42 @@ fn useItemOn(
     level: *game.Level,
     held: world.Item,
     stack: world.Stack,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     face: world.block.Side,
 ) !void {
     const player = self.player orelse return;
 
-    if (held.bucketFill()) |fill| return self.useBucket(level, fill, x, y, z, face);
+    if (held.bucketFill()) |fill| return self.useBucket(level, fill, pos, face);
 
     if (held.def().on_use) |hook| {
-        if (try hook(&level.world_map, x, y, z, face, held, stack.meta)) return self.consumeHeld();
+        if (try hook(&level.world_map, pos, face, held, stack.meta)) return self.consumeHeld();
     }
 
     switch (held) {
         .door_wood, .door_iron => {
             if (face != .up) return;
             const leaf: world.Block = if (held == .door_wood) .door_wood else .door_iron;
-            if (!try world.block_update.placeDoor(&level.world_map, x, y + 1, z, leaf, player.yaw)) return;
+            if (!try world.block_update.placeDoor(&level.world_map, pos.offset(0, 1, 0), leaf, player.yaw)) return;
             self.consumeHeld();
         },
-        .sign => try self.placeSign(level, x, y, z, face),
+        .sign => try self.placeSign(level, pos, face),
         .bed => {
             if (face != .up) return;
-            if (!try world.block_update.placeBed(&level.world_map, x, y + 1, z, player.yaw)) return;
+            if (!try world.block_update.placeBed(&level.world_map, pos.offset(0, 1, 0), player.yaw)) return;
             self.consumeHeld();
         },
         .flint_and_steel => {
-            const target = world.block_update.placementTarget(&level.world_map, x, y, z, face);
-            if (target.y < 0 or target.y >= world.Chunk.height) return;
-            if (level.world_map.getBlock(target.x, target.y, target.z) == .air) {
-                try level.world_map.setBlockWithNotify(target.x, target.y, target.z, .fire);
+            const target = world.block_update.placementTarget(&level.world_map, pos, face);
+            if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
+            if (level.world_map.getBlock(target.pos) == .air) {
+                try level.world_map.setBlockWithNotify(target.pos, .fire);
             }
             self.damageHeld(1);
         },
         .painting => {
             const facing = game.Painting.directionFromFace(face) orelse return;
             const hung = game.Painting.pickArt(
-                .{ x, y, z },
+                .{ pos.x, pos.y, pos.z },
                 facing,
                 &level.world_map,
                 level.entities.paintings.items,
@@ -1899,31 +1894,31 @@ fn useItemOn(
             self.consumeHeld();
         },
         .boat => {
-            const on_snow = level.world_map.getBlock(x, y, z) == .snow_layer;
-            const floor = if (on_snow) y - 1 else y;
+            const on_snow = level.world_map.getBlock(pos) == .snow_layer;
+            const floor = if (on_snow) pos.y - 1 else pos.y;
             _ = try level.entities.spawnBoat(gpa, math.Vec3.init(
-                @as(f64, @floatFromInt(x)) + 0.5,
+                @as(f64, @floatFromInt(pos.x)) + 0.5,
                 @as(f64, @floatFromInt(floor)) + 1.0,
-                @as(f64, @floatFromInt(z)) + 0.5,
+                @as(f64, @floatFromInt(pos.z)) + 0.5,
             ));
             self.consumeHeld();
         },
         .fishing_rod => try self.useFishingRod(gpa, level),
         else => {
             if (held.minecartKind()) |kind| {
-                if (!world.block.isRail(level.world_map.getBlock(x, y, z))) return;
+                if (!world.block.isRail(level.world_map.getBlock(pos))) return;
                 _ = try level.entities.spawnMinecart(gpa, math.Vec3.init(
-                    @as(f64, @floatFromInt(x)) + 0.5,
-                    @as(f64, @floatFromInt(y)) + 0.5,
-                    @as(f64, @floatFromInt(z)) + 0.5,
+                    @as(f64, @floatFromInt(pos.x)) + 0.5,
+                    @as(f64, @floatFromInt(pos.y)) + 0.5,
+                    @as(f64, @floatFromInt(pos.z)) + 0.5,
                 ), kind);
                 self.consumeHeld();
                 return;
             }
             if (held.recordName() != null) {
-                if (level.world_map.getBlock(x, y, z) != .jukebox) return;
-                if (level.world_map.getBlockMetadata(x, y, z) != 0) return;
-                try world.jukebox.insertRecord(&level.world_map, x, y, z, held);
+                if (level.world_map.getBlock(pos) != .jukebox) return;
+                if (level.world_map.getBlockMetadata(pos) != 0) return;
+                try world.jukebox.insertRecord(&level.world_map, pos, held);
                 self.consumeHeld();
             }
         },
@@ -1965,29 +1960,27 @@ fn useItemInAir(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !voi
     try level.entities.shootArrow(gpa, player, &level.world_map.rand);
 }
 
-fn placeSign(self: *Session, level: *game.Level, x: i32, y: i32, z: i32, face: world.block.Side) !void {
+fn placeSign(self: *Session, level: *game.Level, pos: BlockPos, face: world.block.Side) !void {
     const player = self.player orelse return;
     if (face == .down) return;
-    if (!level.world_map.getBlock(x, y, z).material().isSolid()) return;
+    if (!level.world_map.getBlock(pos).material().isSolid()) return;
 
-    const target = world.block_update.placementTarget(&level.world_map, x, y, z, face);
-    if (target.y < 0 or target.y >= world.Chunk.height) return;
-    if (!level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return;
+    const target = world.block_update.placementTarget(&level.world_map, pos, face);
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
+    if (!level.world_map.getBlock(target.pos).isReplaceable()) return;
 
     if (face == .up) {
         const facing = world.block.signPostFacingFromYaw(player.yaw);
-        try level.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, .sign_post, facing);
+        try level.world_map.setBlockAndMetadataWithNotify(target.pos, .sign_post, facing);
     } else {
         try level.world_map.setBlockAndMetadataWithNotify(
-            target.x,
-            target.y,
-            target.z,
+            target.pos,
             .wall_sign,
             @intFromEnum(face),
         );
     }
 
-    _ = try level.world_map.addSign(target.x, target.y, target.z);
+    _ = try level.world_map.addSign(target.pos);
     self.consumeHeld();
 }
 
@@ -1999,21 +1992,21 @@ pub const weather_range: f64 = 512.0;
 pub const bed_reach_x: f64 = 3.0;
 pub const bed_reach_y: f64 = 2.0;
 
-fn sleepInBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, x: i32, y: i32, z: i32) !void {
+fn sleepInBed(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos: BlockPos) !void {
     const player = self.player orelse return;
 
-    const found = world.block_update.bedPillowAt(&level.world_map, x, y, z) orelse return;
+    const found = world.block_update.bedPillowAt(&level.world_map, pos) orelse return;
     const pillow = found.at;
 
     if (self.dimension == .nether) return game.bed.blowUp(gpa, level, pillow, found.metadata);
 
     if (world.block.bedIsOccupied(found.metadata)) {
         if (anySleeperIn(level, pillow)) return self.sendChat(gpa, game.bed.occupied_line);
-        try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], false);
+        try world.block_update.setBedOccupied(&level.world_map, .init(pillow[0], pillow[1], pillow[2]), false);
     }
 
-    switch (player.sleepInBedAt(&level.world_map, self.dimension, pillow[0], pillow[1], pillow[2])) {
-        .ok => try world.block_update.setBedOccupied(&level.world_map, pillow[0], pillow[1], pillow[2], true),
+    switch (player.sleepInBedAt(&level.world_map, self.dimension, .init(pillow[0], pillow[1], pillow[2]))) {
+        .ok => try world.block_update.setBedOccupied(&level.world_map, .init(pillow[0], pillow[1], pillow[2]), true),
         .not_possible_now => try self.sendChat(gpa, game.bed.no_sleep_line),
         else => {},
     }
@@ -2067,7 +2060,7 @@ fn respawnPlacement(self: *Session, gpa: std.mem.Allocator, level: *game.Level) 
     const player = self.player orelse return spawnPlacement(level);
 
     if (player.spawn_point) |bed| {
-        if (world.block_update.bedRespawnSpot(&level.world_map, bed[0], bed[1], bed[2], 0)) |spot| {
+        if (world.block_update.bedRespawnSpot(&level.world_map, .init(bed[0], bed[1], bed[2]), 0)) |spot| {
             return .{
                 .x = @as(f64, @floatFromInt(spot[0])) + 0.5,
                 .y = @floatFromInt(spot[1]),
@@ -2105,64 +2098,58 @@ fn placeBlock(
     if (face > 5) return;
 
     const hit_y: i32 = y;
-    if (!withinReach(player, x, hit_y, z)) return;
-    if (try self.activateBlock(gpa, level, x, hit_y, z)) return;
+    if (!withinReach(player, .init(x, hit_y, z))) return;
+    if (try self.activateBlock(gpa, level, .init(x, hit_y, z))) return;
 
     // Vanilla places whatever the server thinks is in hand; the stack on the wire is
     // only the client's guess and is never trusted.
     const stack = player.inventory.selectedStack() orelse return;
     const placed = switch (stack.id) {
         .block => |id| id,
-        .item => |id| id.placedBlock() orelse return self.useItemOn(gpa, level, id, stack, x, hit_y, z, @enumFromInt(face)),
+        .item => |id| id.placedBlock() orelse return self.useItemOn(gpa, level, id, stack, .init(x, hit_y, z), @enumFromInt(face)),
     };
     if (placed == .air) return;
 
     const target = world.block_update.placementTarget(
         &level.world_map,
-        x,
-        hit_y,
-        z,
+        .init(x, hit_y, z),
         @enumFromInt(face),
     );
-    if (target.y < 0 or target.y >= world.Chunk.height) return;
-    if (!withinReach(player, target.x, target.y, target.z)) return;
-    if (!level.world_map.getBlock(target.x, target.y, target.z).isReplaceable()) return;
-    if (!world.block_update.canPlaceOnSide(&level.world_map, target.x, target.y, target.z, placed, target.face)) return;
-    if (placed == .chest and !level.world_map.canPlaceChestAt(target.x, target.y, target.z)) return;
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
+    if (!withinReach(player, target.pos)) return;
+    if (!level.world_map.getBlock(target.pos).isReplaceable()) return;
+    if (!world.block_update.canPlaceOnSide(&level.world_map, target.pos, placed, target.face)) return;
+    if (placed == .chest and !level.world_map.canPlaceChestAt(target.pos)) return;
 
     const meta = world.block_update.placementMetadata(
         &level.world_map,
-        target.x,
-        target.y,
-        target.z,
+        target.pos,
         placed,
         target.face,
         stack.blockMeta(),
     );
-    try level.world_map.setBlockAndMetadataWithNotify(target.x, target.y, target.z, placed, meta);
+    try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
     self.consumeHeld();
 }
 
 pub fn sendBlockChange(
     self: *Session,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     block: world.Block,
     metadata: u4,
 ) !void {
     if (self.state != .playing) return;
-    if (y < 0 or y >= world.Chunk.height) return;
+    if (pos.y < 0 or pos.y >= world.Chunk.height) return;
 
     const width = world.Chunk.width;
-    const coord: world.World.ChunkCoord = .{ .x = @divFloor(x, width), .z = @divFloor(z, width) };
+    const coord: world.World.ChunkCoord = .{ .x = @divFloor(pos.x, width), .z = @divFloor(pos.z, width) };
     if (!self.sent_chunks.contains(coord)) return;
 
     try self.send(gpa, .{ .block_change = .{
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .block = @intFromEnum(block),
         .metadata = metadata,
     } });
@@ -2249,23 +2236,21 @@ fn sendSignsIn(
     while (posts.next()) |entry| {
         const at = entry.key_ptr.*;
         if (@divFloor(at.x, width) != coord.x or @divFloor(at.z, width) != coord.z) continue;
-        try self.sendSign(gpa, at.x, at.y, at.z, entry.value_ptr);
+        try self.sendSign(gpa, at, entry.value_ptr);
     }
 }
 
 pub fn sendSign(
     self: *Session,
     gpa: std.mem.Allocator,
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: BlockPos,
     post: *const world.sign.Sign,
 ) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .update_sign = .{
-        .x = x,
-        .y = @intCast(y),
-        .z = z,
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
         .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
     } });
 }
@@ -2278,10 +2263,10 @@ pub fn seesChunkAt(self: *const Session, x: i32, z: i32) bool {
 fn updateSign(self: *Session, level: *game.Level, body: anytype) !void {
     const player = self.player orelse return;
     const y: i32 = body.y;
-    if (!withinReach(player, body.x, y, body.z)) return;
-    if (!level.world_map.getBlock(body.x, y, body.z).isSign()) return;
+    if (!withinReach(player, .init(body.x, y, body.z))) return;
+    if (!level.world_map.getBlock(.init(body.x, y, body.z)).isSign()) return;
 
-    const post = try level.world_map.addSign(body.x, y, body.z);
+    const post = try level.world_map.addSign(.init(body.x, y, body.z));
     for (body.lines, 0..) |text, index| post.setLine(index, text);
     self.pending_sign = .{ .x = body.x, .y = y, .z = body.z };
 }
@@ -2620,7 +2605,7 @@ test "a finished dig takes the block out of the world and leaves its drop" {
         .face = 1,
     } });
 
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 63, 8));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 63, 8)));
     try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
     try std.testing.expectEqual(world.Id{ .block = .cobblestone }, level.entities.items.items[0].stack.id);
 }
@@ -2639,14 +2624,14 @@ test "punching tnt with flint and steel lights it instead of dropping it" {
     const player = session.player.?;
     player.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
     player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .flint_and_steel }, .count = 1 };
-    try level.world_map.setBlockWithNotify(8, 64, 8, .tnt);
+    try level.world_map.setBlockWithNotify(.init(8, 64, 8), .tnt);
 
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
-    try std.testing.expect(world.tnt.isLit(level.world_map.getBlockMetadata(8, 64, 8)));
+    try std.testing.expect(world.tnt.isLit(level.world_map.getBlockMetadata(.init(8, 64, 8))));
 
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
 
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expectEqual(@as(usize, 0), level.entities.items.items.len);
     try std.testing.expectEqual(@as(usize, 1), level.world_map.primed.items.len);
 }
@@ -2663,7 +2648,7 @@ test "punching tnt bare handed still drops it as an item" {
     try joinedSession(gpa, &level, &session);
 
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-    try level.world_map.setBlockWithNotify(8, 64, 8, .tnt);
+    try level.world_map.setBlockWithNotify(.init(8, 64, 8), .tnt);
 
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
@@ -2687,7 +2672,7 @@ test "a dig that has only started leaves the block alone" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = 0, .x = 8, .y = 63, .z = 8, .face = 1 } });
 
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 8));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 8)));
 }
 
 test "starting a dig on the block under a fire puts the fire out" {
@@ -2702,12 +2687,12 @@ test "starting a dig on the block under a fire puts the fire out" {
     try joinedSession(gpa, &level, &session);
 
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-    try level.world_map.setBlockWithNotify(8, 64, 8, .fire);
+    try level.world_map.setBlockWithNotify(.init(8, 64, 8), .fire);
 
     try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 63, .z = 8, .face = 1 } });
 
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 8));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 8)));
 }
 
 test "a block out of arm's reach cannot be dug" {
@@ -2722,7 +2707,7 @@ test "a block out of arm's reach cannot be dug" {
     try joinedSession(gpa, &level, &session);
 
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 28));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 28)));
 
     try session.handle(gpa, &level, .{ .block_dig = .{
         .status = dig_finished,
@@ -2732,7 +2717,7 @@ test "a block out of arm's reach cannot be dug" {
         .face = 1,
     } });
 
-    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(8, 63, 28));
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 28)));
 }
 
 test "a place puts the held block against the face the client clicked" {
@@ -2758,7 +2743,7 @@ test "a place puts the held block against the face the client clicked" {
         .held = .{ .id = @intFromEnum(world.Block.planks), .count = 1, .damage = 0 },
     } });
 
-    try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expect(holder.inventory.slots[holder.inventory.selected] == null);
 }
 
@@ -2776,7 +2761,7 @@ test "an empty hand and an item that is not a block place nothing" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
 
     try session.handle(gpa, &level, .{ .place = .{ .x = 8, .y = 63, .z = 8, .face = 1, .held = null } });
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
 
     try session.handle(gpa, &level, .{ .place = .{
         .x = 8,
@@ -2785,7 +2770,7 @@ test "an empty hand and an item that is not a block place nothing" {
         .face = 1,
         .held = .{ .id = 280, .count = 1, .damage = 0 },
     } });
-    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(8, 64, 8));
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
 }
 
 fn mobPeers(gpa: std.mem.Allocator, level: *game.Level, out: *std.ArrayList(Peer)) !void {
@@ -2855,13 +2840,13 @@ test "a block change only reaches a player who has been sent that chunk" {
     defer session.leave(gpa, &level);
     try joinedSession(gpa, &level, &session);
 
-    try session.sendBlockChange(gpa, 8, 63, 8, .stone, 0);
+    try session.sendBlockChange(gpa, .init(8, 63, 8), .stone, 0);
     const unsent = try session.takeOutbox(gpa);
     gpa.free(unsent);
     try std.testing.expectEqual(@as(usize, 0), unsent.len);
 
     try session.sent_chunks.put(gpa, .{ .x = 0, .z = 0 }, {});
-    try session.sendBlockChange(gpa, 8, 63, 8, .stone, 5);
+    try session.sendBlockChange(gpa, .init(8, 63, 8), .stone, 5);
 
     var replies: std.ArrayList(net.packet.Packet) = .empty;
     defer freeAll(gpa, &replies);

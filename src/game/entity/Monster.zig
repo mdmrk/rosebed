@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const Mob = @import("../mob.zig");
 const physics = @import("../physics.zig");
@@ -27,13 +28,13 @@ pub const bright_light: f32 = 0.5;
 pub const sky_spawn_roll: i32 = 32;
 pub const block_spawn_roll: i32 = 8;
 
-pub fn blockPathWeight(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
-    return 0.5 - world.light.brightnessAt(world_map, x, y, z, 0);
+pub fn blockPathWeight(world_map: *const world.World, pos: BlockPos) f32 {
+    return 0.5 - world.light.brightnessAt(world_map, pos, 0);
 }
 
 pub fn brightnessOf(world_map: *const world.World, animal: Animal) f32 {
     const sample = animal.base.lightSamplePosition();
-    return world.light.brightnessAt(world_map, sample[0], sample[1], sample[2], 0);
+    return world.light.brightnessAt(world_map, .init(sample[0], sample[1], sample[2]), 0);
 }
 
 pub fn canSee(animal: Animal, world_map: *const world.World, view: Animal.PlayerView) bool {
@@ -59,9 +60,9 @@ pub fn canSpawnHere(animal: Animal, world_map: *const world.World, rand: *world.
     const y = math.util.floorDouble(animal.base.boundingBox().min_y);
     const z = math.util.floorDouble(animal.base.position.z);
 
-    if (@as(i32, world_map.getSkyLight(x, y, z)) > rand.nextIntBound(sky_spawn_roll)) return false;
-    if (@as(i32, world.light.levelAt(world_map, x, y, z)) > rand.nextIntBound(block_spawn_roll)) return false;
-    if (blockPathWeight(world_map, x, y, z) < 0.0) return false;
+    if (@as(i32, world_map.getSkyLight(.init(x, y, z))) > rand.nextIntBound(sky_spawn_roll)) return false;
+    if (@as(i32, world.light.levelAt(world_map, .init(x, y, z))) > rand.nextIntBound(block_spawn_roll)) return false;
+    if (blockPathWeight(world_map, .init(x, y, z)) < 0.0) return false;
 
     const box = animal.base.boundingBox();
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
@@ -257,7 +258,7 @@ test "a monster loses sight of a player it cannot reach through a wall" {
     try std.testing.expect(canSee(animal, &w, player));
 
     var y: u32 = 1;
-    while (y <= 4) : (y += 1) w.setBlock(10, @intCast(y), 8, .stone);
+    while (y <= 4) : (y += 1) w.setBlock(.init(10, @intCast(y), 8), .stone);
     try std.testing.expect(!canSee(animal, &w, player));
     try std.testing.expect(self.findPlayerToAttack(animal, &w, Animal.Players.one(&player), true) == null);
 
@@ -276,8 +277,8 @@ test "a monster prefers the dark to wander into" {
 
     w.getChunk(0, 0).?.setSkyLight(4, 1, 8, 15);
 
-    try std.testing.expect(blockPathWeight(&w, 8, 1, 8) > blockPathWeight(&w, 4, 1, 8));
-    try std.testing.expect(blockPathWeight(&w, 4, 1, 8) < 0.0);
+    try std.testing.expect(blockPathWeight(&w, .init(8, 1, 8)) > blockPathWeight(&w, .init(4, 1, 8)));
+    try std.testing.expect(blockPathWeight(&w, .init(4, 1, 8)) < 0.0);
 }
 
 test "a monster only spawns in the dark, in a clear dry space" {
@@ -298,6 +299,6 @@ test "a monster only spawns in the dark, in a clear dry space" {
     for (0..100) |_| try std.testing.expect(!canSpawnHere(animal, &w, &rand));
 
     w.getChunk(0, 0).?.setSkyLight(8, 1, 8, 0);
-    w.setBlock(8, 2, 8, .stone);
+    w.setBlock(.init(8, 2, 8), .stone);
     for (0..100) |_| try std.testing.expect(!canSpawnHere(animal, &w, &rand));
 }

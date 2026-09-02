@@ -4,9 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 pub const Hit = struct {
-    x: i32,
-    y: i32,
-    z: i32,
+    pos: world.BlockPos,
     face: world.Side,
     distance: f64,
 };
@@ -132,11 +130,11 @@ fn castStopping(
     };
 
     for (0..max_steps) |_| {
-        const id = world_map.getBlock(cell[0], cell[1], cell[2]);
-        const metadata = world_map.getBlockMetadata(cell[0], cell[1], cell[2]);
+        const id = world_map.getBlock(.init(cell[0], cell[1], cell[2]));
+        const metadata = world_map.getBlockMetadata(.init(cell[0], cell[1], cell[2]));
         if (stops(rule, id, metadata)) {
             if (boundsHit(id.selectionBounds(metadata), cell, start, along, max_distance)) |hit| {
-                return .{ .x = cell[0], .y = cell[1], .z = cell[2], .face = hit.face, .distance = hit.distance };
+                return .{ .pos = .init(cell[0], cell[1], cell[2]), .face = hit.face, .distance = hit.distance };
             }
         }
 
@@ -174,9 +172,9 @@ test "looking straight down hits the floor's top face" {
     var w = try testWorldWithFloor();
     defer w.deinit();
     const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 8), hit.x);
-    try std.testing.expectEqual(@as(i32, 5), hit.y);
-    try std.testing.expectEqual(@as(i32, 8), hit.z);
+    try std.testing.expectEqual(@as(i32, 8), hit.pos.x);
+    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
+    try std.testing.expectEqual(@as(i32, 8), hit.pos.z);
     try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
@@ -193,7 +191,7 @@ test "approaching a wall from the side hits its facing side face" {
     const chunk = try w.createChunk(0, 0);
     chunk.setBlock(10, 5, 8, .stone);
     const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 10), hit.x);
+    try std.testing.expectEqual(@as(i32, 10), hit.pos.x);
     try std.testing.expectEqual(world.Side.west, hit.face);
 }
 
@@ -211,7 +209,7 @@ test "a cross-shaped plant is still targetable despite having no collision" {
     chunk.setBlock(8, 5, 8, .tall_grass);
 
     const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
 }
 
 test "aiming past a wall torch targets the wall behind it" {
@@ -223,15 +221,15 @@ test "aiming past a wall torch targets the wall behind it" {
     chunk.setBlockMetadata(9, 5, 8, 2);
 
     const on_torch = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 9), on_torch.x);
+    try std.testing.expectEqual(@as(i32, 9), on_torch.pos.x);
     try std.testing.expectEqual(world.Side.west, on_torch.face);
 
     const beside_torch = cast(&w, math.Vec3.init(5, 5.5, 8.9), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 10), beside_torch.x);
+    try std.testing.expectEqual(@as(i32, 10), beside_torch.pos.x);
     try std.testing.expectEqual(world.Side.west, beside_torch.face);
 
     const above_torch = cast(&w, math.Vec3.init(5, 5.9, 8.5), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 10), above_torch.x);
+    try std.testing.expectEqual(@as(i32, 10), above_torch.pos.x);
 }
 
 test "a standing torch is only targetable down its own narrow column" {
@@ -243,11 +241,11 @@ test "a standing torch is only targetable down its own narrow column" {
     chunk.setBlockMetadata(8, 6, 8, 5);
 
     const centred = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 6), centred.y);
+    try std.testing.expectEqual(@as(i32, 6), centred.pos.y);
     try std.testing.expectEqual(world.Side.up, centred.face);
 
     const off_centre = cast(&w, math.Vec3.init(8.9, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), off_centre.y);
+    try std.testing.expectEqual(@as(i32, 5), off_centre.pos.y);
     try std.testing.expectEqual(world.Side.up, off_centre.face);
 }
 
@@ -259,7 +257,7 @@ test "fire cannot be targeted, so the ray carries on to the block behind it" {
     chunk.setBlock(8, 6, 8, .fire);
 
     const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
     try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
@@ -271,10 +269,10 @@ test "a snow layer is only hit within its eighth of a block" {
     chunk.setBlock(9, 5, 8, .snow_layer);
 
     const low = cast(&w, math.Vec3.init(5, 5.05, 8.5), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 9), low.x);
+    try std.testing.expectEqual(@as(i32, 9), low.pos.x);
 
     const high = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 10), high.x);
+    try std.testing.expectEqual(@as(i32, 10), high.pos.x);
 }
 
 test "looking down onto a snow layer reports its own top, not the block's" {
@@ -284,7 +282,7 @@ test "looking down onto a snow layer reports its own top, not the block's" {
     chunk.setBlock(8, 5, 8, .snow_layer);
 
     const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
     try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
@@ -295,7 +293,7 @@ test "standing inside a plant still targets it, by the face the ray leaves throu
     chunk.setBlock(8, 5, 8, .tall_grass);
 
     const hit = cast(&w, math.Vec3.init(8.5, 5.4, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 8), hit.x);
-    try std.testing.expectEqual(@as(i32, 5), hit.y);
+    try std.testing.expectEqual(@as(i32, 8), hit.pos.x);
+    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
     try std.testing.expectEqual(world.Side.down, hit.face);
 }

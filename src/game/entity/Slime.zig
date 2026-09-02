@@ -496,7 +496,7 @@ test "a wall between the slime and the player stops the attack" {
     try std.testing.expect(slime.attackDamage(&w, player) != null);
 
     var y: u32 = 1;
-    while (y <= 3) : (y += 1) w.setBlock(9, @intCast(y), 8, .stone);
+    while (y <= 3) : (y += 1) w.setBlock(.init(9, @intCast(y), 8), .stone);
     try std.testing.expect(slime.attackDamage(&w, player) == null);
 }
 

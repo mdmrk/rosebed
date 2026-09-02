@@ -2,6 +2,7 @@ const std = @import("std");
 
 const math = @import("math");
 const world = @import("world");
+const BlockPos = world.BlockPos;
 
 const MeshBuilder = @import("MeshBuilder.zig");
 
@@ -112,7 +113,7 @@ pub fn appendRain(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
             try appendColumn(mesh, gpa, x, z, .{
                 .bottom = bottom,
                 .top = top,
-                .shade = brightnessAt(view.world_map, x, world.Chunk.height, z) * rain_light_scale + rain_light_floor,
+                .shade = brightnessAt(view.world_map, .init(x, world.Chunk.height, z)) * rain_light_scale + rain_light_floor,
                 .alpha = fade(view, x, z, reach, rain_alpha_base, rain_alpha_falloff),
                 .scroll_u = 0,
                 .scroll_v = scroll,
@@ -149,7 +150,7 @@ pub fn appendSnow(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
             try appendColumn(mesh, gpa, x, z, .{
                 .bottom = bottom,
                 .top = top,
-                .shade = brightnessAt(view.world_map, x, lit, z),
+                .shade = brightnessAt(view.world_map, .init(x, lit, z)),
                 .alpha = fade(view, x, z, reach, snow_alpha_base, snow_alpha_falloff),
                 .scroll_u = drift_u,
                 .scroll_v = sweep + drift_v,
@@ -158,8 +159,8 @@ pub fn appendSnow(mesh: *MeshBuilder, gpa: std.mem.Allocator, view: View) !void 
     }
 }
 
-fn brightnessAt(world_map: *const world.World, x: i32, y: i32, z: i32) f32 {
-    return world.light.brightnessAt(world_map, x, @min(y, world.Chunk.height - 1), z, 0);
+fn brightnessAt(world_map: *const world.World, pos: BlockPos) f32 {
+    return world.light.brightnessAt(world_map, .init(pos.x, @min(pos.y, world.Chunk.height - 1), pos.z), 0);
 }
 
 fn fade(view: View, x: i32, z: i32, reach: i32, base: f32, falloff: f32) f32 {
