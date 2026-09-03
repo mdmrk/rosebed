@@ -720,8 +720,14 @@ fn soundSink(app_state: *AppState) world.World.SoundSink {
     };
 }
 
+fn withinEarshot(at: math.Vec3, listener: math.Vec3, volume: f32) bool {
+    const radius: f64 = audio.Manager.fade_distance * @as(f64, if (volume > 1) volume else 1);
+    return at.distanceSquaredTo(listener) < radius * radius;
+}
+
 fn playSound(context: *anyopaque, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
+    if (!withinEarshot(at, listenerPosition(app_state), volume)) return;
     if (app_state.sound) |*device| device.playSound(sound, at, volume, pitch) catch {};
 }
 
@@ -3357,6 +3363,11 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
     app_state.shader.setFloat(.u_fog_end, far);
 }
 
+fn listenerPosition(app_state: *const AppState) math.Vec3 {
+    if (app_state.freecam.active) return app_state.freecam.position;
+    return app_state.player.base.position;
+}
+
 fn updateListener(app_state: *AppState) void {
     const sound = if (app_state.sound) |*value| value else return;
     const player = &app_state.player;
@@ -5247,4 +5258,17 @@ pub fn quit(
     sdl3.quit(init_flags);
     sdl3.shutdown();
     if (builtin.mode == .Debug and !wasm) _ = debug_allocator.deinit();
+}
+
+test "a sound outside the fade distance never reaches the sound system" {
+    const listener = math.Vec3.init(0, 0, 0);
+
+    try std.testing.expect(withinEarshot(.init(15.9, 0, 0), listener, 1.0));
+    try std.testing.expect(!withinEarshot(.init(16.0, 0, 0), listener, 1.0));
+    try std.testing.expect(!withinEarshot(.init(0, 0, 72.5), listener, 1.0));
+
+    try std.testing.expect(withinEarshot(.init(31.9, 0, 0), listener, 2.0));
+    try std.testing.expect(!withinEarshot(.init(32.0, 0, 0), listener, 2.0));
+
+    try std.testing.expect(withinEarshot(.init(15.9, 0, 0), listener, 0.15));
 }

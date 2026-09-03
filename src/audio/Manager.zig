@@ -11,7 +11,7 @@ const Manager = @This();
 pub const folder_name = "resources";
 
 const voice_count = 28;
-const fade_distance: f32 = 16.0;
+pub const fade_distance: f32 = 16.0;
 const streaming_fade_distance: f32 = fade_distance * 4.0;
 const streaming_gain: f32 = 0.5;
 const interface_gain: f32 = 0.25;
@@ -22,6 +22,7 @@ const Voice = struct {
     position: ?math.Vec3 = null,
     gain: f32 = 0,
     fade: f32 = fade_distance,
+    priority: bool = false,
 };
 
 const Target = struct {
@@ -30,7 +31,7 @@ const Target = struct {
 };
 
 mixer: sdl3.mixer.Mixer,
-audios: []sdl3.mixer.Audio,
+audios: []?sdl3.mixer.Audio,
 sounds: Pool = .{},
 streaming: Pool = .{ .strip_digits = false },
 music: Pool = .{},
@@ -71,7 +72,7 @@ fn create(gpa: std.mem.Allocator, seed: u64, mixer: sdl3.mixer.Mixer) !Manager {
 
     var self: Manager = .{
         .mixer = mixer,
-        .audios = try gpa.alloc(sdl3.mixer.Audio, embedded_sound_count),
+        .audios = try gpa.alloc(?sdl3.mixer.Audio, embedded_sound_count),
         .voices = undefined,
         .streaming_voice = undefined,
         .music_voice = undefined,
@@ -92,8 +93,8 @@ fn create(gpa: std.mem.Allocator, seed: u64, mixer: sdl3.mixer.Mixer) !Manager {
 
     var loaded: usize = 0;
     for (sound_groups) |group| {
-        for (group.variants) |variant| {
-            self.audios[loaded] = try .initNoCopy(mixer, variant.bytes, false);
+        for (group.variants) |_| {
+            self.audios[loaded] = null;
             try self.sounds.addKeyed(gpa, group.key, .{ .embedded = @intCast(loaded) });
             loaded += 1;
         }
@@ -106,7 +107,7 @@ pub fn deinit(self: *Manager, gpa: std.mem.Allocator) void {
     self.sounds.deinit(gpa);
     self.streaming.deinit(gpa);
     self.music.deinit(gpa);
-    for (self.audios) |audio| audio.deinit();
+    for (self.audios) |audio| if (audio) |decoded| decoded.deinit();
     gpa.free(self.audios);
     for (self.voices) |voice| voice.track.deinit();
     self.streaming_voice.track.deinit();
@@ -140,6 +141,18 @@ pub const embedded_sound_count = blk: {
     var total: usize = 0;
     for (sound_groups) |group| total += group.variants.len;
     break :blk total;
+};
+
+const embedded_bytes = blk: {
+    var list: [embedded_sound_count][]const u8 = undefined;
+    var at: usize = 0;
+    for (sound_groups) |group| {
+        for (group.variants) |variant| {
+            list[at] = variant.bytes;
+            at += 1;
+        }
+    }
+    break :blk list;
 };
 
 fn targetFor(self: *Manager, path: []const u8) ?Target {
@@ -217,16 +230,35 @@ fn apply(self: *const Manager, voice: *Voice) !void {
     try voice.track.setGain(attenuation(@floatCast(distance), voice.fade) * voice.gain);
 }
 
-fn nextVoice(self: *Manager) *Voice {
-    const voice = &self.voices[self.next_voice];
-    self.next_voice = (self.next_voice + 1) % voice_count;
-    return voice;
+fn claimVoice(self: *Manager, index: usize) *Voice {
+    self.next_voice = (index + 1) % voice_count;
+    return &self.voices[index];
+}
+
+fn nextVoice(self: *Manager) ?*Voice {
+    for (0..voice_count) |offset| {
+        const index = (self.next_voice + offset) % voice_count;
+        if (!self.voices[index].track.isPlaying()) return self.claimVoice(index);
+    }
+    for (0..voice_count) |offset| {
+        const index = (self.next_voice + offset) % voice_count;
+        if (!self.voices[index].priority) return self.claimVoice(index);
+    }
+    return null;
+}
+
+fn decodedAudio(self: *Manager, index: u32) !sdl3.mixer.Audio {
+    if (self.audios[index]) |audio| return audio;
+    const stream = try sdl3.io_stream.Stream.initFromConstMem(embedded_bytes[index]);
+    const audio = try sdl3.mixer.Audio.initIo(self.mixer, stream, true, true);
+    self.audios[index] = audio;
+    return audio;
 }
 
 fn start(self: *Manager, voice: *Voice, source: Pool.Source, pitch: f32) !void {
     try voice.track.stop(0);
     switch (source) {
-        .embedded => |index| try voice.track.setAudio(self.audios[index]),
+        .embedded => |index| try voice.track.setAudio(try self.decodedAudio(index)),
         .file => |path| {
             const stream = try sdl3.io_stream.Stream.initFromFile(path, .read_binary);
             try voice.track.setIoStream(stream, true);
@@ -261,7 +293,8 @@ pub fn playSound(self: *Manager, sound: assets.Sound, at: math.Vec3, volume: f32
     const source = self.sounds.pick(sound.key, self.prng.random()) orelse return;
     if (volume <= 0) return;
 
-    const voice = self.nextVoice();
+    const voice = self.nextVoice() orelse return;
+    voice.priority = volume > 1;
     voice.position = at;
     voice.fade = if (volume > 1) fade_distance * volume else fade_distance;
     voice.gain = @min(volume, 1) * self.sound_volume;
@@ -272,7 +305,8 @@ pub fn playSoundFx(self: *Manager, sound: assets.Sound, volume: f32, pitch: f32)
     if (self.sound_volume == 0) return;
     const source = self.sounds.pick(sound.key, self.prng.random()) orelse return;
 
-    const voice = self.nextVoice();
+    const voice = self.nextVoice() orelse return;
+    voice.priority = false;
     voice.position = null;
     voice.gain = @min(volume, 1) * interface_gain * self.sound_volume;
     try self.start(voice, source, pitch);
@@ -330,6 +364,69 @@ test "an embedded sound decodes and reaches the mix" {
         for (samples) |sample| loudest = @max(loudest, @as(i16, @intCast(@abs(@as(i32, sample)))));
     }
     try std.testing.expect(loudest > 0);
+}
+
+test "a sound still playing is left alone while another voice is free" {
+    const gpa = std.testing.allocator;
+    const spec: sdl3.audio.Spec = .{ .format = .signed_16_bit_little_endian, .num_channels = 2, .sample_rate = 44100 };
+
+    var manager = Manager.initOffline(gpa, 0, spec) catch return error.SkipZigTest;
+    defer manager.deinit(gpa);
+
+    const origin = math.Vec3.init(0, 0, 0);
+    try manager.playSound(assets.sounds.ambient.cave.cave, origin, 1.0, 1.0);
+    for (1..voice_count) |_| try manager.playSound(assets.sounds.note.bd, origin, 1.0, 1.0);
+    try std.testing.expectEqual(@as(usize, 0), manager.next_voice);
+
+    var buffer: [16384]u8 = undefined;
+    for (0..8) |_| _ = try manager.mixer.generate(&buffer);
+
+    try manager.playSound(assets.sounds.note.bd, origin, 1.0, 1.0);
+    try std.testing.expect(manager.voices[0].track.isPlaying());
+    try std.testing.expectEqual(@as(usize, 2), manager.next_voice);
+}
+
+test "with every voice busy the quiet one gives way and nothing cuts a loud one" {
+    const gpa = std.testing.allocator;
+    const spec: sdl3.audio.Spec = .{ .format = .signed_16_bit_little_endian, .num_channels = 2, .sample_rate = 44100 };
+
+    var manager = Manager.initOffline(gpa, 0, spec) catch return error.SkipZigTest;
+    defer manager.deinit(gpa);
+
+    const origin = math.Vec3.init(0, 0, 0);
+    try manager.playSound(assets.sounds.ambient.cave.cave, origin, 1.0, 1.0);
+    for (1..voice_count) |_| try manager.playSound(assets.sounds.ambient.cave.cave, origin, 2.0, 1.0);
+
+    try manager.playSound(assets.sounds.note.bd, origin, 2.0, 1.0);
+    try std.testing.expectEqual(@as(usize, 1), manager.next_voice);
+
+    try manager.playSound(assets.sounds.note.bd, origin, 1.0, 1.0);
+    try std.testing.expectEqual(@as(usize, 1), manager.next_voice);
+}
+
+test "an embedded sound is decoded once and the decode is reused" {
+    const gpa = std.testing.allocator;
+    const spec: sdl3.audio.Spec = .{ .format = .signed_16_bit_little_endian, .num_channels = 2, .sample_rate = 44100 };
+
+    var manager = Manager.initOffline(gpa, 0, spec) catch return error.SkipZigTest;
+    defer manager.deinit(gpa);
+
+    const origin = math.Vec3.init(0, 0, 0);
+    try std.testing.expectEqual(@as(usize, 0), decodedSounds(&manager));
+
+    try manager.playSound(assets.sounds.note.bd, origin, 1.0, 1.0);
+    try std.testing.expectEqual(@as(usize, 1), decodedSounds(&manager));
+
+    try manager.playSound(assets.sounds.note.bd, origin, 1.0, 1.0);
+    try std.testing.expectEqual(@as(usize, 1), decodedSounds(&manager));
+}
+
+fn decodedSounds(manager: *const Manager) usize {
+    var total: usize = 0;
+    for (manager.audios) |audio| {
+        if (audio != null) total += 1;
+    }
+    return total;
 }
 
 test "sound fades out linearly and falls silent at the fade distance" {
