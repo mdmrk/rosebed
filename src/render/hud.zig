@@ -100,7 +100,9 @@ pub fn draw(
     const crosshair_y = @floor(ui.res.height / 2.0) - 7.0;
     try gui.appendRect(&crosshair, ui.gpa, crosshair_x, crosshair_y, crosshair_size, crosshair_size, gui.pixelUv(0, 0, crosshair_size, crosshair_size, gui.gui_texture_size, gui.gui_texture_size), ui.res);
     gl.BlendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE_MINUS_SRC_COLOR);
+    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.FALSE);
     try gui.drawTexturedMesh(&crosshair, ui.shader, ui.textures.icons);
+    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     var hearts: MeshBuilder = .{};
