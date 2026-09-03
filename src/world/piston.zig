@@ -380,9 +380,7 @@ pub fn updatePowerState(world_map: *World, pos: BlockPos) !void {
 
 fn playPistonSound(world_map: *World, pos: BlockPos, sound: assets.Sound, spread: f32, floor: f32) void {
     world_map.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         sound,
         0.5,
         world_map.rand.nextFloat() * spread + floor,

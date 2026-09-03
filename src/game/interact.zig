@@ -198,9 +198,7 @@ pub fn useHeldItem(ctx: Context) !void {
 
     const at = ctx.player.eyePosition();
     ctx.level.world_map.playSoundEffect(
-        at.x,
-        at.y,
-        at.z,
+        at,
         assets.sounds.random.bow,
         bow_volume,
         bowPitch(&ctx.level.world_map.rand),
@@ -226,9 +224,7 @@ pub fn throwHeld(ctx: Context, kind: Thrown.Kind) !void {
     const rand = &ctx.level.world_map.rand;
     const at = ctx.player.eyePosition();
     ctx.level.world_map.playSoundEffect(
-        at.x,
-        at.y,
-        at.z,
+        at,
         assets.sounds.random.bow,
         throw_volume,
         throwPitch(rand),
@@ -427,11 +423,7 @@ pub fn placeMinecartAtTarget(ctx: Context, kind: Minecart.Kind) !bool {
     const hit = ctx.pickedBlock() orelse return false;
     if (!world.block.isRail(ctx.level.world_map.getBlock(hit.pos))) return false;
 
-    _ = try ctx.level.entities.spawnMinecart(ctx.gpa, math.Vec3.init(
-        @as(f64, @floatFromInt(hit.pos.x)) + 0.5,
-        @as(f64, @floatFromInt(hit.pos.y)) + 0.5,
-        @as(f64, @floatFromInt(hit.pos.z)) + 0.5,
-    ), kind);
+    _ = try ctx.level.entities.spawnMinecart(ctx.gpa, hit.pos.center(), kind);
     try ctx.stats.use(ctx.gpa, ctx.player.inventory.selectedStack().?.id);
     ctx.consumeSelectedStack();
     return true;
@@ -443,7 +435,7 @@ const BowSound = struct {
     pitch: f32 = 0,
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
         const self: *BowSound = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.volume = volume;

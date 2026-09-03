@@ -33,9 +33,7 @@ pub fn prime(world_map: *World, pos: BlockPos, fuse: i32) std.mem.Allocator.Erro
 pub fn primeByPlayer(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
     try prime(world_map, pos, fuse_ticks);
     world_map.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         assets.sounds.random.fuse,
         fuse_volume,
         fuse_pitch,

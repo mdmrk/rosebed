@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const assets = @import("assets");
+const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
@@ -109,9 +110,7 @@ pub fn till(world_map: *World, pos: BlockPos, face: block.Side) std.mem.Allocato
 
     const step_sound = Block.farmland.stepSound();
     world_map.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         step_sound.walk(),
         (step_sound.volume() + 1.0) / 2.0,
         step_sound.pitch() * 0.8,
@@ -213,7 +212,7 @@ const HeardSound = struct {
     volume: f32 = 0,
     pitch: f32 = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
         const self: *HeardSound = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.volume = volume;

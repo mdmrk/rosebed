@@ -60,9 +60,7 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaR
         self.base.motion.x = (@as(f64, rand.nextFloat()) - @as(f64, rand.nextFloat())) * lava_scatter;
         self.base.motion.z = (@as(f64, rand.nextFloat()) - @as(f64, rand.nextFloat())) * lava_scatter;
         world_map.playSoundEffect(
-            self.base.position.x,
-            self.base.position.y,
-            self.base.position.z,
+            self.base.position,
             assets.sounds.random.fizz,
             lava_fizz_volume,
             lava_fizz_pitch_base + rand.nextFloat() * 0.4,

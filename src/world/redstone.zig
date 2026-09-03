@@ -1100,7 +1100,7 @@ const SoundLog = struct {
     pitch: f32 = 0,
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, _: f32, pitch: f32) void {
         const self: *SoundLog = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.pitch = pitch;

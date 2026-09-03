@@ -244,9 +244,7 @@ pub fn tick(self: *FishHook, world_map: *const world.World, rand: *world.JavaRan
                 self.ticks_catchable = rand.nextIntBound(30) + 10;
                 self.base.motion.y -= bite_dip;
                 world_map.playSoundEffect(
-                    self.base.position.x,
-                    self.base.position.y,
-                    self.base.position.z,
+                    self.base.position,
                     assets.sounds.random.splash,
                     bite_splash_volume,
                     1.0 + (rand.nextFloat() - rand.nextFloat()) * 0.4,

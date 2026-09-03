@@ -375,7 +375,7 @@ const HurtSounds = struct {
     keys: [4][]const u8 = @splat(""),
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, _: f32, _: f32) void {
         const self: *HurtSounds = @ptrCast(@alignCast(context));
         if (self.count == self.keys.len) return;
         self.keys[self.count] = sound.key;

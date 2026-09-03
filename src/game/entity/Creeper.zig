@@ -100,9 +100,7 @@ fn attackEntity(
 
     if (self.fuse == 0) {
         world_map.playSoundEffect(
-            self.animal.base.position.x,
-            self.animal.base.position.y,
-            self.animal.base.position.z,
+            self.animal.base.position,
             assets.sounds.random.fuse,
             fuse_volume,
             fuse_pitch,

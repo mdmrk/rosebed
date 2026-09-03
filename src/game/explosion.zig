@@ -46,7 +46,7 @@ pub fn detonate(
     try carveBlocks(gpa, world_map, at, size, rand, &destroyed);
     throwEntities(entities, world_map, roster, at, size, rand);
     if (flaming) try lightFires(world_map, destroyed.items, rand);
-    world_map.playSoundEffect(at.x, at.y, at.z, assets.sounds.random.explode, blast_volume, blastPitch(rand));
+    world_map.playSoundEffect(at, assets.sounds.random.explode, blast_volume, blastPitch(rand));
     try scatterRubble(gpa, entities, world_map, at, size, destroyed.items, rand);
     try entities.recordBlast(gpa, at, size, destroyed.items);
 }

@@ -46,17 +46,14 @@ pub fn attach(self: *Level) void {
     };
 }
 
-fn probeClosestPlayer(context: *anyopaque, x: f64, y: f64, z: f64, range: f64) ?math.Vec3 {
+fn probeClosestPlayer(context: *anyopaque, at: math.Vec3, range: f64) ?math.Vec3 {
     const self: *Level = @ptrCast(@alignCast(context));
     var nearest: ?math.Vec3 = null;
     var nearest_distance: f64 = range * range;
     for (self.occupants.items) |occupant| {
         if (!occupant.active) continue;
         const eye = occupant.player.eyePosition();
-        const dx = eye.x - x;
-        const dy = eye.y - y;
-        const dz = eye.z - z;
-        const distance = dx * dx + dy * dy + dz * dz;
+        const distance = eye.distanceSquaredTo(at);
         if (distance >= nearest_distance) continue;
         nearest_distance = distance;
         nearest = eye;

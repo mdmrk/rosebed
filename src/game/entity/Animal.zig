@@ -236,9 +236,7 @@ pub fn spawn(position: math.Vec3, spec: Spec) Animal {
 
 pub fn playSound(self: *const Animal, world_map: *const world.World, sound: assets.Sound, rand: *world.JavaRandom) void {
     world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
+        self.base.position,
         sound,
         self.sound_volume,
         (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0,
@@ -248,9 +246,7 @@ pub fn playSound(self: *const Animal, world_map: *const world.World, sound: asse
 pub fn playDamageSound(self: *const Animal, world_map: *const world.World, sound: ?assets.Sound, rand: *world.JavaRandom) void {
     const pitch = (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0;
     world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
+        self.base.position,
         sound orelse return,
         self.sound_volume,
         pitch,
@@ -443,9 +439,7 @@ fn playFallSound(self: *const Animal, world_map: *const world.World) void {
 
     const step_sound = landed_on.stepSound();
     world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
+        self.base.position,
         step_sound.walk(),
         step_sound.volume() * fall_sound_volume_scale,
         step_sound.pitch() * fall_sound_pitch_scale,
@@ -758,9 +752,7 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
 
     if (self.fire > 0 and self.isWet(world_map)) {
         world_map.playSoundEffect(
-            self.base.position.x,
-            self.base.position.y,
-            self.base.position.z,
+            self.base.position,
             assets.sounds.random.fizz,
             extinguish_volume,
             extinguish_pitch_base + (rand.nextFloat() - rand.nextFloat()) * 0.4,

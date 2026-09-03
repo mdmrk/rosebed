@@ -620,9 +620,7 @@ fn digStep(app_state: *AppState) !void {
     if (app_state.digging.?.sound_ticks % 4 == 0) {
         const step_sound = block_id.stepSound();
         app_state.level.world_map.playSoundEffect(
-            @as(f64, @floatFromInt(hit.pos.x)) + 0.5,
-            @as(f64, @floatFromInt(hit.pos.y)) + 0.5,
-            @as(f64, @floatFromInt(hit.pos.z)) + 0.5,
+            hit.pos.center(),
             step_sound.walk(),
             (step_sound.volume() + 1.0) / 8.0,
             step_sound.pitch() * 0.5,
@@ -722,20 +720,14 @@ fn soundSink(app_state: *AppState) world.World.SoundSink {
     };
 }
 
-fn playSound(context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void {
+fn playSound(context: *anyopaque, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
-    if (app_state.sound) |*device| device.playSound(sound, x, y, z, volume, pitch) catch {};
+    if (app_state.sound) |*device| device.playSound(sound, at, volume, pitch) catch {};
 }
 
 fn playRecord(context: *anyopaque, name: ?[]const u8, pos: BlockPos) void {
     const app_state: *AppState = @ptrCast(@alignCast(context));
-    if (app_state.sound) |*sound| sound.playStreaming(
-        name,
-        @floatFromInt(pos.x),
-        @floatFromInt(pos.y),
-        @floatFromInt(pos.z),
-        1.0,
-    ) catch {};
+    if (app_state.sound) |*sound| sound.playStreaming(name, pos.toVec3(), 1.0) catch {};
 }
 
 fn faceIndex(face: world.block.Side) u8 {
@@ -782,9 +774,7 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
     const harvested = block_id.harvestableWith(held);
     const step_sound = block_id.stepSound();
     app_state.level.world_map.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         step_sound.destroy(),
         (step_sound.volume() + 1.0) / 2.0,
         step_sound.pitch() * 0.8,
@@ -2696,9 +2686,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     try app_state.level.world_map.setBlockAndMetadataWithNotify(.init(px, py, pz), placed, meta);
     const step_sound = placed.stepSound();
     app_state.level.world_map.playSoundEffect(
-        @as(f64, @floatFromInt(px)) + 0.5,
-        @as(f64, @floatFromInt(py)) + 0.5,
-        @as(f64, @floatFromInt(pz)) + 0.5,
+        BlockPos.init(px, py, pz).center(),
         step_sound.walk(),
         (step_sound.volume() + 1.0) / 2.0,
         step_sound.pitch() * 0.8,
@@ -3111,9 +3099,7 @@ fn spawnRainParticles(app_state: *AppState) !void {
     const overhead = loudest.y > feet.y + 1.0 and
         app_state.level.world_map.findTopSolidBlock(px, pz) > py;
     app_state.level.world_map.playSoundEffect(
-        loudest.x,
-        loudest.y,
-        loudest.z,
+        loudest,
         assets.sounds.ambient.weather.rain,
         if (overhead) rain_sound_far else rain_sound_near,
         if (overhead) 0.5 else 1.0,
@@ -3147,9 +3133,7 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
             .portal => {
                 if (rand.nextIntBound(portal_sound_chance) == 0) {
                     app_state.level.world_map.playSoundEffect(
-                        @as(f64, @floatFromInt(x)) + 0.5,
-                        @as(f64, @floatFromInt(y)) + 0.5,
-                        @as(f64, @floatFromInt(z)) + 0.5,
+                        BlockPos.init(x, y, z).center(),
                         assets.sounds.portal.portal,
                         1.0,
                         rand.nextFloat() * 0.4 + 0.8,
@@ -3167,9 +3151,7 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
                 const meta = app_state.level.world_map.getBlockMetadata(.init(x, y, z));
                 if (meta == 0 or meta >= 8) continue;
                 app_state.level.world_map.playSoundEffect(
-                    @as(f64, @floatFromInt(x)) + 0.5,
-                    @as(f64, @floatFromInt(y)) + 0.5,
-                    @as(f64, @floatFromInt(z)) + 0.5,
+                    BlockPos.init(x, y, z).center(),
                     assets.sounds.liquid.water,
                     rand.nextFloat() * 0.25 + 12.0 / 16.0,
                     rand.nextFloat() * 1.0 + 0.5,
@@ -3178,9 +3160,7 @@ fn spawnDisplayParticles(app_state: *AppState) !void {
             .fire => {
                 if (rand.nextIntBound(fire_sound_chance) == 0) {
                     app_state.level.world_map.playSoundEffect(
-                        @as(f64, @floatFromInt(x)) + 0.5,
-                        @as(f64, @floatFromInt(y)) + 0.5,
-                        @as(f64, @floatFromInt(z)) + 0.5,
+                        BlockPos.init(x, y, z).center(),
                         assets.sounds.fire.fire,
                         1.0 + rand.nextFloat(),
                         rand.nextFloat() * 0.7 + 0.3,

@@ -419,9 +419,7 @@ fn updateFire(self: *Player, world_map: *const world.World) void {
 
     if (self.fire > 0 and self.isWet(world_map)) {
         world_map.playSoundEffect(
-            self.base.position.x,
-            self.base.position.y,
-            self.base.position.z,
+            self.base.position,
             assets.sounds.random.fizz,
             extinguish_volume,
             extinguish_pitch_base + (self.hurt_rand.nextFloat() - self.hurt_rand.nextFloat()) * 0.4,
@@ -475,9 +473,7 @@ fn playFallSound(self: *const Player, world_map: *const world.World) void {
 
     const step_sound = landed_on.stepSound();
     world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
+        self.base.position,
         step_sound.walk(),
         step_sound.volume() * fall_sound_volume_scale,
         step_sound.pitch() * fall_sound_pitch_scale,
@@ -555,9 +551,7 @@ fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source:
 
 pub fn playHurtSound(self: *Player, world_map: *const world.World) void {
     world_map.playSoundEffect(
-        self.base.position.x,
-        self.base.position.y,
-        self.base.position.z,
+        self.base.position,
         assets.sounds.random.hurt,
         hurt_sound_volume,
         (self.hurt_rand.nextFloat() - self.hurt_rand.nextFloat()) * 0.2 + 1.0,
@@ -1873,7 +1867,7 @@ const HurtSound = struct {
     pitch: f32 = 0,
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
         const self: *HurtSound = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.volume = volume;

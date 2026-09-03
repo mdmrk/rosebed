@@ -649,9 +649,7 @@ fn collectItem(
         try level.entities.pickups.append(gpa, game.PickupFx.spawn(dropped));
         _ = level.entities.items.orderedRemove(index);
         level.world_map.playSoundEffect(
-            dropped.base.position.x,
-            dropped.base.position.y,
-            dropped.base.position.z,
+            dropped.base.position,
             assets.sounds.random.pop,
             game.ItemEntity.pickup_volume,
             game.ItemEntity.pickupPitch(&level.world_map.rand),
@@ -1144,9 +1142,7 @@ fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body
     const at = math.Vec3.init(body.x, body.y, body.z);
     const rand = &level.world_map.rand;
     level.world_map.playSoundEffect(
-        at.x,
-        at.y,
-        at.z,
+        at,
         assets.sounds.random.explode,
         game.explosion.blast_volume,
         game.explosion.blastPitch(rand),

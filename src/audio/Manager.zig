@@ -256,13 +256,13 @@ pub fn setVolumes(self: *Manager, sound: f32, music: f32) !void {
     }
 }
 
-pub fn playSound(self: *Manager, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) !void {
+pub fn playSound(self: *Manager, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) !void {
     if (self.sound_volume == 0) return;
     const source = self.sounds.pick(sound.key, self.prng.random()) orelse return;
     if (volume <= 0) return;
 
     const voice = self.nextVoice();
-    voice.position = .init(x, y, z);
+    voice.position = at;
     voice.fade = if (volume > 1) fade_distance * volume else fade_distance;
     voice.gain = @min(volume, 1) * self.sound_volume;
     try self.start(voice, source, pitch);
@@ -278,7 +278,7 @@ pub fn playSoundFx(self: *Manager, sound: assets.Sound, volume: f32, pitch: f32)
     try self.start(voice, source, pitch);
 }
 
-pub fn playStreaming(self: *Manager, name: ?[]const u8, x: f64, y: f64, z: f64, volume: f32) !void {
+pub fn playStreaming(self: *Manager, name: ?[]const u8, at: math.Vec3, volume: f32) !void {
     if (self.sound_volume == 0) return;
     try self.streaming_voice.track.stop(0);
 
@@ -287,7 +287,7 @@ pub fn playStreaming(self: *Manager, name: ?[]const u8, x: f64, y: f64, z: f64, 
     if (volume <= 0) return;
 
     try self.music_voice.track.stop(0);
-    self.streaming_voice.position = .init(x, y, z);
+    self.streaming_voice.position = at;
     self.streaming_voice.fade = streaming_fade_distance;
     self.streaming_voice.gain = streaming_gain * self.sound_volume;
     try self.start(&self.streaming_voice, source, 1);
@@ -319,7 +319,7 @@ test "an embedded sound decodes and reaches the mix" {
     const silence = try manager.mixer.generate(&buffer);
     try std.testing.expect(std.mem.allEqual(u8, silence, 0));
 
-    try manager.playSound(assets.sounds.step.grass, 0, 0, 0, 1.0, 1.0);
+    try manager.playSound(assets.sounds.step.grass, .init(0, 0, 0), 1.0, 1.0);
 
     var loudest: i16 = 0;
     for (0..8) |_| {

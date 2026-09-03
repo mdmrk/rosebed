@@ -97,9 +97,7 @@ pub fn becomeAngryAt(self: *PigZombie, player: Animal.Entity.Id, rand: *world.Ja
 
 fn playAngrySound(self: *const PigZombie, world_map: *const world.World, rand: *world.JavaRandom) void {
     world_map.playSoundEffect(
-        self.animal.base.position.x,
-        self.animal.base.position.y,
-        self.animal.base.position.z,
+        self.animal.base.position,
         assets.sounds.mob.zombiepig.zpigangry,
         self.animal.sound_volume * angry_volume_scale,
         ((rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0) * angry_pitch_scale,

@@ -261,9 +261,7 @@ fn trackWalking(self: *Entity, world_map: *const world.World, dx: f64, dz: f64) 
 
     const step_sound = if (covered) world.Block.snow_layer.stepSound() else under.stepSound();
     world_map.playSoundEffect(
-        self.position.x,
-        self.position.y,
-        self.position.z,
+        self.position,
         step_sound.walk(),
         step_sound.volume() * 0.15,
         step_sound.pitch(),

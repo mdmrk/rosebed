@@ -1336,9 +1336,7 @@ pub fn spawnWaterSplash(
         base.motion.y * base.motion.y +
         base.motion.z * base.motion.z * 0.2));
     world_map.playSoundEffect(
-        base.position.x,
-        base.position.y,
-        base.position.z,
+        base.position,
         assets.sounds.random.splash,
         @min(impact * 0.2, 1.0),
         1.0 + (rand.nextFloat() - rand.nextFloat()) * 0.4,
@@ -1740,9 +1738,7 @@ pub fn tickBoats(
 
 fn playArrowImpact(world_map: *const world.World, arrow: Arrow, rand: *world.JavaRandom) void {
     world_map.playSoundEffect(
-        arrow.base.position.x,
-        arrow.base.position.y,
-        arrow.base.position.z,
+        arrow.base.position,
         assets.sounds.random.drr,
         Arrow.impact_volume,
         Arrow.impactPitch(rand),
@@ -1804,9 +1800,7 @@ pub fn tickArrows(
                     .stack = stack,
                 };
                 world_map.playSoundEffect(
-                    arrow.base.position.x,
-                    arrow.base.position.y,
-                    arrow.base.position.z,
+                    arrow.base.position,
                     assets.sounds.random.pop,
                     ItemEntity.pickup_volume,
                     ItemEntity.pickupPitch(rand),
@@ -2174,9 +2168,7 @@ fn tickItemsFor(
                 if (collected.eql(.{ .block = .log })) player.earn(.mine_wood);
                 if (collected.eql(.{ .item = .leather })) player.earn(.kill_cow);
                 world_map.playSoundEffect(
-                    item.base.position.x,
-                    item.base.position.y,
-                    item.base.position.z,
+                    item.base.position,
                     assets.sounds.random.pop,
                     ItemEntity.pickup_volume,
                     ItemEntity.pickupPitch(rand),
@@ -2243,17 +2235,13 @@ pub fn tickLightning(
 
         if (step.struck) {
             world_map.playSoundEffect(
-                bolt.base.position.x,
-                bolt.base.position.y,
-                bolt.base.position.z,
+                bolt.base.position,
                 assets.sounds.ambient.weather.thunder,
                 Lightning.thunder_volume,
                 0.8 + rand.nextFloat() * 0.2,
             );
             world_map.playSoundEffect(
-                bolt.base.position.x,
-                bolt.base.position.y,
-                bolt.base.position.z,
+                bolt.base.position,
                 assets.sounds.random.explode,
                 Lightning.crack_volume,
                 0.5 + rand.nextFloat() * 0.2,
@@ -3864,7 +3852,7 @@ const SplashSound = struct {
     pitch: f32 = 0,
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
         const self: *SplashSound = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.volume = volume;
@@ -5079,7 +5067,7 @@ const SoundLog = struct {
     keys: [8][]const u8 = undefined,
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, _: f32, _: f32) void {
         const self: *SoundLog = @ptrCast(@alignCast(context));
         if (self.count == self.keys.len) return;
         self.keys[self.count] = sound.key;

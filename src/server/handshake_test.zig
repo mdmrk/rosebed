@@ -879,7 +879,7 @@ const SoundLog = struct {
     key: []const u8 = "",
     count: usize = 0,
 
-    fn record(context: *anyopaque, sound: Sound, _: f64, _: f64, _: f64, _: f32, _: f32) void {
+    fn record(context: *anyopaque, sound: Sound, _: math.Vec3, _: f32, _: f32) void {
         const self: *SoundLog = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.count += 1;

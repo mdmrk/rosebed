@@ -96,9 +96,7 @@ pub fn tick(
 
 fn playSquish(self: *const Slime, world_map: *const world.World, pitch: f32) void {
     world_map.playSoundEffect(
-        self.animal.base.position.x,
-        self.animal.base.position.y,
-        self.animal.base.position.z,
+        self.animal.base.position,
         assets.sounds.mob.slime,
         self.animal.sound_volume,
         pitch,
@@ -107,9 +105,7 @@ fn playSquish(self: *const Slime, world_map: *const world.World, pitch: f32) voi
 
 fn playAttack(self: *const Slime, world_map: *const world.World, rand: *world.JavaRandom) void {
     world_map.playSoundEffect(
-        self.animal.base.position.x,
-        self.animal.base.position.y,
-        self.animal.base.position.z,
+        self.animal.base.position,
         assets.sounds.mob.slimeattack,
         attack_volume,
         (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0,

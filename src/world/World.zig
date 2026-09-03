@@ -69,12 +69,12 @@ pub const Access = struct {
 pub const EntityProbe = struct {
     context: *anyopaque,
     anyInBox: *const fn (context: *anyopaque, box: math.Aabb, living_only: bool) bool,
-    closestPlayer: ?*const fn (context: *anyopaque, x: f64, y: f64, z: f64, range: f64) ?math.Vec3 = null,
+    closestPlayer: ?*const fn (context: *anyopaque, at: math.Vec3, range: f64) ?math.Vec3 = null,
 };
 
 pub const SoundSink = struct {
     context: *anyopaque,
-    playSound: *const fn (context: *anyopaque, sound: assets.Sound, x: f64, y: f64, z: f64, volume: f32, pitch: f32) void,
+    playSound: *const fn (context: *anyopaque, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) void,
     playRecord: *const fn (context: *anyopaque, name: ?[]const u8, pos: BlockPos) void,
 };
 
@@ -642,9 +642,7 @@ pub fn updateAllRenderers(self: *World) std.mem.Allocator.Error!void {
 
 pub fn playIgniteAt(self: *World, pos: BlockPos) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         assets.sounds.fire.ignite,
         1.0,
         self.rand.nextFloat() * 0.4 + 0.8,
@@ -653,9 +651,7 @@ pub fn playIgniteAt(self: *World, pos: BlockPos) void {
 
 pub fn playFizzAt(self: *World, pos: BlockPos) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         assets.sounds.random.fizz,
         0.5,
         2.6 + (self.rand.nextFloat() - self.rand.nextFloat()) * 0.8,
@@ -663,10 +659,9 @@ pub fn playFizzAt(self: *World, pos: BlockPos) void {
 }
 
 pub fn playSwitchClick(self: *const World, pos: BlockPos, y_offset: f64, pitch: f32) void {
+    const center = pos.center();
     self.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + y_offset,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        .init(center.x, @as(f64, @floatFromInt(pos.y)) + y_offset, center.z),
         assets.sounds.random.click,
         0.3,
         pitch,
@@ -675,9 +670,7 @@ pub fn playSwitchClick(self: *const World, pos: BlockPos, y_offset: f64, pitch: 
 
 pub fn playDispenserFailure(self: *const World, pos: BlockPos) void {
     self.playSoundEffect(
-        @floatFromInt(pos.x),
-        @floatFromInt(pos.y),
-        @floatFromInt(pos.z),
+        pos.toVec3(),
         assets.sounds.random.click,
         1.0,
         1.2,
@@ -690,9 +683,7 @@ pub fn playDispenserShot(self: *const World, pos: BlockPos, stack: block.Stack) 
         .block => false,
     };
     self.playSoundEffect(
-        @floatFromInt(pos.x),
-        @floatFromInt(pos.y),
-        @floatFromInt(pos.z),
+        pos.toVec3(),
         if (launched) assets.sounds.random.bow else assets.sounds.random.click,
         1.0,
         if (launched) 1.2 else 1.0,
@@ -702,23 +693,21 @@ pub fn playDispenserShot(self: *const World, pos: BlockPos, stack: block.Stack) 
 pub fn playDoorToggle(self: *World, pos: BlockPos) void {
     const sound = if (self.rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
     self.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         sound,
         1.0,
         self.rand.nextFloat() * 0.1 + 0.9,
     );
 }
 
-pub fn playSoundEffect(self: *const World, x: f64, y: f64, z: f64, sound: assets.Sound, volume: f32, pitch: f32) void {
+pub fn playSoundEffect(self: *const World, at: math.Vec3, sound: assets.Sound, volume: f32, pitch: f32) void {
     const sink = self.sound_sink orelse return;
-    sink.playSound(sink.context, sound, x, y, z, volume, pitch);
+    sink.playSound(sink.context, sound, at, volume, pitch);
 }
 
 pub fn playRecord(self: *const World, name: ?[]const u8, pos: BlockPos) void {
     const sink = self.sound_sink orelse return;
-    sink.playRecord(sink.context, name, pos.x, pos.y, pos.z);
+    sink.playRecord(sink.context, name, pos);
 }
 
 pub fn onBlockHit(self: *World, pos: BlockPos, side: block.Side) !void {
@@ -882,9 +871,7 @@ pub fn forgetOrphanNotes(self: *World) !void {
 
 pub fn playNoteAt(self: *World, pos: BlockPos, instrument: note.Instrument, pitch: u8) void {
     self.playSoundEffect(
-        @as(f64, @floatFromInt(pos.x)) + 0.5,
-        @as(f64, @floatFromInt(pos.y)) + 0.5,
-        @as(f64, @floatFromInt(pos.z)) + 0.5,
+        pos.center(),
         instrument.soundName(),
         note_volume,
         note.pitchOf(pitch),
@@ -1301,23 +1288,19 @@ fn playCaveAmbience(self: *World, chunk: *const Chunk, base_x: i32, base_z: i32)
     if (@as(i32, full_light) > self.rand.nextIntBound(cave_sound_light_roll)) return;
     if (sky_light > 0) return;
 
-    const x = @as(f64, @floatFromInt(base_x + @as(i32, @intCast(local_x)))) + 0.5;
-    const y = @as(f64, @floatFromInt(local_y)) + 0.5;
-    const z = @as(f64, @floatFromInt(base_z + @as(i32, @intCast(local_z)))) + 0.5;
+    const at = BlockPos.init(
+        base_x + @as(i32, @intCast(local_x)),
+        @intCast(local_y),
+        base_z + @as(i32, @intCast(local_z)),
+    ).center();
 
     const probe = self.entity_probe orelse return;
     const findClosest = probe.closestPlayer orelse return;
-    const listener = findClosest(probe.context, x, y, z, cave_sound_range) orelse return;
-
-    const dx = listener.x - x;
-    const dy = listener.y - y;
-    const dz = listener.z - z;
-    if (dx * dx + dy * dy + dz * dz <= cave_sound_clearance_squared) return;
+    const listener = findClosest(probe.context, at, cave_sound_range) orelse return;
+    if (listener.distanceSquaredTo(at) <= cave_sound_clearance_squared) return;
 
     self.playSoundEffect(
-        x,
-        y,
-        z,
+        at,
         assets.sounds.ambient.cave.cave,
         cave_sound_volume,
         0.8 + self.rand.nextFloat() * 0.2,
@@ -1413,7 +1396,7 @@ const HeardSound = struct {
     volume: f32 = 0,
     pitch: f32 = 0,
 
-    fn record(context: *anyopaque, sound: assets.Sound, _: f64, _: f64, _: f64, volume: f32, pitch: f32) void {
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
         const self: *HeardSound = @ptrCast(@alignCast(context));
         self.key = sound.key;
         self.volume = volume;
