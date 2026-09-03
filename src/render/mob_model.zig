@@ -559,6 +559,7 @@ pub const BipedPose = struct {
     swing_progress: f32 = 0,
     holding_item: bool = false,
     sneaking: bool = false,
+    riding: bool = false,
 };
 
 const body_index: usize = 0;
@@ -589,6 +590,15 @@ pub fn bipedPosed(model: Model, pose: BipedPose) [biped_parts.len]Part {
     left_leg.rotate_x = math.util.cos(pose.limb_swing * 0.6662 + pi) * 1.4 * pose.limb_swing_amount;
     right_leg.rotate_y = 0;
     left_leg.rotate_y = 0;
+
+    if (pose.riding) {
+        right_arm.rotate_x += pi * -0.2;
+        left_arm.rotate_x += pi * -0.2;
+        right_leg.rotate_x = pi * -0.4;
+        left_leg.rotate_x = pi * -0.4;
+        right_leg.rotate_y = pi * 0.1;
+        left_leg.rotate_y = pi * -0.1;
+    }
 
     if (pose.holding_item) right_arm.rotate_x = right_arm.rotate_x * 0.5 - pi * 0.1;
 

@@ -562,6 +562,7 @@ fn bipedParts(
         .swing_progress = player.swingProgress(partial_ticks),
         .holding_item = holding_item,
         .sneaking = player.base.sneaking,
+        .riding = player.riding != game.Entity.no_id,
     });
 }
 
@@ -799,6 +800,7 @@ fn zombieShapedParts(
         .limb_swing_amount = animal.limbSwingAmount(partial_ticks),
         .head_yaw = animal.headYaw(partial_ticks),
         .head_pitch = animal.headPitch(partial_ticks),
+        .riding = animal.riding != game.Entity.no_id,
     }, age);
 }
 
