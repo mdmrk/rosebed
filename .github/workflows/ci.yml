@@ -59,7 +59,7 @@ jobs:
           name: rosebed-${{ matrix.name }}
           path: dist/*
   web:
-    name: web (ubuntu-latest, wasm32-emscripten)
+    name: build (ubuntu-latest, wasm32-emscripten)
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -104,7 +104,7 @@ jobs:
         with:
           path: zig-out/www
   android:
-    name: android (ubuntu-latest, aarch64-linux-android)
+    name: build (ubuntu-latest, aarch64-linux-android)
     runs-on: ubuntu-latest
     steps:
       - name: checkout
