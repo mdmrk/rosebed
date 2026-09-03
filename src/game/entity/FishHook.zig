@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 const testing_world = world.testing;
@@ -116,6 +117,7 @@ const water_drag: f64 = 0.9;
 const water_sink: f64 = 0.8;
 const buoyancy: f64 = 0.04;
 const bite_dip: f64 = 0.2;
+const bite_splash_volume: f32 = 0.25;
 const turn_smoothing: f32 = 0.2;
 const reel_pull: f64 = 0.1;
 const reel_lift: f64 = 0.08;
@@ -241,6 +243,14 @@ pub fn tick(self: *FishHook, world_map: *const world.World, rand: *world.JavaRan
             if (rand.nextIntBound(bite_chance) == 0) {
                 self.ticks_catchable = rand.nextIntBound(30) + 10;
                 self.base.motion.y -= bite_dip;
+                world_map.playSoundEffect(
+                    self.base.position.x,
+                    self.base.position.y,
+                    self.base.position.z,
+                    assets.sounds.random.splash,
+                    bite_splash_volume,
+                    1.0 + (rand.nextFloat() - rand.nextFloat()) * 0.4,
+                );
                 step.bit = true;
             }
         }

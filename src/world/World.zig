@@ -69,6 +69,7 @@ pub const Access = struct {
 pub const EntityProbe = struct {
     context: *anyopaque,
     anyInBox: *const fn (context: *anyopaque, box: math.Aabb, living_only: bool) bool,
+    closestPlayer: ?*const fn (context: *anyopaque, x: f64, y: f64, z: f64, range: f64) ?math.Vec3 = null,
 };
 
 pub const SoundSink = struct {
@@ -137,8 +138,10 @@ dropped: std.ArrayList(DroppedBlock) = .empty,
 falling: std.ArrayList(FallingBlock) = .empty,
 primed: std.ArrayList(PrimedTnt) = .empty,
 burnt_out: std.ArrayList(BlockPos) = .empty,
+evaporated: std.ArrayList(BlockPos) = .empty,
 rand: JavaRandom = JavaRandom.init(0),
 update_lcg: i32 = 0,
+sound_counter: i32 = 0,
 time: i64 = 0,
 difficulty: Difficulty = .normal,
 skylight_subtracted: u4 = 0,
@@ -255,6 +258,7 @@ pub fn deinit(self: *World) void {
     self.falling.deinit(self.allocator);
     self.primed.deinit(self.allocator);
     self.burnt_out.deinit(self.allocator);
+    self.evaporated.deinit(self.allocator);
     self.save_queue.deinit(self.allocator);
     self.furnaces.deinit(self.allocator);
     self.chests.deinit(self.allocator);
@@ -1276,6 +1280,51 @@ pub const lightning_odds: i32 = 100000;
 pub const snow_odds: i32 = 16;
 pub const frost_light_limit: u4 = 10;
 
+pub const cave_sound_range: f64 = 8.0;
+pub const cave_sound_clearance_squared: f64 = 4.0;
+pub const cave_sound_light_roll: i32 = 8;
+pub const cave_sound_volume: f32 = 0.7;
+pub const cave_sound_interval: i32 = 12000;
+pub const cave_sound_floor: i32 = 6000;
+
+fn playCaveAmbience(self: *World, chunk: *const Chunk, base_x: i32, base_z: i32) void {
+    self.update_lcg = self.update_lcg *% 3 +% 1013904223;
+    const bits = self.update_lcg >> 2;
+    const local_x: u32 = @intCast(bits & 15);
+    const local_z: u32 = @intCast((bits >> 8) & 15);
+    const local_y: u32 = @intCast((bits >> 16) & 127);
+
+    if (chunk.getBlock(local_x, local_y, local_z) != .air) return;
+
+    const sky_light = chunk.getSkyLight(local_x, local_y, local_z);
+    const full_light = @max(sky_light, chunk.getBlockLight(local_x, local_y, local_z));
+    if (@as(i32, full_light) > self.rand.nextIntBound(cave_sound_light_roll)) return;
+    if (sky_light > 0) return;
+
+    const x = @as(f64, @floatFromInt(base_x + @as(i32, @intCast(local_x)))) + 0.5;
+    const y = @as(f64, @floatFromInt(local_y)) + 0.5;
+    const z = @as(f64, @floatFromInt(base_z + @as(i32, @intCast(local_z)))) + 0.5;
+
+    const probe = self.entity_probe orelse return;
+    const findClosest = probe.closestPlayer orelse return;
+    const listener = findClosest(probe.context, x, y, z, cave_sound_range) orelse return;
+
+    const dx = listener.x - x;
+    const dy = listener.y - y;
+    const dz = listener.z - z;
+    if (dx * dx + dy * dy + dz * dz <= cave_sound_clearance_squared) return;
+
+    self.playSoundEffect(
+        x,
+        y,
+        z,
+        assets.sounds.ambient.cave.cave,
+        cave_sound_volume,
+        0.8 + self.rand.nextFloat() * 0.2,
+    );
+    self.sound_counter = self.rand.nextIntBound(cave_sound_interval) + cave_sound_floor;
+}
+
 fn settleFrost(self: *World, chunk: *Chunk, x: i32, z: i32, local_x: u32, local_z: u32) !void {
     if (!self.biomeAt(x, z).snows()) return;
 
@@ -1306,6 +1355,8 @@ pub fn clearStrikes(self: *World) void {
 }
 
 pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) !void {
+    if (self.sound_counter > 0) self.sound_counter -= 1;
+
     var chunk_x = center_chunk_x - random_tick_chunk_radius;
     while (chunk_x <= center_chunk_x + random_tick_chunk_radius) : (chunk_x += 1) {
         var chunk_z = center_chunk_z - random_tick_chunk_radius;
@@ -1313,6 +1364,8 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
             const chunk = self.getChunk(chunk_x, chunk_z) orelse continue;
             const base_x = chunk_x * Chunk.width;
             const base_z = chunk_z * Chunk.width;
+
+            if (self.sound_counter == 0) self.playCaveAmbience(chunk, base_x, base_z);
 
             if (self.rand.nextIntBound(lightning_odds) == 0 and self.weather.isThundering() and self.weather.isRaining()) {
                 self.update_lcg = self.update_lcg *% 3 +% 1013904223;

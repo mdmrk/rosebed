@@ -138,7 +138,12 @@ const void_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
 const fireproof_cooling: i32 = 4;
 const void_floor: f64 = -64.0;
+const extinguish_volume: f32 = 0.7;
+const extinguish_pitch_base: f32 = 1.6;
 const safe_fall_distance: f32 = 3.0;
+const fall_sound_probe_depth: f64 = 0.2;
+const fall_sound_volume_scale: f32 = 0.5;
+const fall_sound_pitch_scale: f32 = 12.0 / 16.0;
 const knockback_strength: f64 = 0.4;
 
 pub const PlayerView = struct {
@@ -424,7 +429,27 @@ fn knockBack(self: *Animal, dx: f64, dz: f64) void {
 fn fall(self: *Animal, world_map: *const world.World, distance: f32, rand: *world.JavaRandom) void {
     if (!self.takes_fall_damage) return;
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
-    if (damage > 0) _ = self.hurt(world_map, damage, null, rand);
+    if (damage <= 0) return;
+    _ = self.hurt(world_map, damage, null, rand);
+    self.playFallSound(world_map);
+}
+
+fn playFallSound(self: *const Animal, world_map: *const world.World) void {
+    const x = math.util.floorDouble(self.base.position.x);
+    const y = math.util.floorDouble(self.base.position.y - fall_sound_probe_depth);
+    const z = math.util.floorDouble(self.base.position.z);
+    const landed_on = world_map.getBlock(.init(x, y, z));
+    if (landed_on == .air) return;
+
+    const step_sound = landed_on.stepSound();
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        step_sound.walk(),
+        step_sound.volume() * fall_sound_volume_scale,
+        step_sound.pitch() * fall_sound_pitch_scale,
+    );
 }
 
 fn updateFallState(self: *Animal, world_map: *const world.World, dy: f64, rand: *world.JavaRandom) void {
@@ -731,7 +756,28 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
         self.fire = lava_fire_ticks;
     }
 
+    if (self.fire > 0 and self.isWet(world_map)) {
+        world_map.playSoundEffect(
+            self.base.position.x,
+            self.base.position.y,
+            self.base.position.z,
+            assets.sounds.random.fizz,
+            extinguish_volume,
+            extinguish_pitch_base + (rand.nextFloat() - rand.nextFloat()) * 0.4,
+        );
+        self.fire = 0;
+    }
+
     if (self.base.position.y < void_floor) _ = self.hurt(world_map, void_damage, null, rand);
+}
+
+fn isWet(self: *const Animal, world_map: *const world.World) bool {
+    if (self.base.in_water) return true;
+    return world_map.canBlockBeRainedOn(.init(
+        math.util.floorDouble(self.base.position.x),
+        math.util.floorDouble(self.base.position.y),
+        math.util.floorDouble(self.base.position.z),
+    ));
 }
 
 fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {

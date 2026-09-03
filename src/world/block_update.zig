@@ -179,6 +179,13 @@ pub fn pourLiquid(world_map: *World, pos: BlockPos, fill: item.Fill) !bool {
     const poured = fill.poured() orelse return false;
     const target = world_map.getBlock(pos);
     if (target != .air and target.material().isSolid()) return false;
+
+    if (fill == .water and !world_map.has_sky) {
+        world_map.playFizzAt(pos);
+        try world_map.evaporated.append(world_map.allocator, pos);
+        return true;
+    }
+
     try world_map.setBlockAndMetadataWithNotify(pos, poured, 0);
     return true;
 }

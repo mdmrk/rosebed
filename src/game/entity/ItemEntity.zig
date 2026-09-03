@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const assets = @import("assets");
 const math = @import("math");
 const world = @import("world");
 
@@ -25,6 +26,10 @@ const air_friction: f32 = 0.98;
 const despawn_age: u32 = 6000;
 pub const max_health: i32 = 5;
 const cactus_damage: i32 = 1;
+const lava_lift: f64 = 0.2;
+const lava_scatter: f64 = 0.2;
+const lava_fizz_volume: f32 = 0.4;
+const lava_fizz_pitch_base: f32 = 2.0;
 
 pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaRandom) ItemEntity {
     var base = Entity.init(position, width, height);
@@ -41,11 +46,28 @@ pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaR
     };
 }
 
-pub fn tick(self: *ItemEntity, world_map: *const world.World) void {
+pub fn tick(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaRandom) void {
     self.base.beginTick();
     if (self.pickup_delay > 0) self.pickup_delay -= 1;
 
     self.base.motion.y -= gravity;
+    if (world_map.getBlock(.init(
+        math.util.floorDouble(self.base.position.x),
+        math.util.floorDouble(self.base.position.y + height / 2.0),
+        math.util.floorDouble(self.base.position.z),
+    )).material() == .lava) {
+        self.base.motion.y = lava_lift;
+        self.base.motion.x = (@as(f64, rand.nextFloat()) - @as(f64, rand.nextFloat())) * lava_scatter;
+        self.base.motion.z = (@as(f64, rand.nextFloat()) - @as(f64, rand.nextFloat())) * lava_scatter;
+        world_map.playSoundEffect(
+            self.base.position.x,
+            self.base.position.y,
+            self.base.position.z,
+            assets.sounds.random.fizz,
+            lava_fizz_volume,
+            lava_fizz_pitch_base + rand.nextFloat() * 0.4,
+        );
+    }
     _ = self.base.move(world_map);
     if (physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.health -= cactus_damage;
 
@@ -93,7 +115,7 @@ test "gravity accelerates a falling item" {
     var rand = world.JavaRandom.init(0);
     var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
     item.base.motion = math.Vec3.init(0, 0, 0);
-    item.tick(&w);
+    item.tick(&w, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, -0.04 * 0.98), item.base.motion.y, 1.0e-9);
 }
 
@@ -103,7 +125,7 @@ test "landing zeroes motionY, so the -0.5 bounce factor has nothing to act on" {
     var rand = world.JavaRandom.init(0);
     var item = ItemEntity.spawn(math.Vec3.init(8, 1, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
     item.base.motion = math.Vec3.init(0, -0.0784, 0);
-    item.tick(&w);
+    item.tick(&w, &rand);
     try std.testing.expect(item.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), item.base.motion.y, 1.0e-9);
 }
@@ -123,7 +145,7 @@ test "canPickUp is false until the pickup delay elapses" {
     var rand = world.JavaRandom.init(0);
     var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
     try std.testing.expect(!item.canPickUp());
-    for (0..10) |_| item.tick(&w);
+    for (0..10) |_| item.tick(&w, &rand);
     try std.testing.expect(item.canPickUp());
 }
 
@@ -138,7 +160,7 @@ test "an item lying on a cactus is whittled away and destroyed" {
 
     for (0..max_health) |_| {
         try std.testing.expect(!item.isDestroyed());
-        item.tick(&w);
+        item.tick(&w, &rand);
     }
     try std.testing.expect(item.isDestroyed());
 }

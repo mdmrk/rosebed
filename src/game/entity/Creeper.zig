@@ -33,6 +33,8 @@ pub const hold_range: f32 = 7.0;
 pub const blast_size: f32 = 3.0;
 pub const powered_blast_size: f32 = 6.0;
 pub const blast_is_flaming: bool = false;
+pub const fuse_volume: f32 = 1.0;
+pub const fuse_pitch: f32 = 0.5;
 
 pub const spec: Animal.Spec = .{
     .width = width,
@@ -83,7 +85,7 @@ fn douse(self: *Creeper) void {
 fn attackEntity(
     monster: *Monster,
     _: *Animal,
-    _: *const world.World,
+    world_map: *const world.World,
     _: Animal.PlayerView,
     distance: f32,
     _: *world.JavaRandom,
@@ -94,6 +96,17 @@ fn attackEntity(
     if (distance >= reach) {
         self.douse();
         return;
+    }
+
+    if (self.fuse == 0) {
+        world_map.playSoundEffect(
+            self.animal.base.position.x,
+            self.animal.base.position.y,
+            self.animal.base.position.z,
+            assets.sounds.random.fuse,
+            fuse_volume,
+            fuse_pitch,
+        );
     }
 
     self.state = lit_state;

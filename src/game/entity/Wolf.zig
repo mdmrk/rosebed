@@ -138,6 +138,9 @@ pub fn tick(
         self.shake_time = 0;
         self.prev_shake_time = 0;
     } else if (self.shake_running) {
+        if (self.shake_time == 0) {
+            self.animal.playSound(world_map, assets.sounds.mob.wolf.shake, rand);
+        }
         self.prev_shake_time = self.shake_time;
         self.shake_time += shake_step;
         if (self.prev_shake_time >= shake_span) {

@@ -92,6 +92,7 @@ pub fn tick(
 
     const timer = (self.egg_timer orelse nextEggTimer(rand)) - 1;
     if (timer <= 0) {
+        self.animal.playSound(world_map, assets.sounds.mob.chickenplop, rand);
         self.pending_eggs += 1;
         self.egg_timer = nextEggTimer(rand);
     } else {

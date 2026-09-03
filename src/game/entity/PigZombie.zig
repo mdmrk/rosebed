@@ -20,6 +20,7 @@ animal: Animal,
 monster: Monster = .{ .attack_strength = attack_strength },
 ticks_existed: i32 = 0,
 anger_level: i32 = 0,
+angry_sound_delay: i32 = 0,
 rouses_horde: ?Animal.Entity.Id = null,
 pending_drops: u8 = 0,
 
@@ -28,6 +29,9 @@ pub const attack_strength: i32 = 5;
 pub const anger_base: i32 = 400;
 pub const anger_spread: i32 = 400;
 pub const horde_reach: f64 = 32.0;
+pub const angry_sound_spread: i32 = 40;
+pub const angry_volume_scale: f32 = 2.0;
+pub const angry_pitch_scale: f32 = 1.8;
 
 pub const spec: Animal.Spec = .{
     .width = width,
@@ -66,6 +70,10 @@ pub fn tick(
     self.ticks_existed += 1;
     self.monster.beginTick(&self.animal);
     self.animal.move_speed = if (self.monster.target != null) chase_move_speed else idle_move_speed;
+    if (self.angry_sound_delay > 0) {
+        self.angry_sound_delay -= 1;
+        if (self.angry_sound_delay == 0) self.playAngrySound(world_map, rand);
+    }
     try self.animal.tick(gpa, world_map, players, rand);
 }
 
@@ -84,6 +92,18 @@ fn updateActionState(
 pub fn becomeAngryAt(self: *PigZombie, player: Animal.Entity.Id, rand: *world.JavaRandom) void {
     self.monster.target = player;
     self.anger_level = anger_base + rand.nextIntBound(anger_spread);
+    self.angry_sound_delay = rand.nextIntBound(angry_sound_spread);
+}
+
+fn playAngrySound(self: *const PigZombie, world_map: *const world.World, rand: *world.JavaRandom) void {
+    world_map.playSoundEffect(
+        self.animal.base.position.x,
+        self.animal.base.position.y,
+        self.animal.base.position.z,
+        assets.sounds.mob.zombiepig.zpigangry,
+        self.animal.sound_volume * angry_volume_scale,
+        ((rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0) * angry_pitch_scale,
+    );
 }
 
 pub fn hurt(self: *PigZombie, world_map: *const world.World, amount: i32, source: ?Animal.Attacker, rand: *world.JavaRandom) bool {

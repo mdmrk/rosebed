@@ -1006,6 +1006,26 @@ pub fn spawnTorchBurnoutSmoke(
     }
 }
 
+pub const evaporation_particles = 8;
+
+pub fn spawnEvaporationSmoke(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    pos: BlockPos,
+    rand: *world.JavaRandom,
+) !void {
+    for (0..evaporation_particles) |_| {
+        const px = @as(f64, @floatFromInt(pos.x)) + rand.nextDouble();
+        const py = @as(f64, @floatFromInt(pos.y)) + rand.nextDouble();
+        const pz = @as(f64, @floatFromInt(pos.z)) + rand.nextDouble();
+        try self.particles.append(gpa, Particle.spawnLargeSmoke(
+            math.Vec3.init(px, py, pz),
+            math.Vec3.init(0, 0, 0),
+            rand,
+        ));
+    }
+}
+
 pub const fire_standing_particles = 3;
 pub const fire_edge_particles = 2;
 const fire_edge_inset: f64 = 0.1;
@@ -2144,7 +2164,7 @@ fn tickItemsFor(
     var i: usize = 0;
     while (i < self.items.items.len) {
         const item = &self.items.items[i];
-        item.tick(world_map);
+        item.tick(world_map, rand);
 
         var picked_up = false;
         if (item.base.remote == null and player.health > 0 and item.canPickUp() and item.base.boundingBox().intersects(reach)) {

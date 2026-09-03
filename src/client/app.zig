@@ -709,6 +709,11 @@ fn clickSound(app_state: *AppState) void {
     if (app_state.sound) |*sound| sound.playSoundFx(assets.sounds.random.click, 1.0, 1.0) catch {};
 }
 
+fn portalSound(app_state: *AppState, name: assets.Sound) void {
+    const pitch = app_state.player.hurt_rand.nextFloat() * 0.4 + 0.8;
+    if (app_state.sound) |*sound| sound.playSoundFx(name, 1.0, pitch) catch {};
+}
+
 fn soundSink(app_state: *AppState) world.World.SoundSink {
     return .{
         .context = app_state,
@@ -3002,13 +3007,20 @@ fn tick(app_state: *AppState) !void {
 
     if (app_state.link) |link| {
         app_state.level.standInPortals();
-        _ = app_state.player.tickPortal();
+        if (app_state.player.tickPortal() == .trigger) {
+            portalSound(app_state, assets.sounds.portal.trigger);
+        }
         try tickRemote(app_state, link);
     } else {
         try app_state.level.tick(app_state.gpa, app_state.frame);
-        if (app_state.player.tickPortal() == .travel) {
-            try usePortal(app_state);
-            return;
+        switch (app_state.player.tickPortal()) {
+            .none => {},
+            .trigger => portalSound(app_state, assets.sounds.portal.trigger),
+            .travel => {
+                portalSound(app_state, assets.sounds.portal.travel);
+                try usePortal(app_state);
+                return;
+            },
         }
     }
 

@@ -130,6 +130,8 @@ const cactus_damage: i32 = 1;
 const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
+const extinguish_volume: f32 = 0.7;
+const extinguish_pitch_base: f32 = 1.6;
 const hurt_resistance_ticks: i32 = 20;
 const hurt_animation_ticks: i32 = 10;
 const hurt_sound_volume: f32 = 1.0;
@@ -137,6 +139,9 @@ const knockback_strength: f64 = 0.4;
 
 pub const safe_fall_distance: f32 = 3.0;
 const recorded_fall_distance: f32 = 2.0;
+const fall_sound_probe_depth: f64 = 0.2;
+const fall_sound_volume_scale: f32 = 0.5;
+const fall_sound_pitch_scale: f32 = 12.0 / 16.0;
 
 const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
@@ -399,6 +404,8 @@ pub fn isEyeInLava(self: Player, world_map: *const world.World) bool {
 }
 
 fn updateFire(self: *Player, world_map: *const world.World) void {
+    if (self.base.in_water) self.fire = 0;
+
     if (self.fire > 0) {
         if (@rem(self.fire, 20) == 0) self.hurt(world_map, burn_damage);
         self.fire -= 1;
@@ -409,6 +416,27 @@ fn updateFire(self: *Player, world_map: *const world.World) void {
         self.hurt(world_map, lava_damage);
         self.fire = lava_fire_ticks;
     }
+
+    if (self.fire > 0 and self.isWet(world_map)) {
+        world_map.playSoundEffect(
+            self.base.position.x,
+            self.base.position.y,
+            self.base.position.z,
+            assets.sounds.random.fizz,
+            extinguish_volume,
+            extinguish_pitch_base + (self.hurt_rand.nextFloat() - self.hurt_rand.nextFloat()) * 0.4,
+        );
+        self.fire = 0;
+    }
+}
+
+fn isWet(self: *const Player, world_map: *const world.World) bool {
+    if (self.base.in_water) return true;
+    return world_map.canBlockBeRainedOn(.init(
+        math.util.floorDouble(self.base.position.x),
+        math.util.floorDouble(self.base.position.y),
+        math.util.floorDouble(self.base.position.z),
+    ));
 }
 
 fn hurtOnCactus(self: *Player, world_map: *const world.World) void {
@@ -435,6 +463,25 @@ fn fall(self: *Player, world_map: *const world.World, distance: f32) void {
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
     self.hurt(world_map, damage);
+    self.playFallSound(world_map);
+}
+
+fn playFallSound(self: *const Player, world_map: *const world.World) void {
+    const x = math.util.floorDouble(self.base.position.x);
+    const y = math.util.floorDouble(self.base.position.y - fall_sound_probe_depth);
+    const z = math.util.floorDouble(self.base.position.z);
+    const landed_on = world_map.getBlock(.init(x, y, z));
+    if (landed_on == .air) return;
+
+    const step_sound = landed_on.stepSound();
+    world_map.playSoundEffect(
+        self.base.position.x,
+        self.base.position.y,
+        self.base.position.z,
+        step_sound.walk(),
+        step_sound.volume() * fall_sound_volume_scale,
+        step_sound.pitch() * fall_sound_pitch_scale,
+    );
 }
 
 fn updateFallState(self: *Player, world_map: *const world.World, dy: f64) void {
@@ -548,13 +595,14 @@ pub fn setInPortal(self: *Player) void {
     }
 }
 
-pub const PortalStep = enum { none, travel };
+pub const PortalStep = enum { none, trigger, travel };
 
 pub fn tickPortal(self: *Player) PortalStep {
     self.prev_time_in_portal = self.time_in_portal;
 
     var step: PortalStep = .none;
     if (self.in_portal) {
+        if (self.time_in_portal == 0.0) step = .trigger;
         self.time_in_portal += portal_fade_in;
         if (self.time_in_portal >= 1.0) {
             self.time_in_portal = 1.0;

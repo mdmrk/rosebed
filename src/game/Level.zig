@@ -39,7 +39,29 @@ pub fn init(gpa: std.mem.Allocator, generator: world.Generator) Level {
 
 pub fn attach(self: *Level) void {
     self.world_map.entity_io = self.entities.entityIo();
-    self.world_map.entity_probe = .{ .context = self, .anyInBox = probeAnyInBox };
+    self.world_map.entity_probe = .{
+        .context = self,
+        .anyInBox = probeAnyInBox,
+        .closestPlayer = probeClosestPlayer,
+    };
+}
+
+fn probeClosestPlayer(context: *anyopaque, x: f64, y: f64, z: f64, range: f64) ?math.Vec3 {
+    const self: *Level = @ptrCast(@alignCast(context));
+    var nearest: ?math.Vec3 = null;
+    var nearest_distance: f64 = range * range;
+    for (self.occupants.items) |occupant| {
+        if (!occupant.active) continue;
+        const eye = occupant.player.eyePosition();
+        const dx = eye.x - x;
+        const dy = eye.y - y;
+        const dz = eye.z - z;
+        const distance = dx * dx + dy * dy + dz * dz;
+        if (distance >= nearest_distance) continue;
+        nearest_distance = distance;
+        nearest = eye;
+    }
+    return nearest;
 }
 
 fn probeAnyInBox(context: *anyopaque, box: math.Aabb, living_only: bool) bool {
@@ -159,6 +181,11 @@ pub fn applyBlockChanges(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.
         try self.entities.spawnTorchBurnoutSmoke(gpa, pos, &self.world_map.rand);
     }
     self.world_map.burnt_out.clearRetainingCapacity();
+
+    for (self.world_map.evaporated.items) |pos| {
+        try self.entities.spawnEvaporationSmoke(gpa, pos, &self.world_map.rand);
+    }
+    self.world_map.evaporated.clearRetainingCapacity();
 }
 
 fn tickBoats(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {

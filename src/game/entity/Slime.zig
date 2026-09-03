@@ -28,6 +28,10 @@ pub const jump_squish: f32 = 1.0;
 pub const squish_decay: f32 = 0.6;
 pub const particles_per_size: usize = 8;
 pub const player_sight_height: f64 = 0.12;
+pub const squish_pitch_bend: f32 = 0.8;
+pub const squish_land_size: u8 = 2;
+pub const squish_jump_size: u8 = 1;
+pub const attack_volume: f32 = 1.0;
 
 pub fn specFor(size: u8) Animal.Spec {
     const extent = size_scale * @as(f64, @floatFromInt(size));
@@ -90,6 +94,28 @@ pub fn tick(
     self.squish *= squish_decay;
 }
 
+fn playSquish(self: *const Slime, world_map: *const world.World, pitch: f32) void {
+    world_map.playSoundEffect(
+        self.animal.base.position.x,
+        self.animal.base.position.y,
+        self.animal.base.position.z,
+        assets.sounds.mob.slime,
+        self.animal.sound_volume,
+        pitch,
+    );
+}
+
+fn playAttack(self: *const Slime, world_map: *const world.World, rand: *world.JavaRandom) void {
+    world_map.playSoundEffect(
+        self.animal.base.position.x,
+        self.animal.base.position.y,
+        self.animal.base.position.z,
+        assets.sounds.mob.slimeattack,
+        attack_volume,
+        (rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0,
+    );
+}
+
 fn playerPosition(view: Animal.PlayerView) math.Vec3 {
     return .{
         .x = view.position.x,
@@ -107,7 +133,7 @@ fn closestPlayer(self: Slime, players: Animal.Players, range: f64) ?Animal.Playe
 fn updateActionState(
     animal: *Animal,
     _: std.mem.Allocator,
-    _: *const world.World,
+    world_map: *const world.World,
     players: Animal.Players,
     rand: *world.JavaRandom,
 ) anyerror!void {
@@ -129,6 +155,9 @@ fn updateActionState(
         if (target != null) self.jump_delay = @divTrunc(self.jump_delay, 3);
 
         animal.is_jumping = true;
+        if (self.size > squish_jump_size) {
+            self.playSquish(world_map, ((rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0) * squish_pitch_bend);
+        }
         self.squish = jump_squish;
         animal.move_strafing = 1.0 - rand.nextFloat() * 2.0;
         animal.move_forward = @floatFromInt(self.size);
@@ -640,7 +669,16 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
     const self: *Slime = @fieldParentPtr("animal", animal);
     const entities: *Entities = @ptrCast(@alignCast(tick_context.entities));
 
-    if (self.landed) try entities.spawnSlimeLandingParticles(tick_context.gpa, self.*, tick_context.rand);
+    if (self.landed) {
+        try entities.spawnSlimeLandingParticles(tick_context.gpa, self.*, tick_context.rand);
+        if (self.size > squish_land_size) {
+            const rand = tick_context.rand;
+            self.playSquish(
+                tick_context.world_map,
+                ((rand.nextFloat() - rand.nextFloat()) * 0.2 + 1.0) / squish_pitch_bend,
+            );
+        }
+    }
 
     if (!self.animal.isAlive()) return;
 
@@ -652,7 +690,9 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
 
         const view = tick_context.players.byId(player.base.id) orelse continue;
         if (self.attackDamage(tick_context.world_map, view)) |damage| {
+            const absorbed = player.absorbsHit(damage);
             player.hurtFrom(tick_context.world_map, damage, self.animal.base.position);
+            if (!absorbed) self.playAttack(tick_context.world_map, tick_context.rand);
         }
     }
 }
