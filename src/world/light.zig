@@ -95,6 +95,23 @@ pub fn generateHeightMap(chunk: *Chunk) void {
     }
 }
 
+pub fn generateSkylightMap(chunk: *Chunk) void {
+    generateHeightMap(chunk);
+
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            var level: i32 = max_level;
+            var y: i32 = Chunk.height - 1;
+            while (true) {
+                level -= opacity(chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+                if (level > 0) chunk.setSkyLight(@intCast(x), @intCast(y), @intCast(z), @intCast(level));
+                y -= 1;
+                if (y <= 0 or level <= 0) break;
+            }
+        }
+    }
+}
+
 const Propagation = struct {
     world_map: *World,
     queue: std.ArrayList(BlockPos) = .empty,

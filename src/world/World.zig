@@ -310,6 +310,7 @@ pub fn getOrGenerateChunk(self: *World, generator: anytype, chunk_x: i32, chunk_
 
     const chunk = try self.createChunk(chunk_x, chunk_z);
     generator.generateShape(chunk);
+    light.generateSkylightMap(chunk);
     return chunk;
 }
 
