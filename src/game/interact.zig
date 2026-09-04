@@ -349,6 +349,16 @@ pub fn tillWithHoe(ctx: Context, held: world.Item) !bool {
     return true;
 }
 
+pub fn applyBoneMeal(ctx: Context) !bool {
+    const hit = ctx.pickedBlock() orelse return false;
+    if (!try world.farming.applyBoneMeal(&ctx.level.world_map, hit.pos)) return false;
+
+    try ctx.stats.use(ctx.gpa, .{ .item = .dye });
+    ctx.consumeSelectedStack();
+    try ctx.applyBlockChanges();
+    return true;
+}
+
 pub fn plantSeedsAtTarget(ctx: Context) !bool {
     const hit = ctx.pickedBlock() orelse return false;
     if (!try world.farming.plant(&ctx.level.world_map, hit.pos, hit.face)) return false;

@@ -3,14 +3,13 @@ const std = @import("std");
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
+pub const tickPlant = block_update.popIfUnsupported;
 const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const decorate = @import("gen/decorate.zig");
 const light = @import("light.zig");
 const testing_world = @import("testing.zig");
 const World = @import("World.zig");
-
-pub const tickPlant = block_update.popIfUnsupported;
 
 const grass_death_light: u4 = 4;
 const grass_death_opacity: u8 = 2;

@@ -13,6 +13,7 @@ const cookie_max_stack_size: u8 = 8;
 pub const dye_meta_ink: u16 = 0;
 pub const dye_meta_cactus: u16 = 2;
 pub const dye_meta_lapis: u16 = 4;
+pub const dye_meta_bone: u16 = 15;
 pub const coal_meta_charcoal: u16 = 1;
 
 pub const ToolMaterial = enum {

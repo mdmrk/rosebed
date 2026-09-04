@@ -2645,6 +2645,9 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
             if (held.bucketFill()) |fill| return game.interact.useBucket(interactContext(app_state), held, fill);
             if (held == .flint_and_steel) return game.interact.strikeFlintAtTarget(interactContext(app_state));
             if (held == .seeds) return game.interact.plantSeedsAtTarget(interactContext(app_state));
+            if (held == .dye and stack.meta == world.item.dye_meta_bone) {
+                if (try game.interact.applyBoneMeal(interactContext(app_state))) return true;
+            }
             if (held.tool()) |tool| {
                 if (tool.kind == .hoe) return game.interact.tillWithHoe(interactContext(app_state), held);
             }

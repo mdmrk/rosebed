@@ -7,7 +7,9 @@ const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
 const BlockPos = @import("BlockPos.zig");
+const Chunk = @import("Chunk.zig");
 const light = @import("light.zig");
+const random_tick = @import("random_tick.zig");
 const testing_world = @import("testing.zig");
 const World = @import("World.zig");
 
@@ -100,6 +102,53 @@ pub fn trample(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
     if (world_map.getBlock(pos) != .farmland) return;
     if (world_map.rand.nextIntBound(trample_odds) != 0) return;
     try world_map.setBlockWithNotify(pos, .dirt);
+}
+
+pub const bone_meal_attempts: usize = 128;
+pub const bone_meal_steps_per: usize = 16;
+const tall_grass_odds: i32 = 10;
+const dandelion_odds: i32 = 3;
+const tall_grass_metadata: u4 = 1;
+
+pub fn applyBoneMeal(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!bool {
+    switch (world_map.getBlock(pos)) {
+        .sapling => try random_tick.growTree(world_map, pos),
+        .crops => try world_map.setBlockMetadataWithNotify(pos, block.crops_ripe),
+        .grass => try scatterOverGrass(world_map, pos),
+        else => return false,
+    }
+    return true;
+}
+
+fn scatterOverGrass(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const rand = &world_map.rand;
+
+    for (0..bone_meal_attempts) |attempt| {
+        var at = pos.offset(0, 1, 0);
+        const steps = attempt / bone_meal_steps_per;
+
+        var step: usize = 0;
+        const wandered = while (step < steps) : (step += 1) {
+            const dx = rand.nextIntBound(3) - 1;
+            const dy = @divTrunc((rand.nextIntBound(3) - 1) * rand.nextIntBound(3), 2);
+            const dz = rand.nextIntBound(3) - 1;
+            at = at.offset(dx, dy, dz);
+
+            if (world_map.getBlock(at.offset(0, -1, 0)) != .grass) break false;
+            if (world_map.getBlock(at).isNormalCube()) break false;
+        } else true;
+
+        if (!wandered) continue;
+        if (world_map.getBlock(at) != .air) continue;
+
+        if (rand.nextIntBound(tall_grass_odds) != 0) {
+            try world_map.setBlockAndMetadataWithNotify(at, .tall_grass, tall_grass_metadata);
+        } else if (rand.nextIntBound(dandelion_odds) != 0) {
+            try world_map.setBlockWithNotify(at, .dandelion);
+        } else {
+            try world_map.setBlockWithNotify(at, .rose);
+        }
+    }
 }
 
 pub fn till(world_map: *World, pos: BlockPos, face: block.Side) std.mem.Allocator.Error!bool {
@@ -284,4 +333,109 @@ test "walking on farmland packs it back down to dirt" {
 
     for (0..100) |_| try trample(&w, .init(8, 11, 8));
     try std.testing.expectEqual(.dirt, w.getBlock(.init(8, 11, 8)));
+}
+
+fn boneMealWorld(gpa: std.mem.Allocator) !World {
+    var w = try testing_world.flatWorld(gpa, 2);
+    errdefer w.deinit();
+
+    const chunk = w.getChunk(0, 0).?;
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| chunk.setBlock(@intCast(x), 1, @intCast(z), .grass);
+    }
+    try light.relightChunk(gpa, &w, 0, 0);
+    return w;
+}
+
+test "bone meal ripens a crop in one go" {
+    const gpa = std.testing.allocator;
+    var w = try boneMealWorld(gpa);
+    defer w.deinit();
+
+    w.setBlock(.init(8, 1, 8), .farmland);
+    try w.setBlockAndMetadataWithNotify(.init(8, 2, 8), .crops, 2);
+
+    try std.testing.expect(try applyBoneMeal(&w, .init(8, 2, 8)));
+    try std.testing.expectEqual(block.crops_ripe, w.getBlockMetadata(.init(8, 2, 8)));
+}
+
+test "bone meal turns a sapling into a tree" {
+    const gpa = std.testing.allocator;
+    var w = try boneMealWorld(gpa);
+    defer w.deinit();
+
+    w.setBlock(.init(8, 1, 8), .dirt);
+    try w.setBlockWithNotify(.init(8, 2, 8), .sapling);
+
+    var grown = false;
+    for (0..64) |_| {
+        w.setBlock(.init(8, 2, 8), .sapling);
+        w.setBlockMetadata(.init(8, 2, 8), 0);
+        try std.testing.expect(try applyBoneMeal(&w, .init(8, 2, 8)));
+        if (w.getBlock(.init(8, 2, 8)) == .log) {
+            grown = true;
+            break;
+        }
+    }
+    try std.testing.expect(grown);
+}
+
+test "bone meal on a grass block scatters tall grass and flowers over it" {
+    const gpa = std.testing.allocator;
+    var w = try boneMealWorld(gpa);
+    defer w.deinit();
+
+    try std.testing.expect(try applyBoneMeal(&w, .init(8, 1, 8)));
+
+    var tall_grass: usize = 0;
+    var flowers: usize = 0;
+    const chunk = w.getChunk(0, 0).?;
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            switch (chunk.getBlock(@intCast(x), 2, @intCast(z))) {
+                .tall_grass => tall_grass += 1,
+                .dandelion, .rose => flowers += 1,
+                else => {},
+            }
+        }
+    }
+
+    try std.testing.expect(tall_grass > 0);
+    try std.testing.expect(tall_grass > flowers);
+}
+
+test "the scatter never plants on anything but grass, nor into a filled cell" {
+    const gpa = std.testing.allocator;
+    var w = try boneMealWorld(gpa);
+    defer w.deinit();
+
+    const chunk = w.getChunk(0, 0).?;
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            if (x % 2 != 0) chunk.setBlock(@intCast(x), 1, @intCast(z), .stone);
+        }
+    }
+    chunk.setBlock(10, 2, 8, .cobblestone);
+    try light.relightChunk(gpa, &w, 0, 0);
+
+    try std.testing.expect(!try applyBoneMeal(&w, .init(9, 1, 8)));
+    try std.testing.expect(try applyBoneMeal(&w, .init(8, 1, 8)));
+
+    try std.testing.expectEqual(Block.cobblestone, w.getBlock(.init(10, 2, 8)));
+    for (0..Chunk.width) |x| {
+        for (0..Chunk.width) |z| {
+            if (x % 2 == 0) continue;
+            try std.testing.expectEqual(Block.air, chunk.getBlock(@intCast(x), 2, @intCast(z)));
+        }
+    }
+}
+
+test "bone meal does nothing to a block that is not a sapling, crop or grass" {
+    const gpa = std.testing.allocator;
+    var w = try boneMealWorld(gpa);
+    defer w.deinit();
+
+    w.setBlock(.init(8, 1, 8), .stone);
+    try std.testing.expect(!try applyBoneMeal(&w, .init(8, 1, 8)));
+    try std.testing.expect(!try applyBoneMeal(&w, .init(8, 2, 8)));
 }

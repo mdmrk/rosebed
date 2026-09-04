@@ -1868,6 +1868,11 @@ fn useItemOn(
             self.consumeHeld();
         },
         .sign => try self.placeSign(level, pos, face),
+        .dye => {
+            if (stack.meta != world.item.dye_meta_bone) return;
+            if (!try world.farming.applyBoneMeal(&level.world_map, pos)) return;
+            self.consumeHeld();
+        },
         .bed => {
             if (face != .up) return;
             if (!try world.block_update.placeBed(&level.world_map, pos.offset(0, 1, 0), player.yaw)) return;
