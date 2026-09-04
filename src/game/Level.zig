@@ -7,9 +7,9 @@ const BlockPos = world.BlockPos;
 const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
 const Inventory = @import("Inventory.zig");
+const mob_spawner = @import("mob_spawner.zig");
 const physics = @import("physics.zig");
 const Player = @import("Player.zig");
-const mob_spawner = @import("mob_spawner.zig");
 const spawner = @import("spawner.zig");
 
 const Level = @This();

@@ -7,8 +7,8 @@ const State = world.mob_spawner.MobSpawner;
 
 const Entities = @import("Entities.zig");
 const Animal = @import("entity/Animal.zig");
-const mob = @import("mob.zig");
 const Particle = @import("entity/Particle.zig");
+const mob = @import("mob.zig");
 
 pub const player_range: f64 = 16.0;
 pub const attempts: usize = 4;
