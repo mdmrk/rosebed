@@ -12,7 +12,6 @@ const Chunk = @import("Chunk.zig");
 const note = @import("note.zig");
 const piston = @import("piston.zig");
 const rail = @import("rail.zig");
-const testing_world = @import("testing.zig");
 const World = @import("World.zig");
 
 var wires_provide_power: bool = true;

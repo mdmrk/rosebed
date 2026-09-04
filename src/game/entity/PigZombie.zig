@@ -292,28 +292,9 @@ test "a calm pig zombie ignores the player, an angered one hunts them down" {
     try std.testing.expect(self.anger_level < anger_base + anger_spread);
 }
 
-fn stoneFloor(gpa: std.mem.Allocator) !world.World {
-    var w = world.World.init(gpa);
-    errdefer w.deinit();
-
-    var chunk_x: i32 = -2;
-    while (chunk_x <= 2) : (chunk_x += 1) {
-        var chunk_z: i32 = -2;
-        while (chunk_z <= 2) : (chunk_z += 1) {
-            const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.Chunk.width) |x| {
-                for (0..world.Chunk.width) |z| {
-                    chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
-                }
-            }
-        }
-    }
-    return w;
-}
-
 test "an angered pig zombie walks the player down and speeds up to do it" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, null);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(7);
@@ -338,7 +319,7 @@ test "an angered pig zombie walks the player down and speeds up to do it" {
 
 test "a calm pig zombie keeps to the slower of its two paces" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, null);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(7);

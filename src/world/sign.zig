@@ -2,6 +2,7 @@ const std = @import("std");
 
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
+const tile = @import("tile.zig");
 
 pub const id_key = "Sign";
 pub const line_count = 4;
@@ -40,10 +41,6 @@ pub const Sign = struct {
     }
 };
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
-
 const line_keys = [line_count][]const u8{ "Text1", "Text2", "Text3", "Text4" };
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Sign) !nbt.Tag {
@@ -53,13 +50,10 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Sign) !nbt.Tag {
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = pos.x });
-    try put(gpa, &compound, "y", .{ .int = pos.y });
-    try put(gpa, &compound, "z", .{ .int = pos.z });
+    try tile.header(gpa, &compound, id_key, pos);
 
     for (line_keys, 0..) |key, index| {
-        try put(gpa, &compound, key, .{ .string = try gpa.dupe(u8, state.line(index)) });
+        try nbt.putDuped(gpa, &compound, key, .{ .string = try gpa.dupe(u8, state.line(index)) });
     }
 
     return .{ .compound = compound };
@@ -71,10 +65,7 @@ pub const Placed = struct {
 };
 
 pub fn isSign(compound: nbt.Compound) bool {
-    return switch (compound.get("id") orelse return false) {
-        .string => |value| std.mem.eql(u8, value, id_key),
-        else => false,
-    };
+    return tile.isKind(compound, id_key);
 }
 
 fn stringField(compound: nbt.Compound, key: []const u8) []const u8 {
@@ -93,11 +84,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
     }
 
     return .{
-        .pos = .{
-            .x = nbt.intField(compound, "x") orelse return null,
-            .y = nbt.intField(compound, "y") orelse return null,
-            .z = nbt.intField(compound, "z") orelse return null,
-        },
+        .pos = tile.position(compound) orelse return null,
         .state = state,
     };
 }

@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const block = @import("../block.zig");
 const Block = @import("../block.zig").Block;
 const Chunk = @import("../Chunk.zig");
 const JavaRandom = @import("../JavaRandom.zig");
@@ -28,11 +27,11 @@ climate: Climate,
 world_seed: i64,
 
 const sea_level: i32 = 64;
-const density_x = 5;
-const density_y = 17;
-const density_z = 5;
-const horizontal_cells = 4;
-const vertical_cells = 16;
+const density = @import("density.zig");
+const density_x = density.size_x;
+const density_y = density.size_y;
+const density_z = density.size_z;
+const densityIndex = density.index;
 const climate_downsample_step = Climate.grid_size / density_x;
 
 pub fn init(gpa: std.mem.Allocator, seed: i64) !TerrainGenerator {
@@ -73,10 +72,6 @@ pub fn deinit(self: TerrainGenerator, gpa: std.mem.Allocator) void {
 
 pub fn sampleClimate(self: TerrainGenerator, x: i32, z: i32) Climate.Sample {
     return self.climate.sample(x, z);
-}
-
-fn densityIndex(ix: usize, iz: usize, iy: usize) usize {
-    return (ix * density_z + iz) * density_y + iy;
 }
 
 fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * density_z]f64, x_offset: i32, z_offset: i32, climate_sample: *const Climate.Sample) void {
@@ -143,26 +138,37 @@ fn computeDensityField(self: TerrainGenerator, out: *[density_x * density_y * de
                 const upper = upper_field[idx] / 512.0;
                 const blend = (blend_field[idx] / 10.0 + 1.0) / 2.0;
 
-                var density: f64 = undefined;
+                var value: f64 = undefined;
                 if (blend < 0.0) {
-                    density = lower;
+                    value = lower;
                 } else if (blend > 1.0) {
-                    density = upper;
+                    value = upper;
                 } else {
-                    density = lower + (upper - lower) * blend;
+                    value = lower + (upper - lower) * blend;
                 }
-                density -= falloff;
+                value -= falloff;
 
                 if (iy > density_y - 4) {
                     const t: f64 = @as(f64, @floatFromInt(iy - (density_y - 4))) / 3.0;
-                    density = density * (1.0 - t) + -10.0 * t;
+                    value = value * (1.0 - t) + -10.0 * t;
                 }
 
-                out[idx] = density;
+                out[idx] = value;
             }
         }
     }
 }
+
+const Picker = struct {
+    climate: *const Climate.Sample,
+
+    pub fn pick(self: Picker, bx: u32, by: u32, bz: u32, value: f64) Block {
+        if (value > 0.0) return .stone;
+        if (by >= sea_level) return .air;
+        const temperature = self.climate.temperature[bx * Climate.grid_size + bz];
+        return if (temperature < 0.5 and by >= sea_level - 1) .ice else .stationary_water;
+    }
+};
 
 pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
     const chunk_x = chunk.x;
@@ -176,63 +182,10 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
         }
     }
 
-    var density: [density_x * density_y * density_z]f64 = undefined;
-    self.computeDensityField(&density, chunk_x * horizontal_cells, chunk_z * horizontal_cells, &climate_sample);
+    var field: density.Field = undefined;
+    self.computeDensityField(&field, chunk_x * density.cells_xz, chunk_z * density.cells_xz, &climate_sample);
 
-    for (0..horizontal_cells) |cx| {
-        for (0..horizontal_cells) |cz| {
-            for (0..vertical_cells) |cy| {
-                var corner_x0z0 = density[densityIndex(cx, cz, cy)];
-                var corner_x0z1 = density[densityIndex(cx, cz + 1, cy)];
-                var corner_x1z0 = density[densityIndex(cx + 1, cz, cy)];
-                var corner_x1z1 = density[densityIndex(cx + 1, cz + 1, cy)];
-                const step_x0z0 = (density[densityIndex(cx, cz, cy + 1)] - corner_x0z0) / 8.0;
-                const step_x0z1 = (density[densityIndex(cx, cz + 1, cy + 1)] - corner_x0z1) / 8.0;
-                const step_x1z0 = (density[densityIndex(cx + 1, cz, cy + 1)] - corner_x1z0) / 8.0;
-                const step_x1z1 = (density[densityIndex(cx + 1, cz + 1, cy + 1)] - corner_x1z1) / 8.0;
-
-                for (0..8) |sub_y| {
-                    var edge_z0 = corner_x0z0;
-                    var edge_z1 = corner_x0z1;
-                    const step_edge_z0 = (corner_x1z0 - corner_x0z0) / 4.0;
-                    const step_edge_z1 = (corner_x1z1 - corner_x0z1) / 4.0;
-
-                    for (0..4) |sub_x| {
-                        const bx: u32 = @intCast(cx * 4 + sub_x);
-                        const by: u32 = @intCast(cy * 8 + sub_y);
-                        var value = edge_z0;
-                        const step_value = (edge_z1 - edge_z0) / 4.0;
-
-                        for (0..4) |sub_z| {
-                            const bz: u32 = @intCast(cz * 4 + sub_z);
-                            var id: Block = .air;
-                            if (by < sea_level) {
-                                const temperature = climate_sample.temperature[bx * Climate.grid_size + bz];
-                                if (temperature < 0.5 and by >= sea_level - 1) {
-                                    id = .ice;
-                                } else {
-                                    id = .stationary_water;
-                                }
-                            }
-                            if (value > 0.0) {
-                                id = .stone;
-                            }
-                            chunk.setBlock(bx, by, bz, id);
-                            value += step_value;
-                        }
-
-                        edge_z0 += step_edge_z0;
-                        edge_z1 += step_edge_z1;
-                    }
-
-                    corner_x0z0 += step_x0z0;
-                    corner_x0z1 += step_x0z1;
-                    corner_x1z0 += step_x1z0;
-                    corner_x1z1 += step_x1z1;
-                }
-            }
-        }
-    }
+    density.fill(chunk, &field, Picker{ .climate = &climate_sample });
 
     self.dressSurface(chunk, &climate_sample);
     caves.carve(.overworld, chunk, chunk_x, chunk_z, self.world_seed);

@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
@@ -15,6 +14,26 @@ pub fn flatWorld(allocator: std.mem.Allocator, floor_height: u32) !World {
             var y: u32 = 0;
             while (y < floor_height) : (y += 1) {
                 chunk.setBlock(@intCast(x), y, @intCast(z), .stone);
+            }
+        }
+    }
+    return w;
+}
+
+pub fn stoneFloor(gpa: std.mem.Allocator, sky_light: ?u4) !World {
+    var w = World.init(gpa);
+    errdefer w.deinit();
+
+    var chunk_x: i32 = -2;
+    while (chunk_x <= 2) : (chunk_x += 1) {
+        var chunk_z: i32 = -2;
+        while (chunk_z <= 2) : (chunk_z += 1) {
+            const chunk = try w.createChunk(chunk_x, chunk_z);
+            for (0..Chunk.width) |x| {
+                for (0..Chunk.width) |z| {
+                    chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
+                    if (sky_light) |level| chunk.setSkyLight(@intCast(x), 1, @intCast(z), level);
+                }
             }
         }
     }

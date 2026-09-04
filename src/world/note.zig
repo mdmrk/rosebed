@@ -5,6 +5,7 @@ const assets = @import("assets");
 const block = @import("block.zig");
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
+const tile = @import("tile.zig");
 const testing_world = @import("testing.zig");
 const World = @import("World.zig");
 
@@ -79,10 +80,6 @@ pub fn onPowerChange(world_map: *World, pos: BlockPos, powered: bool) std.mem.Al
     if (powered) try trigger(world_map, pos);
 }
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
-
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Note) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -90,11 +87,8 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Note) !nbt.Tag {
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = pos.x });
-    try put(gpa, &compound, "y", .{ .int = pos.y });
-    try put(gpa, &compound, "z", .{ .int = pos.z });
-    try put(gpa, &compound, "note", .{ .byte = @intCast(state.note) });
+    try tile.header(gpa, &compound, id_key, pos);
+    try nbt.putDuped(gpa, &compound, "note", .{ .byte = @intCast(state.note) });
 
     return .{ .compound = compound };
 }
@@ -105,10 +99,7 @@ pub const Placed = struct {
 };
 
 pub fn isNote(compound: nbt.Compound) bool {
-    return switch (compound.get("id") orelse return false) {
-        .string => |value| std.mem.eql(u8, value, id_key),
-        else => false,
-    };
+    return tile.isKind(compound, id_key);
 }
 
 fn byteField(compound: nbt.Compound, key: []const u8) ?i8 {
@@ -125,11 +116,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
     const note: u8 = if (raw < 0) 0 else @min(@as(u8, @intCast(raw)), pitch_count - 1);
 
     return .{
-        .pos = .{
-            .x = nbt.intField(compound, "x") orelse return null,
-            .y = nbt.intField(compound, "y") orelse return null,
-            .z = nbt.intField(compound, "z") orelse return null,
-        },
+        .pos = tile.position(compound) orelse return null,
         .state = .{ .note = note },
     };
 }

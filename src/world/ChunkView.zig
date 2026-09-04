@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const Block = @import("block.zig").Block;
 const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");

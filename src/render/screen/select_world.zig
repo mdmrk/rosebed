@@ -4,30 +4,18 @@ const gl = @import("gl");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
-const Atlas = @import("../Atlas.zig");
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
+const scroll_list = @import("scroll_list.zig");
 
-const dirt_tile_scale: f32 = 32;
-const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
-const list_dirt_tint: [4]u8 = .{ 32, 32, 32, 255 };
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const entry_name_color: [4]u8 = .{ 255, 255, 255, 255 };
 const entry_detail_color: [4]u8 = .{ 128, 128, 128, 255 };
 const selected_color: [4]u8 = .{ 128, 128, 128, 255 };
-const scrollbar_track: [4]u8 = .{ 0, 0, 0, 255 };
-const scrollbar_thumb: [4]u8 = .{ 128, 128, 128, 255 };
-const scrollbar_highlight: [4]u8 = .{ 192, 192, 192, 255 };
 
-pub const list_top: f32 = 32;
-pub const entry_height: f32 = 36;
 const list_bottom_margin: f32 = 64;
-const entry_padding: f32 = 4;
-const entry_half_width: f32 = 110;
 const edge_shadow_height: f32 = 4;
-const scrollbar_offset: f32 = 124;
-const scrollbar_width: f32 = 6;
 
 pub const Hit = union(enum) {
     entry: usize,
@@ -44,20 +32,22 @@ pub fn isDoubleClick(selected: ?usize, index: usize, now_ms: u64, last_click_ms:
     return selected == index and now_ms -% last_click_ms < double_click_ms;
 }
 
-pub fn listBottom(res: gui.Scaled) f32 {
-    return res.height - list_bottom_margin;
-}
+const list_top = scroll_list.list_top;
+pub const entry_height = scroll_list.entry_height;
+const entry_padding = scroll_list.entry_padding;
+const entry_half_width = scroll_list.entry_half_width;
+const scrollbar_offset: f32 = 124;
 
-pub fn maxScroll(res: gui.Scaled, count: usize) f32 {
-    const content = @as(f32, @floatFromInt(count)) * entry_height;
-    const visible = listBottom(res) - list_top - entry_padding;
-    const overflow = content - visible;
-    return if (overflow < 0) @trunc(overflow / 2.0) else overflow;
-}
+const list = scroll_list.List(list_bottom_margin);
 
-pub fn clampScroll(res: gui.Scaled, count: usize, scroll: f32) f32 {
-    return @min(@max(scroll, 0), maxScroll(res, count));
-}
+pub const listBottom = list.listBottom;
+pub const maxScroll = list.maxScroll;
+pub const clampScroll = list.clampScroll;
+pub const scrollbarThumb = list.scrollbarThumb;
+pub const scrollbarAt = list.scrollbarAt;
+pub const dragScroll = list.dragScroll;
+const entryY = list.entryY;
+const appendScrollbar = list.appendScrollbar;
 
 fn buttons(res: gui.Scaled, has_selection: bool) [5]struct { button: button.Button, hit: Hit } {
     const cx = @floor(res.width / 2.0);
@@ -79,56 +69,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
         if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
     }
 
-    const cx = @floor(res.width / 2.0);
-    if (gy >= list_top and gy < listBottom(res) and gx >= cx - entry_half_width and gx <= cx + entry_half_width) {
-        const offset = gy - list_top + scroll - entry_padding;
-        if (offset < 0) return null;
-        const index: usize = @intFromFloat(offset / entry_height);
-        if (index < count) return .{ .entry = index };
-    }
+    if (list.rowAt(gx, gy, res, count, scroll)) |index| return .{ .entry = index };
     return null;
-}
-
-fn entryY(res: gui.Scaled, index: usize, scroll: f32) f32 {
-    _ = res;
-    return list_top + entry_padding - scroll + @as(f32, @floatFromInt(index)) * entry_height;
-}
-
-pub fn scrollbarThumb(res: gui.Scaled, count: usize, scroll: f32) ?struct { y: f32, height: f32 } {
-    const bottom = listBottom(res);
-    const visible = bottom - list_top;
-    const content = @as(f32, @floatFromInt(count)) * entry_height;
-    const overflow = content - (visible - entry_padding);
-    if (overflow <= 0) return null;
-
-    var height = visible * visible / content;
-    height = std.math.clamp(height, 32, visible - 8);
-    const y = list_top + scroll * (visible - height) / overflow;
-    return .{ .y = @max(y, list_top), .height = height };
-}
-
-pub fn scrollbarAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize) bool {
-    if (scrollbarThumb(res, count, 0) == null) return false;
-    const gx = mouse_x / res.factor;
-    const gy = mouse_y / res.factor;
-    const x = @floor(res.width / 2.0) + scrollbar_offset;
-    return gx >= x and gx <= x + scrollbar_width and gy >= list_top and gy <= listBottom(res);
-}
-
-pub fn dragScroll(res: gui.Scaled, count: usize, scroll: f32, dy: f32) f32 {
-    const thumb = scrollbarThumb(res, count, scroll) orelse return scroll;
-    const travel = listBottom(res) - list_top - thumb.height;
-    return clampScroll(res, count, scroll + dy * maxScroll(res, count) / travel);
-}
-
-fn appendScrollbar(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, count: usize, scroll: f32) !void {
-    const thumb = scrollbarThumb(res, count, scroll) orelse return;
-    const x = @floor(res.width / 2.0) + scrollbar_offset;
-    const bottom = listBottom(res);
-
-    try gui.appendRectColor(mesh, gpa, x, list_top, scrollbar_width, bottom - list_top, gui.opaque_texel, scrollbar_track, res);
-    try gui.appendRectColor(mesh, gpa, x, thumb.y, scrollbar_width, thumb.height, gui.opaque_texel, scrollbar_thumb, res);
-    try gui.appendRectColor(mesh, gpa, x, thumb.y, scrollbar_width - 1, thumb.height - 1, gui.opaque_texel, scrollbar_highlight, res);
 }
 
 pub fn localOffsetSeconds(last_played: i64) i32 {
@@ -189,16 +131,7 @@ pub fn draw(
     var back: MeshBuilder = .{};
     defer back.deinit(ui.gpa);
 
-    const dirt_uv: Atlas.Uv = .{ .u0 = 0, .v0 = 0, .u1 = ui.res.width / dirt_tile_scale, .v1 = ui.res.height / dirt_tile_scale };
-    try gui.appendRectColor(&back, ui.gpa, 0, 0, ui.res.width, ui.res.height, dirt_uv, dirt_tint, ui.res);
-
-    const list_uv: Atlas.Uv = .{
-        .u0 = 0,
-        .v0 = (list_top + scroll) / dirt_tile_scale,
-        .u1 = ui.res.width / dirt_tile_scale,
-        .v1 = (bottom + scroll) / dirt_tile_scale,
-    };
-    try gui.appendRectColor(&back, ui.gpa, 0, list_top, ui.res.width, bottom - list_top, list_uv, list_dirt_tint, ui.res);
+    try list.appendBackground(&back, ui.gpa, ui.res, scroll);
     try gui.drawTexturedMesh(&back, ui.shader, ui.textures.dirt);
 
     var highlights: MeshBuilder = .{};
@@ -207,7 +140,7 @@ pub fn draw(
     defer entry_text.deinit(ui.gpa);
 
     for (summaries, 0..) |summary, index| {
-        const y = entryY(ui.res, index, scroll);
+        const y = entryY(index, scroll);
         const slot_height = entry_height - 4;
         if (y + slot_height < list_top or y > bottom) continue;
 
@@ -357,8 +290,8 @@ test "a list too short to fill the view is pushed down to sit centred in it" {
         const settled = clampScroll(res, count, 0);
         try std.testing.expectEqual(@trunc(-leftover / 2.0), settled);
 
-        const first = entryY(res, 0, settled);
-        const last = entryY(res, count, settled);
+        const first = entryY(0, settled);
+        const last = entryY(count, settled);
         try std.testing.expectApproxEqAbs(first - list_top - entry_padding, listBottom(res) - last, 1.0);
     }
 }
@@ -366,7 +299,7 @@ test "a list too short to fill the view is pushed down to sit centred in it" {
 test "a list long enough to overflow scrolls from the top instead of centring" {
     const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expect(clampScroll(res, 100, 0) == 0);
-    try std.testing.expectEqual(list_top + entry_padding, entryY(res, 0, clampScroll(res, 100, 0)));
+    try std.testing.expectEqual(list_top + entry_padding, entryY(0, clampScroll(res, 100, 0)));
 }
 
 test "the detail line shows the folder, a date and a size" {

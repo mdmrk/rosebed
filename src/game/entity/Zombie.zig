@@ -218,28 +218,9 @@ test "a zombie is the size, health and speed EntityZombie sets itself to" {
     try std.testing.expect(!self.animal.immune_to_fire);
 }
 
-fn stoneFloor(gpa: std.mem.Allocator) !world.World {
-    var w = world.World.init(gpa);
-    errdefer w.deinit();
-
-    var chunk_x: i32 = -2;
-    while (chunk_x <= 2) : (chunk_x += 1) {
-        var chunk_z: i32 = -2;
-        while (chunk_z <= 2) : (chunk_z += 1) {
-            const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.Chunk.width) |x| {
-                for (0..world.Chunk.width) |z| {
-                    chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
-                }
-            }
-        }
-    }
-    return w;
-}
-
 test "a zombie needs no provocation to come after the player" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, null);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(7);

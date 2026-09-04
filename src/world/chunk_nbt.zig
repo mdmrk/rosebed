@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const block = @import("block.zig");
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
 const nbt = @import("nbt.zig");
@@ -14,9 +13,7 @@ pub const Error = error{
     WrongArrayLength,
 };
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
+const put = nbt.putDuped;
 
 fn field(compound: nbt.Compound, key: []const u8) !nbt.Tag {
     return compound.get(key) orelse Error.MissingField;

@@ -141,9 +141,6 @@ const void_floor: f64 = -64.0;
 const extinguish_volume: f32 = 0.7;
 const extinguish_pitch_base: f32 = 1.6;
 const safe_fall_distance: f32 = 3.0;
-const fall_sound_probe_depth: f64 = 0.2;
-const fall_sound_volume_scale: f32 = 0.5;
-const fall_sound_pitch_scale: f32 = 12.0 / 16.0;
 const knockback_strength: f64 = 0.4;
 
 pub const PlayerView = struct {
@@ -319,13 +316,6 @@ pub fn pathMob(self: Animal) world.pathfinder.Mob {
     };
 }
 
-fn wrapDegrees(value: f32) f32 {
-    var wrapped = value;
-    while (wrapped < -180.0) wrapped += 360.0;
-    while (wrapped >= 180.0) wrapped -= 360.0;
-    return wrapped;
-}
-
 fn eyePosition(self: Animal) math.Vec3 {
     return .{
         .x = self.base.position.x,
@@ -432,23 +422,7 @@ fn fall(self: *Animal, world_map: *const world.World, distance: f32, rand: *worl
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
     _ = self.hurt(world_map, damage, null, rand);
-    self.playFallSound(world_map);
-}
-
-fn playFallSound(self: *const Animal, world_map: *const world.World) void {
-    const x = math.util.floorDouble(self.base.position.x);
-    const y = math.util.floorDouble(self.base.position.y - fall_sound_probe_depth);
-    const z = math.util.floorDouble(self.base.position.z);
-    const landed_on = world_map.getBlock(.init(x, y, z));
-    if (landed_on == .air) return;
-
-    const step_sound = landed_on.stepSound();
-    world_map.playSoundEffect(
-        self.base.position,
-        step_sound.walk(),
-        step_sound.volume() * fall_sound_volume_scale,
-        step_sound.pitch() * fall_sound_pitch_scale,
-    );
+    Entity.playFallSound(self, world_map);
 }
 
 fn updateFallState(self: *Animal, world_map: *const world.World, dy: f64, rand: *world.JavaRandom) void {
@@ -580,7 +554,7 @@ pub fn faceEntity(self: *Animal, target: math.Vec3, target_eye_height: f64, yaw_
 }
 
 fn turnTowards(current: f32, target: f32, limit: f32) f32 {
-    return current + std.math.clamp(wrapDegrees(target - current), -limit, limit);
+    return current + std.math.clamp(Entity.wrapDegrees(target - current), -limit, limit);
 }
 
 pub fn despawnCheck(self: *Animal, players: Players, rand: *world.JavaRandom) void {
@@ -687,7 +661,7 @@ pub fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom
 
         const target_yaw = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
         self.move_forward = self.move_speed;
-        self.yaw += std.math.clamp(wrapDegrees(target_yaw - self.yaw), -30.0, 30.0);
+        self.yaw += std.math.clamp(Entity.wrapDegrees(target_yaw - self.yaw), -30.0, 30.0);
 
         if (chase) |target| {
             if (target.ceased) {
@@ -792,31 +766,6 @@ fn updateBreathing(self: *Animal, world_map: *const world.World, rand: *world.Ja
     self.air = max_air;
 }
 
-fn updateRenderYaw(self: *Animal) void {
-    const dx = self.base.position.x - self.base.prev_position.x;
-    const dz = self.base.position.z - self.base.prev_position.z;
-    const travelled: f32 = @floatCast(@sqrt(dx * dx + dz * dz));
-
-    var facing = self.render_yaw;
-    if (travelled > 0.05) {
-        facing = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
-    }
-
-    self.render_yaw += wrapDegrees(facing - self.render_yaw) * 0.3;
-
-    var offset = wrapDegrees(self.yaw - self.render_yaw);
-    offset = std.math.clamp(offset, -75.0, 75.0);
-    self.render_yaw = self.yaw - offset;
-    if (offset * offset > 2500.0) self.render_yaw += offset * 0.2;
-
-    while (self.yaw - self.prev_yaw < -180.0) self.prev_yaw -= 360.0;
-    while (self.yaw - self.prev_yaw >= 180.0) self.prev_yaw += 360.0;
-    while (self.render_yaw - self.prev_render_yaw < -180.0) self.prev_render_yaw -= 360.0;
-    while (self.render_yaw - self.prev_render_yaw >= 180.0) self.prev_render_yaw += 360.0;
-    while (self.pitch - self.prev_pitch < -180.0) self.prev_pitch -= 360.0;
-    while (self.pitch - self.prev_pitch >= 180.0) self.prev_pitch += 360.0;
-}
-
 pub fn tick(
     self: *Animal,
     gpa: std.mem.Allocator,
@@ -880,7 +829,7 @@ pub fn tick(
     self.moveWithHeading(world_map, self.move_strafing, self.move_forward, rand);
     self.after_move(self, world_map, rand);
 
-    self.updateRenderYaw();
+    Entity.updateRenderYaw(self);
 }
 
 pub fn toRecord(self: Animal) world.entity_nbt.Living {
@@ -1423,7 +1372,7 @@ test "an animal walks the way it is facing" {
 test "the body turns to follow the head rather than snapping to it" {
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
     animal.yaw = 90;
-    animal.updateRenderYaw();
+    Entity.updateRenderYaw(&animal);
 
     try std.testing.expect(animal.render_yaw > 0.0);
     try std.testing.expect(animal.render_yaw <= 90.0);

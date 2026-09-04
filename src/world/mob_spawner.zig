@@ -2,6 +2,7 @@ const std = @import("std");
 
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
+const tile = @import("tile.zig");
 
 pub const id_key = "MobSpawner";
 pub const default_mob = "Pig";
@@ -50,9 +51,7 @@ pub const MobSpawner = struct {
     }
 };
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
+const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: MobSpawner) !nbt.Tag {
     var compound: nbt.Compound = .{};
@@ -61,10 +60,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: MobSpawner) !nbt.Tag 
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = pos.x });
-    try put(gpa, &compound, "y", .{ .int = pos.y });
-    try put(gpa, &compound, "z", .{ .int = pos.z });
+    try tile.header(gpa, &compound, id_key, pos);
     try put(gpa, &compound, "EntityId", .{ .string = try gpa.dupe(u8, state.mobName()) });
     try put(gpa, &compound, "Delay", .{ .short = @intCast(std.math.clamp(state.delay, std.math.minInt(i16), std.math.maxInt(i16))) });
 
@@ -77,10 +73,7 @@ pub const Placed = struct {
 };
 
 pub fn isMobSpawner(compound: nbt.Compound) bool {
-    return switch (compound.get("id") orelse return false) {
-        .string => |value| std.mem.eql(u8, value, id_key),
-        else => false,
-    };
+    return tile.isKind(compound, id_key);
 }
 
 fn stringField(compound: nbt.Compound, key: []const u8) ?[]const u8 {
@@ -104,11 +97,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
     state.setMobName(stringField(compound, "EntityId") orelse default_mob);
 
     return .{
-        .pos = .{
-            .x = nbt.intField(compound, "x") orelse return null,
-            .y = nbt.intField(compound, "y") orelse return null,
-            .z = nbt.intField(compound, "z") orelse return null,
-        },
+        .pos = tile.position(compound) orelse return null,
         .state = state,
     };
 }

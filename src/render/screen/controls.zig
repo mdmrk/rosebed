@@ -46,7 +46,7 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
     for (controls(res.width, res.height)) |control| {
-        if (gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height) {
+        if (button.contains(control, gx, gy)) {
             return control.hit;
         }
     }
@@ -89,7 +89,7 @@ pub fn draw(
     defer text.deinit(ui.gpa);
 
     for (controls(ui.res.width, ui.res.height)) |control| {
-        const hovered = gx >= control.x and gx < control.x + control.w and gy >= control.y and gy < control.y + button.height;
+        const hovered = button.contains(control, gx, gy);
         var buf: [64]u8 = undefined;
         const label = controlLabel(control.hit, settings, rebinding, &buf);
         try button.append(&backgrounds, &text, ui.gpa, ui.font, .{

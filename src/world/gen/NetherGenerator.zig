@@ -27,12 +27,12 @@ pub const temperature: f64 = 1.0;
 pub const humidity: f64 = 0.0;
 
 const lava_level: u32 = 32;
+const density = @import("density.zig");
+const density_x = density.size_x;
+const density_y = density.size_y;
+const density_z = density.size_z;
+const densityIndex = density.index;
 const surface_level: i32 = 64;
-const density_x = 5;
-const density_y = 17;
-const density_z = 5;
-const horizontal_cells = 4;
-const vertical_cells = 16;
 
 pub fn init(gpa: std.mem.Allocator, seed: i64) !NetherGenerator {
     var rand = JavaRandom.init(seed);
@@ -71,10 +71,6 @@ pub fn sampleClimate(_: NetherGenerator, _: i32, _: i32) Climate.Sample {
         .temperature = @splat(temperature),
         .humidity = @splat(humidity),
     };
-}
-
-fn densityIndex(ix: usize, iz: usize, iy: usize) usize {
-    return (ix * density_z + iz) * density_y + iy;
 }
 
 fn pillarProfile() [density_y]f64 {
@@ -117,27 +113,36 @@ fn computeDensityField(self: NetherGenerator, out: *[density_x * density_y * den
                 const upper = upper_field[idx] / 512.0;
                 const blend = (blend_field[idx] / 10.0 + 1.0) / 2.0;
 
-                var density: f64 = undefined;
+                var value: f64 = undefined;
                 if (blend < 0.0) {
-                    density = lower;
+                    value = lower;
                 } else if (blend > 1.0) {
-                    density = upper;
+                    value = upper;
                 } else {
-                    density = lower + (upper - lower) * blend;
+                    value = lower + (upper - lower) * blend;
                 }
-                density -= pillar[iy];
+                value -= pillar[iy];
 
                 if (iy > density_y - 4) {
                     const ramp: f32 = @as(f32, @floatFromInt(iy - (density_y - 4))) / 3.0;
                     const t: f64 = ramp;
-                    density = density * (1.0 - t) + -10.0 * t;
+                    value = value * (1.0 - t) + -10.0 * t;
                 }
 
-                out[idx] = density;
+                out[idx] = value;
             }
         }
     }
 }
+
+const Picker = struct {
+    pub fn pick(_: Picker, bx: u32, by: u32, bz: u32, value: f64) Block {
+        _ = bx;
+        _ = bz;
+        if (value > 0.0) return .netherrack;
+        return if (by < lava_level) .stationary_lava else .air;
+    }
+};
 
 pub fn generateShape(self: *NetherGenerator, chunk: *Chunk) void {
     self.rand.setSeed(@as(i64, chunk.x) *% 341873128712 +% @as(i64, chunk.z) *% 132897987541);
@@ -148,54 +153,10 @@ pub fn generateShape(self: *NetherGenerator, chunk: *Chunk) void {
         }
     }
 
-    var density: [density_x * density_y * density_z]f64 = undefined;
-    self.computeDensityField(&density, chunk.x * horizontal_cells, chunk.z * horizontal_cells);
+    var field: density.Field = undefined;
+    self.computeDensityField(&field, chunk.x * density.cells_xz, chunk.z * density.cells_xz);
 
-    for (0..horizontal_cells) |cx| {
-        for (0..horizontal_cells) |cz| {
-            for (0..vertical_cells) |cy| {
-                var corner_x0z0 = density[densityIndex(cx, cz, cy)];
-                var corner_x0z1 = density[densityIndex(cx, cz + 1, cy)];
-                var corner_x1z0 = density[densityIndex(cx + 1, cz, cy)];
-                var corner_x1z1 = density[densityIndex(cx + 1, cz + 1, cy)];
-                const step_x0z0 = (density[densityIndex(cx, cz, cy + 1)] - corner_x0z0) / 8.0;
-                const step_x0z1 = (density[densityIndex(cx, cz + 1, cy + 1)] - corner_x0z1) / 8.0;
-                const step_x1z0 = (density[densityIndex(cx + 1, cz, cy + 1)] - corner_x1z0) / 8.0;
-                const step_x1z1 = (density[densityIndex(cx + 1, cz + 1, cy + 1)] - corner_x1z1) / 8.0;
-
-                for (0..8) |sub_y| {
-                    var edge_z0 = corner_x0z0;
-                    var edge_z1 = corner_x0z1;
-                    const step_edge_z0 = (corner_x1z0 - corner_x0z0) / 4.0;
-                    const step_edge_z1 = (corner_x1z1 - corner_x0z1) / 4.0;
-
-                    for (0..4) |sub_x| {
-                        const bx: u32 = @intCast(cx * 4 + sub_x);
-                        const by: u32 = @intCast(cy * 8 + sub_y);
-                        var value = edge_z0;
-                        const step_value = (edge_z1 - edge_z0) / 4.0;
-
-                        for (0..4) |sub_z| {
-                            const bz: u32 = @intCast(cz * 4 + sub_z);
-                            var id: Block = .air;
-                            if (by < lava_level) id = .stationary_lava;
-                            if (value > 0.0) id = .netherrack;
-                            chunk.setBlock(bx, by, bz, id);
-                            value += step_value;
-                        }
-
-                        edge_z0 += step_edge_z0;
-                        edge_z1 += step_edge_z1;
-                    }
-
-                    corner_x0z0 += step_x0z0;
-                    corner_x0z1 += step_x0z1;
-                    corner_x1z0 += step_x1z0;
-                    corner_x1z1 += step_x1z1;
-                }
-            }
-        }
-    }
+    density.fill(chunk, &field, Picker{});
 
     self.dressSurface(chunk);
     caves.carve(.nether, chunk, chunk.x, chunk.z, self.world_seed);

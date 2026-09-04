@@ -49,6 +49,7 @@ pub const spawner = @import("spawner.zig");
 pub const stats = @import("stats.zig");
 pub const stats_file = @import("stats_file.zig");
 pub const Window = @import("Window.zig");
+pub const wire = @import("wire.zig");
 
 test {
     _ = Entity;

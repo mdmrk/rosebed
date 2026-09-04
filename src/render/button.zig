@@ -15,7 +15,7 @@ pub const text_disabled: [4]u8 = .{ 160, 160, 160, 255 };
 
 pub const Button = struct { x: f32, y: f32, w: f32, label: []const u8, enabled: bool };
 
-pub fn contains(button: Button, gx: f32, gy: f32) bool {
+pub fn contains(button: anytype, gx: f32, gy: f32) bool {
     return gx >= button.x and gx < button.x + button.w and gy >= button.y and gy < button.y + height;
 }
 

@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Entity = @import("../Entity.zig");
 const Player = @import("../Player.zig");
+const projectile = @import("projectile.zig");
 const raycast = @import("../raycast.zig");
 
 const Arrow = @This();
@@ -38,26 +39,14 @@ const hand_offset: f32 = 0.16;
 const hand_drop: f32 = 0.1;
 const launch_speed: f32 = 1.5;
 const launch_spread: f32 = 1.0;
-const spread_scale: f32 = 0.0075;
-const drag: f32 = 0.99;
-const water_drag: f32 = 0.8;
-const gravity: f32 = 0.03;
 const ground_lifetime: i32 = 1200;
-const rotation_smoothing: f32 = 0.2;
-const trail_back: f32 = 0.25;
 const stick_backoff: f32 = 0.05;
 const deflect_rebound: f32 = -0.1;
 const pop_out_scale: f32 = 0.2;
-const void_floor: f64 = -64.0;
 
 pub fn impactPitch(rand: *world.JavaRandom) f32 {
     return 1.2 / (rand.nextFloat() * 0.2 + 0.9);
 }
-
-pub const BubbleTrail = struct {
-    position: math.Vec3,
-    drift: math.Vec3,
-};
 
 pub fn shotBy(player: Player, rand: *world.JavaRandom) Arrow {
     const eye = player.eyePosition();
@@ -92,42 +81,8 @@ pub fn loosedBy(owner: Entity.Id, from: math.Vec3, toward: math.Vec3, speed: f32
 }
 
 fn setHeading(self: *Arrow, direction: math.Vec3, speed: f32, spread: f32, rand: *world.JavaRandom) void {
-    const length: f64 = math.util.sqrtF(
-        direction.x * direction.x + direction.y * direction.y + direction.z * direction.z,
-    );
-
-    var x = direction.x / length;
-    var y = direction.y / length;
-    var z = direction.z / length;
-
-    x += rand.nextGaussian() * spread_scale * spread;
-    y += rand.nextGaussian() * spread_scale * spread;
-    z += rand.nextGaussian() * spread_scale * spread;
-
-    x *= speed;
-    y *= speed;
-    z *= speed;
-
-    self.base.motion = math.Vec3.init(x, y, z);
-    self.yaw = headingYaw(x, z);
-    self.pitch = headingPitch(y, flatSpeed(x, z));
-    self.prev_yaw = self.yaw;
-    self.prev_pitch = self.pitch;
+    projectile.setHeading(self, direction, speed, spread, rand);
     self.ticks_in_ground = 0;
-}
-
-fn flatSpeed(x: f64, z: f64) f64 {
-    return math.util.sqrtF(x * x + z * z);
-}
-
-const float_pi: f64 = @as(f32, std.math.pi);
-
-fn headingYaw(x: f64, z: f64) f32 {
-    return @floatCast(std.math.atan2(x, z) * 180.0 / float_pi);
-}
-
-fn headingPitch(y: f64, flat: f64) f32 {
-    return @floatCast(std.math.atan2(y, flat) * 180.0 / float_pi);
 }
 
 pub fn settle(self: *Arrow, world_map: *const world.World, rand: *world.JavaRandom) bool {
@@ -135,7 +90,7 @@ pub fn settle(self: *Arrow, world_map: *const world.World, rand: *world.JavaRand
     self.prev_yaw = self.yaw;
     self.prev_pitch = self.pitch;
     self.base.updateWaterState(world_map);
-    if (self.base.position.y < void_floor) self.dead = true;
+    if (self.base.position.y < projectile.void_floor) self.dead = true;
 
     if (self.buriedInTile(world_map)) self.in_ground = true;
     if (self.shake > 0) self.shake -= 1;
@@ -216,36 +171,8 @@ pub fn deflect(self: *Arrow) void {
     self.ticks_in_air = 0;
 }
 
-pub fn fly(self: *Arrow) ?BubbleTrail {
-    self.base.position.x += self.base.motion.x;
-    self.base.position.y += self.base.motion.y;
-    self.base.position.z += self.base.motion.z;
-
-    self.yaw = headingYaw(self.base.motion.x, self.base.motion.z);
-    self.pitch = headingPitch(self.base.motion.y, flatSpeed(self.base.motion.x, self.base.motion.z));
-    while (self.pitch - self.prev_pitch < -180.0) self.prev_pitch -= 360.0;
-    while (self.pitch - self.prev_pitch >= 180.0) self.prev_pitch += 360.0;
-    while (self.yaw - self.prev_yaw < -180.0) self.prev_yaw -= 360.0;
-    while (self.yaw - self.prev_yaw >= 180.0) self.prev_yaw += 360.0;
-    self.pitch = self.prev_pitch + (self.pitch - self.prev_pitch) * rotation_smoothing;
-    self.yaw = self.prev_yaw + (self.yaw - self.prev_yaw) * rotation_smoothing;
-
-    const trail: ?BubbleTrail = if (self.base.in_water) .{
-        .position = math.Vec3.init(
-            self.base.position.x - self.base.motion.x * trail_back,
-            self.base.position.y - self.base.motion.y * trail_back,
-            self.base.position.z - self.base.motion.z * trail_back,
-        ),
-        .drift = self.base.motion,
-    } else null;
-
-    const factor: f64 = if (self.base.in_water) water_drag else drag;
-    self.base.motion.x *= factor;
-    self.base.motion.y *= factor;
-    self.base.motion.z *= factor;
-    self.base.motion.y -= gravity;
-
-    return trail;
+pub fn fly(self: *Arrow) ?projectile.BubbleTrail {
+    return projectile.fly(self);
 }
 
 pub fn canBePickedUp(self: Arrow) bool {
@@ -317,7 +244,7 @@ test "an arrow in open air arcs downward and keeps most of its speed" {
 
     try std.testing.expect(arrow.base.position.z - started > 1.4);
     try std.testing.expect(arrow.base.motion.y < 0.0);
-    try std.testing.expect(arrow.base.motion.z > 1.4 * drag - 0.01);
+    try std.testing.expect(arrow.base.motion.z > 1.4 * projectile.drag - 0.01);
     try std.testing.expectEqual(@as(i32, 1), arrow.ticks_in_air);
 }
 
@@ -435,7 +362,7 @@ test "an arrow shot into water slows down and trails bubbles" {
     const trail = arrow.fly().?;
 
     try std.testing.expect(trail.position.x < arrow.base.position.x);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.5 * water_drag), arrow.base.motion.x, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5 * projectile.water_drag), arrow.base.motion.x, 1.0e-9);
 }
 
 test "a deflected arrow turns around and loses almost all its speed" {

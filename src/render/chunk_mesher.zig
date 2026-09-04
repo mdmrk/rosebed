@@ -3162,18 +3162,6 @@ test "smooth lighting reaches a trapdoor, unlike a door" {
     try std.testing.expect(!uniformQuads(mesh.solid));
 }
 
-fn expectSameMesh(want: MeshBuilder, got: MeshBuilder) !void {
-    try std.testing.expectEqual(want.vertices.items.len, got.vertices.items.len);
-    for (want.vertices.items, got.vertices.items) |a, b| {
-        try std.testing.expectApproxEqAbs(a.x, b.x, 1.0e-6);
-        try std.testing.expectApproxEqAbs(a.y, b.y, 1.0e-6);
-        try std.testing.expectApproxEqAbs(a.z, b.z, 1.0e-6);
-        try std.testing.expectApproxEqAbs(a.u, b.u, 1.0e-6);
-        try std.testing.expectApproxEqAbs(a.v, b.v, 1.0e-6);
-        try std.testing.expectEqual(a.color, b.color);
-    }
-}
-
 test "a box with full bounds sits where the whole cube does, lit as an item rather than as terrain" {
     const gpa = std.testing.allocator;
 

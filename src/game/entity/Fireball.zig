@@ -4,6 +4,7 @@ const math = @import("math");
 const world = @import("world");
 
 const Entity = @import("../Entity.zig");
+const projectile = @import("projectile.zig");
 const raycast = @import("../raycast.zig");
 
 const Fireball = @This();
@@ -29,16 +30,9 @@ const launch_speed: f64 = 0.1;
 const launch_spread: f64 = 0.4;
 const drag: f64 = 0.95;
 const water_drag: f64 = 0.8;
-const rotation_smoothing: f32 = 0.2;
-const trail_back: f64 = 0.25;
 const smoke_lift: f64 = 0.5;
 const void_floor: f64 = -64.0;
 const float_pi: f64 = @as(f32, std.math.pi);
-
-pub const BubbleTrail = struct {
-    position: math.Vec3,
-    drift: math.Vec3,
-};
 
 pub fn shotBy(
     from: math.Vec3,
@@ -84,7 +78,7 @@ pub fn smokeTrailPosition(self: Fireball) math.Vec3 {
     return math.Vec3.init(self.base.position.x, self.base.position.y + smoke_lift, self.base.position.z);
 }
 
-pub fn fly(self: *Fireball) ?BubbleTrail {
+pub fn fly(self: *Fireball) ?projectile.BubbleTrail {
     self.base.position.x += self.base.motion.x;
     self.base.position.y += self.base.motion.y;
     self.base.position.z += self.base.motion.z;
@@ -95,21 +89,9 @@ pub fn fly(self: *Fireball) ?BubbleTrail {
     self.yaw = @floatCast(std.math.atan2(self.base.motion.x, self.base.motion.z) * 180.0 / float_pi);
     self.pitch = @floatCast(std.math.atan2(self.base.motion.y, flat) * 180.0 / float_pi);
 
-    while (self.pitch - self.prev_pitch < -180.0) self.prev_pitch -= 360.0;
-    while (self.pitch - self.prev_pitch >= 180.0) self.prev_pitch += 360.0;
-    while (self.yaw - self.prev_yaw < -180.0) self.prev_yaw -= 360.0;
-    while (self.yaw - self.prev_yaw >= 180.0) self.prev_yaw += 360.0;
-    self.pitch = self.prev_pitch + (self.pitch - self.prev_pitch) * rotation_smoothing;
-    self.yaw = self.prev_yaw + (self.yaw - self.prev_yaw) * rotation_smoothing;
+    projectile.smoothRotation(self);
 
-    const trail: ?BubbleTrail = if (self.base.in_water) .{
-        .position = math.Vec3.init(
-            self.base.position.x - self.base.motion.x * trail_back,
-            self.base.position.y - self.base.motion.y * trail_back,
-            self.base.position.z - self.base.motion.z * trail_back,
-        ),
-        .drift = self.base.motion,
-    } else null;
+    const trail = projectile.bubbleTrail(self);
 
     const factor: f64 = if (self.base.in_water) water_drag else drag;
     self.base.motion.x = (self.base.motion.x + self.acceleration.x) * factor;

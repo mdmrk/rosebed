@@ -170,11 +170,6 @@ fn targetFor(self: *Manager, path: []const u8) ?Target {
     return .{ .pool = pool, .name = name };
 }
 
-fn install(self: *Manager, gpa: std.mem.Allocator, path: []const u8, source: Pool.Source) !void {
-    const target = self.targetFor(path) orelse return;
-    try target.pool.add(gpa, target.name, source);
-}
-
 pub fn loadResources(self: *Manager, gpa: std.mem.Allocator, io: std.Io, root: []const u8) !void {
     var dir = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch return;
     defer dir.close(io);

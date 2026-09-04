@@ -7,6 +7,7 @@ const BlockPos = world.BlockPos;
 const Font = @import("Font.zig");
 const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
+const mesh_testing = @import("mesh_testing.zig");
 const mob_model = @import("mob_model.zig");
 
 pub const texture_width: f32 = 64;
@@ -230,26 +231,10 @@ test "the board's faces are shaded by the way they point once the sign is placed
 
     try appendBoardAt(&mesh, gpa, 1.0, .sign_post, 0, 0, 0, 0);
 
-    var top: ?u8 = null;
-    var bottom: ?u8 = null;
-    var highest: f32 = -std.math.floatMax(f32);
-    var lowest: f32 = std.math.floatMax(f32);
-    var face: usize = 0;
-    while (face * 4 < mesh.vertices.items.len) : (face += 1) {
-        const corners = mesh.vertices.items[face * 4 ..][0..4];
-        if (corners[1].y != corners[0].y or corners[2].y != corners[0].y or corners[3].y != corners[0].y) continue;
-        if (corners[0].y > highest) {
-            highest = corners[0].y;
-            top = corners[0].color[0];
-        }
-        if (corners[0].y < lowest) {
-            lowest = corners[0].y;
-            bottom = corners[0].color[0];
-        }
-    }
+    const shading = mesh_testing.horizontalFaceShading(mesh);
 
-    try std.testing.expectEqual(@as(u8, 255), top.?);
-    try std.testing.expectEqual(@as(u8, @intFromFloat(255.0 * item_lighting.ambient)), bottom.?);
+    try std.testing.expectEqual(@as(u8, 255), shading.top.?);
+    try std.testing.expectEqual(@as(u8, @intFromFloat(255.0 * item_lighting.ambient)), shading.bottom.?);
 }
 
 test "a sign post turns with its metadata, a wall sign with the face it hangs on" {

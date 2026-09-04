@@ -2,7 +2,6 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
-const Chunk = @import("Chunk.zig");
 const nbt = @import("nbt.zig");
 const World = @import("World.zig");
 

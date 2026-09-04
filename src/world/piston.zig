@@ -8,6 +8,7 @@ const Block = block.Block;
 const Side = block.Side;
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
+const tile = @import("tile.zig");
 const redstone = @import("redstone.zig");
 const testing_world = @import("testing.zig");
 const World = @import("World.zig");
@@ -69,9 +70,7 @@ pub const Placed = struct {
     state: Moving,
 };
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
+const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Moving) !nbt.Tag {
     var compound: nbt.Compound = .{};
@@ -80,10 +79,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Moving) !nbt.Tag {
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = pos.x });
-    try put(gpa, &compound, "y", .{ .int = pos.y });
-    try put(gpa, &compound, "z", .{ .int = pos.z });
+    try tile.header(gpa, &compound, id_key, pos);
     try put(gpa, &compound, "blockId", .{ .int = @intFromEnum(state.stored) });
     try put(gpa, &compound, "blockData", .{ .int = state.stored_metadata });
     try put(gpa, &compound, "facing", .{ .int = block.pistonFacingValue(state.facing) });
@@ -94,10 +90,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Moving) !nbt.Tag {
 }
 
 pub fn isPiston(compound: nbt.Compound) bool {
-    return switch (compound.get("id") orelse return false) {
-        .string => |value| std.mem.eql(u8, value, id_key),
-        else => false,
-    };
+    return tile.isKind(compound, id_key);
 }
 
 fn floatField(compound: nbt.Compound, key: []const u8) f32 {
@@ -136,11 +129,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 
     return .{
-        .pos = .{
-            .x = nbt.intField(compound, "x") orelse return null,
-            .y = nbt.intField(compound, "y") orelse return null,
-            .z = nbt.intField(compound, "z") orelse return null,
-        },
+        .pos = tile.position(compound) orelse return null,
         .state = state,
     };
 }

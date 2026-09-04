@@ -865,29 +865,9 @@ test "the tail rises with anger, and with a tamed wolf's health" {
     try std.testing.expect(hurt_tail < healthy);
 }
 
-fn stoneFloor(gpa: std.mem.Allocator) !world.World {
-    var w = world.World.init(gpa);
-    errdefer w.deinit();
-
-    var chunk_x: i32 = -2;
-    while (chunk_x <= 2) : (chunk_x += 1) {
-        var chunk_z: i32 = -2;
-        while (chunk_z <= 2) : (chunk_z += 1) {
-            const chunk = try w.createChunk(chunk_x, chunk_z);
-            for (0..world.Chunk.width) |x| {
-                for (0..world.Chunk.width) |z| {
-                    chunk.setBlock(@intCast(x), 0, @intCast(z), .stone);
-                    chunk.setSkyLight(@intCast(x), 1, @intCast(z), 15);
-                }
-            }
-        }
-    }
-    return w;
-}
-
 test "a sitting wolf stays put however long it is left alone" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(5);
@@ -911,7 +891,7 @@ test "a sitting wolf stays put however long it is left alone" {
 
 test "a tamed wolf left standing walks back towards its owner" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(9);
@@ -946,7 +926,7 @@ fn floodChunk(w: *world.World, block: world.Block) void {
 
 test "a wolf dropped in water shakes itself dry once it is back on land" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
     floodChunk(&w, .stationary_water);
 
@@ -975,7 +955,7 @@ test "a wolf dropped in water shakes itself dry once it is back on land" {
 
 test "a shaking wolf holds still until it has finished" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(3);
@@ -1102,7 +1082,7 @@ test "the interested head tilt eases in while the treat is out and back once it 
 
 test "an angry wolf runs down the player it can see, and stops at a wall" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(7);
@@ -1126,7 +1106,7 @@ test "an angry wolf runs down the player it can see, and stops at a wall" {
 
 test "a wolf standing on the player bites for two, or four once it is tamed" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var rand = world.JavaRandom.init(0);
@@ -1154,7 +1134,7 @@ test "a wolf standing on the player bites for two, or four once it is tamed" {
 
 test "a wolf out of reach lunges rather than biting" {
     const gpa = std.testing.allocator;
-    var w = try stoneFloor(gpa);
+    var w = try world.testing.stoneFloor(gpa, 15);
     defer w.deinit();
 
     var wolf = Wolf.spawn(math.Vec3.init(8.5, 1, 8.5));

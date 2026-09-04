@@ -6,6 +6,7 @@ const Stack = block.Stack;
 const BlockPos = @import("BlockPos.zig");
 const item = @import("item.zig");
 const nbt = @import("nbt.zig");
+const tile = @import("tile.zig");
 
 pub const id_key = "Furnace";
 pub const cook_ticks: i16 = 200;
@@ -130,31 +131,7 @@ pub const Furnace = struct {
     }
 };
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
-
-fn storedId(stack: Stack) i16 {
-    return switch (stack.id) {
-        .block => |id| @intCast(@intFromEnum(id)),
-        .item => |id| @bitCast(@as(u16, @intFromEnum(id))),
-    };
-}
-
-fn storeStack(gpa: std.mem.Allocator, index: u8, stack: Stack) !nbt.Tag {
-    var compound: nbt.Compound = .{};
-    errdefer {
-        var owned: nbt.Tag = .{ .compound = compound };
-        nbt.deinit(gpa, &owned);
-    }
-
-    try put(gpa, &compound, "Slot", .{ .byte = @bitCast(index) });
-    try put(gpa, &compound, "id", .{ .short = storedId(stack) });
-    try put(gpa, &compound, "Count", .{ .byte = @bitCast(stack.count) });
-    try put(gpa, &compound, "Damage", .{ .short = @bitCast(stack.meta) });
-
-    return .{ .compound = compound };
-}
+const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Furnace) !nbt.Tag {
     var compound: nbt.Compound = .{};
@@ -163,43 +140,13 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Furnace) !nbt.Tag {
         nbt.deinit(gpa, &owned);
     }
 
-    try put(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, id_key) });
-    try put(gpa, &compound, "x", .{ .int = pos.x });
-    try put(gpa, &compound, "y", .{ .int = pos.y });
-    try put(gpa, &compound, "z", .{ .int = pos.z });
+    try tile.header(gpa, &compound, id_key, pos);
     try put(gpa, &compound, "BurnTime", .{ .short = state.burn_time });
     try put(gpa, &compound, "CookTime", .{ .short = state.cook_time });
 
-    var items: std.ArrayList(nbt.Tag) = .empty;
-    errdefer {
-        for (items.items) |*tag| nbt.deinit(gpa, tag);
-        items.deinit(gpa);
-    }
-    for ([_]?Stack{ state.input, state.fuel, state.output }, 0..) |maybe_stack, index| {
-        const stack = maybe_stack orelse continue;
-        try items.append(gpa, try storeStack(gpa, @intCast(index), stack));
-    }
-
-    try put(gpa, &compound, "Items", .{
-        .list = .{ .element_type = .compound, .items = try items.toOwnedSlice(gpa) },
-    });
+    try tile.storeItems(gpa, &compound, &.{ state.input, state.fuel, state.output });
 
     return .{ .compound = compound };
-}
-
-fn loadStack(compound: nbt.Compound) ?Stack {
-    const raw: u16 = @bitCast(nbt.shortField(compound, "id"));
-    const count = switch (compound.get("Count") orelse return null) {
-        .byte => |value| @as(u8, @bitCast(value)),
-        else => return null,
-    };
-    if (count == 0) return null;
-
-    const id: block.Id = if (raw < 256)
-        .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
-    else
-        .{ .item = @enumFromInt(raw) };
-    return .{ .id = id, .count = count, .meta = @bitCast(nbt.shortField(compound, "Damage")) };
 }
 
 pub const Placed = struct {
@@ -208,10 +155,7 @@ pub const Placed = struct {
 };
 
 pub fn isFurnace(compound: nbt.Compound) bool {
-    return switch (compound.get("id") orelse return false) {
-        .string => |value| std.mem.eql(u8, value, id_key),
-        else => false,
-    };
+    return tile.isKind(compound, id_key);
 }
 
 pub fn load(compound: nbt.Compound) ?Placed {
@@ -222,29 +166,16 @@ pub fn load(compound: nbt.Compound) ?Placed {
         .cook_time = nbt.shortField(compound, "CookTime"),
     };
 
-    if (compound.get("Items")) |tag| switch (tag) {
-        .list => |list| for (list.items) |entry| switch (entry) {
-            .compound => |slot_compound| {
-                const index = switch (slot_compound.get("Slot") orelse continue) {
-                    .byte => |value| @as(u8, @bitCast(value)),
-                    else => continue,
-                };
-                if (index >= slot_count) continue;
-                state.slot(index).* = loadStack(slot_compound);
-            },
-            else => {},
-        },
-        else => {},
-    };
+    var slots: [slot_count]?Stack = @splat(null);
+    tile.loadItems(compound, &slots);
+    state.input = slots[0];
+    state.fuel = slots[1];
+    state.output = slots[2];
 
     state.item_burn_time = burnTime(state.fuel);
 
     return .{
-        .pos = .{
-            .x = nbt.intField(compound, "x") orelse return null,
-            .y = nbt.intField(compound, "y") orelse return null,
-            .z = nbt.intField(compound, "z") orelse return null,
-        },
+        .pos = tile.position(compound) orelse return null,
         .state = state,
     };
 }

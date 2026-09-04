@@ -485,9 +485,7 @@ pub fn open(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) !Save {
     return .{ .dir = dir, .region_dir = region_dir, .lock_stamp = stamp };
 }
 
-fn put(gpa: std.mem.Allocator, compound: *nbt.Compound, key: []const u8, tag: nbt.Tag) !void {
-    try nbt.putDuped(gpa, compound, key, tag);
-}
+const put = nbt.putDuped;
 
 fn doubleList(gpa: std.mem.Allocator, vector: math.Vec3) !nbt.Tag {
     const values = [3]f64{ vector.x, vector.y, vector.z };

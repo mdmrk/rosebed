@@ -564,11 +564,6 @@ fn spawnMob(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
     try level.entities.adoptMobAs(gpa, type_id, animal, id);
 }
 
-pub const status_hurt: i8 = 2;
-pub const status_death: i8 = 3;
-pub const status_wolf_smoke: i8 = 6;
-pub const status_wolf_hearts: i8 = 7;
-pub const status_wolf_shake: i8 = 8;
 pub const hurt_flash_ticks: i32 = 10;
 
 fn outfitPeer(self: *Connection, body: anytype) void {
@@ -591,12 +586,12 @@ fn outfitPeer(self: *Connection, body: anytype) void {
 fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, status: i8) void {
     if (self.playerById(level, id)) |player| {
         switch (status) {
-            status_hurt => {
+            net.packet.status_hurt => {
                 player.hurt_time = hurt_flash_ticks;
                 player.limb_swing_amount = 1.5;
                 player.playHurtSound(&level.world_map);
             },
-            status_death => {
+            net.packet.status_death => {
                 player.playHurtSound(&level.world_map);
                 player.health = 0;
                 player.death_time = 1;
@@ -608,17 +603,17 @@ fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, statu
 
     const entry = level.entities.mobById(id) orelse return;
     switch (status) {
-        status_hurt => {
+        net.packet.status_hurt => {
             entry.animal.hurt_time = hurt_flash_ticks;
             entry.animal.limb_swing_amount = 1.5;
             entry.animal.playDamageSound(&level.world_map, entry.animal.hurt_sound, &level.world_map.rand);
         },
-        status_death => {
+        net.packet.status_death => {
             entry.animal.playDamageSound(&level.world_map, entry.animal.death_sound, &level.world_map.rand);
             entry.animal.health = 0;
             entry.animal.death_time = 1;
         },
-        status_wolf_shake => {
+        net.packet.status_wolf_shake => {
             if (entry.type_id == game.mob.wolf) {
                 const dog: *game.Wolf = @fieldParentPtr("animal", entry.animal);
                 dog.shaking = true;
@@ -663,26 +658,12 @@ fn collectItem(
     _ = self;
 }
 
-pub const vehicle_boat: u8 = 1;
-pub const vehicle_minecart: u8 = 10;
-pub const vehicle_arrow: u8 = 60;
-pub const vehicle_fireball: u8 = 63;
-pub const vehicle_snowball: u8 = 61;
-pub const vehicle_egg: u8 = 62;
-pub const vehicle_primed_tnt: u8 = 50;
-pub const vehicle_falling_sand: u8 = 70;
-pub const vehicle_falling_gravel: u8 = 71;
-pub const vehicle_fish_hook: u8 = 90;
-pub const fireball_speed_scale: f64 = 8000.0;
-pub const item_motion_scale: f64 = 128.0;
-pub const velocity_scale: f64 = 8000.0;
-
 fn decodeMotion(value: i8) f64 {
-    return @as(f64, @floatFromInt(value)) / item_motion_scale;
+    return @as(f64, @floatFromInt(value)) / net.packet.item_motion_scale;
 }
 
 fn decodeVelocity(value: i16) f64 {
-    return @as(f64, @floatFromInt(value)) / velocity_scale;
+    return @as(f64, @floatFromInt(value)) / net.packet.velocity_scale;
 }
 
 fn spawnItem(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {
@@ -727,19 +708,19 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
     _ = level.entities.removeById(gpa, id);
 
     switch (body.kind) {
-        vehicle_boat => {
+        net.packet.vehicle_boat => {
             var boat = game.Boat.spawn(math.Vec3.init(0, 0, 0));
             boat.base.id = id;
             (Body{ .boat = &boat }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.boats.append(gpa, boat);
         },
-        vehicle_minecart, vehicle_minecart + 1, vehicle_minecart + 2 => {
-            var cart = game.Minecart.spawn(math.Vec3.init(0, 0, 0), @enumFromInt(body.kind - vehicle_minecart));
+        net.packet.vehicle_minecart, net.packet.vehicle_minecart + 1, net.packet.vehicle_minecart + 2 => {
+            var cart = game.Minecart.spawn(math.Vec3.init(0, 0, 0), @enumFromInt(body.kind - net.packet.vehicle_minecart));
             cart.base.id = id;
             (Body{ .minecart = &cart }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.minecarts.append(gpa, cart);
         },
-        vehicle_arrow => {
+        net.packet.vehicle_arrow => {
             var shot: game.Arrow = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Arrow.size, game.Arrow.size),
                 .owner = @bitCast(body.thrower_id),
@@ -748,23 +729,23 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .arrow = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.arrows.append(gpa, shot);
         },
-        vehicle_fireball => {
+        net.packet.vehicle_fireball => {
             var shot: game.Fireball = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Fireball.size, game.Fireball.size),
                 .shooter = @bitCast(body.thrower_id),
                 .acceleration = math.Vec3.init(
-                    @as(f64, @floatFromInt(body.speed_x)) / fireball_speed_scale,
-                    @as(f64, @floatFromInt(body.speed_y)) / fireball_speed_scale,
-                    @as(f64, @floatFromInt(body.speed_z)) / fireball_speed_scale,
+                    @as(f64, @floatFromInt(body.speed_x)) / net.packet.fireball_speed_scale,
+                    @as(f64, @floatFromInt(body.speed_y)) / net.packet.fireball_speed_scale,
+                    @as(f64, @floatFromInt(body.speed_z)) / net.packet.fireball_speed_scale,
                 ),
             };
             shot.base.id = id;
             (Body{ .fireball = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.fireballs.append(gpa, shot);
         },
-        vehicle_egg, vehicle_snowball => {
+        net.packet.vehicle_egg, net.packet.vehicle_snowball => {
             var projectile: game.Thrown = .{
-                .kind = if (body.kind == vehicle_egg) .egg else .snowball,
+                .kind = if (body.kind == net.packet.vehicle_egg) .egg else .snowball,
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Thrown.size, game.Thrown.size),
                 .owner = @bitCast(body.thrower_id),
             };
@@ -772,20 +753,20 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .thrown = &projectile }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.thrown.append(gpa, projectile);
         },
-        vehicle_primed_tnt => {
+        net.packet.vehicle_primed_tnt => {
             var lit = game.PrimedTnt.spawn(math.Vec3.init(0, 0, 0), world.tnt.fuse_ticks, &level.world_map.rand);
             lit.base.id = id;
             (Body{ .primed_tnt = &lit }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.primed.append(gpa, lit);
         },
-        vehicle_falling_sand, vehicle_falling_gravel => {
-            const block: world.Block = if (body.kind == vehicle_falling_sand) .sand else .gravel;
+        net.packet.vehicle_falling_sand, net.packet.vehicle_falling_gravel => {
+            const block: world.Block = if (body.kind == net.packet.vehicle_falling_sand) .sand else .gravel;
             var falling = game.FallingBlock.spawn(math.Vec3.init(0, 0, 0), block);
             falling.base.id = id;
             (Body{ .falling_block = &falling }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.falling_blocks.append(gpa, falling);
         },
-        vehicle_fish_hook => {
+        net.packet.vehicle_fish_hook => {
             var hook: game.FishHook = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.FishHook.size, game.FishHook.size),
                 .angler = @bitCast(body.thrower_id),
@@ -1012,7 +993,7 @@ pub fn reportWindowClick(
         .right_click = if (right_click) 1 else 0,
         .action = self.window_action,
         .shift = shift,
-        .held = wireStack(carried),
+        .held = game.wire.toStack(carried),
     } });
 }
 
@@ -1036,25 +1017,6 @@ pub fn reportCloseWindow(self: *Connection, gpa: std.mem.Allocator) !void {
     const id = self.openWindowId();
     self.closeOpenWindow();
     try self.send(gpa, .{ .close_window = .{ .window_id = id } });
-}
-
-fn wireStack(stack: ?world.Stack) ?net.packet.Stack {
-    const held = stack orelse return null;
-    return .{
-        .id = held.id.numeric(),
-        .count = @intCast(held.count),
-        .damage = @bitCast(held.meta),
-    };
-}
-
-fn fromWire(stack: ?net.packet.Stack) ?world.Stack {
-    const held = stack orelse return null;
-    if (held.count <= 0) return null;
-    return .{
-        .id = world.Id.fromNumeric(held.id),
-        .count = @intCast(held.count),
-        .meta = @bitCast(held.damage),
-    };
 }
 
 fn playerSlot(level: *game.Level, slot: usize, store: usize) ?*?world.Stack {
@@ -1166,12 +1128,12 @@ pub fn closeOpenWindow(self: *Connection) void {
 
 fn setSlot(self: *Connection, level: *game.Level, window_id: i8, slot: i16, stack: ?net.packet.Stack) void {
     if (window_id == carried_window and slot == carried_slot) {
-        self.carried = fromWire(stack);
+        self.carried = game.wire.fromStack(stack);
         return;
     }
     if (window_id != self.openWindowId() or slot < 0) return;
     const target = self.windowSlot(level, @intCast(slot)) orelse return;
-    target.* = fromWire(stack);
+    target.* = game.wire.fromStack(stack);
 }
 
 fn showBlast(self: *Connection, gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void {

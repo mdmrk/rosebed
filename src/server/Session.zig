@@ -152,10 +152,7 @@ pub const Tracked = struct {
     }
 };
 
-pub const status_hurt: i8 = 2;
-pub const status_death: i8 = 3;
 pub const velocity_epsilon: f64 = 0.02;
-pub const velocity_scale: f64 = 8000.0;
 
 fn peerHurtTime(peer: Peer) i32 {
     return switch (peer.body) {
@@ -198,7 +195,7 @@ fn sendsMotion(peer: Peer) bool {
 }
 
 fn encodeVelocity(value: f64) i16 {
-    return @truncate(@as(i32, @intFromFloat(value * velocity_scale)));
+    return @truncate(@as(i32, @intFromFloat(value * net.packet.velocity_scale)));
 }
 
 fn trackRange(peer: Peer) f64 {
@@ -430,31 +427,18 @@ fn trackOne(self: *Session, gpa: std.mem.Allocator, peer: Peer) !void {
     }
 }
 
-pub const vehicle_boat: u8 = 1;
-pub const vehicle_minecart: u8 = 10;
-pub const vehicle_arrow: u8 = 60;
-pub const vehicle_fireball: u8 = 63;
-pub const vehicle_snowball: u8 = 61;
-pub const vehicle_egg: u8 = 62;
-pub const vehicle_primed_tnt: u8 = 50;
-pub const vehicle_falling_sand: u8 = 70;
-pub const vehicle_falling_gravel: u8 = 71;
-pub const vehicle_fish_hook: u8 = 90;
-pub const fireball_speed_scale: f64 = 8000.0;
-pub const item_motion_scale: f64 = 128.0;
-
 fn encodeMotion(value: f64) i8 {
-    return @truncate(@as(i32, @intFromFloat(value * item_motion_scale)));
+    return @truncate(@as(i32, @intFromFloat(value * net.packet.item_motion_scale)));
 }
 
 fn encodeFireballSpeed(value: f64) i16 {
-    return @truncate(@as(i32, @intFromFloat(value * fireball_speed_scale)));
+    return @truncate(@as(i32, @intFromFloat(value * net.packet.fireball_speed_scale)));
 }
 
 fn fallingVehicleKind(block: world.Block) ?u8 {
     return switch (block) {
-        .sand => vehicle_falling_sand,
-        .gravel => vehicle_falling_gravel,
+        .sand => net.packet.vehicle_falling_sand,
+        .gravel => net.packet.vehicle_falling_gravel,
         else => null,
     };
 }
@@ -507,7 +491,7 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .arrow => |shot| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_arrow,
+            .kind = net.packet.vehicle_arrow,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -515,7 +499,7 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .fireball => |shot| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_fireball,
+            .kind = net.packet.vehicle_fireball,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -527,8 +511,8 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         .thrown => |projectile| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
             .kind = switch (projectile.kind) {
-                .egg => vehicle_egg,
-                .snowball => vehicle_snowball,
+                .egg => net.packet.vehicle_egg,
+                .snowball => net.packet.vehicle_snowball,
             },
             .x = now.x,
             .y = now.y,
@@ -536,35 +520,35 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .falling_block => |falling| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = fallingVehicleKind(falling.block_id) orelse vehicle_falling_sand,
+            .kind = fallingVehicleKind(falling.block_id) orelse net.packet.vehicle_falling_sand,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .primed_tnt => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_primed_tnt,
+            .kind = net.packet.vehicle_primed_tnt,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .boat => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_boat,
+            .kind = net.packet.vehicle_boat,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .minecart => |cart| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_minecart + @intFromEnum(cart.kind),
+            .kind = net.packet.vehicle_minecart + @intFromEnum(cart.kind),
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .hook => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = vehicle_fish_hook,
+            .kind = net.packet.vehicle_fish_hook,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -589,7 +573,7 @@ fn reportOwnStatus(self: *Session, gpa: std.mem.Allocator, mine: *const game.Pla
     if (mine.hurt_time > self.own_hurt_time) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(mine.base.id),
-            .status = status_hurt,
+            .status = net.packet.status_hurt,
         } });
     }
     self.own_hurt_time = mine.hurt_time;
@@ -598,7 +582,7 @@ fn reportOwnStatus(self: *Session, gpa: std.mem.Allocator, mine: *const game.Pla
     if (self.own_alive and !alive_now) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(mine.base.id),
-            .status = status_death,
+            .status = net.packet.status_death,
         } });
     }
     self.own_alive = alive_now;
@@ -609,7 +593,7 @@ fn reportStatus(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Trac
     if (hurt_now > entry.hurt_time) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(peer.id),
-            .status = status_hurt,
+            .status = net.packet.status_hurt,
         } });
     }
     entry.hurt_time = hurt_now;
@@ -618,7 +602,7 @@ fn reportStatus(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Trac
     if (entry.alive and !alive_now) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(peer.id),
-            .status = status_death,
+            .status = net.packet.status_death,
         } });
     }
     entry.alive = alive_now;
@@ -1291,25 +1275,6 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
     return window;
 }
 
-fn wireStack(stack: ?world.Stack) ?net.packet.Stack {
-    const held = stack orelse return null;
-    return .{
-        .id = held.id.numeric(),
-        .count = @intCast(held.count),
-        .damage = @bitCast(held.meta),
-    };
-}
-
-fn fromWire(stack: ?net.packet.Stack) ?world.Stack {
-    const held = stack orelse return null;
-    if (held.count <= 0) return null;
-    return .{
-        .id = world.Id.fromNumeric(held.id),
-        .count = @intCast(held.count),
-        .meta = @bitCast(held.damage),
-    };
-}
-
 pub fn sendWindowContents(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !void {
     if (self.state != .playing) return;
     var window = self.currentWindow(level);
@@ -1318,7 +1283,7 @@ pub fn sendWindowContents(self: *Session, gpa: std.mem.Allocator, level: *game.L
     var stacks: [game.Window.max_slots]?net.packet.Stack = @splat(null);
     for (0..window.count) |slot| {
         const held = window.stackAt(slot);
-        stacks[slot] = wireStack(held);
+        stacks[slot] = game.wire.toStack(held);
         self.mirror[slot] = held;
     }
     self.mirror_used = window.count;
@@ -1335,7 +1300,7 @@ fn sendCarried(self: *Session, gpa: std.mem.Allocator) !void {
     try self.send(gpa, .{ .set_slot = .{
         .window_id = carried_window,
         .slot = carried_slot,
-        .stack = wireStack(self.carried),
+        .stack = game.wire.toStack(self.carried),
     } });
 }
 
@@ -1351,7 +1316,7 @@ pub fn syncWindow(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !v
         try self.send(gpa, .{ .set_slot = .{
             .window_id = self.window_id,
             .slot = @intCast(slot),
-            .stack = wireStack(held),
+            .stack = game.wire.toStack(held),
         } });
     }
 
@@ -1449,7 +1414,7 @@ fn windowClick(self: *Session, gpa: std.mem.Allocator, level: *game.Level, body:
         try self.award(gpa, .{ .general = .drop }, 1);
     }
 
-    const agreed = sameStack(fromWire(body.held), self.carried);
+    const agreed = sameStack(game.wire.fromStack(body.held), self.carried);
     try self.send(gpa, .{ .transaction = .{
         .window_id = body.window_id,
         .action = body.action,
@@ -1827,7 +1792,6 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
 }
 
 pub const in_air_face: u8 = 255;
-pub const bucket_reach_squared: f64 = 25.0;
 
 fn holdStack(self: *Session, held: world.Item) void {
     const player = self.player orelse return;

@@ -25,9 +25,6 @@ const init_flags = sdl3.InitFlags{ .video = true, .audio = true };
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
-const reach_distance = 4.5;
-const boat_reach = 5.0;
-const bucket_reach = 5.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const chunk_stream_budget_ns = 4 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
@@ -1242,12 +1239,6 @@ fn openedChest(app_state: *AppState) ?OpenChest {
     const half = pair.lower orelse return .{ .upper = upper, .lower = null };
     const lower = world_map.chestAt(half) orelse return null;
     return .{ .upper = upper, .lower = lower };
-}
-
-fn openedChestSlot(app_state: *AppState, index: usize) ?*?game.Inventory.ItemStack {
-    const open = openedChest(app_state) orelse return null;
-    const half = if (index < world.chest.slot_count) open.upper else open.lower orelse return null;
-    return half.slot(index % world.chest.slot_count);
 }
 
 fn toggleInventory(app_state: *AppState) !void {

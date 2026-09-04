@@ -102,6 +102,58 @@ pub fn stepRemote(body: anytype) void {
     body.base.position = .{ .x = x, .y = y, .z = z };
 }
 
+const fall_sound_probe_depth: f64 = 0.2;
+const fall_sound_volume_scale: f32 = 0.5;
+const fall_sound_pitch_scale: f32 = 12.0 / 16.0;
+
+pub fn wrapDegrees(value: f32) f32 {
+    var wrapped = value;
+    while (wrapped < -180.0) wrapped += 360.0;
+    while (wrapped >= 180.0) wrapped -= 360.0;
+    return wrapped;
+}
+
+pub fn updateRenderYaw(body: anytype) void {
+    const dx = body.base.position.x - body.base.prev_position.x;
+    const dz = body.base.position.z - body.base.prev_position.z;
+    const travelled: f32 = @floatCast(@sqrt(dx * dx + dz * dz));
+
+    var facing = body.render_yaw;
+    if (travelled > 0.05) {
+        facing = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
+    }
+
+    body.render_yaw += wrapDegrees(facing - body.render_yaw) * 0.3;
+
+    var offset = wrapDegrees(body.yaw - body.render_yaw);
+    offset = std.math.clamp(offset, -75.0, 75.0);
+    body.render_yaw = body.yaw - offset;
+    if (offset * offset > 2500.0) body.render_yaw += offset * 0.2;
+
+    while (body.yaw - body.prev_yaw < -180.0) body.prev_yaw -= 360.0;
+    while (body.yaw - body.prev_yaw >= 180.0) body.prev_yaw += 360.0;
+    while (body.render_yaw - body.prev_render_yaw < -180.0) body.prev_render_yaw -= 360.0;
+    while (body.render_yaw - body.prev_render_yaw >= 180.0) body.prev_render_yaw += 360.0;
+    while (body.pitch - body.prev_pitch < -180.0) body.prev_pitch -= 360.0;
+    while (body.pitch - body.prev_pitch >= 180.0) body.prev_pitch += 360.0;
+}
+
+pub fn playFallSound(body: anytype, world_map: *const world.World) void {
+    const x = math.util.floorDouble(body.base.position.x);
+    const y = math.util.floorDouble(body.base.position.y - fall_sound_probe_depth);
+    const z = math.util.floorDouble(body.base.position.z);
+    const landed_on = world_map.getBlock(.init(x, y, z));
+    if (landed_on == .air) return;
+
+    const step_sound = landed_on.stepSound();
+    world_map.playSoundEffect(
+        body.base.position,
+        step_sound.walk(),
+        step_sound.volume() * fall_sound_volume_scale,
+        step_sound.pitch() * fall_sound_pitch_scale,
+    );
+}
+
 pub const Moved = struct {
     dx: f64,
     dy: f64,

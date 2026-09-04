@@ -133,6 +133,12 @@ pub const swing_animation: i8 = 1;
 pub const hurt_animation: i8 = 2;
 pub const wake_up_animation: i8 = 3;
 
+pub const status_hurt: i8 = 2;
+pub const status_death: i8 = 3;
+pub const status_wolf_smoke: i8 = 6;
+pub const status_wolf_hearts: i8 = 7;
+pub const status_wolf_shake: i8 = 8;
+
 pub const enter_bed_state: i8 = 0;
 
 pub const max_username = 16;
@@ -146,6 +152,20 @@ pub const sign_lines = 4;
 pub const max_window_slots = 256;
 pub const max_explosion_blocks = 1 << 20;
 pub const max_map_bytes = 255;
+
+pub const vehicle_boat: u8 = 1;
+pub const vehicle_minecart: u8 = 10;
+pub const vehicle_arrow: u8 = 60;
+pub const vehicle_fireball: u8 = 63;
+pub const vehicle_snowball: u8 = 61;
+pub const vehicle_egg: u8 = 62;
+pub const vehicle_primed_tnt: u8 = 50;
+pub const vehicle_falling_sand: u8 = 70;
+pub const vehicle_falling_gravel: u8 = 71;
+pub const vehicle_fish_hook: u8 = 90;
+pub const fireball_speed_scale: f64 = 8000.0;
+pub const item_motion_scale: f64 = 128.0;
+pub const velocity_scale: f64 = 8000.0;
 
 pub const Stack = struct {
     id: i16,

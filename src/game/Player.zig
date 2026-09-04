@@ -139,9 +139,6 @@ const knockback_strength: f64 = 0.4;
 
 pub const safe_fall_distance: f32 = 3.0;
 const recorded_fall_distance: f32 = 2.0;
-const fall_sound_probe_depth: f64 = 0.2;
-const fall_sound_volume_scale: f32 = 0.5;
-const fall_sound_pitch_scale: f32 = 12.0 / 16.0;
 
 const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
@@ -295,7 +292,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     self.camera_pitch += (dip - self.camera_pitch) * 0.8;
 
     self.updateLimbSwing();
-    self.updateRenderYaw();
+    Entity.updateRenderYaw(self);
 }
 
 pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) void {
@@ -324,16 +321,9 @@ pub fn tickRemote(self: *Player) void {
 
     Entity.stepRemote(self);
 
-    self.updateRenderYaw();
+    Entity.updateRenderYaw(self);
     self.updateLimbSwing();
     self.tickSwing();
-}
-
-fn wrapDegrees(value: f32) f32 {
-    var wrapped = value;
-    while (wrapped < -180.0) wrapped += 360.0;
-    while (wrapped >= 180.0) wrapped -= 360.0;
-    return wrapped;
 }
 
 fn updateLimbSwing(self: *Player) void {
@@ -344,31 +334,6 @@ fn updateLimbSwing(self: *Player) void {
     if (swing > 1.0) swing = 1.0;
     self.limb_swing_amount += (swing - self.limb_swing_amount) * 0.4;
     self.limb_swing += self.limb_swing_amount;
-}
-
-fn updateRenderYaw(self: *Player) void {
-    const dx = self.base.position.x - self.base.prev_position.x;
-    const dz = self.base.position.z - self.base.prev_position.z;
-    const travelled: f32 = @floatCast(@sqrt(dx * dx + dz * dz));
-
-    var facing = self.render_yaw;
-    if (travelled > 0.05) {
-        facing = @as(f32, @floatCast(std.math.atan2(dz, dx) * 180.0 / std.math.pi)) - 90.0;
-    }
-
-    self.render_yaw += wrapDegrees(facing - self.render_yaw) * 0.3;
-
-    var offset = wrapDegrees(self.yaw - self.render_yaw);
-    offset = std.math.clamp(offset, -75.0, 75.0);
-    self.render_yaw = self.yaw - offset;
-    if (offset * offset > 2500.0) self.render_yaw += offset * 0.2;
-
-    while (self.yaw - self.prev_yaw < -180.0) self.prev_yaw -= 360.0;
-    while (self.yaw - self.prev_yaw >= 180.0) self.prev_yaw += 360.0;
-    while (self.render_yaw - self.prev_render_yaw < -180.0) self.prev_render_yaw -= 360.0;
-    while (self.render_yaw - self.prev_render_yaw >= 180.0) self.prev_render_yaw += 360.0;
-    while (self.pitch - self.prev_pitch < -180.0) self.prev_pitch -= 360.0;
-    while (self.pitch - self.prev_pitch >= 180.0) self.prev_pitch += 360.0;
 }
 
 pub fn renderYaw(self: Player, partial_ticks: f32) f32 {
@@ -461,23 +426,7 @@ fn fall(self: *Player, world_map: *const world.World, distance: f32) void {
     const damage: i32 = @intFromFloat(@ceil(distance - safe_fall_distance));
     if (damage <= 0) return;
     self.hurt(world_map, damage);
-    self.playFallSound(world_map);
-}
-
-fn playFallSound(self: *const Player, world_map: *const world.World) void {
-    const x = math.util.floorDouble(self.base.position.x);
-    const y = math.util.floorDouble(self.base.position.y - fall_sound_probe_depth);
-    const z = math.util.floorDouble(self.base.position.z);
-    const landed_on = world_map.getBlock(.init(x, y, z));
-    if (landed_on == .air) return;
-
-    const step_sound = landed_on.stepSound();
-    world_map.playSoundEffect(
-        self.base.position,
-        step_sound.walk(),
-        step_sound.volume() * fall_sound_volume_scale,
-        step_sound.pitch() * fall_sound_pitch_scale,
-    );
+    Entity.playFallSound(self, world_map);
 }
 
 fn updateFallState(self: *Player, world_map: *const world.World, dy: f64) void {
@@ -1716,7 +1665,7 @@ test "the body turns to follow the direction of travel" {
     for (0..20) |_| player.tick(&w, 0, 1, false, false);
 
     try std.testing.expect(player.base.position.z > 8.0);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), wrapDegrees(player.render_yaw), 1.0e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), Entity.wrapDegrees(player.render_yaw), 1.0e-3);
 }
 
 test "the head never twists more than 75 degrees away from the body" {
@@ -1728,7 +1677,7 @@ test "the head never twists more than 75 degrees away from the body" {
     player.yaw = 170;
     player.tick(&w, 0, 0, false, false);
 
-    try std.testing.expect(@abs(wrapDegrees(player.yaw - player.render_yaw)) <= 75.0 + 1.0e-3);
+    try std.testing.expect(@abs(Entity.wrapDegrees(player.yaw - player.render_yaw)) <= 75.0 + 1.0e-3);
 }
 
 test "walking builds up the limb swing, standing still lets it fall away" {

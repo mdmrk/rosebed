@@ -14,6 +14,7 @@ pub const loading = @import("screen/loading.zig");
 pub const mojang = @import("screen/mojang.zig");
 pub const multiplayer = @import("screen/multiplayer.zig");
 pub const options = @import("screen/options.zig");
+pub const scroll_list = @import("screen/scroll_list.zig");
 pub const select_world = @import("screen/select_world.zig");
 pub const stats = @import("screen/stats.zig");
 pub const texture_packs = @import("screen/texture_packs.zig");
