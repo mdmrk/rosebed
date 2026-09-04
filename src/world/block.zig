@@ -7,6 +7,7 @@ const farming = @import("farming.zig");
 const item = @import("item.zig");
 const Item = item.Item;
 const JavaRandom = @import("JavaRandom.zig");
+const random_tick = @import("random_tick.zig");
 const World = @import("World.zig");
 
 pub const Side = enum(u3) {
@@ -1000,6 +1001,13 @@ pub const Block = enum(u8) {
             .locked_chest => rotAway,
             .crops => farming.tickCrops,
             .farmland => farming.tickFarmland,
+            .grass => random_tick.tickGrass,
+            .sapling => random_tick.tickSapling,
+            .cactus, .reed => random_tick.tickStalk,
+            .mushroom_brown, .mushroom_red => random_tick.tickMushroom,
+            .dandelion, .rose, .tall_grass, .dead_bush => random_tick.tickPlant,
+            .ice => random_tick.meltIce,
+            .snow_layer, .snow_block => random_tick.meltSnow,
             else => null,
         };
     }

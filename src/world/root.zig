@@ -47,6 +47,7 @@ pub const note = @import("note.zig");
 pub const pathfinder = @import("pathfinder.zig");
 pub const piston = @import("piston.zig");
 pub const portal = @import("portal.zig");
+pub const random_tick = @import("random_tick.zig");
 pub const rail = @import("rail.zig");
 pub const redstone = @import("redstone.zig");
 pub const RegionFile = @import("RegionFile.zig");
@@ -88,6 +89,7 @@ test {
     _ = Weather;
     _ = dispenser;
     _ = rail;
+    _ = random_tick;
     _ = tnt;
     _ = caves;
     _ = decorate;
