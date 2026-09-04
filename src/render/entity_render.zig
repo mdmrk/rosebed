@@ -915,6 +915,21 @@ pub fn appendZombie(
     return appendZombieShaped(mesh, gpa, world_map, zombie.animal, mob_model.biped, zombie.renderAge(partial_ticks), partial_ticks);
 }
 
+pub fn appendGiant(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    giant: game.Giant,
+    partial_ticks: f32,
+) !void {
+    const parts = zombieShapedParts(giant.animal, mob_model.biped, giant.renderAge(partial_ticks), partial_ticks);
+
+    return appendAnimal(mesh, gpa, world_map, giant.animal, partial_ticks, mob_model.biped, .{
+        .posed = &parts,
+        .scale = @splat(@floatCast(game.Giant.scale)),
+    });
+}
+
 pub fn appendPigZombie(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -3061,6 +3076,67 @@ test "a zombie is drawn the same shambling shape as a pig zombie" {
         try std.testing.expectApproxEqAbs(shambler.y, hog.y, 1.0e-6);
         try std.testing.expectApproxEqAbs(shambler.z, hog.z, 1.0e-6);
     }
+}
+
+test "a giant is the zombie model blown up six times about the ground it stands on" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const at: math.Vec3 = .{ .x = 0, .y = 64, .z = 0 };
+
+    var zombie: MeshBuilder = .{};
+    defer zombie.deinit(gpa);
+    try appendZombie(&zombie, gpa, &world_map, game.Zombie.spawn(at), 0);
+
+    var giant: MeshBuilder = .{};
+    defer giant.deinit(gpa);
+    try appendGiant(&giant, gpa, &world_map, game.Giant.spawn(at), 0);
+
+    try std.testing.expectEqual(zombie.vertices.items.len, giant.vertices.items.len);
+
+    const scale: f32 = @floatCast(game.Giant.scale);
+    for (zombie.vertices.items, giant.vertices.items) |small, tall| {
+        try std.testing.expectApproxEqAbs(small.x * scale, tall.x, 1.0e-4);
+        try std.testing.expectApproxEqAbs((small.y - @as(f32, at.y)) * scale + @as(f32, at.y), tall.y, 1.0e-4);
+        try std.testing.expectApproxEqAbs(small.z * scale, tall.z, 1.0e-4);
+        try std.testing.expectEqual(small.u, tall.u);
+        try std.testing.expectEqual(small.v, tall.v);
+    }
+}
+
+fn verticalSpan(mesh: MeshBuilder) struct { low: f32, high: f32 } {
+    var low: f32 = std.math.floatMax(f32);
+    var high: f32 = -std.math.floatMax(f32);
+    for (mesh.vertices.items) |vertex| {
+        low = @min(low, vertex.y);
+        high = @max(high, vertex.y);
+    }
+    return .{ .low = low, .high = high };
+}
+
+test "a giant towers over a zombie standing on the same block" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const at: math.Vec3 = .{ .x = 0, .y = 64, .z = 0 };
+
+    var zombie: MeshBuilder = .{};
+    defer zombie.deinit(gpa);
+    try appendZombie(&zombie, gpa, &world_map, game.Zombie.spawn(at), 0);
+
+    var giant: MeshBuilder = .{};
+    defer giant.deinit(gpa);
+    try appendGiant(&giant, gpa, &world_map, game.Giant.spawn(at), 0);
+
+    const small = verticalSpan(zombie);
+    const tall = verticalSpan(giant);
+
+    const scale: f32 = @floatCast(game.Giant.scale);
+    try std.testing.expect(tall.low > @as(f32, at.y));
+    try std.testing.expectApproxEqAbs((small.high - small.low) * scale, tall.high - tall.low, 1.0e-4);
+    try std.testing.expect(tall.high - tall.low > @as(f32, @floatCast(game.Giant.height)));
 }
 
 test "a pig zombie holds both arms out ahead of its body" {

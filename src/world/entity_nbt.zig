@@ -16,6 +16,7 @@ pub const ghast_id = "Ghast";
 pub const creeper_id = "Creeper";
 pub const skeleton_id = "Skeleton";
 pub const spider_id = "Spider";
+pub const giant_id = "Giant";
 pub const zombie_id = "Zombie";
 pub const pig_zombie_id = "PigZombie";
 pub const wolf_id = "Wolf";
@@ -84,6 +85,10 @@ pub const Skeleton = struct {
 };
 
 pub const Spider = struct {
+    living: Living,
+};
+
+pub const Giant = struct {
     living: Living,
 };
 
@@ -333,6 +338,18 @@ pub fn storeSpider(gpa: std.mem.Allocator, spider: Spider) !nbt.Tag {
     }
 
     try storeLiving(gpa, &compound, spider_id, spider.living);
+
+    return .{ .compound = compound };
+}
+
+pub fn storeGiant(gpa: std.mem.Allocator, giant: Giant) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, giant_id, giant.living);
 
     return .{ .compound = compound };
 }
@@ -656,6 +673,10 @@ pub fn isSpider(compound: nbt.Compound) bool {
     return hasId(compound, spider_id);
 }
 
+pub fn isGiant(compound: nbt.Compound) bool {
+    return hasId(compound, giant_id);
+}
+
 pub fn isZombie(compound: nbt.Compound) bool {
     return hasId(compound, zombie_id);
 }
@@ -903,6 +924,12 @@ pub fn loadSkeleton(compound: nbt.Compound) ?Skeleton {
 
 pub fn loadSpider(compound: nbt.Compound) ?Spider {
     if (!isSpider(compound)) return null;
+    const living = loadLiving(compound) orelse return null;
+    return .{ .living = living };
+}
+
+pub fn loadGiant(compound: nbt.Compound) ?Giant {
+    if (!isGiant(compound)) return null;
     const living = loadLiving(compound) orelse return null;
     return .{ .living = living };
 }

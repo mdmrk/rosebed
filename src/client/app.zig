@@ -3676,6 +3676,10 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     while (shamblers.next()) |zombie| {
         try render.entity_render.appendZombie(&zombie_mesh, app_state.frame, &app_state.level.world_map, zombie.*, partial);
     }
+    var giants = app_state.level.entities.of(game.Giant, game.mob.giant);
+    while (giants.next()) |giant| {
+        try render.entity_render.appendGiant(&zombie_mesh, app_state.frame, &app_state.level.world_map, giant.*, partial);
+    }
     var pig_zombie_mesh: render.MeshBuilder = .{};
     defer pig_zombie_mesh.deinit(app_state.frame);
     var horde = app_state.level.entities.of(game.PigZombie, game.mob.pig_zombie);

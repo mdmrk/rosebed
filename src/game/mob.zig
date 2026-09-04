@@ -100,6 +100,7 @@ const vanilla = [_]Type{
     @import("entity/Zombie.zig").mob_type,
     @import("entity/PigZombie.zig").mob_type,
     @import("entity/Squid.zig").mob_type,
+    @import("entity/Giant.zig").mob_type,
 };
 
 pub const pig: Id = 0;
@@ -115,6 +116,7 @@ pub const spider: Id = 9;
 pub const zombie: Id = 10;
 pub const pig_zombie: Id = 11;
 pub const squid: Id = 12;
+pub const giant: Id = 13;
 
 var types: [capacity]Type = initialTypes();
 var count: usize = vanilla.len;
@@ -167,7 +169,8 @@ test "the vanilla mob types keep the ids the save format is written against" {
     try std.testing.expectEqual(zombie, find("Zombie").?);
     try std.testing.expectEqual(pig_zombie, find("PigZombie").?);
     try std.testing.expectEqual(squid, find("Squid").?);
-    try std.testing.expectEqual(@as(Id, 13), registered());
+    try std.testing.expectEqual(giant, find("Giant").?);
+    try std.testing.expectEqual(@as(Id, 14), registered());
 }
 
 test "the vanilla mob types carry the entity ids the wire spawns them by" {
@@ -184,11 +187,11 @@ test "the vanilla mob types carry the entity ids the wire spawns them by" {
     try std.testing.expectEqual(zombie, byWireId(54).?);
     try std.testing.expectEqual(pig_zombie, byWireId(57).?);
     try std.testing.expectEqual(squid, byWireId(94).?);
-    try std.testing.expectEqual(@as(?Id, null), byWireId(53));
+    try std.testing.expectEqual(giant, byWireId(53).?);
 }
 
 test "the monster flag marks exactly the mobs EntityMob covers" {
-    const monsters = [_]Id{ creeper, skeleton, spider, zombie, pig_zombie };
+    const monsters = [_]Id{ creeper, skeleton, spider, zombie, pig_zombie, giant };
     for (0..registered()) |type_id| {
         const id: Id = @intCast(type_id);
         const want = std.mem.indexOfScalar(Id, &monsters, id) != null;
@@ -246,8 +249,8 @@ test "a registered type lands after the vanilla ones and answers to its name" {
         .destroy = get(pig).destroy,
     });
 
-    try std.testing.expectEqual(@as(Id, 13), custom);
+    try std.testing.expectEqual(@as(Id, 14), custom);
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
-    try std.testing.expectEqual(@as(Id, 14), registered());
+    try std.testing.expectEqual(@as(Id, 15), registered());
 }

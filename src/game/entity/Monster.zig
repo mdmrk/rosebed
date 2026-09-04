@@ -62,7 +62,7 @@ pub fn canSpawnHere(animal: Animal, world_map: *const world.World, rand: *world.
 
     if (@as(i32, world_map.getSkyLight(.init(x, y, z))) > rand.nextIntBound(sky_spawn_roll)) return false;
     if (@as(i32, world.light.levelAt(world_map, .init(x, y, z))) > rand.nextIntBound(block_spawn_roll)) return false;
-    if (blockPathWeight(world_map, .init(x, y, z)) < 0.0) return false;
+    if (animal.path_weight(world_map, .init(x, y, z)) < 0.0) return false;
 
     const box = animal.base.boundingBox();
     return !physics.isBoxObstructed(world_map, box) and !physics.isAnyLiquid(world_map, box);
@@ -287,7 +287,8 @@ test "a monster only spawns in the dark, in a clear dry space" {
     defer w.deinit();
 
     var rand = world.JavaRandom.init(4);
-    const animal = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.6, .height = 1.8 });
+    var animal = Animal.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .width = 0.6, .height = 1.8 });
+    animal.path_weight = blockPathWeight;
 
     var dark_spawns: u32 = 0;
     for (0..100) |_| {

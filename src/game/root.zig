@@ -22,6 +22,7 @@ pub const Painting = @import("entity/Painting.zig");
 pub const Particle = @import("entity/Particle.zig");
 pub const PickupFx = @import("entity/PickupFx.zig");
 pub const Pig = @import("entity/Pig.zig");
+pub const Giant = @import("entity/Giant.zig");
 pub const PigZombie = @import("entity/PigZombie.zig");
 pub const PrimedTnt = @import("entity/PrimedTnt.zig");
 pub const Sheep = @import("entity/Sheep.zig");
@@ -75,6 +76,7 @@ test {
     _ = Cow;
     _ = Creeper;
     _ = Pig;
+    _ = Giant;
     _ = PigZombie;
     _ = Sheep;
     _ = Skeleton;
