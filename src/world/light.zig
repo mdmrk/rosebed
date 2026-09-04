@@ -267,6 +267,7 @@ test "light opacity follows isOpaqueCube, not the material" {
     try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
     try std.testing.expectEqual(@as(u8, 0), opacity(.pressure_plate_stone));
     try std.testing.expectEqual(@as(u8, 0), opacity(.piston_moving));
+    try std.testing.expectEqual(@as(u8, 0), opacity(.mob_spawner));
 }
 
 test "the blocks vanilla gives an explicit opacity keep it" {

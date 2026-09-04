@@ -4,6 +4,7 @@ const block = @import("../block.zig");
 const Block = @import("../block.zig").Block;
 const BlockPos = @import("../BlockPos.zig");
 const chest = @import("../chest.zig");
+const entity_nbt = @import("../entity_nbt.zig");
 const JavaRandom = @import("../JavaRandom.zig");
 const World = @import("../World.zig");
 
@@ -79,8 +80,16 @@ pub fn generate(world_map: *World, rand: *JavaRandom, pos: BlockPos) !bool {
     }
 
     world_map.setBlock(pos, .mob_spawner);
-    _ = rand.nextIntBound(4);
+    (try world_map.addMobSpawner(pos)).setMobName(rollSpawnerMob(rand));
     return true;
+}
+
+fn rollSpawnerMob(rand: *JavaRandom) []const u8 {
+    return switch (rand.nextIntBound(4)) {
+        0 => entity_nbt.skeleton_id,
+        1, 2 => entity_nbt.zombie_id,
+        else => entity_nbt.spider_id,
+    };
 }
 
 fn some(rand: *JavaRandom, id: block.Id) block.Stack {

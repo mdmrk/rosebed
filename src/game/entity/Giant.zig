@@ -109,6 +109,7 @@ pub const mob_type: Mob.Type = .{
     .store = mobStore,
     .load = mobLoad,
     .destroy = mobDestroy,
+    .canSpawnHere = mobCanSpawnHere,
     .hurt = mobHurt,
     .afterTick = mobAfterTick,
 };
@@ -151,6 +152,10 @@ fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal
     return &self.animal;
 }
 
+fn mobCanSpawnHere(animal: *const Animal, world_map: *const world.World, _: i64, rand: *world.JavaRandom) bool {
+    const self: *const Giant = @fieldParentPtr("animal", animal);
+    return self.canSpawnHere(world_map, rand);
+}
 fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
     const self: *Giant = @fieldParentPtr("animal", animal);
     self.deinit(gpa);

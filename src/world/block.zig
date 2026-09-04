@@ -921,6 +921,7 @@ pub const Block = enum(u8) {
     fn vanillaOpaqueCube(self: Block) bool {
         return switch (self) {
             .leaves, .glass, .ice, .cactus, .door_wood, .door_iron, .trapdoor, .cake, .bed => false,
+            .mob_spawner => false,
             .sign_post, .wall_sign => false,
             .web, .ladder, .fence, .crops, .farmland => false,
             .stairs_wood, .stairs_cobblestone => false,
@@ -2830,6 +2831,18 @@ test "glass, bookshelves and ice drop nothing when broken" {
     for ([_]Block{ .glass, .bookshelf, .ice }) |id| {
         try std.testing.expectEqual(@as(?Stack, null), id.drop(0, &rand));
     }
+}
+
+test "a mob spawner is a cage you can see through, not a solid cube" {
+    try std.testing.expect(!Block.mob_spawner.isOpaqueCube());
+    try std.testing.expect(Block.mob_spawner.isNormalCube());
+    try std.testing.expect(Block.mob_spawner.isOpaque());
+    try std.testing.expectEqual(Shape.cube, Block.mob_spawner.shape());
+    try std.testing.expect(!Block.mob_spawner.isTranslucent());
+
+    try std.testing.expect(Block.stone.shouldRenderFace(.mob_spawner, .up, true));
+    try std.testing.expect(Block.mob_spawner.shouldRenderFace(.air, .down, true));
+    try std.testing.expect(!Block.stone.shouldRenderFace(.stone, .up, true));
 }
 
 test "snow blocks and glowstone drop their item form, wool keeps its colour" {

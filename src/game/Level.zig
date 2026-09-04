@@ -9,6 +9,7 @@ const Animal = @import("entity/Animal.zig");
 const Inventory = @import("Inventory.zig");
 const physics = @import("physics.zig");
 const Player = @import("Player.zig");
+const mob_spawner = @import("mob_spawner.zig");
 const spawner = @import("spawner.zig");
 
 const Level = @This();
@@ -425,6 +426,15 @@ pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !v
     try self.world_map.forgetOrphanNotes();
     try self.world_map.spillOrphanDispensers();
     try self.world_map.tickPistons();
+    try self.world_map.forgetOrphanSpawners();
+    try mob_spawner.tickAll(.{
+        .gpa = gpa,
+        .entities = &self.entities,
+        .world_map = &self.world_map,
+        .players = self.players(),
+        .world_seed = self.generator.worldSeed(),
+        .rand = rand,
+    });
     try self.entities.applyPistonShoves(&self.world_map, self.roster.items);
     try self.applyBlockChanges(gpa, scratch);
     self.refreshViews();

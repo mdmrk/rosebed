@@ -39,6 +39,7 @@ pub const interact = @import("interact.zig");
 pub const Inventory = @import("Inventory.zig");
 pub const Level = @import("Level.zig");
 pub const mob = @import("mob.zig");
+pub const mob_spawner = @import("mob_spawner.zig");
 pub const options_file = @import("options_file.zig");
 pub const physics = @import("physics.zig");
 pub const Player = @import("Player.zig");
@@ -92,6 +93,7 @@ test {
     _ = Squid;
     _ = Thrown;
     _ = mob;
+    _ = mob_spawner;
     _ = spawner;
     _ = crafting;
     _ = Settings;

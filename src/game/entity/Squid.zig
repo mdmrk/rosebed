@@ -237,6 +237,7 @@ pub const mob_type: Mob.Type = .{
     .store = mobStore,
     .load = mobLoad,
     .destroy = mobDestroy,
+    .canSpawnHere = mobCanSpawnHere,
 };
 
 fn mobSpawn(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
@@ -274,6 +275,10 @@ fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal
     return &self.animal;
 }
 
+fn mobCanSpawnHere(animal: *const Animal, world_map: *const world.World, _: i64, _: *world.JavaRandom) bool {
+    const self: *const Squid = @fieldParentPtr("animal", animal);
+    return self.canSpawnHere(world_map);
+}
 fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
     const self: *Squid = @fieldParentPtr("animal", animal);
     self.deinit(gpa);

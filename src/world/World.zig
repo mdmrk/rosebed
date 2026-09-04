@@ -20,6 +20,7 @@ const leaf_decay = @import("leaf_decay.zig");
 const light = @import("light.zig");
 const map = @import("map.zig");
 const nbt = @import("nbt.zig");
+const mob_spawner = @import("mob_spawner.zig");
 const note = @import("note.zig");
 const piston = @import("piston.zig");
 const portal = @import("portal.zig");
@@ -168,11 +169,13 @@ next_map_id: ?i16 = null,
 jukeboxes: std.AutoHashMapUnmanaged(BlockPos, jukebox.Jukebox) = .{},
 notes: std.AutoHashMapUnmanaged(BlockPos, note.Note) = .{},
 dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
+mob_spawners: std.AutoHashMapUnmanaged(BlockPos, mob_spawner.MobSpawner) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
 jukebox_updates: std.ArrayList(BlockPos) = .empty,
 note_updates: std.ArrayList(BlockPos) = .empty,
+spawner_updates: std.ArrayList(BlockPos) = .empty,
 dispenser_updates: std.ArrayList(BlockPos) = .empty,
 dispensed: std.ArrayList(Dispensed) = .empty,
 piston_updates: std.ArrayList(BlockPos) = .empty,
@@ -273,7 +276,9 @@ pub fn deinit(self: *World) void {
     self.notes.deinit(self.allocator);
     self.strikes.deinit(self.allocator);
     self.note_updates.deinit(self.allocator);
+    self.spawner_updates.deinit(self.allocator);
     self.dispensers.deinit(self.allocator);
+    self.mob_spawners.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
@@ -763,6 +768,35 @@ pub fn removeFurnace(self: *World, pos: BlockPos) ?furnace.Furnace {
     return removed.value;
 }
 
+pub fn mobSpawnerAt(self: *World, pos: BlockPos) ?*mob_spawner.MobSpawner {
+    return self.mob_spawners.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
+}
+
+pub fn addMobSpawner(self: *World, pos: BlockPos) !*mob_spawner.MobSpawner {
+    const entry = try self.mob_spawners.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeMobSpawner(self: *World, pos: BlockPos) ?mob_spawner.MobSpawner {
+    const removed = self.mob_spawners.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
+    return removed.value;
+}
+
+pub fn forgetOrphanSpawners(self: *World) !void {
+    self.spawner_updates.clearRetainingCapacity();
+
+    var it = self.mob_spawners.iterator();
+    while (it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (self.getChunk(floorDiv(pos.x, Chunk.width), floorDiv(pos.z, Chunk.width)) == null) continue;
+        if (self.getBlock(pos) == .mob_spawner) continue;
+        try self.spawner_updates.append(self.allocator, pos);
+    }
+
+    for (self.spawner_updates.items) |pos| _ = self.mob_spawners.remove(pos);
+}
+
 pub fn chestAt(self: *World, pos: BlockPos) ?*chest.Chest {
     return self.chests.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
@@ -1128,6 +1162,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try dispenser.store(self.allocator, pos, entry.value_ptr.*));
     }
+
+    var spawners_it = self.mob_spawners.iterator();
+    while (spawners_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try mob_spawner.store(self.allocator, pos, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
@@ -1155,6 +1196,10 @@ fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.
     }
     if (dispenser.load(compound)) |placed| {
         (try self.addDispenser(placed.pos)).* = placed.state;
+        return;
+    }
+    if (mob_spawner.load(compound)) |placed| {
+        (try self.addMobSpawner(placed.pos)).* = placed.state;
         return;
     }
     const placed = furnace.load(compound) orelse return;

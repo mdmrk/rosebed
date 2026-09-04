@@ -601,6 +601,7 @@ pub const mob_type: Mob.Type = .{
     .store = mobStore,
     .load = mobLoad,
     .destroy = mobDestroy,
+    .canSpawnHere = mobCanSpawnHere,
     .afterTick = mobAfterTick,
     .onDeath = mobOnDeath,
     .watch = mobWatch,
@@ -654,6 +655,10 @@ fn mobLoad(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal
     return &self.animal;
 }
 
+fn mobCanSpawnHere(animal: *const Animal, world_map: *const world.World, world_seed: i64, rand: *world.JavaRandom) bool {
+    const self: *const Slime = @fieldParentPtr("animal", animal);
+    return self.canSpawnHere(world_map, world_seed, rand);
+}
 fn mobDestroy(animal: *Animal, gpa: std.mem.Allocator) void {
     const self: *Slime = @fieldParentPtr("animal", animal);
     self.deinit(gpa);

@@ -313,6 +313,16 @@ pub fn countOf(self: *const Entities, type_id: mob.Id) usize {
     return total;
 }
 
+pub fn countOfInBox(self: *const Entities, type_id: mob.Id, box: math.Aabb) usize {
+    var total: usize = 0;
+    for (self.mobs.items) |entry| {
+        if (entry.type_id != type_id) continue;
+        if (!entry.animal.base.boundingBox().intersects(box)) continue;
+        total += 1;
+    }
+    return total;
+}
+
 pub fn spawnMob(
     self: *Entities,
     gpa: std.mem.Allocator,

@@ -41,6 +41,7 @@ pub const jukebox = @import("jukebox.zig");
 pub const leaf_decay = @import("leaf_decay.zig");
 pub const light = @import("light.zig");
 pub const map = @import("map.zig");
+pub const mob_spawner = @import("mob_spawner.zig");
 pub const nbt = @import("nbt.zig");
 pub const NibbleArray = @import("NibbleArray.zig");
 pub const note = @import("note.zig");
@@ -103,6 +104,7 @@ test {
     _ = World;
     _ = pathfinder;
     _ = nbt;
+    _ = mob_spawner;
     _ = deflate;
     _ = RegionFile;
     _ = map;

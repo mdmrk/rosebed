@@ -262,6 +262,11 @@ pub fn deinit(self: *Animal, gpa: std.mem.Allocator) void {
     self.clearPath(gpa);
 }
 
+pub fn placeAt(self: *Animal, position: math.Vec3) void {
+    self.base.position = position;
+    self.base.prev_position = position;
+}
+
 pub fn faceYaw(self: *Animal, yaw: f32) void {
     self.yaw = yaw;
     self.prev_yaw = yaw;
