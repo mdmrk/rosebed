@@ -1636,6 +1636,66 @@ test "the block below the note block picks the instrument sent down the wire" {
     try std.testing.expectEqual(@intFromEnum(world.note.Instrument.click), instrument.?);
 }
 
+test "a finished dig leaves the break for the server to pass on to everyone else" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    const ground = pair.standOnGround();
+    const at: BlockPos = .init(ground[0], ground[1] + 1, ground[2]);
+    try pair.server_level.world_map.setBlockAndMetadataWithNotify(at, .wool, 5);
+    try pair.settle(2);
+
+    try std.testing.expect(pair.session.takeBreak() == null);
+
+    try pair.connection.reportDig(gpa, at, 1);
+    try pair.pumpToServer();
+
+    const broke = pair.session.takeBreak().?;
+    try std.testing.expectEqual(at.x, broke.pos.x);
+    try std.testing.expectEqual(at.y, broke.pos.y);
+    try std.testing.expectEqual(at.z, broke.pos.z);
+    try std.testing.expectEqual(@as(i32, @intFromEnum(world.Block.wool)) | 5 << 8, broke.data);
+
+    try std.testing.expect(pair.session.takeBreak() == null);
+}
+
+test "a record the server starts reaches the client as an aux sound effect" {
+    const gpa = std.testing.allocator;
+    var pair = try Pair.init(gpa);
+    defer pair.deinit();
+    try pair.start();
+    try pair.settle(6);
+
+    var heard: ClientAuxSfx = .{};
+    pair.client_level.world_map.aux_sfx_sink = .{ .context = &heard, .play = recordClientAuxSfx };
+
+    try pair.session.send(gpa, .{ .door_change = .{
+        .effect = @intFromEnum(world.World.AuxSfx.record_play),
+        .x = 8,
+        .y = 70,
+        .z = 8,
+        .data = @intFromEnum(world.Item.record_cat),
+    } });
+    _ = try pair.pumpToClient();
+
+    try std.testing.expectEqual(world.World.AuxSfx.record_play, heard.last.?);
+    try std.testing.expectEqual(@as(i32, @intFromEnum(world.Item.record_cat)), heard.data);
+}
+
+const ClientAuxSfx = struct {
+    last: ?world.World.AuxSfx = null,
+    data: i32 = 0,
+};
+
+fn recordClientAuxSfx(context: *anyopaque, effect: world.World.AuxSfx, _: BlockPos, data: i32) void {
+    const self: *ClientAuxSfx = @ptrCast(@alignCast(context));
+    self.last = effect;
+    self.data = data;
+}
+
 test "punching a note block plays it without breaking it" {
     const gpa = std.testing.allocator;
     var pair = try Pair.init(gpa);

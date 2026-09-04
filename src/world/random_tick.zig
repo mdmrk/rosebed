@@ -61,10 +61,11 @@ pub fn tickSapling(world_map: *World, pos: BlockPos, id: Block) std.mem.Allocato
         try world_map.setBlockMetadataWithNotify(pos, metadata | sapling_ready);
         return;
     }
-    try growTree(world_map, pos, metadata & sapling_kind_mask);
+    try growTree(world_map, pos);
 }
 
-fn growTree(world_map: *World, pos: BlockPos, kind: u4) std.mem.Allocator.Error!void {
+pub fn growTree(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!void {
+    const kind = world_map.getBlockMetadata(pos) & sapling_kind_mask;
     const rand = &world_map.rand;
     world_map.setBlock(pos, .air);
 

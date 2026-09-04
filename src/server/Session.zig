@@ -30,6 +30,7 @@ sent_health: i16 = std.math.maxInt(i16),
 sent_bed: ?[3]i32 = null,
 pending_chat: ?ChatLine = null,
 pending_swing: bool = false,
+broke: ?Break = null,
 equipment: [equipment_slots]?world.Stack = @splat(null),
 riding: game.Entity.Id = game.Entity.no_id,
 crafting: [game.Window.crafting_grid]?world.Stack = @splat(null),
@@ -1643,6 +1644,13 @@ pub fn sendRiding(self: *Session, gpa: std.mem.Allocator) !void {
     } });
 }
 
+pub const Break = struct { pos: BlockPos, data: i32 };
+
+pub fn takeBreak(self: *Session) ?Break {
+    defer self.broke = null;
+    return self.broke;
+}
+
 pub fn takeSwing(self: *Session) bool {
     defer self.pending_swing = false;
     return self.pending_swing;
@@ -1719,6 +1727,10 @@ fn digBlock(
     if (broken == .air) return;
 
     const meta = level.world_map.getBlockMetadata(.init(x, height, z));
+    self.broke = .{
+        .pos = .init(x, height, z),
+        .data = @bitCast(@as(u32, @intFromEnum(broken)) | @as(u32, meta) << 8),
+    };
     const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
     try level.world_map.setBlockWithNotify(.init(x, height, z), .air);
     if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, .init(x, height, z));
@@ -2135,6 +2147,11 @@ fn placeBlock(
     );
     try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
     self.consumeHeld();
+}
+
+pub fn watchesChunk(self: *const Session, coord: world.World.ChunkCoord) bool {
+    if (self.state != .playing) return false;
+    return self.sent_chunks.contains(coord);
 }
 
 pub fn sendBlockChange(

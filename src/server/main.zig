@@ -81,11 +81,50 @@ const Connection = struct {
 
 pub const nether_id_base: game.Entity.Id = 1 << 24;
 
+pub const max_batched_blocks: usize = 10;
+
+const ChunkUpdates = struct {
+    coordinates: [max_batched_blocks]i16 = @splat(0),
+    count: usize = 0,
+    min_x: u32 = 0,
+    max_x: u32 = 0,
+    min_y: u32 = 0,
+    max_y: u32 = 0,
+    min_z: u32 = 0,
+    max_z: u32 = 0,
+
+    fn note(self: *ChunkUpdates, x: u32, y: u32, z: u32) void {
+        if (self.count == 0) {
+            self.min_x = x;
+            self.max_x = x;
+            self.min_y = y;
+            self.max_y = y;
+            self.min_z = z;
+            self.max_z = z;
+        }
+        self.min_x = @min(self.min_x, x);
+        self.max_x = @max(self.max_x, x);
+        self.min_y = @min(self.min_y, y);
+        self.max_y = @max(self.max_y, y);
+        self.min_z = @min(self.min_z, z);
+        self.max_z = @max(self.max_z, z);
+
+        if (self.count >= max_batched_blocks) return;
+        const packed_xz: i16 = @bitCast(@as(u16, @intCast(x << 12 | z << 8 | y)));
+        for (self.coordinates[0..self.count]) |seen| {
+            if (seen == packed_xz) return;
+        }
+        self.coordinates[self.count] = packed_xz;
+        self.count += 1;
+    }
+};
+
 const Dim = struct {
     server: *Server = undefined,
     dimension: world.Dimension,
     level: game.Level,
     handle: world.save.Save,
+    pending: std.AutoHashMapUnmanaged(world.World.ChunkCoord, ChunkUpdates) = .{},
 };
 
 const Server = struct {
@@ -141,15 +180,108 @@ fn markBlockNeedsUpdate(context: *anyopaque, pos: BlockPos) std.mem.Allocator.Er
     const dim: *Dim = @ptrCast(@alignCast(context));
     if (pos.y < 0 or pos.y >= world.Chunk.height) return;
 
-    const block = dim.level.world_map.getBlock(pos);
-    const metadata = dim.level.world_map.getBlockMetadata(pos);
+    const width = world.Chunk.width;
+    const coord: world.World.ChunkCoord = .{ .x = @divFloor(pos.x, width), .z = @divFloor(pos.z, width) };
+    const entry = try dim.pending.getOrPut(dim.server.gpa, coord);
+    if (!entry.found_existing) entry.value_ptr.* = .{};
 
+    entry.value_ptr.note(
+        @intCast(@mod(pos.x, width)),
+        @intCast(pos.y),
+        @intCast(@mod(pos.z, width)),
+    );
+}
+
+fn flushBlockChanges(dim: *Dim) !void {
+    const width = world.Chunk.width;
+
+    var it = dim.pending.iterator();
+    while (it.next()) |entry| {
+        const coord = entry.key_ptr.*;
+        const updates = entry.value_ptr;
+        if (updates.count == 0) continue;
+
+        if (updates.count == 1) {
+            const pos: BlockPos = .init(
+                coord.x * width + @as(i32, @intCast(updates.min_x)),
+                @intCast(updates.min_y),
+                coord.z * width + @as(i32, @intCast(updates.min_z)),
+            );
+            sendToWatchers(dim, coord, .{ .block_change = .{
+                .x = pos.x,
+                .y = @intCast(pos.y),
+                .z = pos.z,
+                .block = @intFromEnum(dim.level.world_map.getBlock(pos)),
+                .metadata = dim.level.world_map.getBlockMetadata(pos),
+            } });
+            continue;
+        }
+
+        if (updates.count == max_batched_blocks) {
+            try sendChunkBox(dim, coord, updates.*);
+            continue;
+        }
+
+        var types: [max_batched_blocks]u8 = undefined;
+        var metadata: [max_batched_blocks]u8 = undefined;
+        for (updates.coordinates[0..updates.count], 0..) |packed_xz, index| {
+            const raw: u16 = @bitCast(packed_xz);
+            const pos: BlockPos = .init(
+                coord.x * width + @as(i32, @intCast(raw >> 12 & 15)),
+                @intCast(raw & 255),
+                coord.z * width + @as(i32, @intCast(raw >> 8 & 15)),
+            );
+            types[index] = @intFromEnum(dim.level.world_map.getBlock(pos));
+            metadata[index] = dim.level.world_map.getBlockMetadata(pos);
+        }
+
+        sendToWatchers(dim, coord, .{ .multi_block_change = .{
+            .chunk_x = coord.x,
+            .chunk_z = coord.z,
+            .coordinates = updates.coordinates[0..updates.count],
+            .types = types[0..updates.count],
+            .metadata = metadata[0..updates.count],
+        } });
+    }
+
+    dim.pending.clearRetainingCapacity();
+}
+
+fn sendChunkBox(dim: *Dim, coord: world.World.ChunkCoord, updates: ChunkUpdates) !void {
+    const gpa = dim.server.gpa;
+    const width = world.Chunk.width;
+    const chunk = dim.level.world_map.getChunk(coord.x, coord.z) orelse return;
+
+    const min_y = updates.min_y / 2 * 2;
+    const max_y = (updates.max_y / 2 + 1) * 2;
+    const box: world.chunk_payload.Box = .{
+        .x = updates.min_x,
+        .y = min_y,
+        .z = updates.min_z,
+        .size_x = updates.max_x - updates.min_x + 1,
+        .size_y = @min(max_y - min_y + 2, world.Chunk.height - min_y),
+        .size_z = updates.max_z - updates.min_z + 1,
+    };
+
+    const compressed = try world.chunk_payload.compressBox(gpa, chunk, box);
+    defer gpa.free(compressed);
+
+    sendToWatchers(dim, coord, .{ .map_chunk = .{
+        .x = coord.x * width + @as(i32, @intCast(box.x)),
+        .y = @intCast(box.y),
+        .z = coord.z * width + @as(i32, @intCast(box.z)),
+        .size_x = @intCast(box.size_x),
+        .size_y = @intCast(box.size_y),
+        .size_z = @intCast(box.size_z),
+        .compressed = compressed,
+    } });
+}
+
+fn sendToWatchers(dim: *Dim, coord: world.World.ChunkCoord, message: net.packet.Packet) void {
     for (dim.server.connections.items) |connection| {
         if (connection.session.dimension != dim.dimension) continue;
-        connection.session.sendBlockChange(dim.server.gpa, pos, block, metadata) catch |err| switch (err) {
-            error.OutOfMemory, error.WriteFailed => return error.OutOfMemory,
-            error.StringTooLong, error.InvalidUtf8 => unreachable,
-        };
+        if (!connection.session.watchesChunk(coord)) continue;
+        connection.session.send(dim.server.gpa, message) catch {};
     }
 }
 
@@ -165,6 +297,41 @@ fn playNote(
     for (dim.server.connections.items) |connection| {
         if (connection.session.dimension != dim.dimension) continue;
         connection.session.sendNote(dim.server.gpa, pos, instrument, pitch) catch {};
+    }
+}
+
+pub const aux_sfx_range: f64 = 64.0;
+
+fn auxSfxSink(dim: *Dim) world.World.AuxSfxSink {
+    return .{ .context = dim, .play = playAuxSfx };
+}
+
+fn playAuxSfx(context: *anyopaque, effect: world.World.AuxSfx, pos: BlockPos, data: i32) void {
+    const dim: *Dim = @ptrCast(@alignCast(context));
+    broadcastAuxSfx(dim, effect, pos, data, null);
+}
+
+fn broadcastAuxSfx(
+    dim: *Dim,
+    effect: world.World.AuxSfx,
+    pos: BlockPos,
+    data: i32,
+    except: ?*Connection,
+) void {
+    const message: net.packet.Packet = .{ .door_change = .{
+        .effect = @intFromEnum(effect),
+        .x = pos.x,
+        .y = @truncate(pos.y),
+        .z = pos.z,
+        .data = data,
+    } };
+
+    for (dim.server.connections.items) |connection| {
+        if (connection == except) continue;
+        if (connection.session.dimension != dim.dimension) continue;
+        const player = connection.session.player orelse continue;
+        if (player.base.position.distanceSquaredTo(pos.center()) >= aux_sfx_range * aux_sfx_range) continue;
+        connection.session.send(dim.server.gpa, message) catch {};
     }
 }
 
@@ -393,6 +560,9 @@ fn tick(server: *Server) !void {
         if (connection.session.takeChat()) |line| broadcastChat(server, line.text());
         if (connection.session.takeSwing()) broadcastSwing(server, connection);
         if (connection.session.takeSign()) |at| broadcastSign(server, connection.session.dimension, at);
+        if (connection.session.takeBreak()) |broke| {
+            broadcastAuxSfx(server.dimOf(connection.session.dimension), .block_break, broke.pos, broke.data, connection);
+        }
         if (connection.outgoing.items.len < outgoing_high_water) {
             _ = connection.session.streamChunks(server.gpa, server.levelFor(connection), Session.chunks_per_tick) catch 0;
         }
@@ -415,6 +585,7 @@ fn tick(server: *Server) !void {
     var arena: std.heap.ArenaAllocator = .init(server.gpa);
     defer arena.deinit();
     for (&server.dims) |*dim| try dim.level.tick(server.gpa, arena.allocator());
+    for (&server.dims) |*dim| try flushBlockChanges(dim);
 
     for (server.connections.items) |connection| {
         const travelling = connection.session.tickPlayer(server.gpa, server.levelFor(connection)) catch false;
@@ -537,6 +708,7 @@ pub fn main(init: std.process.Init) !void {
     };
     // Each dim owns its copy of the save handle; the originals above are only the seed for them.
     defer for (&server.dims) |*dim| {
+        dim.pending.deinit(gpa);
         dim.level.deinit(gpa);
         dim.handle.close(gpa, io);
     };
@@ -547,6 +719,7 @@ pub fn main(init: std.process.Init) !void {
         dim.level.world_map.persistence = .{ .handle = &dim.handle, .io = io };
         dim.level.world_map.access = worldAccess(dim);
         dim.level.world_map.note_sink = noteSink(dim);
+        dim.level.world_map.aux_sfx_sink = auxSfxSink(dim);
         dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
         dim.level.world_map.has_sky = dim.dimension.hasSky();
         dim.level.world_map.difficulty = options.difficulty;
@@ -651,4 +824,49 @@ test "an empty command line falls back to the vanilla port" {
 
 test "an argument the server does not know is refused rather than ignored" {
     try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "rosebed-server", "--nonsense" }));
+}
+
+test "a chunk batches distinct blocks, ignores repeats and stops storing past ten" {
+    var updates: ChunkUpdates = .{};
+
+    updates.note(3, 40, 5);
+    try std.testing.expectEqual(@as(usize, 1), updates.count);
+
+    updates.note(3, 40, 5);
+    try std.testing.expectEqual(@as(usize, 1), updates.count);
+
+    var y: u32 = 41;
+    while (updates.count < max_batched_blocks) : (y += 1) updates.note(3, y, 5);
+    try std.testing.expectEqual(max_batched_blocks, updates.count);
+
+    updates.note(9, 60, 12);
+    try std.testing.expectEqual(max_batched_blocks, updates.count);
+    try std.testing.expectEqual(@as(u32, 9), updates.max_x);
+    try std.testing.expectEqual(@as(u32, 60), updates.max_y);
+    try std.testing.expectEqual(@as(u32, 12), updates.max_z);
+}
+
+test "a batched coordinate packs the way Packet52MultiBlockChange reads it back" {
+    var updates: ChunkUpdates = .{};
+    updates.note(9, 200, 12);
+
+    const raw: u16 = @bitCast(updates.coordinates[0]);
+    try std.testing.expectEqual(@as(u16, 9), raw >> 12 & 15);
+    try std.testing.expectEqual(@as(u16, 12), raw >> 8 & 15);
+    try std.testing.expectEqual(@as(u16, 200), raw & 255);
+}
+
+test "the box a full batch resends covers every change, snapped to whole nibbles" {
+    var updates: ChunkUpdates = .{};
+    updates.note(4, 41, 7);
+    updates.note(6, 44, 9);
+
+    const min_y = updates.min_y / 2 * 2;
+    const max_y = (updates.max_y / 2 + 1) * 2;
+
+    try std.testing.expectEqual(@as(u32, 40), min_y);
+    try std.testing.expectEqual(@as(u32, 0), min_y % 2);
+    try std.testing.expectEqual(@as(u32, 0), (max_y - min_y + 2) % 2);
+    try std.testing.expect(min_y <= updates.min_y);
+    try std.testing.expect(min_y + (max_y - min_y + 2) > updates.max_y);
 }

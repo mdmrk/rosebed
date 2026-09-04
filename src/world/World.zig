@@ -79,6 +79,29 @@ pub const SoundSink = struct {
     playRecord: *const fn (context: *anyopaque, name: ?[]const u8, pos: BlockPos) void,
 };
 
+pub const AuxSfx = enum(i32) {
+    dispenser_dispense = 1000,
+    dispenser_fail = 1001,
+    dispenser_launch = 1002,
+    door_toggle = 1003,
+    fizz = 1004,
+    record_play = 1005,
+    dispenser_smoke = 2000,
+    block_break = 2001,
+
+    pub fn fromId(id: i32) ?AuxSfx {
+        inline for (@typeInfo(AuxSfx).@"enum".fields) |field| {
+            if (field.value == id) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+};
+
+pub const AuxSfxSink = struct {
+    context: *anyopaque,
+    play: *const fn (context: *anyopaque, effect: AuxSfx, pos: BlockPos, data: i32) void,
+};
+
 pub const ScheduledTick = struct {
     pos: BlockPos,
     id: Block,
@@ -154,6 +177,7 @@ entity_probe: ?EntityProbe = null,
 remote: bool = false,
 sound_sink: ?SoundSink = null,
 note_sink: ?NoteSink = null,
+aux_sfx_sink: ?AuxSfxSink = null,
 weather: Weather = .{},
 has_sky: bool = true,
 strikes: std.ArrayList(BlockPos) = .empty,
@@ -674,36 +698,20 @@ pub fn playSwitchClick(self: *const World, pos: BlockPos, y_offset: f64, pitch: 
     );
 }
 
-pub fn playDispenserFailure(self: *const World, pos: BlockPos) void {
-    self.playSoundEffect(
-        pos.toVec3(),
-        assets.sounds.random.click,
-        1.0,
-        1.2,
-    );
+pub fn playAuxSfx(self: *const World, effect: AuxSfx, pos: BlockPos, data: i32) void {
+    const sink = self.aux_sfx_sink orelse return;
+    sink.play(sink.context, effect, pos, data);
 }
 
-pub fn playDispenserShot(self: *const World, pos: BlockPos, stack: block.Stack) void {
-    const launched = switch (stack.id) {
+pub fn launchedByDispenser(stack: block.Stack) bool {
+    return switch (stack.id) {
         .item => |id| id == .arrow or id == .egg or id == .snowball,
         .block => false,
     };
-    self.playSoundEffect(
-        pos.toVec3(),
-        if (launched) assets.sounds.random.bow else assets.sounds.random.click,
-        1.0,
-        if (launched) 1.2 else 1.0,
-    );
 }
 
-pub fn playDoorToggle(self: *World, pos: BlockPos) void {
-    const sound = if (self.rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
-    self.playSoundEffect(
-        pos.center(),
-        sound,
-        1.0,
-        self.rand.nextFloat() * 0.1 + 0.9,
-    );
+pub fn playDoorToggle(self: *const World, pos: BlockPos) void {
+    self.playAuxSfx(.door_toggle, pos, 0);
 }
 
 pub fn playSoundEffect(self: *const World, at: math.Vec3, sound: assets.Sound, volume: f32, pitch: f32) void {
@@ -1102,10 +1110,10 @@ pub fn dispense(self: *World, pos: BlockPos) std.mem.Allocator.Error!void {
     const step = block.dispenserStep(self.getBlockMetadata(pos));
     const state = self.dispensers.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return;
     const stack = state.takeRandomStack(&self.rand) orelse {
-        self.playDispenserFailure(pos);
+        self.playAuxSfx(.dispenser_fail, pos, 0);
         return;
     };
-    self.playDispenserShot(pos, stack);
+    self.playAuxSfx(if (launchedByDispenser(stack)) .dispenser_launch else .dispenser_dispense, pos, 0);
     try self.dispensed.append(self.allocator, .{
         .pos = .{ .x = pos.x, .y = pos.y, .z = pos.z },
         .step = step,

@@ -372,7 +372,7 @@ pub const Packet = union(Id) {
         radius: f32,
         broken: []const [3]i8,
     },
-    door_change: struct { x: i32, y: i32, state: i8, z: i32, extra: i32 },
+    door_change: struct { effect: i32, x: i32, y: i8, z: i32, data: i32 },
     bed: struct { state: i8 },
     weather: struct { entity_id: i32, lightning: i8, x: i32, y: i32, z: i32 },
     open_window: struct { window_id: i8, kind: i8, title: []const u8, slots: i8 },
@@ -906,11 +906,11 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             return .{ .explosion = .{ .x = x, .y = y, .z = z, .radius = radius, .broken = broken } };
         },
         .door_change => return .{ .door_change = .{
+            .effect = try r.takeInt(i32, .big),
             .x = try r.takeInt(i32, .big),
-            .y = try r.takeInt(i32, .big),
-            .state = try r.takeInt(i8, .big),
+            .y = try r.takeInt(i8, .big),
             .z = try r.takeInt(i32, .big),
-            .extra = try r.takeInt(i32, .big),
+            .data = try r.takeInt(i32, .big),
         } },
         .bed => return .{ .bed = .{ .state = try r.takeInt(i8, .big) } },
         .weather => return .{ .weather = .{
@@ -1240,11 +1240,11 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             }
         },
         .door_change => |body| {
+            try w.writeInt(i32, body.effect, .big);
             try w.writeInt(i32, body.x, .big);
-            try w.writeInt(i32, body.y, .big);
-            try w.writeInt(i8, body.state, .big);
+            try w.writeInt(i8, body.y, .big);
             try w.writeInt(i32, body.z, .big);
-            try w.writeInt(i32, body.extra, .big);
+            try w.writeInt(i32, body.data, .big);
         },
         .bed => |body| try w.writeInt(i8, body.state, .big),
         .weather => |body| {
@@ -1620,11 +1620,11 @@ const golden = [_]Golden{
         } },
     },
     .{ .hex = "3d000000050000004201fffffff900000009", .packet = .{ .door_change = .{
-        .x = 5,
-        .y = 66,
-        .state = 1,
+        .effect = 5,
+        .x = 66,
+        .y = 1,
         .z = -7,
-        .extra = 9,
+        .data = 9,
     } } },
     .{ .hex = "4602", .packet = .{ .bed = .{ .state = 2 } } },
     .{ .hex = "47000000630100000140000008c0fffffd80", .packet = .{ .weather = .{

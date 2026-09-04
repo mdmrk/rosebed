@@ -319,6 +319,10 @@ fn handlePlaying(
         .window_items => |body| self.setWindowContents(level, body),
         .update_progressbar => |body| self.setProgress(level, body),
         .block_change => |body| try self.blockChange(level, body.x, body.y, body.z, body.block, body.metadata),
+        .door_change => |body| {
+            const effect = world.World.AuxSfx.fromId(body.effect) orelse return;
+            level.world_map.playAuxSfx(effect, .init(body.x, body.y, body.z), body.data);
+        },
         .multi_block_change => |body| try self.multiBlockChange(level, body),
         else => {},
     }
@@ -846,18 +850,51 @@ fn mapChunk(
     body: anytype,
 ) !void {
     const width = world.Chunk.width;
-    if (body.size_x != width or body.size_z != width) return;
-    if (body.size_y != world.Chunk.height) return;
-
     const coord: world.World.ChunkCoord = .{
         .x = @divFloor(body.x, width),
         .z = @divFloor(body.z, width),
     };
+
+    if (body.size_x != width or body.size_z != width or body.size_y != world.Chunk.height) {
+        return self.mapChunkBox(gpa, level, coord, body);
+    }
+
     const chunk = try level.world_map.createChunk(coord.x, coord.z);
     world.chunk_payload.decompressFull(gpa, chunk, body.compressed) catch return;
 
     try level.world_map.markDecorated(coord.x, coord.z);
     self.loaded_chunks += 1;
+}
+
+fn mapChunkBox(
+    _: *Connection,
+    gpa: std.mem.Allocator,
+    level: *game.Level,
+    coord: world.World.ChunkCoord,
+    body: anytype,
+) !void {
+    const width = world.Chunk.width;
+    const chunk = level.world_map.getChunk(coord.x, coord.z) orelse return;
+
+    const box: world.chunk_payload.Box = .{
+        .x = @intCast(@mod(body.x, width)),
+        .y = if (body.y < 0) return else @intCast(body.y),
+        .z = @intCast(@mod(body.z, width)),
+        .size_x = body.size_x,
+        .size_y = body.size_y,
+        .size_z = body.size_z,
+    };
+    world.chunk_payload.decompressBox(gpa, chunk, box, body.compressed) catch return;
+
+    for (box.x..box.x + box.size_x) |x| {
+        for (box.z..box.z + box.size_z) |z| {
+            try level.world_map.markChanged(.init(
+                coord.x * width + @as(i32, @intCast(x)),
+                @intCast(box.y),
+                coord.z * width + @as(i32, @intCast(z)),
+            ));
+        }
+    }
 }
 
 fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block: u8, metadata: u8) !void {
@@ -1440,6 +1477,137 @@ test "a map chunk from the server becomes a real chunk in the world" {
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(2 * 16 + 5, 40, -3 * 16 + 5)));
     try std.testing.expectEqual(@as(u4, 6), level.world_map.getBlockMetadata(.init(2 * 16 + 1, 40, -3 * 16 + 2)));
     try std.testing.expectEqual(@as(u4, 15), level.world_map.getSkyLight(.init(2 * 16 + 3, 41, -3 * 16 + 3)));
+}
+
+const AuxSfxLog = struct {
+    last: ?world.World.AuxSfx = null,
+    pos: world.BlockPos = .init(0, 0, 0),
+    data: i32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, effect: world.World.AuxSfx, pos: world.BlockPos, data: i32) void {
+        const self: *AuxSfxLog = @ptrCast(@alignCast(context));
+        self.last = effect;
+        self.pos = pos;
+        self.data = data;
+        self.count += 1;
+    }
+
+    fn sink(self: *AuxSfxLog) world.World.AuxSfxSink {
+        return .{ .context = self, .play = record };
+    }
+};
+
+test "an aux sound effect from the server is played out on this client" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: AuxSfxLog = .{};
+    level.world_map.aux_sfx_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .door_change = .{
+        .effect = @intFromEnum(world.World.AuxSfx.block_break),
+        .x = 5,
+        .y = 70,
+        .z = -6,
+        .data = 0x0301,
+    } });
+
+    try std.testing.expectEqual(world.World.AuxSfx.block_break, heard.last.?);
+    try std.testing.expectEqual(@as(i32, 5), heard.pos.x);
+    try std.testing.expectEqual(@as(i32, 70), heard.pos.y);
+    try std.testing.expectEqual(@as(i32, -6), heard.pos.z);
+    try std.testing.expectEqual(@as(i32, 0x0301), heard.data);
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+}
+
+test "an aux sound effect this build does not know is dropped rather than guessed at" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: AuxSfxLog = .{};
+    level.world_map.aux_sfx_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .door_change = .{
+        .effect = 4242,
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .data = 0,
+    } });
+
+    try std.testing.expectEqual(@as(usize, 0), heard.count);
+}
+
+test "a partial chunk from the server is laid into the chunk already loaded" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    const chunk = try level.world_map.createChunk(2, -3);
+    chunk.setBlock(5, 40, 6, .stone);
+    chunk.setBlock(5, 41, 6, .dirt);
+    chunk.setBlockMetadata(5, 41, 6, 3);
+
+    const box: world.chunk_payload.Box = .{ .x = 5, .y = 40, .z = 6, .size_x = 1, .size_y = 2, .size_z = 1 };
+    const compressed = try world.chunk_payload.compressBox(gpa, chunk, box);
+    defer gpa.free(compressed);
+
+    chunk.setBlock(5, 40, 6, .air);
+    chunk.setBlock(5, 41, 6, .air);
+    chunk.setBlockMetadata(5, 41, 6, 0);
+
+    const before = connection.loaded_chunks;
+    try connection.handle(gpa, &level, testing_username, .{ .map_chunk = .{
+        .x = 2 * world.Chunk.width + 5,
+        .y = 40,
+        .z = -3 * world.Chunk.width + 6,
+        .size_x = 1,
+        .size_y = 2,
+        .size_z = 1,
+        .compressed = compressed,
+    } });
+
+    try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(2 * 16 + 5, 40, -3 * 16 + 6)));
+    try std.testing.expectEqual(world.Block.dirt, level.world_map.getBlock(.init(2 * 16 + 5, 41, -3 * 16 + 6)));
+    try std.testing.expectEqual(@as(u4, 3), level.world_map.getBlockMetadata(.init(2 * 16 + 5, 41, -3 * 16 + 6)));
+    try std.testing.expectEqual(before, connection.loaded_chunks);
+}
+
+test "a partial chunk for ground this client has never seen is dropped" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .map_chunk = .{
+        .x = 40 * world.Chunk.width,
+        .y = 40,
+        .z = 40 * world.Chunk.width,
+        .size_x = 1,
+        .size_y = 2,
+        .size_z = 1,
+        .compressed = &.{},
+    } });
+
+    try std.testing.expect(level.world_map.getChunk(40, 40) == null);
 }
 
 test "a block change from the server lands in the world" {

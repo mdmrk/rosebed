@@ -15,6 +15,7 @@ pub const Jukebox = struct {
 pub fn insertRecord(world_map: *World, pos: BlockPos, record: Item) !void {
     (try world_map.addJukebox(pos)).record = record;
     try world_map.setBlockMetadataWithNotify(pos, 1);
+    world_map.playAuxSfx(.record_play, pos, @intFromEnum(record));
 }
 
 pub fn takeRecord(world_map: *World, pos: BlockPos) !?Item {
@@ -22,6 +23,7 @@ pub fn takeRecord(world_map: *World, pos: BlockPos) !?Item {
     const record = state.record orelse return null;
     state.record = null;
     try world_map.setBlockMetadataWithNotify(pos, 0);
+    world_map.playAuxSfx(.record_play, pos, 0);
     return record;
 }
 
@@ -150,4 +152,39 @@ test "a tile entity of another kind is not read as a jukebox" {
 
     try std.testing.expect(!isJukebox(tag.compound));
     try std.testing.expect(load(tag.compound) == null);
+}
+
+const AuxSfxLog = struct {
+    last: ?World.AuxSfx = null,
+    data: i32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, effect: World.AuxSfx, _: BlockPos, data: i32) void {
+        const self: *AuxSfxLog = @ptrCast(@alignCast(context));
+        self.last = effect;
+        self.data = data;
+        self.count += 1;
+    }
+
+    fn sink(self: *AuxSfxLog) World.AuxSfxSink {
+        return .{ .context = self, .play = record };
+    }
+};
+
+test "a jukebox names the record it starts, and names nothing when it stops" {
+    var w = try testing_world.flatWorld(std.testing.allocator, 5);
+    defer w.deinit();
+
+    var heard: AuxSfxLog = .{};
+    w.aux_sfx_sink = heard.sink();
+    w.setBlock(.init(8, 4, 8), .jukebox);
+
+    try insertRecord(&w, .init(8, 4, 8), .record_cat);
+    try std.testing.expectEqual(World.AuxSfx.record_play, heard.last.?);
+    try std.testing.expectEqual(@as(i32, @intFromEnum(Item.record_cat)), heard.data);
+
+    try std.testing.expectEqual(Item.record_cat, (try takeRecord(&w, .init(8, 4, 8))).?);
+    try std.testing.expectEqual(World.AuxSfx.record_play, heard.last.?);
+    try std.testing.expectEqual(@as(i32, 0), heard.data);
+    try std.testing.expectEqual(@as(usize, 2), heard.count);
 }

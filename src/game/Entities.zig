@@ -722,7 +722,7 @@ pub fn dispense(
     try self.puffDispenserSmoke(gpa, muzzle, dx, dz, rand);
 }
 
-fn puffDispenserSmoke(
+pub fn puffDispenserSmoke(
     self: *Entities,
     gpa: std.mem.Allocator,
     muzzle: math.Vec3,

@@ -712,6 +712,64 @@ fn portalSound(app_state: *AppState, name: assets.Sound) void {
     if (app_state.sound) |*sound| sound.playSoundFx(name, 1.0, pitch) catch {};
 }
 
+fn auxSfxSink(app_state: *AppState) world.World.AuxSfxSink {
+    return .{ .context = app_state, .play = playAuxSfx };
+}
+
+fn playAuxSfx(context: *anyopaque, effect: world.World.AuxSfx, pos: BlockPos, data: i32) void {
+    const app_state: *AppState = @ptrCast(@alignCast(context));
+    const world_map = &app_state.level.world_map;
+    const rand = &world_map.rand;
+
+    switch (effect) {
+        .dispenser_dispense => world_map.playSoundEffect(pos.toVec3(), assets.sounds.random.click, 1.0, 1.0),
+        .dispenser_fail => world_map.playSoundEffect(pos.toVec3(), assets.sounds.random.click, 1.0, 1.2),
+        .dispenser_launch => world_map.playSoundEffect(pos.toVec3(), assets.sounds.random.bow, 1.0, 1.2),
+        .door_toggle => {
+            const sound = if (rand.nextDouble() < 0.5) assets.sounds.random.door_open else assets.sounds.random.door_close;
+            world_map.playSoundEffect(pos.center(), sound, 1.0, rand.nextFloat() * 0.1 + 0.9);
+        },
+        .fizz => world_map.playFizzAt(pos),
+        .record_play => {
+            const record: ?world.Item = if (data > 0 and data <= std.math.maxInt(u16)) @enumFromInt(@as(u16, @intCast(data))) else null;
+            const name = if (record) |id| id.recordName() else null;
+            if (app_state.sound) |*sound| sound.playStreaming(name, pos.toVec3(), 1.0) catch {};
+        },
+        .dispenser_smoke => {
+            const dx: f64 = @floatFromInt(@mod(data, 3) - 1);
+            const dz: f64 = @floatFromInt(@mod(@divTrunc(data, 3), 3) - 1);
+            const muzzle = math.Vec3.init(
+                @as(f64, @floatFromInt(pos.x)) + dx * 0.6 + 0.5,
+                @as(f64, @floatFromInt(pos.y)) + 0.5,
+                @as(f64, @floatFromInt(pos.z)) + dz * 0.6 + 0.5,
+            );
+            app_state.level.entities.puffDispenserSmoke(app_state.gpa, muzzle, dx, dz, rand) catch {};
+        },
+        .block_break => breakEffect(app_state, pos, data) catch {},
+    }
+}
+
+fn breakEffect(app_state: *AppState, pos: BlockPos, data: i32) !void {
+    const broken: world.Block = @enumFromInt(@as(u8, @truncate(@as(u32, @bitCast(data)))));
+    const meta: u4 = @truncate(@as(u32, @bitCast(data)) >> 8);
+    if (broken == .air) return;
+
+    const step_sound = broken.stepSound();
+    app_state.level.world_map.playSoundEffect(
+        pos.center(),
+        step_sound.destroy(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
+    try app_state.level.entities.spawnBlockDestroyParticles(
+        app_state.gpa,
+        pos,
+        broken.particleTile(meta),
+        particleTint(app_state, broken, pos),
+        &app_state.level.world_map.rand,
+    );
+}
+
 fn soundSink(app_state: *AppState) world.World.SoundSink {
     return .{
         .context = app_state,
@@ -767,7 +825,15 @@ fn holdingFlintAndSteel(app_state: *const AppState) bool {
     return stack.id.eql(.{ .item = .flint_and_steel });
 }
 
+fn breakEffectData(world_map: *const world.World, pos: BlockPos, block_id: world.Block) i32 {
+    const meta: u32 = world_map.getBlockMetadata(pos);
+    return @bitCast(@as(u32, @intFromEnum(block_id)) | meta << 8);
+}
+
 fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void {
+    const effect_data = breakEffectData(&app_state.level.world_map, pos, block_id);
+    app_state.level.world_map.playAuxSfx(.block_break, pos, effect_data);
+
     if (app_state.link) |link| {
         try link.connection.reportDig(app_state.gpa, pos, 1);
         app_state.digging = null;
@@ -778,20 +844,6 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
     const meta = app_state.level.world_map.getBlockMetadata(pos);
     const held = app_state.player.inventory.selectedStack();
     const harvested = block_id.harvestableWith(held);
-    const step_sound = block_id.stepSound();
-    app_state.level.world_map.playSoundEffect(
-        pos.center(),
-        step_sound.destroy(),
-        (step_sound.volume() + 1.0) / 2.0,
-        step_sound.pitch() * 0.8,
-    );
-    try app_state.level.entities.spawnBlockDestroyParticles(
-        app_state.gpa,
-        pos,
-        block_id.particleTile(meta),
-        particleTint(app_state, block_id, pos),
-        &app_state.level.world_map.rand,
-    );
     const lit_tnt = block_id == .tnt and world.tnt.isLit(meta);
     try app_state.level.world_map.setBlockWithNotify(pos, .air);
     if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, pos);
@@ -1532,6 +1584,7 @@ fn connectToServer(app_state: *AppState) !void {
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
+    app_state.level.world_map.aux_sfx_sink = auxSfxSink(app_state);
     app_state.level.world_map.remote = true;
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
@@ -1814,6 +1867,7 @@ fn startWorld(app_state: *AppState, folder: []const u8, name: []const u8, seed: 
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
+    app_state.level.world_map.aux_sfx_sink = auxSfxSink(app_state);
     app_state.player = playerAtSpawn();
     try app_state.level.enter(app_state.gpa, &app_state.player);
 
@@ -1971,6 +2025,7 @@ fn switchDimension(app_state: *AppState, target: world.Dimension, x: f64, y: f64
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
+    app_state.level.world_map.aux_sfx_sink = auxSfxSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
     app_state.level.world_map.has_sky = target.hasSky();
 
@@ -2576,6 +2631,7 @@ fn enterServerDimension(app_state: *AppState, target: world.Dimension) !void {
     app_state.level.world_map.access = worldAccess(app_state);
     app_state.level.world_map.sound_sink = soundSink(app_state);
     app_state.level.world_map.note_sink = noteSink(app_state);
+    app_state.level.world_map.aux_sfx_sink = auxSfxSink(app_state);
     app_state.level.world_map.brightness = world.light.brightnessTable(target.ambientLight());
     app_state.level.world_map.has_sky = target.hasSky();
 

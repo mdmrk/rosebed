@@ -1114,26 +1114,38 @@ const SoundLog = struct {
     }
 };
 
-test "a dispenser clicks over an item, twangs over an arrow and clicks higher over nothing" {
+const AuxSfxLog = struct {
+    last: ?World.AuxSfx = null,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, effect: World.AuxSfx, _: BlockPos, _: i32) void {
+        const self: *AuxSfxLog = @ptrCast(@alignCast(context));
+        self.last = effect;
+        self.count += 1;
+    }
+
+    fn sink(self: *AuxSfxLog) World.AuxSfxSink {
+        return .{ .context = self, .play = record };
+    }
+};
+
+test "a dispenser signals a plain drop, a launch over an arrow and a failure over nothing" {
     var w = try flatWorld(12);
     defer w.deinit();
     try armedDispenser(&w, @intFromEnum(block.Side.south));
 
-    var heard: SoundLog = .{};
-    w.sound_sink = heard.sink();
+    var heard: AuxSfxLog = .{};
+    w.aux_sfx_sink = heard.sink();
 
     try w.dispense(.init(8, 12, 8));
-    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
-    try std.testing.expectEqual(@as(f32, 1.0), heard.pitch);
+    try std.testing.expectEqual(World.AuxSfx.dispenser_dispense, heard.last.?);
 
     w.dispenserAt(.init(8, 12, 8)).?.slot(0).* = .{ .id = .{ .item = .arrow }, .count = 1 };
     try w.dispense(.init(8, 12, 8));
-    try std.testing.expectEqualStrings(assets.sounds.random.bow.key, heard.key);
-    try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
+    try std.testing.expectEqual(World.AuxSfx.dispenser_launch, heard.last.?);
 
     try w.dispense(.init(8, 12, 8));
-    try std.testing.expectEqualStrings(assets.sounds.random.click.key, heard.key);
-    try std.testing.expectEqual(@as(f32, 1.2), heard.pitch);
+    try std.testing.expectEqual(World.AuxSfx.dispenser_fail, heard.last.?);
 
     try std.testing.expectEqual(@as(usize, 3), heard.count);
 }
