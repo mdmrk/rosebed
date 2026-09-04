@@ -120,6 +120,7 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shaped(1, 2, &.{ i(.coal), i(.stick) }, .{ .block = .torch }, 4),
     shaped(1, 2, &.{ i(.redstone), i(.stick) }, .{ .block = .torch_redstone_on }, 1),
     shaped(1, 2, &.{ i(.stick), b(.cobblestone) }, .{ .block = .lever }, 1),
+    shaped(1, 2, &.{ b(.pumpkin), b(.torch) }, .{ .block = .jack_o_lantern }, 1),
     shaped(1, 2, &.{ b(.stone), b(.stone) }, .{ .block = .button }, 1),
     shaped(2, 1, &.{ b(.stone), b(.stone) }, .{ .block = .pressure_plate_stone }, 1),
     shaped(2, 1, &.{ b(.planks), b(.planks) }, .{ .block = .pressure_plate_planks }, 1),
@@ -138,15 +139,25 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         b(.planks), b(.planks), b(.planks),
         null,       i(.stick),  null,
     }, .{ .item = .sign }, 1),
+    shaped(3, 3, &.{
+        i(.stick), i(.stick), i(.stick),
+        i(.stick), b(.wool),  i(.stick),
+        i(.stick), i(.stick), i(.stick),
+    }, .{ .item = .painting }, 1),
     shaped(1, 1, &.{i(.reed)}, .{ .item = .sugar }, 1),
     shaped(3, 1, &.{ i(.reed), i(.reed), i(.reed) }, .{ .item = .paper }, 3),
     shaped(1, 3, &.{ i(.paper), i(.paper), i(.paper) }, .{ .item = .book }, 1),
     shaped(3, 1, &.{ i(.wheat), i(.wheat), i(.wheat) }, .{ .item = .bread }, 1),
+    shaped(3, 1, &.{ i(.wheat), dye(dye_cocoa), i(.wheat) }, .{ .item = .cookie }, 8),
     shaped(3, 3, &.{
         i(.bucket_milk), i(.bucket_milk), i(.bucket_milk),
         i(.sugar),       i(.egg),         i(.sugar),
         i(.wheat),       i(.wheat),       i(.wheat),
     }, .{ .item = .cake }, 1),
+    shaped(3, 2, &.{
+        b(.wool),   b(.wool),   b(.wool),
+        b(.planks), b(.planks), b(.planks),
+    }, .{ .item = .bed }, 1),
     shaped(3, 2, &.{ b(.planks), null, b(.planks), null, b(.planks), null }, .{ .item = .bowl }, 4),
     shaped(2, 3, &.{
         b(.planks), b(.planks),
@@ -248,6 +259,11 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
         null,           i(.ingot_iron), null,
     }, .{ .item = .compass }, 1),
     shaped(3, 3, &.{
+        null,           i(.ingot_gold), null,
+        i(.ingot_gold), i(.redstone),   i(.ingot_gold),
+        null,           i(.ingot_gold), null,
+    }, .{ .item = .clock }, 1),
+    shaped(3, 3, &.{
         i(.paper), i(.paper),   i(.paper),
         i(.paper), i(.compass), i(.paper),
         i(.paper), i(.paper),   i(.paper),
@@ -323,6 +339,7 @@ fn dyeFrom(ingredients: []const ?Ingredient, count: u8, meta: u16) ShapelessReci
 const dye_black: u16 = 0;
 const dye_red: u16 = 1;
 const dye_green: u16 = 2;
+const dye_cocoa: u16 = 3;
 const dye_purple: u16 = 5;
 const dye_cyan: u16 = 6;
 const dye_light_gray: u16 = 7;
@@ -1124,4 +1141,85 @@ test "an ingot over flint strikes flint and steel" {
     swapped[0] = .{ .id = .{ .item = .flint }, .count = 1 };
     swapped[4] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
     try std.testing.expect(findMatch(&swapped, workbench_grid_size) == null);
+}
+
+test "a pumpkin over a torch crafts a jack o'lantern" {
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .block = .pumpkin }, .count = 1 };
+    grid[2] = .{ .id = .{ .block = .torch }, .count = 1 };
+
+    const result = findMatch(&grid, player_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .jack_o_lantern }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+
+    var swapped: [4]?Inventory.ItemStack = @splat(null);
+    swapped[0] = .{ .id = .{ .block = .torch }, .count = 1 };
+    swapped[2] = .{ .id = .{ .block = .pumpkin }, .count = 1 };
+    try std.testing.expect(findMatch(&swapped, player_grid_size) == null);
+}
+
+test "wool over planks crafts a bed, in any fleece colour" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 14 };
+    for (3..6) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .bed }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the bed's wool cannot sit under its planks" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
+    for (3..6) |cell| grid[cell] = .{ .id = .{ .block = .wool }, .count = 1 };
+
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+}
+
+test "eight sticks around wool stretch a painting" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for (0..9) |cell| grid[cell] = .{ .id = .{ .item = .stick }, .count = 1 };
+    grid[4] = .{ .id = .{ .block = .wool }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .painting }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "four gold around redstone crafts a clock" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 1, 3, 5, 7 }) |cell| grid[cell] = .{ .id = .{ .item = .ingot_gold }, .count = 1 };
+    grid[4] = .{ .id = .{ .item = .redstone }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .clock }, result.id);
+    try std.testing.expectEqual(@as(u8, 1), result.count);
+}
+
+test "the clock's gold and redstone cannot swap places" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    for ([_]usize{ 1, 3, 5, 7 }) |cell| grid[cell] = .{ .id = .{ .item = .redstone }, .count = 1 };
+    grid[4] = .{ .id = .{ .item = .ingot_gold }, .count = 1 };
+
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
+}
+
+test "wheat around cocoa beans bakes eight cookies" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .wheat }, .count = 1 };
+    grid[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_cocoa };
+    grid[2] = .{ .id = .{ .item = .wheat }, .count = 1 };
+
+    const result = findMatch(&grid, workbench_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .item = .cookie }, result.id);
+    try std.testing.expectEqual(@as(u8, 8), result.count);
+}
+
+test "a cookie needs cocoa beans, not another dye colour" {
+    var grid: [9]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .wheat }, .count = 1 };
+    grid[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
+    grid[2] = .{ .id = .{ .item = .wheat }, .count = 1 };
+
+    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
 }

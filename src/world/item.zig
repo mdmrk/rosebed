@@ -8,6 +8,7 @@ const World = @import("World.zig");
 const shears_max_damage: u16 = 238;
 const flint_and_steel_max_damage: u16 = 64;
 const fishing_rod_max_damage: u16 = 64;
+const cookie_max_stack_size: u8 = 8;
 
 pub const dye_meta_ink: u16 = 0;
 pub const dye_meta_cactus: u16 = 2;
@@ -362,6 +363,7 @@ pub const Item = enum(u16) {
     cake = 354,
     bed = 355,
     repeater = 356,
+    cookie = 357,
     map = 358,
     shears = 359,
     record_13 = 2256,
@@ -495,6 +497,7 @@ pub const Item = enum(u16) {
         if (self.vanillaMinecartKind() != null) return 1;
         if (self.vanillaBucketFill() != null) return 1;
         if (self.vanillaRecordName() != null) return 1;
+        if (self == .cookie) return cookie_max_stack_size;
         if (self.vanillaHealAmount() != null) return 1;
         return if (self.vanillaMaxDamage() != null) 1 else 64;
     }
@@ -563,6 +566,7 @@ pub const Item = enum(u16) {
             .fish_cooked => 5,
             .mushroom_stew => 10,
             .bread => 5,
+            .cookie => 1,
             .pork_raw => 3,
             .pork_cooked => 8,
             else => null,
@@ -712,6 +716,7 @@ pub const Item = enum(u16) {
             .sugar => 13,
             .cake => 1 * 16 + 13,
             .bed => 2 * 16 + 13,
+            .cookie => 5 * 16 + 12,
             .map => 3 * 16 + 12,
             .shears => 5 * 16 + 13,
             .record_13 => 15 * 16 + 0,
@@ -830,6 +835,7 @@ pub const Item = enum(u16) {
             .sugar => "Sugar",
             .cake => "Cake",
             .bed => "Bed",
+            .cookie => "Cookie",
             .map => "Map",
             .shears => "Shears",
             .record_13, .record_cat => "Music Disc",
@@ -1084,6 +1090,14 @@ test "a golden apple is ItemFood's single-stack heal of forty-two" {
     try std.testing.expectEqual(@as(u8, 1), Item.apple_gold.maxStackSize());
     try std.testing.expectEqualStrings("Golden apple", Item.apple_gold.displayName(0));
     try std.testing.expectEqual(@as(?u8, 4), Item.apple.healAmount());
+}
+
+test "a cookie is the one food that stacks, eight to a slot" {
+    try std.testing.expectEqual(@as(?u8, 1), Item.cookie.healAmount());
+    try std.testing.expectEqual(@as(u8, 8), Item.cookie.maxStackSize());
+    try std.testing.expectEqual(@as(?u8, 92), Item.cookie.iconTile(0));
+    try std.testing.expectEqualStrings("Cookie", Item.cookie.displayName(0));
+    try std.testing.expect(Item.cookie.isVanilla());
 }
 
 test "the three minecarts read the icon column setIconCoord puts them in" {
