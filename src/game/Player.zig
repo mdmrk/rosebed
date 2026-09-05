@@ -850,15 +850,6 @@ pub fn renderEyePosition(self: Player, partial_ticks: f32) math.Vec3 {
     return .{ .x = at.x, .y = at.y + eye_height - dip, .z = at.z };
 }
 
-pub fn viewMatrix(self: Player, partial_ticks: f32) math.Mat4 {
-    const eye = self.renderEyePosition(partial_ticks);
-    const eye_x: f32 = @floatCast(eye.x);
-    const eye_y: f32 = @floatCast(eye.y);
-    const eye_z: f32 = @floatCast(eye.z);
-    return self.viewRotation()
-        .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
-}
-
 pub fn sleepFacingDegrees(self: Player, world_map: *const world.World) f32 {
     const x = math.util.floorDouble(self.base.position.x);
     const y = math.util.floorDouble(self.anchorY());
@@ -872,13 +863,9 @@ pub fn cameraRotation(self: Player, world_map: *const world.World) math.Mat4 {
     return math.Mat4.rotationY(self.sleepFacingDegrees(world_map) * std.math.pi / 180.0);
 }
 
-pub fn sleepViewMatrix(self: Player, world_map: *const world.World, partial_ticks: f32) math.Mat4 {
-    const render_position = self.base.renderPosition(partial_ticks);
-    const eye_x: f32 = @floatCast(render_position.x);
-    const eye_y: f32 = @floatCast(render_position.y + sleep_eye_height + bed_camera_height);
-    const eye_z: f32 = @floatCast(render_position.z);
-    return self.cameraRotation(world_map)
-        .mul(math.Mat4.translation(-eye_x, -eye_y, -eye_z));
+pub fn sleepEyePosition(self: Player, partial_ticks: f32) math.Vec3 {
+    const at = self.base.renderPosition(partial_ticks);
+    return .{ .x = at.x, .y = at.y + sleep_eye_height + bed_camera_height, .z = at.z };
 }
 
 const opaque_probe_eye: f64 = 0.12;
@@ -1047,10 +1034,16 @@ test "positive pitch looks down, negative pitch looks up" {
 const test_eye_y: f32 = 90.0 + @as(f32, @floatCast(eye_height));
 
 fn project(player: Player, point: [3]f32) [4]f32 {
-    const vp = math.Mat4.perspective(70.0 * std.math.pi / 180.0, 16.0 / 9.0, 0.05, 1000.0).mul(player.viewMatrix(0));
+    const vp = math.Mat4.perspective(70.0 * std.math.pi / 180.0, 16.0 / 9.0, 0.05, 1000.0).mul(player.viewRotation());
     const cells: [16]f32 = vp.m;
+    const eye = player.renderEyePosition(0);
     var out: [4]f32 = .{ 0, 0, 0, 0 };
-    const v = [4]f32{ point[0], point[1], point[2], 1 };
+    const v = [4]f32{
+        point[0] - @as(f32, @floatCast(eye.x)),
+        point[1] - @as(f32, @floatCast(eye.y)),
+        point[2] - @as(f32, @floatCast(eye.z)),
+        1,
+    };
     for (0..4) |col| {
         for (0..4) |row| out[row] += cells[col * 4 + row] * v[col];
     }

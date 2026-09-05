@@ -100,7 +100,7 @@ pub fn draw(self: SkyRenderer, frame: Frame) !void {
     gl.DepthMask(gl.FALSE);
     frame.shader.use();
     frame.shader.setMat4(.u_view_proj, view_proj.m);
-    frame.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    frame.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     frame.shader.setInt(.u_textured, 0);
     frame.shader.setInt(.u_alpha_test, 0);
 
@@ -202,7 +202,7 @@ pub fn drawClouds(frame: Clouds, fancy: bool, pass: anaglyph.Pass) !void {
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     frame.shader.setMat4(.u_view_proj, frame.view_proj.m);
-    frame.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    frame.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     frame.shader.setInt(.u_alpha_test, 1);
     frame.shader.setInt(.u_textured, 1);
     frame.shader.setVec4(.u_tint, opaque_white);

@@ -12,7 +12,11 @@ pub const outline_color: [4]u8 = .{ 0, 0, 0, 102 };
 
 pub fn appendOutline(mesh: *MeshBuilder, gpa: std.mem.Allocator, id: world.Block, meta: u4, pos: BlockPos) !void {
     const bounds = id.selectionBounds(meta);
-    const origin = [3]f32{ @floatFromInt(pos.x), @floatFromInt(pos.y), @floatFromInt(pos.z) };
+    const origin = mesh.local(
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
+    );
 
     var min: [3]f32 = undefined;
     var max: [3]f32 = undefined;
@@ -56,7 +60,11 @@ pub fn appendCrack(
     progress: f32,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    const origin = [3]f32{ @floatFromInt(pos.x), @floatFromInt(pos.y), @floatFromInt(pos.z) };
+    const origin = mesh.local(
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
+    );
     const view = world.ChunkView.at(world_map, pos.x, pos.z);
 
     try chunk_mesher.buildBlockAt(

@@ -1907,8 +1907,8 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 
     const view = world.ChunkView.around(world_map, chunk.x, chunk.z);
 
-    const origin_x: f32 = @floatFromInt(chunk.x * world.Chunk.width);
-    const origin_z: f32 = @floatFromInt(chunk.z * world.Chunk.width);
+    const base_x = chunk.x * world.Chunk.width;
+    const base_z = chunk.z * world.Chunk.width;
 
     for (0..world.Chunk.width) |lx| {
         for (0..world.Chunk.width) |lz| {
@@ -1920,9 +1920,9 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                 const id = chunk.getBlock(@intCast(lx), @intCast(ly), @intCast(lz));
                 if (id == .air) continue;
 
-                const bx = origin_x + @as(f32, @floatFromInt(lx));
+                const bx: f32 = @floatFromInt(lx);
                 const by: f32 = @floatFromInt(ly);
-                const bz = origin_z + @as(f32, @floatFromInt(lz));
+                const bz: f32 = @floatFromInt(lz);
 
                 const metadata = chunk.getBlockMetadata(@intCast(lx), @intCast(ly), @intCast(lz));
                 const target = if (id.isTranslucent()) &mesh.translucent else &mesh.solid;
@@ -1933,7 +1933,7 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
                     &view,
                     id,
                     metadata,
-                    .init(@intFromFloat(bx), @intCast(ly), @intFromFloat(bz)),
+                    .init(base_x + @as(i32, @intCast(lx)), @intCast(ly), base_z + @as(i32, @intCast(lz))),
                     .{ bx, by, bz },
                     colorizer,
                     climate,
@@ -1944,6 +1944,51 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     }
 
     return mesh;
+}
+
+test "a chunk far from the origin keeps full precision block geometry" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const far = @divFloor(@as(i32, 59999999), world.Chunk.width);
+    const chunk = try world_map.createChunk(far, far);
+    chunk.setBlock(1, 1, 1, .stone);
+
+    try world.light.relightChunk(gpa, &world_map, far, far);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(far, far).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    var low: f32 = std.math.floatMax(f32);
+    var high: f32 = -std.math.floatMax(f32);
+    for (mesh.solid.vertices.items) |vertex| {
+        low = @min(low, vertex.x);
+        high = @max(high, vertex.x);
+    }
+
+    try std.testing.expectEqual(@as(usize, 6 * 4), mesh.solid.vertices.items.len);
+    try std.testing.expectEqual(@as(f32, 1.0), low);
+    try std.testing.expectEqual(@as(f32, 2.0), high);
+}
+
+test "a block enclosed far from the origin still culls every face" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    const far = @divFloor(@as(i32, 59999999), world.Chunk.width);
+    const chunk = try world_map.createChunk(far, far);
+    for (1..4) |x| {
+        for (1..4) |y| {
+            for (1..4) |z| chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), .stone);
+        }
+    }
+
+    try world.light.relightChunk(gpa, &world_map, far, far);
+    var mesh = try build(gpa, &world_map, world_map.getChunk(far, far).?, Colorizer.untinted, .{});
+    defer mesh.deinit(gpa);
+
+    try std.testing.expectEqual(@as(usize, 6 * 9 * 4), mesh.solid.vertices.items.len);
 }
 
 test "a cross-shaped plant emits both faces of both diagonals so culling keeps it visible" {

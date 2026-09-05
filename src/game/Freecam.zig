@@ -78,15 +78,6 @@ pub fn rotationMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
         .mul(math.Mat4.rotationY((yaw + 180.0) * degrees));
 }
 
-pub fn viewMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
-    const eye = self.renderPosition(partial_ticks);
-    return self.rotationMatrix(partial_ticks).mul(math.Mat4.translation(
-        @floatCast(-eye.x),
-        @floatCast(-eye.y),
-        @floatCast(-eye.z),
-    ));
-}
-
 test "entering adopts the eye it was handed and starts still" {
     var camera: Freecam = .{};
     camera.enter(math.Vec3.init(1, 2, 3), 45, -10);

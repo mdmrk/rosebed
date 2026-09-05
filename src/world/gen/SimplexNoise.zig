@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const JavaRandom = @import("../JavaRandom.zig");
 
 const SimplexNoise = @This();
@@ -36,7 +38,7 @@ pub fn init(rand: *JavaRandom) SimplexNoise {
 }
 
 fn wrap(v: f64) i32 {
-    const t: i32 = @intFromFloat(v);
+    const t: i32 = math.util.truncateDouble(v);
     return if (v > 0.0) t else t - 1;
 }
 

@@ -52,13 +52,11 @@ fn placeSince(mesh: *MeshBuilder, first_vertex: usize, yaw: f32, origin: [3]f32)
     }
 }
 
-fn itemOrigin(item: game.ItemEntity, partial_ticks: f32) [3]f32 {
+fn itemOrigin(mesh: *const MeshBuilder, item: game.ItemEntity, partial_ticks: f32) [3]f32 {
     const pos = item.base.renderPosition(partial_ticks);
-    return .{
-        @floatCast(pos.x),
-        @as(f32, @floatCast(pos.y + game.ItemEntity.height / 2.0)) + bobHeight(item.age, item.hover, partial_ticks),
-        @floatCast(pos.z),
-    };
+    var origin = mesh.local(pos.x, pos.y + game.ItemEntity.height / 2.0, pos.z);
+    origin[1] += bobHeight(item.age, item.hover, partial_ticks);
+    return origin;
 }
 
 fn appendCopies(
@@ -70,7 +68,7 @@ fn appendCopies(
     partial_ticks: f32,
     build: *const fn (*MeshBuilder, std.mem.Allocator) anyerror!void,
 ) !void {
-    const origin = itemOrigin(item, partial_ticks);
+    const origin = itemOrigin(mesh, item, partial_ticks);
     var rand = world.JavaRandom.init(stack_copy_seed);
 
     for (0..copiesFor(item.stack.count)) |copy| {
@@ -300,15 +298,18 @@ fn appendShadowOnBlock(
     if (strength < 0.0) return;
 
     const alpha: u8 = @intFromFloat(@min(strength, 1.0) * 255.0);
-    const west: f32 = @floatFromInt(pos.x);
-    const north: f32 = @floatFromInt(pos.z);
+    const block_x: f64 = @floatFromInt(pos.x);
+    const block_z: f64 = @floatFromInt(pos.z);
+    const corner = mesh.local(block_x, plane_y + 1.0 / 64.0, block_z);
+    const west = corner[0];
+    const top = corner[1];
+    const north = corner[2];
     const east = west + 1.0;
     const south = north + 1.0;
-    const top = @as(f32, @floatCast(plane_y)) + 1.0 / 64.0;
-    const u_west = @as(f32, @floatCast(center.x - west)) / 2.0 / size + 0.5;
-    const u_east = @as(f32, @floatCast(center.x - east)) / 2.0 / size + 0.5;
-    const v_north = @as(f32, @floatCast(center.z - north)) / 2.0 / size + 0.5;
-    const v_south = @as(f32, @floatCast(center.z - south)) / 2.0 / size + 0.5;
+    const u_west = @as(f32, @floatCast(center.x - block_x)) / 2.0 / size + 0.5;
+    const u_east = @as(f32, @floatCast(center.x - block_x - 1.0)) / 2.0 / size + 0.5;
+    const v_north = @as(f32, @floatCast(center.z - block_z)) / 2.0 / size + 0.5;
+    const v_south = @as(f32, @floatCast(center.z - block_z - 1.0)) / 2.0 / size + 0.5;
 
     try mesh.quad(gpa, .{
         .{ west, top, north },
@@ -338,11 +339,11 @@ pub fn appendMovingPiston(
     if (progress >= 1.0) return;
 
     const shift = state.displacement(partial_ticks);
-    const cell: [3]f32 = .{
+    const cell = mesh.local(
         @floatFromInt(pos.x),
         @floatFromInt(pos.y),
         @floatFromInt(pos.z),
-    };
+    );
     const carried: [3]f32 = .{ cell[0] + shift[0], cell[1] + shift[1], cell[2] + shift[2] };
     const options: chunk_mesher.Options = .{ .all_faces = true };
     const view = world.ChunkView.at(world_map, pos.x, pos.z);
@@ -410,9 +411,10 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
     const pos = block.base.renderPosition(partial_ticks);
     const size: f32 = @floatCast(game.FallingBlock.size);
     const half = size / 2.0;
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const center = mesh.localAt(pos);
+    const cx = center[0];
+    const cy = center[1];
+    const cz = center[2];
     try chunk_mesher.buildCube(
         mesh,
         gpa,
@@ -425,12 +427,12 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
 }
 
-fn tntBox(lit: game.PrimedTnt, partial_ticks: f32) struct { min: [3]f32, max: [3]f32, half: f32 } {
-    const pos = lit.center(partial_ticks);
+fn tntBox(mesh: *const MeshBuilder, lit: game.PrimedTnt, partial_ticks: f32) struct { min: [3]f32, max: [3]f32, half: f32 } {
     const half = 0.5 * lit.swellScale(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const center = mesh.localAt(lit.center(partial_ticks));
+    const cx = center[0];
+    const cy = center[1];
+    const cz = center[2];
     return .{
         .min = .{ cx - half, cy - half, cz - half },
         .max = .{ cx + half, cy + half, cz + half },
@@ -440,7 +442,7 @@ fn tntBox(lit: game.PrimedTnt, partial_ticks: f32) struct { min: [3]f32, max: [3
 
 pub fn appendPrimedTnt(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, lit: game.PrimedTnt, partial_ticks: f32) !void {
     const first_vertex = mesh.vertices.items.len;
-    const box = tntBox(lit, partial_ticks);
+    const box = tntBox(mesh, lit, partial_ticks);
 
     try chunk_mesher.buildCube(
         mesh,
@@ -459,7 +461,7 @@ pub fn appendPrimedTntFlash(mesh: *MeshBuilder, gpa: std.mem.Allocator, lit: gam
     if (flash <= 0.0) return;
 
     const first_vertex = mesh.vertices.items.len;
-    const box = tntBox(lit, partial_ticks);
+    const box = tntBox(mesh, lit, partial_ticks);
 
     try chunk_mesher.buildCube(
         mesh,
@@ -572,14 +574,14 @@ fn bipedParts(
     });
 }
 
-fn bipedPose(world_map: *const world.World, player: game.Player, partial_ticks: f32) mob_model.Pose {
-    const pos = player.base.renderPosition(partial_ticks);
+fn bipedPose(mesh: *const MeshBuilder, world_map: *const world.World, player: game.Player, partial_ticks: f32) mob_model.Pose {
+    const at = mesh.localAt(player.base.renderPosition(partial_ticks));
     const asleep = player.sleeping and !player.isDead();
     return .{
         .position = .{
-            @as(f32, @floatCast(pos.x)) + if (asleep) player.bed_offset[0] else 0,
-            @floatCast(pos.y),
-            @as(f32, @floatCast(pos.z)) + if (asleep) player.bed_offset[1] else 0,
+            at[0] + if (asleep) player.bed_offset[0] else 0,
+            at[1],
+            at[2] + if (asleep) player.bed_offset[1] else 0,
         },
         .yaw = if (asleep)
             -player.bedOrientationDegrees(world_map) * to_radians
@@ -627,7 +629,7 @@ pub fn appendPlayerHeadBlock(
     const first_vertex = mesh.vertices.items.len;
     const parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
     const head = parts[mob_model.biped.head_index];
-    const pose = bipedPose(world_map, player, partial_ticks);
+    const pose = bipedPose(mesh, world_map, player, partial_ticks);
 
     try held_item.appendBlock(mesh, gpa, id, .{
         .orient = headBlockOrient(head, pose),
@@ -653,7 +655,7 @@ fn appendBiped(
     shown: []const bool,
 ) !void {
     const parts = bipedParts(model, player, holding_item, partial_ticks);
-    const pose = bipedPose(world_map, player, partial_ticks);
+    const pose = bipedPose(mesh, world_map, player, partial_ticks);
     const material = item_lighting.material(brightnessOf(world_map, player.base), untinted);
 
     for (parts, shown) |part, visible| {
@@ -695,7 +697,7 @@ pub fn appendSquid(
     const parts = mob_model.squidPosed(squid.renderTentacleAngle(partial_ticks));
 
     const pose: mob_model.Pose = .{
-        .position = .{ @floatCast(pos.x), @as(f32, @floatCast(pos.y)) + squid_rise, @floatCast(pos.z) },
+        .position = mesh.local(pos.x, pos.y + @as(f64, squid_rise), pos.z),
         .yaw = squid.animal.renderYaw(partial_ticks) * to_radians,
         .pitch = squid.renderTilt(partial_ticks) * to_radians,
         .spin = squid.renderSpin(partial_ticks) * to_radians,
@@ -871,7 +873,7 @@ pub fn appendSkeletonBow(
     const animal = skeleton.animal;
     const parts = zombieShapedParts(animal, mob_model.skeleton, skeleton.renderAge(partial_ticks), partial_ticks);
     const arm = parts[mob_model.right_arm_index];
-    const pose = animalPose(animal, partial_ticks, .{ 1, 1, 1 });
+    const pose = animalPose(mesh, animal, partial_ticks, .{ 1, 1, 1 });
     const held = bipedHeldSpriteMatrix();
 
     const first_vertex = mesh.vertices.items.len;
@@ -977,10 +979,9 @@ const Trim = struct {
     posed: ?[]const mob_model.Part = null,
 };
 
-fn animalPose(animal: game.Animal, partial_ticks: f32, scale: [3]f32) mob_model.Pose {
-    const pos = animal.base.renderPosition(partial_ticks);
+fn animalPose(mesh: *const MeshBuilder, animal: game.Animal, partial_ticks: f32, scale: [3]f32) mob_model.Pose {
     return .{
-        .position = .{ @floatCast(pos.x), @floatCast(pos.y), @floatCast(pos.z) },
+        .position = mesh.localAt(animal.base.renderPosition(partial_ticks)),
         .yaw = animal.renderYaw(partial_ticks) * to_radians,
         .roll = animal.deathTilt(partial_ticks) * to_radians,
         .lift = mob_model.living_lift * scale[1],
@@ -997,7 +998,7 @@ fn appendAnimal(
     model: mob_model.Model,
     trim: Trim,
 ) !void {
-    const pose = animalPose(animal, partial_ticks, trim.scale);
+    const pose = animalPose(mesh, animal, partial_ticks, trim.scale);
 
     const stride = @cos(animal.limbSwingPhase(partial_ticks) * 0.6662) * 1.4 * animal.limbSwingAmount(partial_ticks);
     const brightness = brightnessOf(world_map, animal.base);
@@ -1067,10 +1068,10 @@ pub fn appendParticle(
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    const pos = particle.base.renderPosition(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const at = mesh.localAt(particle.base.renderPosition(partial_ticks));
+    const cx = at[0];
+    const cy = at[1];
+    const cz = at[2];
     const half = particle.halfSize(partial_ticks);
 
     const tile_size: f32 = 1.0 / 16.0;
@@ -2539,7 +2540,7 @@ pub fn appendArrow(
         0.0;
 
     const pose: ArrowPose = .{
-        .origin = .{ @floatCast(position.x), @floatCast(position.y), @floatCast(position.z) },
+        .origin = mesh.localAt(position),
         .yaw = (arrow.renderYaw(partial_ticks) - 90.0) * to_radians,
         .roll = (arrow.renderPitch(partial_ticks) + wobble) * to_radians,
     };
@@ -2606,9 +2607,10 @@ pub fn appendPainting(
     const yaw = painting.yaw() * to_radians;
     const sin = @sin(yaw);
     const cos = @cos(yaw);
-    const origin_x: f32 = @floatCast(painting.position.x);
-    const origin_y: f32 = @floatCast(painting.position.y);
-    const origin_z: f32 = @floatCast(painting.position.z);
+    const anchor = mesh.localAt(painting.position);
+    const origin_x = anchor[0];
+    const origin_y = anchor[1];
+    const origin_z = anchor[2];
 
     const put = struct {
         fn at(x: f32, y: f32, z: f32, s: f32, c: f32, ox: f32, oy: f32, oz: f32) [3]f32 {
@@ -3390,11 +3392,7 @@ pub fn appendBoat(
     const yaw = boat.prev_yaw + (boat.yaw - boat.prev_yaw) * partial_ticks;
 
     const pose: mob_model.Pose = .{
-        .position = .{
-            @floatCast(pos.x),
-            @floatCast(pos.y + game.Boat.y_offset),
-            @floatCast(pos.z),
-        },
+        .position = mesh.local(pos.x, pos.y + game.Boat.y_offset, pos.z),
         .yaw = yaw * to_radians,
         .pitch = boatRock(boat, partial_ticks) * to_radians,
     };
@@ -3424,7 +3422,7 @@ pub fn boatRock(boat: game.Boat, partial_ticks: f32) f32 {
 const rail_lookahead: f64 = 0.3;
 const rail_pitch_scale: f64 = 73.0;
 
-fn minecartPose(world_map: *const world.World, cart: game.Minecart, partial_ticks: f32) mob_model.Pose {
+fn minecartPose(mesh: *const MeshBuilder, world_map: *const world.World, cart: game.Minecart, partial_ticks: f32) mob_model.Pose {
     const pos = cart.base.renderPosition(partial_ticks);
     const centre = math.Vec3.init(pos.x, pos.y + game.Minecart.y_offset, pos.z);
 
@@ -3446,11 +3444,7 @@ fn minecartPose(world_map: *const world.World, cart: game.Minecart, partial_tick
     }
 
     return .{
-        .position = .{
-            @floatCast(seat.x),
-            @floatCast(seat.y),
-            @floatCast(seat.z),
-        },
+        .position = mesh.localAt(seat),
         .yaw = yaw * to_radians,
         .roll = tilt * to_radians,
         .pitch = minecartRock(cart, partial_ticks) * to_radians,
@@ -3464,7 +3458,7 @@ pub fn appendMinecart(
     cart: game.Minecart,
     partial_ticks: f32,
 ) !void {
-    const pose = minecartPose(world_map, cart, partial_ticks);
+    const pose = minecartPose(mesh, world_map, cart, partial_ticks);
     const material = item_lighting.material(brightnessOf(world_map, cart.base), untinted);
 
     for (mob_model.minecart.parts) |part| {
@@ -3502,7 +3496,7 @@ pub fn appendMinecartCargo(
     const textures = carried.faceTextures();
 
     const first_vertex = mesh.vertices.items.len;
-    const pose = minecartPose(world_map, cart, partial_ticks);
+    const pose = minecartPose(mesh, world_map, cart, partial_ticks);
 
     for (chunk_mesher.faces) |face| {
         const uv = Atlas.tileUv(textures.get(face.side));
@@ -3546,10 +3540,10 @@ pub fn appendFishHook(
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    const pos = hook.base.renderPosition(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const at = mesh.localAt(hook.base.renderPosition(partial_ticks));
+    const cx = at[0];
+    const cy = at[1];
+    const cz = at[2];
 
     const tile_size: f32 = 1.0 / 16.0;
     const left = @as(f32, @floatFromInt(hook_tile % 16)) * tile_size;
@@ -3582,10 +3576,10 @@ fn appendItemBillboard(
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    const pos = base.renderPosition(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const at = mesh.localAt(base.renderPosition(partial_ticks));
+    const cx = at[0];
+    const cy = at[1];
+    const cz = at[2];
 
     const uv = Atlas.tileUv(item.iconTile(0) orelse return);
     const half_width = 0.5 * scale;
@@ -3647,10 +3641,10 @@ pub fn appendEntityFire(
     basis: CameraBasis,
     partial_ticks: f32,
 ) !void {
-    const pos = base.renderPosition(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const at = mesh.localAt(base.renderPosition(partial_ticks));
+    const cx = at[0];
+    const cy = at[1];
+    const cz = at[2];
 
     const scale: f32 = @as(f32, @floatCast(base.width)) * fire_overlay_spread;
     var left: f32 = @as(f32, @floatCast(base.height)) / scale;
@@ -3758,7 +3752,7 @@ test "a skeleton's bow is drawn in its right hand" {
     const parts = zombieShapedParts(skeleton.animal, mob_model.skeleton, 0, 0);
     const hand = mob_model.posedPoint(
         parts[mob_model.right_arm_index],
-        animalPose(skeleton.animal, 0, .{ 1, 1, 1 }),
+        animalPose(&mesh, skeleton.animal, 0, .{ 1, 1, 1 }),
         .{ -1, 10, 0 },
     );
 
@@ -3781,8 +3775,8 @@ pub fn appendFishLine(
         const next = hook.linePoint(tip, step, partial_ticks);
         try mesh.line(
             gpa,
-            .{ @floatCast(previous.x), @floatCast(previous.y), @floatCast(previous.z) },
-            .{ @floatCast(next.x), @floatCast(next.y), @floatCast(next.z) },
+            mesh.localAt(previous),
+            mesh.localAt(next),
             line_color,
         );
         previous = next;
@@ -3790,17 +3784,16 @@ pub fn appendFishLine(
 }
 
 fn sleepingHeadOffset(world_map: *const world.World, gpa: std.mem.Allocator, player: game.Player) ![3]f32 {
-    var mesh: MeshBuilder = .{};
+    var mesh: MeshBuilder = .{ .origin = player.base.renderPosition(0.0) };
     defer mesh.deinit(gpa);
     try appendPlayer(&mesh, gpa, world_map, player, false, 0.0);
 
     var far: [3]f32 = .{ 0, 0, 0 };
     var reach: f32 = -1.0;
-    const at = player.base.renderPosition(0.0);
     for (mesh.vertices.items) |vertex| {
-        const dx = vertex.x - @as(f32, @floatCast(at.x)) - player.bed_offset[0];
-        const dy = vertex.y - @as(f32, @floatCast(at.y));
-        const dz = vertex.z - @as(f32, @floatCast(at.z)) - player.bed_offset[1];
+        const dx = vertex.x - player.bed_offset[0];
+        const dy = vertex.y;
+        const dz = vertex.z - player.bed_offset[1];
         const span = dx * dx + dy * dy + dz * dz;
         if (span > reach) {
             reach = span;

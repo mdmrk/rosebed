@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const MeshBuilder = @This();
 
 pub const Vertex = struct {
@@ -13,6 +15,19 @@ pub const Vertex = struct {
 
 vertices: std.ArrayList(Vertex) = .empty,
 indices: std.ArrayList(u32) = .empty,
+origin: math.Vec3 = .{ .x = 0, .y = 0, .z = 0 },
+
+pub fn local(self: MeshBuilder, x: f64, y: f64, z: f64) [3]f32 {
+    return .{
+        @floatCast(x - self.origin.x),
+        @floatCast(y - self.origin.y),
+        @floatCast(z - self.origin.z),
+    };
+}
+
+pub fn localAt(self: MeshBuilder, at: math.Vec3) [3]f32 {
+    return self.local(at.x, at.y, at.z);
+}
 
 pub fn deinit(self: *MeshBuilder, gpa: std.mem.Allocator) void {
     self.vertices.deinit(gpa);

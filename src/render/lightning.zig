@@ -126,10 +126,10 @@ fn appendRing(
         try mesh.quad(
             gpa,
             .{
-                point(at, near[0] + ring.offset_x, bottom, near[1] + ring.offset_z),
-                point(at, far[0] + ring.offset_x, bottom, far[1] + ring.offset_z),
-                point(at, far_top[0] + ring.prev_x, top, far_top[1] + ring.prev_z),
-                point(at, near_top[0] + ring.prev_x, top, near_top[1] + ring.prev_z),
+                point(mesh, at, near[0] + ring.offset_x, bottom, near[1] + ring.offset_z),
+                point(mesh, at, far[0] + ring.offset_x, bottom, far[1] + ring.offset_z),
+                point(mesh, at, far_top[0] + ring.prev_x, top, far_top[1] + ring.prev_z),
+                point(mesh, at, near_top[0] + ring.prev_x, top, near_top[1] + ring.prev_z),
             },
             .{ .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 } },
             tint,
@@ -137,12 +137,8 @@ fn appendRing(
     }
 }
 
-fn point(at: math.Vec3, dx: f64, y: f64, dz: f64) [3]f32 {
-    return .{
-        @floatCast(at.x + 0.5 + dx),
-        @floatCast(y),
-        @floatCast(at.z + 0.5 + dz),
-    };
+fn point(mesh: *const MeshBuilder, at: math.Vec3, dx: f64, y: f64, dz: f64) [3]f32 {
+    return mesh.local(at.x + 0.5 + dx, y, at.z + 0.5 + dz);
 }
 
 test "a bolt is built from four passes of tapering segments" {

@@ -3453,15 +3453,15 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         fov_y_radians;
     const proj = render.anaglyph.projection(pass, math.Mat4.perspective(fov, aspect, near_plane, far_plane));
     const partial = app_state.timer.render_partial_ticks;
-    const eye_view = app_state.player.viewMatrix(partial);
+    const eye_rotation = app_state.player.viewRotation();
     const camera = if (app_state.freecam.active)
-        app_state.freecam.viewMatrix(partial)
+        app_state.freecam.rotationMatrix(partial)
     else if (app_state.player.sleeping)
-        app_state.player.sleepViewMatrix(&app_state.level.world_map, partial)
+        app_state.player.cameraRotation(&app_state.level.world_map)
     else if (app_state.third_person) pulled: {
         const distance = app_state.player.thirdPersonDistance(&app_state.level.world_map, partial);
-        break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_view);
-    } else eye_view;
+        break :pulled math.Mat4.translation(0, 0, @floatCast(-distance)).mul(eye_rotation);
+    } else eye_rotation;
     const hurt = app_state.player.hurtMatrix(partial);
     const warp = portalWarp(app_state, partial);
     const view = render.anaglyph.view(pass, if (app_state.freecam.active)
@@ -3471,21 +3471,18 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     else
         hurt.mul(warp).mul(camera));
     const view_proj = proj.mul(view);
-    const eye = app_state.player.base.renderPosition(partial);
     const camera_eye = if (app_state.freecam.active)
         app_state.freecam.renderPosition(partial)
+    else if (app_state.player.sleeping)
+        app_state.player.sleepEyePosition(partial)
     else
-        math.Vec3.init(eye.x, eye.y + game.Player.eye_height, eye.z);
+        app_state.player.renderEyePosition(partial);
 
     app_state.shader.use();
     try drawSky(app_state, proj, partial, horizon);
 
     app_state.shader.setMat4(.u_view_proj, view_proj.m);
-    app_state.shader.setVec3(.u_camera_pos, .{
-        @floatCast(camera_eye.x),
-        @floatCast(camera_eye.y),
-        @floatCast(camera_eye.z),
-    });
+    app_state.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     setupFog(app_state, horizon);
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.textures.terrain.bind();
@@ -3504,9 +3501,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.cloud_offset,
     );
 
-    var atlas_mesh: render.MeshBuilder = .{};
+    var atlas_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer atlas_mesh.deinit(app_state.frame);
-    var shadow_mesh: render.MeshBuilder = .{};
+    var shadow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer shadow_mesh.deinit(app_state.frame);
     for (app_state.level.entities.items.items) |item| {
         try render.entity_render.appendItem(&atlas_mesh, app_state.frame, &app_state.level.world_map, item, partial);
@@ -3551,9 +3548,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         );
     }
     const basis = render.entity_render.CameraBasis.fromLook(app_state.player.yaw, app_state.player.pitch);
-    var particle_mesh: render.MeshBuilder = .{};
+    var particle_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer particle_mesh.deinit(app_state.frame);
-    var item_particle_mesh: render.MeshBuilder = .{};
+    var item_particle_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer item_particle_mesh.deinit(app_state.frame);
     for (app_state.level.entities.particles.items) |particle| {
         const target = switch (particle.kind) {
@@ -3567,7 +3564,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         if (hook.dead) continue;
         try render.entity_render.appendFishHook(&particle_mesh, app_state.frame, &app_state.level.world_map, hook, basis, partial);
     }
-    var item_billboard_mesh: render.MeshBuilder = .{};
+    var item_billboard_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer item_billboard_mesh.deinit(app_state.frame);
     for (app_state.level.entities.fireballs.items) |fireball| {
         if (fireball.dead) continue;
@@ -3593,7 +3590,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         gl.Disable(gl.BLEND);
         app_state.textures.terrain.bind();
     }
-    try drawPrimedTntFlash(app_state, partial);
+    try drawPrimedTntFlash(app_state, camera_eye, partial);
     if (particle_mesh.vertices.items.len > 0) {
         app_state.textures.particles.bind();
         drawEntityMesh(&particle_mesh);
@@ -3610,9 +3607,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
-    var cart_mesh: render.MeshBuilder = .{};
+    var cart_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer cart_mesh.deinit(app_state.frame);
-    var cargo_mesh: render.MeshBuilder = .{};
+    var cargo_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer cargo_mesh.deinit(app_state.frame);
     for (app_state.level.entities.minecarts.items) |cart| {
         if (cart.dead) continue;
@@ -3620,16 +3617,16 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         try render.entity_render.appendMinecartCargo(&cargo_mesh, app_state.frame, &app_state.level.world_map, cart, partial);
     }
 
-    var boat_mesh: render.MeshBuilder = .{};
+    var boat_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer boat_mesh.deinit(app_state.frame);
     for (app_state.level.entities.boats.items) |boat| {
         if (boat.dead) continue;
         try render.entity_render.appendBoat(&boat_mesh, app_state.frame, &app_state.level.world_map, boat, partial);
     }
 
-    var pig_mesh: render.MeshBuilder = .{};
+    var pig_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer pig_mesh.deinit(app_state.frame);
-    var saddle_mesh: render.MeshBuilder = .{};
+    var saddle_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer saddle_mesh.deinit(app_state.frame);
     var pigs = app_state.level.entities.of(game.Pig, game.mob.pig);
     while (pigs.next()) |pig| {
@@ -3638,21 +3635,21 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendPigSaddle(&saddle_mesh, app_state.frame, &app_state.level.world_map, pig.*, partial);
         }
     }
-    var cow_mesh: render.MeshBuilder = .{};
+    var cow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer cow_mesh.deinit(app_state.frame);
     var cows = app_state.level.entities.of(game.Cow, game.mob.cow);
     while (cows.next()) |cow| {
         try render.entity_render.appendCow(&cow_mesh, app_state.frame, &app_state.level.world_map, cow.*, partial);
     }
-    var chicken_mesh: render.MeshBuilder = .{};
+    var chicken_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer chicken_mesh.deinit(app_state.frame);
     var chickens = app_state.level.entities.of(game.Chicken, game.mob.chicken);
     while (chickens.next()) |chicken| {
         try render.entity_render.appendChicken(&chicken_mesh, app_state.frame, &app_state.level.world_map, chicken.*, partial);
     }
-    var sheep_mesh: render.MeshBuilder = .{};
+    var sheep_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer sheep_mesh.deinit(app_state.frame);
-    var fleece_mesh: render.MeshBuilder = .{};
+    var fleece_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer fleece_mesh.deinit(app_state.frame);
     var flock = app_state.level.entities.of(game.Sheep, game.mob.sheep);
     while (flock.next()) |sheep| {
@@ -3661,66 +3658,66 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
             try render.entity_render.appendSheepFur(&fleece_mesh, app_state.frame, &app_state.level.world_map, sheep.*, partial);
         }
     }
-    var slime_mesh: render.MeshBuilder = .{};
+    var slime_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer slime_mesh.deinit(app_state.frame);
-    var slime_shell_mesh: render.MeshBuilder = .{};
+    var slime_shell_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer slime_shell_mesh.deinit(app_state.frame);
     var slimes = app_state.level.entities.of(game.Slime, game.mob.slime);
     while (slimes.next()) |slime| {
         try render.entity_render.appendSlime(&slime_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
         try render.entity_render.appendSlimeShell(&slime_shell_mesh, app_state.frame, &app_state.level.world_map, slime.*, partial);
     }
-    var squid_mesh: render.MeshBuilder = .{};
+    var squid_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer squid_mesh.deinit(app_state.frame);
     var shoal = app_state.level.entities.of(game.Squid, game.mob.squid);
     while (shoal.next()) |squid| {
         try render.entity_render.appendSquid(&squid_mesh, app_state.frame, &app_state.level.world_map, squid.*, partial);
     }
-    var ghast_mesh: render.MeshBuilder = .{};
+    var ghast_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer ghast_mesh.deinit(app_state.frame);
-    var ghast_fire_mesh: render.MeshBuilder = .{};
+    var ghast_fire_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer ghast_fire_mesh.deinit(app_state.frame);
     var ghasts = app_state.level.entities.of(game.Ghast, game.mob.ghast);
     while (ghasts.next()) |ghast| {
         const face = if (ghast.isAttacking()) &ghast_fire_mesh else &ghast_mesh;
         try render.entity_render.appendGhast(face, app_state.frame, &app_state.level.world_map, ghast.*, partial);
     }
-    var wolf_mesh: render.MeshBuilder = .{};
+    var wolf_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer wolf_mesh.deinit(app_state.frame);
-    var wolf_tame_mesh: render.MeshBuilder = .{};
+    var wolf_tame_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer wolf_tame_mesh.deinit(app_state.frame);
-    var wolf_angry_mesh: render.MeshBuilder = .{};
+    var wolf_angry_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer wolf_angry_mesh.deinit(app_state.frame);
     var pack = app_state.level.entities.of(game.Wolf, game.mob.wolf);
     while (pack.next()) |wolf| {
         const coat = if (wolf.tamed) &wolf_tame_mesh else if (wolf.angry) &wolf_angry_mesh else &wolf_mesh;
         try render.entity_render.appendWolf(coat, app_state.frame, &app_state.level.world_map, wolf.*, partial);
     }
-    var spider_mesh: render.MeshBuilder = .{};
+    var spider_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer spider_mesh.deinit(app_state.frame);
-    var spider_eyes_mesh: render.MeshBuilder = .{};
+    var spider_eyes_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer spider_eyes_mesh.deinit(app_state.frame);
     var spiders = app_state.level.entities.of(game.Spider, game.mob.spider);
     while (spiders.next()) |spider| {
         try render.entity_render.appendSpider(&spider_mesh, app_state.frame, &app_state.level.world_map, spider.*, partial);
         try render.entity_render.appendSpiderEyes(&spider_eyes_mesh, app_state.frame, &app_state.level.world_map, spider.*, partial);
     }
-    var skeleton_mesh: render.MeshBuilder = .{};
+    var skeleton_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer skeleton_mesh.deinit(app_state.frame);
-    var bow_mesh: render.MeshBuilder = .{};
+    var bow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer bow_mesh.deinit(app_state.frame);
     var skeletons = app_state.level.entities.of(game.Skeleton, game.mob.skeleton);
     while (skeletons.next()) |skeleton| {
         try render.entity_render.appendSkeleton(&skeleton_mesh, app_state.frame, &app_state.level.world_map, skeleton.*, partial);
         try render.entity_render.appendSkeletonBow(&bow_mesh, app_state.frame, &app_state.level.world_map, skeleton.*, partial);
     }
-    var creeper_mesh: render.MeshBuilder = .{};
+    var creeper_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer creeper_mesh.deinit(app_state.frame);
     var creepers = app_state.level.entities.of(game.Creeper, game.mob.creeper);
     while (creepers.next()) |creeper| {
         try render.entity_render.appendCreeper(&creeper_mesh, app_state.frame, &app_state.level.world_map, creeper.*, partial);
     }
-    var zombie_mesh: render.MeshBuilder = .{};
+    var zombie_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer zombie_mesh.deinit(app_state.frame);
     var shamblers = app_state.level.entities.of(game.Zombie, game.mob.zombie);
     while (shamblers.next()) |zombie| {
@@ -3730,13 +3727,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     while (giants.next()) |giant| {
         try render.entity_render.appendGiant(&zombie_mesh, app_state.frame, &app_state.level.world_map, giant.*, partial);
     }
-    var pig_zombie_mesh: render.MeshBuilder = .{};
+    var pig_zombie_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer pig_zombie_mesh.deinit(app_state.frame);
     var horde = app_state.level.entities.of(game.PigZombie, game.mob.pig_zombie);
     while (horde.next()) |pig_zombie| {
         try render.entity_render.appendPigZombie(&pig_zombie_mesh, app_state.frame, &app_state.level.world_map, pig_zombie.*, partial);
     }
-    var painting_mesh: render.MeshBuilder = .{};
+    var painting_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer painting_mesh.deinit(app_state.frame);
     for (app_state.level.entities.paintings.items) |painting| {
         try render.entity_render.appendPainting(&painting_mesh, app_state.frame, &app_state.level.world_map, painting);
@@ -3747,7 +3744,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
-    var arrow_mesh: render.MeshBuilder = .{};
+    var arrow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer arrow_mesh.deinit(app_state.frame);
     for (app_state.level.entities.arrows.items) |arrow| {
         try render.entity_render.appendArrow(&arrow_mesh, app_state.frame, &app_state.level.world_map, arrow, partial);
@@ -3758,9 +3755,9 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
-    var sign_mesh: render.MeshBuilder = .{};
+    var sign_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer sign_mesh.deinit(app_state.frame);
-    var sign_text_mesh: render.MeshBuilder = .{};
+    var sign_text_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer sign_text_mesh.deinit(app_state.frame);
     var signs = app_state.level.world_map.signs.iterator();
     while (signs.next()) |entry| {
@@ -3802,7 +3799,7 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
-    var icon_mesh: render.MeshBuilder = .{};
+    var icon_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer icon_mesh.deinit(app_state.frame);
     for (app_state.level.entities.items.items) |item| {
         try render.entity_render.appendItemIcon(&icon_mesh, app_state.frame, &app_state.level.world_map, item, app_state.player.yaw, partial);
@@ -3947,24 +3944,29 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         app_state.textures.terrain.bind();
     }
 
-    try drawPeers(app_state, partial);
-    if (app_state.third_person or app_state.player.sleeping or app_state.freecam.active) try drawPlayer(app_state, partial);
+    try drawPeers(app_state, camera_eye, partial);
+    if (app_state.third_person or app_state.player.sleeping or app_state.freecam.active) try drawPlayer(app_state, camera_eye, partial);
     gl.Enable(gl.CULL_FACE);
-    try drawFishLines(app_state, partial);
+    try drawFishLines(app_state, camera_eye, partial);
 
-    try drawSelectionOutline(app_state);
-    try drawBreakingCrack(app_state);
+    try drawSelectionOutline(app_state, camera_eye);
+    try drawBreakingCrack(app_state, camera_eye);
 
     gl.Enable(gl.BLEND);
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.Disable(gl.CULL_FACE);
     app_state.shader.setInt(.u_alpha_test, 0);
-    try app_state.chunks.drawTranslucent(app_state.frame, frustum, eye.x, eye.z);
+    try app_state.chunks.drawTranslucent(
+        app_state.frame,
+        app_state.shader,
+        frustum,
+        .{ .x = camera_eye.x, .y = camera_eye.y, .z = camera_eye.z },
+    );
     app_state.shader.setInt(.u_alpha_test, 1);
     gl.Disable(gl.BLEND);
 
-    try drawLightning(app_state, view_proj);
-    try drawWeather(app_state, view_proj, partial);
+    try drawLightning(app_state, view_proj, camera_eye);
+    try drawWeather(app_state, view_proj, camera_eye, partial);
     try drawClouds(app_state, proj, partial);
     if (!app_state.third_person and !app_state.player.sleeping and !app_state.freecam.active) {
         if (!app_state.hide_gui) try drawHeldItem(app_state, proj, partial);
@@ -3979,7 +3981,7 @@ fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
     app_state.shader.setInt(.u_alpha_test, 0);
     app_state.shader.setInt(.u_textured, 1);
     app_state.shader.setVec4(.u_tint, .{ 1, 1, 1, 1 });
-    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    app_state.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     gl.ActiveTexture(gl.TEXTURE0);
     app_state.shader.setInt(.u_atlas, 0);
     app_state.textures.terrain.bind();
@@ -4001,14 +4003,14 @@ fn drawFireOverlay(app_state: *AppState, proj: math.Mat4) !void {
     gl.Disable(gl.BLEND);
 }
 
-fn drawPeers(app_state: *AppState, partial: f32) !void {
+fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     const link = app_state.link orelse return;
     if (link.connection.peers.items.len == 0) return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
 
-    var heads: render.MeshBuilder = .{};
+    var heads: render.MeshBuilder = .{ .origin = origin };
     defer heads.deinit(app_state.frame);
 
     for (link.connection.peers.items) |*peer| {
@@ -4039,11 +4041,11 @@ fn drawPeers(app_state: *AppState, partial: f32) !void {
     drawEntityMesh(&heads);
 }
 
-fn drawPlayer(app_state: *AppState, partial: f32) !void {
+fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     const player = app_state.player;
     const holding_item = player.inventory.selectedStack() != null;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
     try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial);
     app_state.textures.char.bind();
@@ -4055,7 +4057,7 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
         const piece = worn.id.item.armor() orelse continue;
         const layer = render.mob_model.bipedArmor(piece.slot);
 
-        var armor_mesh: render.MeshBuilder = .{};
+        var armor_mesh: render.MeshBuilder = .{ .origin = origin };
         defer armor_mesh.deinit(app_state.frame);
         try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer);
         app_state.textures.armor(piece.material, layer.second_texture).bind();
@@ -4065,7 +4067,7 @@ fn drawPlayer(app_state: *AppState, partial: f32) !void {
     app_state.textures.terrain.bind();
 
     if (wornBlock(player)) |id| {
-        var head_mesh: render.MeshBuilder = .{};
+        var head_mesh: render.MeshBuilder = .{ .origin = origin };
         defer head_mesh.deinit(app_state.frame);
         try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id);
         drawEntityMesh(&head_mesh);
@@ -4124,7 +4126,7 @@ fn drawHeldMap(app_state: *AppState, proj: math.Mat4, partial: f32, stack: game.
     const lit = handLightRotation(app_state.player, partial).mul(placed);
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
-    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    app_state.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     app_state.shader.setInt(.u_fog_enabled, 0);
     app_state.shader.setInt(.u_alpha_test, 1);
     app_state.shader.setInt(.u_textured, 1);
@@ -4234,7 +4236,7 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
 
     gl.Clear(gl.DEPTH_BUFFER_BIT);
     app_state.shader.setMat4(.u_view_proj, transform.m);
-    app_state.shader.setVec3(.u_camera_pos, .{ 0, 0, 0 });
+    app_state.shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     app_state.shader.setInt(.u_fog_enabled, 0);
     app_state.shader.setInt(.u_alpha_test, 1);
     app_state.shader.setInt(.u_textured, 1);
@@ -4257,10 +4259,10 @@ fn drawHeldItem(app_state: *AppState, proj: math.Mat4, partial: f32) !void {
     app_state.textures.terrain.bind();
 }
 
-fn drawPrimedTntFlash(app_state: *AppState, partial: f32) !void {
+fn drawPrimedTntFlash(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     if (app_state.level.entities.primed.items.len == 0) return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
     for (app_state.level.entities.primed.items) |lit| {
         try render.entity_render.appendPrimedTntFlash(&mesh, app_state.frame, lit, partial);
@@ -4280,10 +4282,10 @@ fn drawPrimedTntFlash(app_state: *AppState, partial: f32) !void {
     app_state.shader.setInt(.u_alpha_test, 1);
 }
 
-fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
+fn drawLightning(app_state: *AppState, view_proj: math.Mat4, origin: math.Vec3) !void {
     if (app_state.level.entities.bolts.items.len == 0) return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
 
     for (app_state.level.entities.bolts.items) |bolt| {
@@ -4312,7 +4314,7 @@ fn drawLightning(app_state: *AppState, view_proj: math.Mat4) !void {
     app_state.textures.terrain.bind();
 }
 
-fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
+fn drawWeather(app_state: *AppState, view_proj: math.Mat4, origin: math.Vec3, partial: f32) !void {
     if (!app_state.dimension.hasSky()) return;
 
     const strength = app_state.level.world_map.weather.rainStrength(partial);
@@ -4335,8 +4337,8 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.Disable(gl.CULL_FACE);
 
-    try drawWeatherLayer(app_state, view, &app_state.textures.snow, render.weather.appendSnow);
-    try drawWeatherLayer(app_state, view, &app_state.textures.rain, render.weather.appendRain);
+    try drawWeatherLayer(app_state, view, origin, &app_state.textures.snow, render.weather.appendSnow);
+    try drawWeatherLayer(app_state, view, origin, &app_state.textures.rain, render.weather.appendRain);
 
     gl.Disable(gl.BLEND);
     app_state.shader.setFloat(.u_alpha_cutoff, render.Shader.default_alpha_cutoff);
@@ -4346,10 +4348,11 @@ fn drawWeather(app_state: *AppState, view_proj: math.Mat4, partial: f32) !void {
 fn drawWeatherLayer(
     app_state: *AppState,
     view: render.weather.View,
+    origin: math.Vec3,
     atlas: *const render.Atlas,
     append: *const fn (*render.MeshBuilder, std.mem.Allocator, render.weather.View) anyerror!void,
 ) !void {
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
 
     try append(&mesh, app_state.frame, view);
@@ -4441,14 +4444,14 @@ fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.
     });
 }
 
-fn drawBreakingCrack(app_state: *AppState) !void {
+fn drawBreakingCrack(app_state: *AppState, origin: math.Vec3) !void {
     const digging = app_state.digging orelse return;
     if (digging.progress <= 0.0) return;
 
     const id = app_state.level.world_map.getBlock(digging.pos);
     if (id == .air) return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
     try render.selection.appendCrack(
         &mesh,
@@ -4475,10 +4478,10 @@ fn drawBreakingCrack(app_state: *AppState) !void {
     gl.Disable(gl.BLEND);
 }
 
-fn drawFishLines(app_state: *AppState, partial: f32) !void {
+fn drawFishLines(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     if (app_state.level.entities.hooks.items.len == 0) return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
 
     const player = &app_state.player;
@@ -4510,10 +4513,10 @@ fn drawFishLines(app_state: *AppState, partial: f32) !void {
     gl.LineWidth(1.0);
 }
 
-fn drawSelectionOutline(app_state: *AppState) !void {
+fn drawSelectionOutline(app_state: *AppState, origin: math.Vec3) !void {
     const hit = pickedBlock(app_state) orelse return;
 
-    var mesh: render.MeshBuilder = .{};
+    var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
     const id = app_state.level.world_map.getBlock(hit.pos);
     try render.selection.appendOutline(&mesh, app_state.frame, id, app_state.level.world_map.getBlockMetadata(hit.pos), hit.pos);

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const JavaRandom = @import("../JavaRandom.zig");
 
 const PerlinNoise = @This();
@@ -42,9 +44,9 @@ pub fn noise(self: PerlinNoise, x_in: f64, y_in: f64, z_in: f64) f64 {
     const y0 = y_in + self.y_coord;
     const z0 = z_in + self.z_coord;
 
-    var ix: i32 = @intFromFloat(x0);
-    var iy: i32 = @intFromFloat(y0);
-    var iz: i32 = @intFromFloat(z0);
+    var ix: i32 = math.util.truncateDouble(x0);
+    var iy: i32 = math.util.truncateDouble(y0);
+    var iz: i32 = math.util.truncateDouble(z0);
     if (x0 < @as(f64, @floatFromInt(ix))) ix -= 1;
     if (y0 < @as(f64, @floatFromInt(iy))) iy -= 1;
     if (z0 < @as(f64, @floatFromInt(iz))) iz -= 1;
@@ -73,7 +75,7 @@ pub fn noise(self: PerlinNoise, x_in: f64, y_in: f64, z_in: f64) f64 {
 }
 
 fn floorAndFrac(v_in: f64) struct { i: i32, frac: f64 } {
-    var i: i32 = @intFromFloat(v_in);
+    var i: i32 = math.util.truncateDouble(v_in);
     if (v_in < @as(f64, @floatFromInt(i))) i -= 1;
     return .{ .i = i, .frac = v_in - @as(f64, @floatFromInt(i)) };
 }

@@ -52,17 +52,22 @@ fn appendColumn(mesh: *MeshBuilder, gpa: std.mem.Allocator, x: i32, z: i32, colu
         colorByte(column.alpha),
     };
 
-    const x0: f32 = @floatFromInt(x);
-    const x1: f32 = @floatFromInt(x + 1);
-    const z0: f32 = @floatFromInt(z);
-    const z1: f32 = @floatFromInt(z + 1);
+    const cell = mesh.local(
+        @floatFromInt(x),
+        @floatFromInt(column.bottom),
+        @floatFromInt(z),
+    );
+    const x0 = cell[0];
+    const x1 = x0 + 1.0;
+    const z0 = cell[2];
+    const z1 = z0 + 1.0;
     const mid_x = x0 + 0.5;
     const mid_z = z0 + 0.5;
-    const low: f32 = @floatFromInt(column.bottom);
-    const high: f32 = @floatFromInt(column.top);
+    const low = cell[1];
+    const high = low + @as(f32, @floatFromInt(column.top - column.bottom));
 
-    const v_low = low / 4.0 + column.scroll_v;
-    const v_high = high / 4.0 + column.scroll_v;
+    const v_low = @as(f32, @floatFromInt(column.bottom)) / 4.0 + column.scroll_v;
+    const v_high = @as(f32, @floatFromInt(column.top)) / 4.0 + column.scroll_v;
     const u_left = column.scroll_u;
     const u_right = 1.0 + column.scroll_u;
 

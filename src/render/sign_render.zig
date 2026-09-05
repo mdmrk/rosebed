@@ -126,15 +126,20 @@ pub fn appendBoard(
     metadata: u4,
     pos: BlockPos,
 ) !void {
+    const at = mesh.local(
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
+    );
     try appendBoardAt(
         mesh,
         gpa,
         world.light.brightnessAt(world_map, pos, 0),
         id,
         metadata,
-        @floatFromInt(pos.x),
-        @floatFromInt(pos.y),
-        @floatFromInt(pos.z),
+        at[0],
+        at[1],
+        at[2],
     );
 }
 
@@ -153,15 +158,20 @@ pub fn appendText(
     state: world.sign.Sign,
     highlighted_line: ?usize,
 ) !void {
+    const at = mesh.local(
+        @floatFromInt(pos.x),
+        @floatFromInt(pos.y),
+        @floatFromInt(pos.z),
+    );
     try appendTextAt(
         mesh,
         gpa,
         font,
         id,
         metadata,
-        @floatFromInt(pos.x),
-        @floatFromInt(pos.y),
-        @floatFromInt(pos.z),
+        at[0],
+        at[1],
+        at[2],
         state,
         highlighted_line,
     );

@@ -160,14 +160,24 @@ pub fn flush(
     return rebuilt;
 }
 
-fn chunkBounds(coord: world.World.ChunkCoord) struct { min: [3]f32, max: [3]f32 } {
+pub const Eye = struct { x: f64, y: f64, z: f64 };
+
+fn chunkOffset(coord: world.World.ChunkCoord, eye: Eye) [3]f32 {
+    const width: f64 = @floatFromInt(world.Chunk.width);
+    return .{
+        @floatCast(@as(f64, @floatFromInt(coord.x)) * width - eye.x),
+        @floatCast(-eye.y),
+        @floatCast(@as(f64, @floatFromInt(coord.z)) * width - eye.z),
+    };
+}
+
+fn chunkBounds(coord: world.World.ChunkCoord, eye: Eye) struct { min: [3]f32, max: [3]f32 } {
     const width: f32 = @floatFromInt(world.Chunk.width);
     const height: f32 = @floatFromInt(world.Chunk.height);
-    const min_x = @as(f32, @floatFromInt(coord.x)) * width;
-    const min_z = @as(f32, @floatFromInt(coord.z)) * width;
+    const offset = chunkOffset(coord, eye);
     return .{
-        .min = .{ min_x, 0, min_z },
-        .max = .{ min_x + width, height, min_z + width },
+        .min = offset,
+        .max = .{ offset[0] + width, offset[1] + height, offset[2] + width },
     };
 }
 
@@ -187,6 +197,7 @@ const query_box_faces = [6][4][3]u1{
 const Sorted = struct {
     meshes: *ChunkMeshes,
     coord: world.World.ChunkCoord,
+    offset: [3]f32,
     distance: f32,
     in_frustum: bool = false,
 
@@ -195,10 +206,8 @@ const Sorted = struct {
     }
 };
 
-pub const Eye = struct { x: f64, y: f64, z: f64 };
-
-fn appendQueryBox(mesh: *MeshBuilder, gpa: std.mem.Allocator, coord: world.World.ChunkCoord) !void {
-    const bounds = chunkBounds(coord);
+fn appendQueryBox(mesh: *MeshBuilder, gpa: std.mem.Allocator, coord: world.World.ChunkCoord, eye: Eye) !void {
+    const bounds = chunkBounds(coord, eye);
     const corner = [2][3]f32{
         .{ bounds.min[0] - query_box_margin, bounds.min[1] - query_box_margin, bounds.min[2] - query_box_margin },
         .{ bounds.max[0] + query_box_margin, bounds.max[1] + query_box_margin, bounds.max[2] + query_box_margin },
@@ -225,7 +234,7 @@ fn readQueryResults(entries: []const Sorted) void {
     }
 }
 
-fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted, offset: usize, frame: u64) !void {
+fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted, offset: usize, frame: u64, eye: Eye) !void {
     var boxes: MeshBuilder = .{};
     defer boxes.deinit(gpa);
     var queried: std.ArrayList(*ChunkMeshes) = .empty;
@@ -235,7 +244,7 @@ fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted,
         if (!entry.in_frustum or entry.meshes.waiting) continue;
         const step: u64 = @intFromFloat(1.0 + @sqrt(entry.distance) / query_stagger_distance);
         if (frame % step != index % step) continue;
-        try appendQueryBox(&boxes, gpa, entry.coord);
+        try appendQueryBox(&boxes, gpa, entry.coord, eye);
         try queried.append(gpa, entry.meshes);
     }
     if (queried.items.len == 0) return;
@@ -247,6 +256,7 @@ fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted,
     gl.DepthMask(gl.FALSE);
     shader.setInt(.u_textured, 0);
     shader.setInt(.u_alpha_test, 0);
+    shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     for (queried.items, 0..) |meshes, box| {
         if (meshes.query == 0) gl.GenQueries(1, @ptrCast(&meshes.query));
         gl.BeginQuery(query_target, meshes.query);
@@ -260,11 +270,12 @@ fn issueQueries(gpa: std.mem.Allocator, shader: Shader, entries: []const Sorted,
     gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
 }
 
-fn drawVisible(entries: []const Sorted) u32 {
+fn drawVisible(shader: Shader, entries: []const Sorted) u32 {
     var drawn: u32 = 0;
     for (entries) |entry| {
         if (!entry.in_frustum or !entry.meshes.visible) continue;
         if (entry.meshes.solid.index_count == 0) continue;
+        shader.setVec3(.u_model_offset, entry.offset);
         entry.meshes.solid.draw();
         drawn += 1;
     }
@@ -286,11 +297,13 @@ pub fn drawSolid(
         while (it.next()) |entry| {
             entry.value_ptr.visible = true;
             if (entry.value_ptr.solid.index_count == 0) continue;
-            const bounds = chunkBounds(entry.key_ptr.*);
+            const bounds = chunkBounds(entry.key_ptr.*, eye);
             if (!frustum.containsBox(bounds.min, bounds.max)) continue;
+            shader.setVec3(.u_model_offset, chunkOffset(entry.key_ptr.*, eye));
             entry.value_ptr.solid.draw();
             drawn += 1;
         }
+        shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
         return drawn;
     }
 
@@ -301,13 +314,14 @@ pub fn drawSolid(
     var it = self.meshes.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.drawsNothing()) continue;
-        const bounds = chunkBounds(entry.key_ptr.*);
-        const dx = (bounds.min[0] + bounds.max[0]) / 2 - @as(f32, @floatCast(eye.x));
-        const dy = (bounds.min[1] + bounds.max[1]) / 2 - @as(f32, @floatCast(eye.y));
-        const dz = (bounds.min[2] + bounds.max[2]) / 2 - @as(f32, @floatCast(eye.z));
+        const bounds = chunkBounds(entry.key_ptr.*, eye);
+        const dx = (bounds.min[0] + bounds.max[0]) / 2;
+        const dy = (bounds.min[1] + bounds.max[1]) / 2;
+        const dz = (bounds.min[2] + bounds.max[2]) / 2;
         sorted.appendAssumeCapacity(.{
             .meshes = entry.value_ptr,
             .coord = entry.key_ptr.*,
+            .offset = bounds.min,
             .distance = dx * dx + dy * dy + dz * dz,
             .in_frustum = frustum.containsBox(bounds.min, bounds.max),
         });
@@ -321,21 +335,29 @@ pub fn drawSolid(
     var end: usize = @min(first_query_batch, sorted.items.len);
     readQueryResults(sorted.items[0..end]);
     for (sorted.items[0..end]) |entry| entry.meshes.visible = true;
-    var drawn = drawVisible(sorted.items[0..end]);
+    var drawn = drawVisible(shader, sorted.items[0..end]);
 
     while (end < sorted.items.len) {
         const start = end;
         end = @min(end * 2, sorted.items.len);
         readQueryResults(sorted.items[start..end]);
-        try issueQueries(gpa, shader, sorted.items[start..end], start, frame);
-        drawn += drawVisible(sorted.items[start..end]);
+        try issueQueries(gpa, shader, sorted.items[start..end], start, frame, eye);
+        drawn += drawVisible(shader, sorted.items[start..end]);
     }
+    shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
     return drawn;
 }
 
-pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, frustum: math.Frustum, eye_x: f64, eye_z: f64) !void {
+pub fn drawTranslucent(
+    self: *const ChunkRenderer,
+    gpa: std.mem.Allocator,
+    shader: Shader,
+    frustum: math.Frustum,
+    eye: Eye,
+) !void {
     const Ordered = struct {
         distance: f64,
+        offset: [3]f32,
         mesh: GpuMesh,
 
         fn farthestFirst(_: void, a: @This(), b: @This()) bool {
@@ -351,17 +373,35 @@ pub fn drawTranslucent(self: *const ChunkRenderer, gpa: std.mem.Allocator, frust
     while (it.next()) |entry| {
         if (entry.value_ptr.translucent.index_count == 0) continue;
         if (!entry.value_ptr.visible) continue;
-        const bounds = chunkBounds(entry.key_ptr.*);
+        const bounds = chunkBounds(entry.key_ptr.*, eye);
         if (!frustum.containsBox(bounds.min, bounds.max)) continue;
         const center_x = (@as(f64, @floatFromInt(entry.key_ptr.x)) + 0.5) * width;
         const center_z = (@as(f64, @floatFromInt(entry.key_ptr.z)) + 0.5) * width;
-        const dx = center_x - eye_x;
-        const dz = center_z - eye_z;
-        try ordered.append(gpa, .{ .distance = dx * dx + dz * dz, .mesh = entry.value_ptr.translucent });
+        const dx = center_x - eye.x;
+        const dz = center_z - eye.z;
+        try ordered.append(gpa, .{
+            .distance = dx * dx + dz * dz,
+            .offset = chunkOffset(entry.key_ptr.*, eye),
+            .mesh = entry.value_ptr.translucent,
+        });
     }
 
     std.mem.sort(Ordered, ordered.items, {}, Ordered.farthestFirst);
-    for (ordered.items) |entry| entry.mesh.draw();
+    for (ordered.items) |entry| {
+        shader.setVec3(.u_model_offset, entry.offset);
+        entry.mesh.draw();
+    }
+    shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
+}
+
+test "a far chunk is offset exactly against the eye it is drawn from" {
+    const far = @divFloor(@as(i32, 59999999), world.Chunk.width);
+    const eye: Eye = .{ .x = 59999999.5, .y = 70.25, .z = 59999999.5 };
+    const offset = chunkOffset(.{ .x = far, .z = far }, eye);
+
+    try std.testing.expectEqual(@as(f32, -15.5), offset[0]);
+    try std.testing.expectEqual(@as(f32, -70.25), offset[1]);
+    try std.testing.expectEqual(@as(f32, -15.5), offset[2]);
 }
 
 test "a block on a chunk seam dirties both sides" {
@@ -527,7 +567,7 @@ test "a query box wraps its chunk by the original's six block margin" {
     var boxes: MeshBuilder = .{};
     defer boxes.deinit(gpa);
 
-    try appendQueryBox(&boxes, gpa, .{ .x = 0, .z = 0 });
+    try appendQueryBox(&boxes, gpa, .{ .x = 0, .z = 0 }, .{ .x = 0, .y = 0, .z = 0 });
 
     try std.testing.expectEqual(@as(usize, indices_per_query_box), boxes.indices.items.len);
 
@@ -556,7 +596,7 @@ test "every query box face winds outward so back face culling keeps the near sid
     var boxes: MeshBuilder = .{};
     defer boxes.deinit(gpa);
 
-    try appendQueryBox(&boxes, gpa, .{ .x = 3, .z = -2 });
+    try appendQueryBox(&boxes, gpa, .{ .x = 3, .z = -2 }, .{ .x = 0, .y = 0, .z = 0 });
 
     var low: [3]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };
     var high: [3]f32 = .{ -std.math.floatMax(f32), -std.math.floatMax(f32), -std.math.floatMax(f32) };

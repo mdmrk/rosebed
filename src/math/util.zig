@@ -34,6 +34,13 @@ pub fn floorDouble(x: f64) i32 {
     return @intFromFloat(@floor(x));
 }
 
+pub fn truncateDouble(x: f64) i32 {
+    if (std.math.isNan(x)) return 0;
+    if (x >= @as(f64, std.math.maxInt(i32))) return std.math.maxInt(i32);
+    if (x <= @as(f64, std.math.minInt(i32))) return std.math.minInt(i32);
+    return @intFromFloat(x);
+}
+
 pub fn absMax(a: f64, b: f64) f64 {
     return @max(@abs(a), @abs(b));
 }
@@ -74,6 +81,14 @@ test "absMax picks the larger magnitude whatever the signs" {
 test "sqrtF rounds to the float precision the reference works in" {
     try std.testing.expectEqual(@as(f32, 5.0), sqrtF(25.0));
     try std.testing.expectEqual(@as(f32, @floatCast(@sqrt(@as(f64, 2.0)))), sqrtF(2.0));
+}
+
+test "truncateDouble saturates instead of wrapping, the way a Java int cast does" {
+    try std.testing.expectEqual(@as(i32, 3), truncateDouble(3.75));
+    try std.testing.expectEqual(@as(i32, -3), truncateDouble(-3.75));
+    try std.testing.expectEqual(std.math.maxInt(i32), truncateDouble(3.0e9));
+    try std.testing.expectEqual(std.math.minInt(i32), truncateDouble(-3.0e9));
+    try std.testing.expectEqual(@as(i32, 0), truncateDouble(std.math.nan(f64)));
 }
 
 test "floorFloat/floorDouble round toward negative infinity" {
