@@ -129,6 +129,8 @@ const drown_damage: i32 = 2;
 const cactus_damage: i32 = 1;
 const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
+const void_damage: i32 = 4;
+const void_floor: f64 = -64.0;
 const lava_fire_ticks: i32 = 600;
 const extinguish_volume: f32 = 0.7;
 const extinguish_pitch_base: f32 = 1.6;
@@ -221,6 +223,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         self.fire = 0;
     }
     self.updateFire(world_map);
+    self.hurtInVoid(world_map);
     self.updateAir(world_map);
     if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
@@ -306,6 +309,7 @@ pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) vo
     self.drowned = false;
     self.base.in_water = game_physics.isBoxInMaterial(world_map, self.base.boundingBox().expand(0, -0.4, 0), .water);
     self.updateFire(world_map);
+    self.hurtInVoid(world_map);
     self.updateAir(world_map);
     self.updateFallState(world_map, dy);
     self.hurtOnCactus(world_map);
@@ -404,6 +408,10 @@ fn isWet(self: *const Player, world_map: *const world.World) bool {
 
 fn hurtOnCactus(self: *Player, world_map: *const world.World) void {
     if (game_physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.hurt(world_map, cactus_damage);
+}
+
+fn hurtInVoid(self: *Player, world_map: *const world.World) void {
+    if (self.base.position.y < void_floor) self.hurt(world_map, void_damage);
 }
 
 fn updateAir(self: *Player, world_map: *const world.World) void {
@@ -1119,6 +1127,18 @@ test "resting on the ground stays grounded" {
     player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
+}
+
+test "the void grinds a falling player down to nothing" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, -70, 8));
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(@as(i32, 16), player.health);
+
+    for (0..100) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(player.isDead());
 }
 
 test "a cactus pricks the player perched on it" {
