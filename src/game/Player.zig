@@ -166,7 +166,7 @@ pub fn spawn(position: math.Vec3) Player {
 
 pub const ride_push_speed: f64 = air_speed;
 
-pub fn tickRidden(self: *Player, strafe: f32, forward: f32) void {
+pub fn tickRidden(self: *Player, world_map: *const world.World, strafe: f32, forward: f32) void {
     self.base.beginTick();
     self.jumped = false;
     self.drowned = false;
@@ -188,6 +188,11 @@ pub fn tickRidden(self: *Player, strafe: f32, forward: f32) void {
         0,
         @as(f64, dir[2]) * ride_push_speed,
     );
+
+    self.base.updateWaterState(world_map);
+    self.updateFire(world_map);
+    self.hurtInVoid(world_map);
+    self.updateAir(world_map);
 
     if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
@@ -1127,6 +1132,23 @@ test "resting on the ground stays grounded" {
     player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
+}
+
+test "a rider still burns in lava and still falls out of the world" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(.init(8, 1, 8), .stationary_lava);
+
+    var burning = Player.spawn(math.Vec3.init(8, 1, 8));
+    burning.riding = 1;
+    burning.tickRidden(&w, 0, 0);
+    try std.testing.expectEqual(@as(i32, 16), burning.health);
+    try std.testing.expectEqual(lava_fire_ticks, burning.fire);
+
+    var falling = Player.spawn(math.Vec3.init(8, -70, 8));
+    falling.riding = 1;
+    falling.tickRidden(&w, 0, 0);
+    try std.testing.expectEqual(@as(i32, 16), falling.health);
 }
 
 test "the void grinds a falling player down to nothing" {

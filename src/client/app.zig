@@ -3012,7 +3012,7 @@ fn tick(app_state: *AppState) !void {
     const before_move = app_state.player.base.position;
     const was_in_water = app_state.player.base.in_water;
     if (app_state.player.riding != game.Entity.no_id) {
-        app_state.player.tickRidden(strafe, forward);
+        app_state.player.tickRidden(&app_state.level.world_map, strafe, forward);
         if (moving_allowed and app_state.keys.sneak) dismount(app_state);
     } else {
         app_state.player.tick(
