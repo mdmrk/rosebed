@@ -491,6 +491,16 @@ fn enterLevel(gpa: std.mem.Allocator, level: *Level, player: *Player) !void {
     try level.enter(gpa, player);
 }
 
+fn spawnJockey(gpa: std.mem.Allocator, level: *Level) !struct { spider: *Animal, skeleton: *Animal } {
+    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
+    try level.entities.spawnSkeleton(gpa, math.Vec3.init(4.5, 6, 4.5));
+
+    const spider = level.entities.mobs.items[0].animal;
+    const skeleton = level.entities.mobs.items[1].animal;
+    skeleton.riding = spider.base.id;
+    return .{ .spider = spider, .skeleton = skeleton };
+}
+
 test "a level tick advances the world clock and its own tick count" {
     const gpa = std.testing.allocator;
     var arena: std.heap.ArenaAllocator = .init(gpa);
@@ -932,12 +942,9 @@ test "a jockey's skeleton is carried on its spider's back every tick" {
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
-    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
-    try level.entities.spawnSkeleton(gpa, math.Vec3.init(4.5, 6, 4.5));
-
-    const spider = level.entities.mobs.items[0].animal;
-    const skeleton = level.entities.mobs.items[1].animal;
-    skeleton.riding = spider.base.id;
+    const jockey = try spawnJockey(gpa, &level);
+    const spider = jockey.spider;
+    const skeleton = jockey.skeleton;
 
     for (0..10) |_| {
         try level.tick(gpa, arena.allocator());
@@ -955,12 +962,9 @@ test "a jockey steps off when its spider dies, and stays where it was let down" 
 
     var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
     try enterLevel(gpa, &level, &player);
-    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
-    try level.entities.spawnSkeleton(gpa, math.Vec3.init(4.5, 6, 4.5));
-
-    const spider = level.entities.mobs.items[0].animal;
-    const skeleton = level.entities.mobs.items[1].animal;
-    skeleton.riding = spider.base.id;
+    const jockey = try spawnJockey(gpa, &level);
+    const spider = jockey.spider;
+    const skeleton = jockey.skeleton;
     try level.tick(gpa, arena.allocator());
 
     const seat = skeleton.base.position;

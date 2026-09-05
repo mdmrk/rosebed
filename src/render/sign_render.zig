@@ -6,8 +6,8 @@ const BlockPos = world.BlockPos;
 
 const Font = @import("Font.zig");
 const item_lighting = @import("item_lighting.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
 const mesh_testing = @import("mesh_testing.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
 pub const texture_width: f32 = 64;

@@ -10,8 +10,8 @@ const chunk_mesher = @import("chunk_mesher.zig");
 const Colorizer = @import("Colorizer.zig");
 const held_item = @import("held_item.zig");
 const item_lighting = @import("item_lighting.zig");
-const MeshBuilder = @import("MeshBuilder.zig");
 const mesh_testing = @import("mesh_testing.zig");
+const MeshBuilder = @import("MeshBuilder.zig");
 const mob_model = @import("mob_model.zig");
 
 const white = [4]u8{ 255, 255, 255, 255 };
@@ -425,21 +425,30 @@ pub fn appendFallingBlock(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map:
     mesh.scaleColors(first_vertex, brightnessOf(world_map, block.base));
 }
 
-pub fn appendPrimedTnt(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, lit: game.PrimedTnt, partial_ticks: f32) !void {
-    const first_vertex = mesh.vertices.items.len;
+fn tntBox(lit: game.PrimedTnt, partial_ticks: f32) struct { min: [3]f32, max: [3]f32, half: f32 } {
     const pos = lit.center(partial_ticks);
     const half = 0.5 * lit.swellScale(partial_ticks);
     const cx: f32 = @floatCast(pos.x);
     const cy: f32 = @floatCast(pos.y);
     const cz: f32 = @floatCast(pos.z);
+    return .{
+        .min = .{ cx - half, cy - half, cz - half },
+        .max = .{ cx + half, cy + half, cz + half },
+        .half = half,
+    };
+}
+
+pub fn appendPrimedTnt(mesh: *MeshBuilder, gpa: std.mem.Allocator, world_map: *const world.World, lit: game.PrimedTnt, partial_ticks: f32) !void {
+    const first_vertex = mesh.vertices.items.len;
+    const box = tntBox(lit, partial_ticks);
 
     try chunk_mesher.buildCube(
         mesh,
         gpa,
-        .{ cx - half, cy - half, cz - half },
-        .{ cx + half, cy + half, cz + half },
+        box.min,
+        box.max,
         world.Block.tnt.faceTextures(),
-        world.Block.tnt.sideInset() * half * 2.0,
+        world.Block.tnt.sideInset() * box.half * 2.0,
     );
 
     mesh.scaleColors(first_vertex, brightnessOf(world_map, lit.base));
@@ -450,17 +459,13 @@ pub fn appendPrimedTntFlash(mesh: *MeshBuilder, gpa: std.mem.Allocator, lit: gam
     if (flash <= 0.0) return;
 
     const first_vertex = mesh.vertices.items.len;
-    const pos = lit.center(partial_ticks);
-    const half = 0.5 * lit.swellScale(partial_ticks);
-    const cx: f32 = @floatCast(pos.x);
-    const cy: f32 = @floatCast(pos.y);
-    const cz: f32 = @floatCast(pos.z);
+    const box = tntBox(lit, partial_ticks);
 
     try chunk_mesher.buildCube(
         mesh,
         gpa,
-        .{ cx - half, cy - half, cz - half },
-        .{ cx + half, cy + half, cz + half },
+        box.min,
+        box.max,
         world.Block.tnt.faceTextures(),
         0,
     );

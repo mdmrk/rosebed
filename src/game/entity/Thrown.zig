@@ -5,8 +5,8 @@ const world = @import("world");
 
 const Entity = @import("../Entity.zig");
 const Player = @import("../Player.zig");
-const projectile = @import("projectile.zig");
 const raycast = @import("../raycast.zig");
+const projectile = @import("projectile.zig");
 
 const Thrown = @This();
 

@@ -3428,6 +3428,28 @@ test "a retracted piston fills its block, an extended one comes up short" {
     try std.testing.expectApproxEqAbs(@as(f32, 12.0 / 16.0), meshExtent(extended, 1)[1], 1.0e-6);
 }
 
+fn buildPistonBase(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *world.World,
+    metadata: u4,
+    facing: world.Side,
+) !void {
+    const view = world.ChunkView.around(world_map, 0, 0);
+    try buildBoundedBoxTurned(
+        mesh,
+        gpa,
+        &view,
+        .piston,
+        world.block.pistonBaseBounds(metadata),
+        world.block.pistonBaseTextures(.piston, metadata),
+        facing,
+        .init(0, 0, 0),
+        .{ 0, 0, 0 },
+        .{},
+    );
+}
+
 test "an extended piston loses the collar off its sides, the head having taken it" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
@@ -3442,19 +3464,7 @@ test "an extended piston loses the collar off its sides, the head having taken i
 
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
-        const view = world.ChunkView.around(&world_map, 0, 0);
-        try buildBoundedBoxTurned(
-            &mesh,
-            gpa,
-            &view,
-            .piston,
-            world.block.pistonBaseBounds(metadata),
-            world.block.pistonBaseTextures(.piston, metadata),
-            facing,
-            .init(0, 0, 0),
-            .{ 0, 0, 0 },
-            .{},
-        );
+        try buildPistonBase(&mesh, gpa, &world_map, metadata, facing);
 
         const along = facing.step();
         const axis: usize = if (along[0] != 0) 0 else if (along[1] != 0) 1 else 2;
@@ -3493,19 +3503,7 @@ test "the collar on a piston's sides always points the way the piston faces" {
 
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
-        const view = world.ChunkView.around(&world_map, 0, 0);
-        try buildBoundedBoxTurned(
-            &mesh,
-            gpa,
-            &view,
-            .piston,
-            world.block.pistonBaseBounds(metadata),
-            world.block.pistonBaseTextures(.piston, metadata),
-            facing,
-            .init(0, 0, 0),
-            .{ 0, 0, 0 },
-            .{},
-        );
+        try buildPistonBase(&mesh, gpa, &world_map, metadata, facing);
 
         const along = facing.step();
         const axis: usize = if (along[0] != 0) 0 else if (along[1] != 0) 1 else 2;

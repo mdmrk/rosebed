@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const game = @import("game");
-const gl = @import("gl");
 
 const Atlas = @import("../Atlas.zig");
 const gui = @import("../gui.zig");
@@ -97,14 +96,11 @@ pub fn isOutside(mouse_x: f32, mouse_y: f32, res: gui.Scaled, box_height: f32) b
 }
 
 pub fn begin() void {
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 }
 
 pub fn end() void {
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 pub fn drawVeil(ui: gui.Ui) !void {

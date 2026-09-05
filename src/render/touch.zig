@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
-
 const Atlas = @import("Atlas.zig");
 const Font = @import("Font.zig");
 const gui = @import("gui.zig");
@@ -115,9 +113,7 @@ pub const State = struct {
 };
 
 pub fn draw(ui: gui.Ui, state: State, atlas: Atlas) !void {
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var sprites: MeshBuilder = .{};
     defer sprites.deinit(ui.gpa);

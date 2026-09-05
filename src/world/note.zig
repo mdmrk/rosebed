@@ -5,8 +5,8 @@ const assets = @import("assets");
 const block = @import("block.zig");
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
-const tile = @import("tile.zig");
 const testing_world = @import("testing.zig");
+const tile = @import("tile.zig");
 const World = @import("World.zig");
 
 pub const id_key = "Music";

@@ -19,3 +19,12 @@ pub fn fromStack(stack: ?net.packet.Stack) ?world.Stack {
         .meta = @bitCast(held.damage),
     };
 }
+
+pub fn signPacket(pos: world.BlockPos, post: *const world.sign.Sign) net.packet.Packet {
+    return .{ .update_sign = .{
+        .x = pos.x,
+        .y = @intCast(pos.y),
+        .z = pos.z,
+        .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
+    } };
+}

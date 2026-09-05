@@ -8,6 +8,11 @@ const World = @import("../World.zig");
 const caves = @import("caves.zig");
 const Climate = @import("Climate.zig");
 const decorate = @import("decorate.zig");
+const density = @import("density.zig");
+const density_x = density.size_x;
+const density_y = density.size_y;
+const density_z = density.size_z;
+const densityIndex = density.index;
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
 
@@ -27,11 +32,6 @@ pub const temperature: f64 = 1.0;
 pub const humidity: f64 = 0.0;
 
 const lava_level: u32 = 32;
-const density = @import("density.zig");
-const density_x = density.size_x;
-const density_y = density.size_y;
-const density_z = density.size_z;
-const densityIndex = density.index;
 const surface_level: i32 = 64;
 
 pub fn init(gpa: std.mem.Allocator, seed: i64) !NetherGenerator {
@@ -109,18 +109,7 @@ fn computeDensityField(self: NetherGenerator, out: *[density_x * density_y * den
         for (0..density_z) |iz| {
             for (0..density_y) |iy| {
                 const idx = densityIndex(ix, iz, iy);
-                const lower = main_field[idx] / 512.0;
-                const upper = upper_field[idx] / 512.0;
-                const blend = (blend_field[idx] / 10.0 + 1.0) / 2.0;
-
-                var value: f64 = undefined;
-                if (blend < 0.0) {
-                    value = lower;
-                } else if (blend > 1.0) {
-                    value = upper;
-                } else {
-                    value = lower + (upper - lower) * blend;
-                }
+                var value = density.blend(main_field[idx], upper_field[idx], blend_field[idx]);
                 value -= pillar[iy];
 
                 if (iy > density_y - 4) {

@@ -1,5 +1,3 @@
-const gl = @import("gl");
-
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 
@@ -11,9 +9,7 @@ pub const bar_width: f32 = 100;
 pub const bar_height: f32 = 2;
 
 pub fn draw(ui: gui.Ui, title: []const u8, subtitle: []const u8, progress: ?i32) !void {
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawDirtBackground(ui);
 
@@ -41,6 +37,5 @@ pub fn draw(ui: gui.Ui, title: []const u8, subtitle: []const u8, progress: ?i32)
 
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }

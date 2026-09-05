@@ -2,7 +2,6 @@ const std = @import("std");
 
 const game = @import("game");
 const stats = game.stats;
-const gl = @import("gl");
 const world = @import("world");
 
 const Atlas = @import("../Atlas.zig");
@@ -231,9 +230,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, state: State) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
-    for (buttons(res, state)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
-    }
+    const list = buttons(res, state);
+    if (button.indexAt(list, gx, gy)) |index| return list[index].hit;
 
     if (state.tab == .general) return null;
     if (gy < list_top or gy > listBottom(res)) return null;
@@ -318,9 +316,7 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     const bottom = listBottom(ui.res);
     const left = contentLeft(ui.res);
@@ -447,22 +443,17 @@ pub fn draw(ui: gui.Ui, state: State, source: *const stats.Stats) !void {
 
     var overlay_text: MeshBuilder = .{};
     defer overlay_text.deinit(ui.gpa);
-    for (buttons(ui.res, state)) |entry| {
-        const hovered = entry.button.enabled and button.contains(entry.button, gx, gy);
-        try button.append(&overlays, &overlay_text, ui.gpa, ui.font, entry.button, hovered, ui.res);
-    }
+    try button.appendAll(&overlays, &overlay_text, ui.gpa, ui.font, buttons(ui.res, state), gx, gy, ui.res);
 
     const title = "Statistics";
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&overlay_text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, ui.res);
+    try gui.appendCenteredText(&overlay_text, ui.gpa, ui.font, title, 20, title_color, ui.res);
 
     try gui.drawTexturedMesh(&overlays, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&overlay_text, ui.shader, ui.font);
 
     if (tooltipText(ui, state)) |text| try drawTooltip(ui, text);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 fn appendScrollbar(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, state: State) !void {

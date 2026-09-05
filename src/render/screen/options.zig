@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const game = @import("game");
-const gl = @import("gl");
 
 const button = @import("../button.zig");
 const Font = @import("../Font.zig");
@@ -45,11 +44,8 @@ fn controls(scaled_width: f32, scaled_height: f32) [8 + extra_controls]Control {
 pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Hit {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
-    for (controls(res.width, res.height)) |control| {
-        if (button.contains(control, gx, gy)) {
-            return control.hit;
-        }
-    }
+    const list = controls(res.width, res.height);
+    if (button.indexAt(list, gx, gy)) |index| return list[index].hit;
     return null;
 }
 
@@ -122,9 +118,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawBackdrop(ui, backdrop);
 
@@ -151,14 +145,12 @@ pub fn draw(
     }
 
     const title = "Options";
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 20, title_color, ui.res);
 
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "clicking Done returns the done hit" {

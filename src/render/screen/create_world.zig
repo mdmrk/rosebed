@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
-
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
@@ -94,9 +92,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, state: *const State) ?
     if (text_field.contains(nameRect(res), gx, gy)) return .name_field;
     if (state.mode == .create and text_field.contains(seedRect(res), gx, gy)) return .seed_field;
 
-    for (buttons(res, state.mode, state.name.text().len > 0)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
-    }
+    const list = buttons(res, state.mode, state.name.text().len > 0);
+    if (button.indexAt(list, gx, gy)) |index| return list[index].hit;
     return null;
 }
 
@@ -104,9 +101,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawDirtBackground(ui);
 
@@ -115,10 +110,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
     var text: MeshBuilder = .{};
     defer text.deinit(ui.gpa);
 
-    for (buttons(ui.res, state.mode, state.name.text().len > 0)) |entry| {
-        const hovered = entry.button.enabled and button.contains(entry.button, gx, gy);
-        try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
-    }
+    try button.appendAll(&backgrounds, &text, ui.gpa, ui.font, buttons(ui.res, state.mode, state.name.text().len > 0), gx, gy, ui.res);
 
     try text_field.append(&backgrounds, &text, ui.gpa, ui.font, &state.name, nameRect(ui.res), ui.res);
     if (state.mode == .create) {
@@ -130,8 +122,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
         .create => "Create New World",
         .rename => "Rename World",
     };
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), @floor(ui.res.height / 4.0) - 60 + 20, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, @floor(ui.res.height / 4.0) - 60 + 20, title_color, ui.res);
 
     try gui.appendTextColor(&text, ui.gpa, ui.font, "World Name", left, 47, label_color, ui.res);
 
@@ -146,8 +137,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 pub fn seedFromText(text: []const u8, fallback: i64) i64 {

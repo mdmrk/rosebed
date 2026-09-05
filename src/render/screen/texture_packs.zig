@@ -1,14 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const gl = @import("gl");
-
 const Atlas = @import("../Atlas.zig");
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
-const scroll_list = @import("scroll_list.zig");
 const texture_pack = @import("../texture_pack.zig");
+const scroll_list = @import("scroll_list.zig");
+const list_top = scroll_list.list_top;
+pub const entry_height = scroll_list.entry_height;
+const entry_padding = scroll_list.entry_padding;
+const entry_half_width = scroll_list.entry_half_width;
 
 const wasm = builtin.cpu.arch.isWasm();
 const android = builtin.abi == .android or builtin.abi == .androideabi;
@@ -34,10 +36,6 @@ pub const Hit = union(enum) {
     done,
 };
 
-const list_top = scroll_list.list_top;
-pub const entry_height = scroll_list.entry_height;
-const entry_padding = scroll_list.entry_padding;
-const entry_half_width = scroll_list.entry_half_width;
 const scrollbar_offset: f32 = 124;
 
 const list = scroll_list.List(list_bottom_margin);
@@ -64,9 +62,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
-    for (buttons(res)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
-    }
+    const bar = buttons(res);
+    if (button.indexAt(bar, gx, gy)) |index| return bar[index].hit;
 
     if (list.rowAt(gx, gy, res, count, scroll)) |index| return .{ .entry = index };
     return null;
@@ -84,9 +81,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     const bottom = listBottom(ui.res);
     const cx = @floor(ui.res.width / 2.0);
@@ -149,8 +144,7 @@ pub fn draw(
         try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
     }
 
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, cx - @floor(title_width / 2.0), 16, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 16, title_color, ui.res);
 
     const info_width: f32 = @floatFromInt(ui.font.stringWidth(folder_info));
     try gui.appendTextColor(&text, ui.gpa, ui.font, folder_info, cx - 77 - @floor(info_width / 2.0), ui.res.height - 26, folder_info_color, ui.res);
@@ -158,8 +152,7 @@ pub fn draw(
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 fn rowClickY(res: gui.Scaled, index: usize) f32 {

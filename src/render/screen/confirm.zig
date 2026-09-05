@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
-
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
@@ -33,9 +31,7 @@ pub fn draw(ui: gui.Ui, title: []const u8, message: []const u8, confirm_label: [
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawDirtBackground(ui);
 
@@ -48,18 +44,13 @@ pub fn draw(ui: gui.Ui, title: []const u8, message: []const u8, confirm_label: [
         try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, button.contains(entry.button, gx, gy), ui.res);
     }
 
-    const cx = @floor(ui.res.width / 2.0);
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, cx - @floor(title_width / 2.0), 70, title_color, ui.res);
-
-    const message_width: f32 = @floatFromInt(ui.font.stringWidth(message));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, message, cx - @floor(message_width / 2.0), 90, message_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 70, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, message, 90, message_color, ui.res);
 
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "the confirm and cancel buttons sit side by side" {

@@ -25,6 +25,30 @@ fn hoverState(button: Button, hovered: bool) f32 {
     return 1;
 }
 
+pub fn indexAt(entries: anytype, gx: f32, gy: f32) ?usize {
+    for (entries, 0..) |entry, index| {
+        const box = if (@hasField(@TypeOf(entry), "button")) entry.button else entry;
+        if (@hasField(@TypeOf(box), "enabled") and !box.enabled) continue;
+        if (contains(box, gx, gy)) return index;
+    }
+    return null;
+}
+
+pub fn appendAll(
+    bg: *MeshBuilder,
+    text: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    font: Font,
+    entries: anytype,
+    gx: f32,
+    gy: f32,
+    res: gui.Scaled,
+) !void {
+    for (entries) |entry| {
+        try append(bg, text, gpa, font, entry.button, entry.button.enabled and contains(entry.button, gx, gy), res);
+    }
+}
+
 pub fn appendBackground(
     bg: *MeshBuilder,
     gpa: std.mem.Allocator,

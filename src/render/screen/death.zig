@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
-
 const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
@@ -36,9 +34,7 @@ pub fn draw(ui: gui.Ui) !void {
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var backgrounds: MeshBuilder = .{};
     defer backgrounds.deinit(ui.gpa);
@@ -63,14 +59,12 @@ pub fn draw(ui: gui.Ui) !void {
     }
 
     const title = "Game over!";
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 30, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 30, title_color, ui.res);
 
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "respawn sits above the title menu button" {

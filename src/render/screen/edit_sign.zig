@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
 const world = @import("world");
 
 const button = @import("../button.zig");
@@ -87,9 +86,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawBackdrop(ui, .veil);
 
@@ -101,17 +98,7 @@ pub fn draw(
     const done = doneButton(ui.res);
     try button.append(&backgrounds, &text, ui.gpa, ui.font, done, button.contains(done, gx, gy), ui.res);
 
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(
-        &text,
-        ui.gpa,
-        ui.font,
-        title,
-        @floor(ui.res.width / 2.0) - @floor(title_width / 2.0),
-        title_y,
-        title_color,
-        ui.res,
-    );
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, title_y, title_color, ui.res);
 
     const turn = sign_render.blockAngle(id, metadata) * std.math.pi / 180.0 + std.math.pi;
 
@@ -150,8 +137,7 @@ pub fn draw(
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "the edit cursor walks the four lines and wraps at both ends" {

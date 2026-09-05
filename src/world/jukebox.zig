@@ -3,8 +3,8 @@ const std = @import("std");
 const BlockPos = @import("BlockPos.zig");
 const Item = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
-const tile = @import("tile.zig");
 const testing_world = @import("testing.zig");
+const tile = @import("tile.zig");
 const World = @import("World.zig");
 
 pub const id_key = "RecordPlayer";

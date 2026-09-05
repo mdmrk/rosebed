@@ -3,6 +3,7 @@ const std = @import("std");
 const Block = @import("block.zig").Block;
 const Chunk = @import("Chunk.zig");
 const nbt = @import("nbt.zig");
+const put = nbt.putDuped;
 
 pub const level_key = "Level";
 
@@ -12,8 +13,6 @@ pub const Error = error{
     WrongFieldType,
     WrongArrayLength,
 };
-
-const put = nbt.putDuped;
 
 fn field(compound: nbt.Compound, key: []const u8) !nbt.Tag {
     return compound.get(key) orelse Error.MissingField;

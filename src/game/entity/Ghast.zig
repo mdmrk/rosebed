@@ -283,18 +283,6 @@ pub fn takeDrops(self: *Ghast) ?Drops {
     return drops;
 }
 
-pub fn attackScale(self: Ghast, partial_ticks: f32) [3]f32 {
-    const counter = @as(f32, @floatFromInt(self.prev_attack_counter)) +
-        @as(f32, @floatFromInt(self.attack_counter - self.prev_attack_counter)) * partial_ticks;
-
-    var charge = @max(counter / 20.0, 0.0);
-    charge = 1.0 / (charge * charge * charge * charge * charge * 2.0 + 1.0);
-
-    const tall = (8.0 + charge) / 2.0;
-    const wide = (8.0 + 1.0 / charge) / 2.0;
-    return .{ wide, tall, wide };
-}
-
 pub fn toRecord(self: Ghast) world.entity_nbt.Ghast {
     return .{ .living = self.animal.toRecord() };
 }

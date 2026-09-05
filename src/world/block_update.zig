@@ -440,11 +440,6 @@ pub fn placeBed(world_map: *World, pos: BlockPos, yaw: f32) !bool {
     return true;
 }
 
-pub fn breakBedPartner(world_map: *World, pos: BlockPos) !void {
-    const other = bedPartner(world_map, pos) orelse return;
-    try world_map.setBlockWithNotify(.init(other[0], other[1], other[2]), .air);
-}
-
 pub const Placement = struct {
     pos: BlockPos,
     face: block.Side,

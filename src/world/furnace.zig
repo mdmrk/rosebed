@@ -6,6 +6,7 @@ const Stack = block.Stack;
 const BlockPos = @import("BlockPos.zig");
 const item = @import("item.zig");
 const nbt = @import("nbt.zig");
+const put = nbt.putDuped;
 const tile = @import("tile.zig");
 
 pub const id_key = "Furnace";
@@ -130,8 +131,6 @@ pub const Furnace = struct {
         };
     }
 };
-
-const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Furnace) !nbt.Tag {
     var compound: nbt.Compound = .{};

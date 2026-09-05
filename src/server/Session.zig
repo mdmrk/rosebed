@@ -286,17 +286,7 @@ pub fn collectWorldPeers(
     for (level.entities.mobs.items) |entry| {
         try out.append(gpa, .{ .id = entry.animal.base.id, .body = .{ .mob = entry } });
     }
-    inline for (.{
-        .{ "items", "item" },
-        .{ "arrows", "arrow" },
-        .{ "fireballs", "fireball" },
-        .{ "thrown", "thrown" },
-        .{ "falling_blocks", "falling_block" },
-        .{ "primed", "primed_tnt" },
-        .{ "boats", "boat" },
-        .{ "minecarts", "minecart" },
-        .{ "hooks", "hook" },
-    }) |pair| {
+    inline for (game.Entities.wire_kinds) |pair| {
         for (@field(level.entities, pair[0]).items) |*entity| {
             try out.append(gpa, .{ .id = entity.base.id, .body = @unionInit(Peer.Body, pair[1], entity) });
         }
@@ -2233,12 +2223,7 @@ pub fn sendSign(
     post: *const world.sign.Sign,
 ) !void {
     if (self.state != .playing) return;
-    try self.send(gpa, .{ .update_sign = .{
-        .x = pos.x,
-        .y = @intCast(pos.y),
-        .z = pos.z,
-        .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
-    } });
+    try self.send(gpa, game.wire.signPacket(pos, post));
 }
 
 pub fn seesChunkAt(self: *const Session, x: i32, z: i32) bool {
@@ -2276,6 +2261,16 @@ fn testLevel(gpa: std.mem.Allocator) !game.Level {
     errdefer level.deinit(gpa);
     level.spawn = .{ 8, 64, 8 };
     return level;
+}
+
+fn login(gpa: std.mem.Allocator, level: *game.Level, session: *Session) !void {
+    try session.handle(gpa, level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = 0,
+        .dimension = 0,
+    } });
 }
 
 fn drain(gpa: std.mem.Allocator, session: *Session, out: *std.ArrayList(net.packet.Packet)) !void {
@@ -2324,13 +2319,7 @@ test "a login on the right protocol is answered with the joining sequence" {
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
 
-    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
-    try session.handle(gpa, &level, .{ .login = .{
-        .protocol_version = net.packet.protocol_version,
-        .username = "Steve",
-        .map_seed = 0,
-        .dimension = 0,
-    } });
+    try login(gpa, &level, &session);
 
     try std.testing.expectEqual(State.playing, session.state);
     try std.testing.expectEqualStrings("Steve", session.name.text());
@@ -2366,13 +2355,7 @@ test "a login carries the entity id the level handed the player" {
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
 
-    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
-    try session.handle(gpa, &level, .{ .login = .{
-        .protocol_version = net.packet.protocol_version,
-        .username = "Steve",
-        .map_seed = 0,
-        .dimension = 0,
-    } });
+    try login(gpa, &level, &session);
 
     var replies: std.ArrayList(net.packet.Packet) = .empty;
     defer freeAll(gpa, &replies);
@@ -2438,13 +2421,7 @@ test "the position the server sends puts the eye line in y and the feet in stanc
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
 
-    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
-    try session.handle(gpa, &level, .{ .login = .{
-        .protocol_version = net.packet.protocol_version,
-        .username = "Steve",
-        .map_seed = 0,
-        .dimension = 0,
-    } });
+    try login(gpa, &level, &session);
 
     var replies: std.ArrayList(net.packet.Packet) = .empty;
     defer freeAll(gpa, &replies);
@@ -2466,13 +2443,7 @@ test "a moving client drags its player along behind it" {
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
 
-    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
-    try session.handle(gpa, &level, .{ .login = .{
-        .protocol_version = net.packet.protocol_version,
-        .username = "Steve",
-        .map_seed = 0,
-        .dimension = 0,
-    } });
+    try login(gpa, &level, &session);
 
     try session.handle(gpa, &level, .{ .player_look_move = .{
         .x = 40.25,
@@ -2507,13 +2478,7 @@ test "a quiet client is prodded with a keep alive, a talkative one is left alone
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
 
-    try session.handle(gpa, &level, .{ .handshake = .{ .username = "Steve" } });
-    try session.handle(gpa, &level, .{ .login = .{
-        .protocol_version = net.packet.protocol_version,
-        .username = "Steve",
-        .map_seed = 0,
-        .dimension = 0,
-    } });
+    try login(gpa, &level, &session);
     const joining = try session.takeOutbox(gpa);
     gpa.free(joining);
 

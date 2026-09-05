@@ -1,6 +1,10 @@
 const std = @import("std");
 
+const assets = @import("assets");
+const math = @import("math");
+
 const Block = @import("block.zig").Block;
+const BlockPos = @import("BlockPos.zig");
 const Chunk = @import("Chunk.zig");
 const World = @import("World.zig");
 
@@ -56,3 +60,22 @@ test "a zero-height floor still loads the chunk" {
     try std.testing.expect(w.getChunk(0, 0) != null);
     try std.testing.expectEqual(.air, w.getBlock(.init(8, 0, 8)));
 }
+
+pub const HeardSound = struct {
+    key: []const u8 = "",
+    volume: f32 = 0,
+    pitch: f32 = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
+        const self: *HeardSound = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.volume = volume;
+        self.pitch = pitch;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
+
+    pub fn sink(self: *HeardSound) World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};

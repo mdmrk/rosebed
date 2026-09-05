@@ -11,6 +11,7 @@ const deflate = @import("deflate.zig");
 const furnace = @import("furnace.zig");
 const generator = @import("gen/generator.zig");
 const nbt = @import("nbt.zig");
+const put = nbt.putDuped;
 const RegionFile = @import("RegionFile.zig");
 
 pub const saves_dir_name = "saves";
@@ -484,8 +485,6 @@ pub fn open(io: std.Io, saves_dir: std.Io.Dir, folder: []const u8) !Save {
 
     return .{ .dir = dir, .region_dir = region_dir, .lock_stamp = stamp };
 }
-
-const put = nbt.putDuped;
 
 fn doubleList(gpa: std.mem.Allocator, vector: math.Vec3) !nbt.Tag {
     const values = [3]f64{ vector.x, vector.y, vector.z };

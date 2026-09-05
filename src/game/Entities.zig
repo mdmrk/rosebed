@@ -62,6 +62,18 @@ blasts: std.ArrayList(Blast) = .empty,
 blast_blocks: std.ArrayList([3]i8) = .empty,
 next_entity_id: Entity.Id = 1,
 
+pub const wire_kinds = .{
+    .{ "items", "item" },
+    .{ "arrows", "arrow" },
+    .{ "fireballs", "fireball" },
+    .{ "thrown", "thrown" },
+    .{ "falling_blocks", "falling_block" },
+    .{ "primed", "primed_tnt" },
+    .{ "boats", "boat" },
+    .{ "minecarts", "minecart" },
+    .{ "hooks", "hook" },
+};
+
 pub const Collected = struct {
     item: Entity.Id,
     by: Entity.Id,
@@ -766,13 +778,7 @@ const throw_lift: f64 = 0.1;
 const throw_pickup_delay: u16 = 40;
 const player_hand_drop: f64 = 0.3 - 0.12;
 
-pub fn throwFromPlayer(
-    self: *Entities,
-    gpa: std.mem.Allocator,
-    player: *const Player,
-    stack: Inventory.ItemStack,
-    rand: *world.JavaRandom,
-) !void {
+fn droppedFromHand(player: *const Player, stack: Inventory.ItemStack, rand: *world.JavaRandom) ItemEntity {
     const position = math.Vec3.init(
         player.base.position.x,
         player.base.position.y + Player.eye_height - player_hand_drop,
@@ -780,6 +786,17 @@ pub fn throwFromPlayer(
     );
     var item = ItemEntity.spawn(position, stack, rand);
     item.pickup_delay = throw_pickup_delay;
+    return item;
+}
+
+pub fn throwFromPlayer(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    player: *const Player,
+    stack: Inventory.ItemStack,
+    rand: *world.JavaRandom,
+) !void {
+    var item = droppedFromHand(player, stack, rand);
 
     const look = player.lookVector();
     const angle = @as(f64, rand.nextFloat()) * std.math.pi * 2.0;
@@ -803,13 +820,7 @@ pub fn scatterFromPlayer(
     stack: Inventory.ItemStack,
     rand: *world.JavaRandom,
 ) !void {
-    const position = math.Vec3.init(
-        player.base.position.x,
-        player.base.position.y + Player.eye_height - player_hand_drop,
-        player.base.position.z,
-    );
-    var item = ItemEntity.spawn(position, stack, rand);
-    item.pickup_delay = throw_pickup_delay;
+    var item = droppedFromHand(player, stack, rand);
 
     const speed = @as(f64, rand.nextFloat()) * scatter_speed;
     const angle = @as(f64, rand.nextFloat()) * std.math.pi * 2.0;
@@ -3477,10 +3488,8 @@ test "a dispenser throws a snowball instead of dropping it" {
 
 test "a rolling empty cart scoops up a pig it runs into, and a chest cart does not" {
     const gpa = std.testing.allocator;
-    var w = try world.testing.flatWorld(gpa, 12);
+    var w = try railedWorld(gpa, 12);
     defer w.deinit();
-    var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
 
@@ -3497,17 +3506,17 @@ test "a rolling empty cart scoops up a pig it runs into, and a chest cart does n
     try std.testing.expectEqual(pig.animal.base.id, entities.minecartById(cart_id).?.rider);
 }
 
-fn railedWorld(gpa: std.mem.Allocator) !world.World {
+fn railedWorld(gpa: std.mem.Allocator, last_x: i32) !world.World {
     var w = try world.testing.flatWorld(gpa, 12);
     errdefer w.deinit();
     var step: i32 = 4;
-    while (step <= 14) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
+    while (step <= last_x) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
     return w;
 }
 
 test "a cart is stopped by whatever is standing on the track, not driven through it" {
     const gpa = std.testing.allocator;
-    var w = try railedWorld(gpa);
+    var w = try railedWorld(gpa, 14);
     defer w.deinit();
     var rand = world.JavaRandom.init(3);
 
@@ -3570,10 +3579,8 @@ test "boarding one cart empties the seat you left behind" {
 
 test "a wrecked cart sets its passenger down on top of where it stood" {
     const gpa = std.testing.allocator;
-    var w = try world.testing.flatWorld(gpa, 12);
+    var w = try railedWorld(gpa, 12);
     defer w.deinit();
-    var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
     var entities: Entities = .{};
@@ -3599,10 +3606,8 @@ test "a wrecked cart sets its passenger down on top of where it stood" {
 
 test "a chest cart bumps a pig aside instead of carrying it" {
     const gpa = std.testing.allocator;
-    var w = try world.testing.flatWorld(gpa, 12);
+    var w = try railedWorld(gpa, 12);
     defer w.deinit();
-    var step: i32 = 4;
-    while (step <= 12) : (step += 1) try w.setBlockWithNotify(.init(step, 12, 8), .rail);
 
     var rand = world.JavaRandom.init(3);
 

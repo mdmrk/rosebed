@@ -1,8 +1,5 @@
 const std = @import("std");
 
-const assets = @import("assets");
-const math = @import("math");
-
 const block = @import("block.zig");
 const Block = block.Block;
 const block_update = @import("block_update.zig");
@@ -256,31 +253,12 @@ test "bare farmland under a crop stays farmland even when it dries out" {
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 11, 8)));
 }
 
-const HeardSound = struct {
-    key: []const u8 = "",
-    volume: f32 = 0,
-    pitch: f32 = 0,
-
-    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
-        const self: *HeardSound = @ptrCast(@alignCast(context));
-        self.key = sound.key;
-        self.volume = volume;
-        self.pitch = pitch;
-    }
-
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
-
-    fn sink(self: *HeardSound) World.SoundSink {
-        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
-    }
-};
-
 test "tilling is heard as farmland's own footfall" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
     w.setBlock(.init(8, 11, 8), .dirt);
 
-    var heard: HeardSound = .{};
+    var heard: testing_world.HeardSound = .{};
     w.sound_sink = heard.sink();
 
     try std.testing.expect(try till(&w, .init(8, 11, 8), .up));

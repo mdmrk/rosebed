@@ -1088,23 +1088,27 @@ test "an armour layer poses exactly like the skin under it" {
         try std.testing.expectEqual(base.pivot, layer.pivot);
     }
 }
-test "ModelBoat's hull and four walls close into a boat" {
-    const gpa = std.testing.allocator;
-
-    var bounds: [5][2][3]f32 = undefined;
-    for (boat.parts, &bounds) |part, *out| {
+fn measurePartBounds(gpa: std.mem.Allocator, parts: anytype, out: [][2][3]f32) !void {
+    for (parts, out) |part, *bound| {
         var mesh: MeshBuilder = .{};
         defer mesh.deinit(gpa);
         try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
         try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
 
-        out[0] = .{ 1000, 1000, 1000 };
-        out[1] = .{ -1000, -1000, -1000 };
+        bound[0] = .{ 1000, 1000, 1000 };
+        bound[1] = .{ -1000, -1000, -1000 };
         for (mesh.vertices.items) |v| {
-            out[0] = .{ @min(out[0][0], v.x), @min(out[0][1], v.y), @min(out[0][2], v.z) };
-            out[1] = .{ @max(out[1][0], v.x), @max(out[1][1], v.y), @max(out[1][2], v.z) };
+            bound[0] = .{ @min(bound[0][0], v.x), @min(bound[0][1], v.y), @min(bound[0][2], v.z) };
+            bound[1] = .{ @max(bound[1][0], v.x), @max(bound[1][1], v.y), @max(bound[1][2], v.z) };
         }
     }
+}
+
+test "ModelBoat's hull and four walls close into a boat" {
+    const gpa = std.testing.allocator;
+
+    var bounds: [5][2][3]f32 = undefined;
+    try measurePartBounds(gpa, boat.parts, &bounds);
 
     const tol: f32 = 1.0e-5;
     const hull = bounds[0];
@@ -1134,19 +1138,7 @@ test "ModelMinecart's floor, four walls and inner plate close into a cart" {
     const gpa = std.testing.allocator;
 
     var bounds: [6][2][3]f32 = undefined;
-    for (minecart.parts, &bounds) |part, *out| {
-        var mesh: MeshBuilder = .{};
-        defer mesh.deinit(gpa);
-        try appendPart(&mesh, gpa, part, 64, 32, .{ .position = .{ 0, 0, 0 }, .yaw = 0 }, .{});
-        try std.testing.expectEqual(@as(usize, 24), mesh.vertices.items.len);
-
-        out[0] = .{ 1000, 1000, 1000 };
-        out[1] = .{ -1000, -1000, -1000 };
-        for (mesh.vertices.items) |v| {
-            out[0] = .{ @min(out[0][0], v.x), @min(out[0][1], v.y), @min(out[0][2], v.z) };
-            out[1] = .{ @max(out[1][0], v.x), @max(out[1][1], v.y), @max(out[1][2], v.z) };
-        }
-    }
+    try measurePartBounds(gpa, minecart.parts, &bounds);
 
     const tol: f32 = 1.0e-5;
     const floor = bounds[0];

@@ -5,6 +5,7 @@ const math = @import("math");
 const block = @import("block.zig");
 const ItemId = @import("item.zig").Item;
 const nbt = @import("nbt.zig");
+const put = nbt.putDuped;
 
 pub const pig_id = "Pig";
 pub const sheep_id = "Sheep";
@@ -173,8 +174,6 @@ pub const Minecart = struct {
     push: [2]f64 = .{ 0, 0 },
     items: [minecart_slots]?block.Stack = @splat(null),
 };
-
-const put = nbt.putDuped;
 
 fn doubleList(gpa: std.mem.Allocator, vector: math.Vec3) !nbt.Tag {
     const values = [3]f64{ vector.x, vector.y, vector.z };

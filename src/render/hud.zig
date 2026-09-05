@@ -83,9 +83,7 @@ pub fn draw(
     const hotbar_x = @floor(ui.res.width / 2.0) - hotbar_width / 2.0;
     const hotbar_y = ui.res.height - hotbar_height;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var chrome: MeshBuilder = .{};
     defer chrome.deinit(ui.gpa);
@@ -183,8 +181,7 @@ pub fn draw(
         try gui.drawTexturedMesh(&veil, ui.shader, ui.textures.gui);
     }
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "a full lungful shows ten whole bubbles and none popping" {

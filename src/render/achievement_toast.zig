@@ -2,7 +2,6 @@ const std = @import("std");
 
 const game = @import("game");
 const achievements = game.achievements;
-const gl = @import("gl");
 
 const Atlas = @import("Atlas.zig");
 const gui = @import("gui.zig");
@@ -83,9 +82,7 @@ pub fn draw(ui: gui.Ui, state: State, now_ms: f64, inventory_key: []const u8) !v
     const x = ui.res.width - window_width;
     const y: f32 = @floatCast(slideOffset(state.progress(now_ms)));
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var window: MeshBuilder = .{};
     defer window.deinit(ui.gpa);
@@ -134,8 +131,7 @@ pub fn draw(ui: gui.Ui, state: State, now_ms: f64, inventory_key: []const u8) !v
     try gui.drawTexturedMesh(&blocks, ui.shader, ui.textures.terrain);
     try gui.drawTexturedMesh(&items, ui.shader, ui.textures.items);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 fn argb(value: i32) [4]u8 {

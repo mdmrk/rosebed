@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
 const math = @import("math");
 
 const button = @import("button.zig");
@@ -31,9 +30,8 @@ fn entries(scaled_width: f32, scaled_height: f32) [5]Entry {
 pub fn actionAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
-    for (entries(res.width, res.height)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.action;
-    }
+    const list = entries(res.width, res.height);
+    if (button.indexAt(list, gx, gy)) |index| return list[index].action;
     return null;
 }
 
@@ -53,9 +51,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var backgrounds: MeshBuilder = .{};
     defer backgrounds.deinit(ui.gpa);
@@ -74,14 +70,12 @@ pub fn draw(
     }
 
     const title = "Game menu";
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 40, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 40, title_color, ui.res);
 
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "back to game resumes" {

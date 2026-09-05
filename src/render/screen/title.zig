@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const gl = @import("gl");
 const math = @import("math");
 
 const Atlas = @import("../Atlas.zig");
@@ -62,9 +61,8 @@ fn githubButton(scaled_width: f32, scaled_height: f32) button.Button {
 pub fn actionAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled) ?Action {
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
-    for (entries(res.width, res.height)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.action;
-    }
+    const list = entries(res.width, res.height);
+    if (button.indexAt(list, gx, gy)) |index| return list[index].action;
     if (wasm and button.contains(githubButton(res.width, res.height), gx, gy)) return .github;
     return null;
 }
@@ -78,9 +76,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawDirtBackground(ui);
 
@@ -136,8 +132,7 @@ pub fn draw(
         try gui.drawTexturedMesh(&mark, ui.shader, atlas);
     };
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 test "singleplayer is clickable and enters the world" {

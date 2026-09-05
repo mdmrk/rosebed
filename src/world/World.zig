@@ -28,6 +28,7 @@ const rail = @import("rail.zig");
 const redstone = @import("redstone.zig");
 const save = @import("save.zig");
 const sign = @import("sign.zig");
+const testing_world = @import("testing.zig");
 const tnt = @import("tnt.zig");
 const Weather = @import("Weather.zig");
 
@@ -786,11 +787,6 @@ pub fn addMobSpawner(self: *World, pos: BlockPos) !*mob_spawner.MobSpawner {
     return entry.value_ptr;
 }
 
-pub fn removeMobSpawner(self: *World, pos: BlockPos) ?mob_spawner.MobSpawner {
-    const removed = self.mob_spawners.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
-    return removed.value;
-}
-
 pub fn forgetOrphanSpawners(self: *World) !void {
     self.spawner_updates.clearRetainingCapacity();
 
@@ -1445,25 +1441,6 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
     }
 }
 
-const HeardSound = struct {
-    key: []const u8 = "",
-    volume: f32 = 0,
-    pitch: f32 = 0,
-
-    fn record(context: *anyopaque, sound: assets.Sound, _: math.Vec3, volume: f32, pitch: f32) void {
-        const self: *HeardSound = @ptrCast(@alignCast(context));
-        self.key = sound.key;
-        self.volume = volume;
-        self.pitch = pitch;
-    }
-
-    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: BlockPos) void {}
-
-    fn sink(self: *HeardSound) SoundSink {
-        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
-    }
-};
-
 test "punching a block puts out the fire standing on the face that was hit" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();
@@ -1471,7 +1448,7 @@ test "punching a block puts out the fire standing on the face that was hit" {
     chunk.setBlock(8, 5, 8, .netherrack);
     chunk.setBlock(8, 6, 8, .fire);
 
-    var heard: HeardSound = .{};
+    var heard: testing_world.HeardSound = .{};
     w.sound_sink = heard.sink();
 
     try w.onBlockHit(.init(8, 5, 8), .north);

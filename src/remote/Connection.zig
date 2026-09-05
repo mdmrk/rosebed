@@ -506,17 +506,7 @@ fn bodyById(self: *Connection, level: *game.Level, id: game.Entity.Id) ?Body {
         if (entry.animal.base.remote == null) return null;
         return .{ .animal = entry.animal };
     }
-    inline for (.{
-        .{ "items", "item" },
-        .{ "arrows", "arrow" },
-        .{ "fireballs", "fireball" },
-        .{ "thrown", "thrown" },
-        .{ "falling_blocks", "falling_block" },
-        .{ "primed", "primed_tnt" },
-        .{ "boats", "boat" },
-        .{ "minecarts", "minecart" },
-        .{ "hooks", "hook" },
-    }) |pair| {
+    inline for (game.Entities.wire_kinds) |pair| {
         for (@field(level.entities, pair[0]).items) |*entity| {
             if (entity.base.id != id or entity.base.remote == null) continue;
             return @unionInit(Body, pair[1], entity);
@@ -1004,12 +994,7 @@ pub fn reportSign(
     post: *const world.sign.Sign,
 ) !void {
     if (self.state != .playing) return;
-    try self.send(gpa, .{ .update_sign = .{
-        .x = pos.x,
-        .y = @intCast(pos.y),
-        .z = pos.z,
-        .lines = .{ post.line(0), post.line(1), post.line(2), post.line(3) },
-    } });
+    try self.send(gpa, game.wire.signPacket(pos, post));
 }
 
 pub fn reportCloseWindow(self: *Connection, gpa: std.mem.Allocator) !void {

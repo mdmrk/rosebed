@@ -12,6 +12,16 @@ pub fn index(ix: usize, iz: usize, iy: usize) usize {
     return (ix * size_z + iz) * size_y + iy;
 }
 
+pub fn blend(main_value: f64, upper_value: f64, blend_value: f64) f64 {
+    const lower = main_value / 512.0;
+    const upper = upper_value / 512.0;
+    const t = (blend_value / 10.0 + 1.0) / 2.0;
+
+    if (t < 0.0) return lower;
+    if (t > 1.0) return upper;
+    return lower + (upper - lower) * t;
+}
+
 pub fn fill(chunk: *Chunk, field: *const Field, picker: anytype) void {
     for (0..cells_xz) |cx| {
         for (0..cells_xz) |cz| {

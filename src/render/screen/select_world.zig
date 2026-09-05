@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
 const sdl3 = @import("sdl3");
 const world = @import("world");
 
@@ -8,6 +7,10 @@ const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 const scroll_list = @import("scroll_list.zig");
+const list_top = scroll_list.list_top;
+pub const entry_height = scroll_list.entry_height;
+const entry_padding = scroll_list.entry_padding;
+const entry_half_width = scroll_list.entry_half_width;
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const entry_name_color: [4]u8 = .{ 255, 255, 255, 255 };
@@ -32,10 +35,6 @@ pub fn isDoubleClick(selected: ?usize, index: usize, now_ms: u64, last_click_ms:
     return selected == index and now_ms -% last_click_ms < double_click_ms;
 }
 
-const list_top = scroll_list.list_top;
-pub const entry_height = scroll_list.entry_height;
-const entry_padding = scroll_list.entry_padding;
-const entry_half_width = scroll_list.entry_half_width;
 const scrollbar_offset: f32 = 124;
 
 const list = scroll_list.List(list_bottom_margin);
@@ -65,9 +64,8 @@ pub fn hitAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize, scroll: 
     const gx = mouse_x / res.factor;
     const gy = mouse_y / res.factor;
 
-    for (buttons(res, has_selection)) |entry| {
-        if (entry.button.enabled and button.contains(entry.button, gx, gy)) return entry.hit;
-    }
+    const bar = buttons(res, has_selection);
+    if (button.indexAt(bar, gx, gy)) |index| return bar[index].hit;
 
     if (list.rowAt(gx, gy, res, count, scroll)) |index| return .{ .entry = index };
     return null;
@@ -120,9 +118,7 @@ pub fn draw(
     const gx = ui.mouse_x / ui.res.factor;
     const gy = ui.mouse_y / ui.res.factor;
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     const bottom = listBottom(ui.res);
     const cx = @floor(ui.res.width / 2.0);
@@ -170,20 +166,15 @@ pub fn draw(
 
     try appendScrollbar(&backgrounds, ui.gpa, ui.res, summaries.len, scroll);
 
-    for (buttons(ui.res, selected != null)) |entry| {
-        const hovered = entry.button.enabled and button.contains(entry.button, gx, gy);
-        try button.append(&backgrounds, &text, ui.gpa, ui.font, entry.button, hovered, ui.res);
-    }
+    try button.appendAll(&backgrounds, &text, ui.gpa, ui.font, buttons(ui.res, selected != null), gx, gy, ui.res);
 
     const title = "Select World";
-    const title_width: f32 = @floatFromInt(ui.font.stringWidth(title));
-    try gui.appendTextColor(&text, ui.gpa, ui.font, title, @floor(ui.res.width / 2.0) - @floor(title_width / 2.0), 20, title_color, ui.res);
+    try gui.appendCenteredText(&text, ui.gpa, ui.font, title, 20, title_color, ui.res);
 
     try gui.drawTexturedMesh(&backgrounds, ui.shader, ui.textures.gui);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 fn rowClickY(res: gui.Scaled, index: usize) f32 {

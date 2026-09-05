@@ -2,7 +2,6 @@ const std = @import("std");
 
 const game = @import("game");
 const achievements = game.achievements;
-const gl = @import("gl");
 const world = @import("world");
 
 const Atlas = @import("../Atlas.zig");
@@ -263,9 +262,7 @@ pub fn draw(
     const gy = ui.mouse_y / ui.res.factor;
     const pan = state.view(partial);
 
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     try gui.drawBackdrop(ui, .veil);
 
@@ -393,8 +390,7 @@ pub fn draw(
         try drawTooltip(ui, hovered, source, gx, gy, inventory_key);
     }
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 fn drawTooltip(

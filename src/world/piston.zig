@@ -8,9 +8,10 @@ const Block = block.Block;
 const Side = block.Side;
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
-const tile = @import("tile.zig");
+const put = nbt.putDuped;
 const redstone = @import("redstone.zig");
 const testing_world = @import("testing.zig");
+const tile = @import("tile.zig");
 const World = @import("World.zig");
 
 pub const id_key = "Piston";
@@ -69,8 +70,6 @@ pub const Placed = struct {
     pos: BlockPos,
     state: Moving,
 };
-
-const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Moving) !nbt.Tag {
     var compound: nbt.Compound = .{};

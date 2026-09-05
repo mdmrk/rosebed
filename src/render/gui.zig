@@ -105,6 +105,22 @@ pub fn appendDirt(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: Scaled) !void
     try appendRectColor(mesh, gpa, 0, 0, res.width, res.height, uv, dirt_tint, res);
 }
 
+pub fn beginOverlay() void {
+    gl.Disable(gl.DEPTH_TEST);
+    gl.Enable(gl.BLEND);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+}
+
+pub fn endOverlay() void {
+    gl.Disable(gl.BLEND);
+    gl.Enable(gl.DEPTH_TEST);
+}
+
+pub fn appendCenteredText(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, line: []const u8, y: f32, color: [4]u8, res: Scaled) !void {
+    const width: f32 = @floatFromInt(font.stringWidth(line));
+    try appendTextColor(mesh, gpa, font, line, @floor(res.width / 2.0) - @floor(width / 2.0), y, color, res);
+}
+
 pub fn drawDirtBackground(ui: Ui) !void {
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(ui.gpa);

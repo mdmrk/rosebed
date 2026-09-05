@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const gl = @import("gl");
-
 const Font = @import("Font.zig");
 const gui = @import("gui.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
@@ -196,9 +194,7 @@ pub const State = struct {
 };
 
 pub fn draw(ui: gui.Ui, state: *const State) !void {
-    gl.Disable(gl.DEPTH_TEST);
-    gl.Enable(gl.BLEND);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gui.beginOverlay();
 
     var backgrounds: MeshBuilder = .{};
     defer backgrounds.deinit(ui.gpa);
@@ -235,8 +231,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
     try gui.drawColorMesh(&backgrounds, ui.shader);
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 
-    gl.Disable(gl.BLEND);
-    gl.Enable(gl.DEPTH_TEST);
+    gui.endOverlay();
 }
 
 const test_font: Font = .{ .texture = 0, .char_width = @splat(6) };

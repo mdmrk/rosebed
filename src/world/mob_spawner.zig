@@ -2,6 +2,7 @@ const std = @import("std");
 
 const BlockPos = @import("BlockPos.zig");
 const nbt = @import("nbt.zig");
+const put = nbt.putDuped;
 const tile = @import("tile.zig");
 
 pub const id_key = "MobSpawner";
@@ -50,8 +51,6 @@ pub const MobSpawner = struct {
         return self.prev_yaw + (self.yaw - self.prev_yaw) * partial_ticks;
     }
 };
-
-const put = nbt.putDuped;
 
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: MobSpawner) !nbt.Tag {
     var compound: nbt.Compound = .{};

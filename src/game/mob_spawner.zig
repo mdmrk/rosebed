@@ -159,6 +159,23 @@ fn spawnerWorld(gpa: std.mem.Allocator, mob_name: []const u8) !world.World {
     return w;
 }
 
+fn testContext(
+    gpa: std.mem.Allocator,
+    entities: *Entities,
+    world_map: *world.World,
+    watcher: *const Animal.PlayerView,
+    rand: *world.JavaRandom,
+) Context {
+    return .{
+        .gpa = gpa,
+        .entities = entities,
+        .world_map = world_map,
+        .players = Animal.Players.one(watcher),
+        .world_seed = 1,
+        .rand = rand,
+    };
+}
+
 fn watcherAt(x: f64, z: f64) Animal.PlayerView {
     return .{ .id = 1, .position = math.Vec3.init(x, 1, z), .eye_height = 1.62, .alive = true };
 }
@@ -200,14 +217,7 @@ test "a watched spawner counts down and then fills the room with mobs" {
     var rand = world.JavaRandom.init(11);
 
     const near = watcherAt(8.5, 8.5);
-    const context: Context = .{
-        .gpa = gpa,
-        .entities = &entities,
-        .world_map = &w,
-        .players = Animal.Players.one(&near),
-        .world_seed = 1,
-        .rand = &rand,
-    };
+    const context = testContext(gpa, &entities, &w, &near, &rand);
 
     var ticks: usize = 0;
     while (ticks < 4000 and entities.mobs.items.len == 0) : (ticks += 1) try tickAll(context);
@@ -227,14 +237,7 @@ test "a spawner stops once its own mobs crowd around it" {
     var rand = world.JavaRandom.init(11);
 
     const near = watcherAt(8.5, 8.5);
-    const context: Context = .{
-        .gpa = gpa,
-        .entities = &entities,
-        .world_map = &w,
-        .players = Animal.Players.one(&near),
-        .world_seed = 1,
-        .rand = &rand,
-    };
+    const context = testContext(gpa, &entities, &w, &near, &rand);
 
     for (0..40000) |_| try tickAll(context);
     try std.testing.expectEqual(@as(usize, crowd_limit), entities.countOfInBox(mob.zombie, crowdBox(.init(8, 1, 8))));
@@ -295,14 +298,7 @@ test "a watched spawner turns, and turns faster the closer it is to firing" {
     var rand = world.JavaRandom.init(3);
 
     const near = watcherAt(8.5, 8.5);
-    const context: Context = .{
-        .gpa = gpa,
-        .entities = &entities,
-        .world_map = &w,
-        .players = Animal.Players.one(&near),
-        .world_seed = 1,
-        .rand = &rand,
-    };
+    const context = testContext(gpa, &entities, &w, &near, &rand);
 
     const state = w.mobSpawnerAt(.init(8, 1, 8)).?;
     state.delay = 800;

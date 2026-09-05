@@ -105,18 +105,6 @@ pub fn readArchive(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []
     return bytes;
 }
 
-pub fn readResource(
-    gpa: std.mem.Allocator,
-    io: std.Io,
-    dir: std.Io.Dir,
-    archive_name: []const u8,
-    path: []const u8,
-) !?[]u8 {
-    const archive = try readArchive(gpa, io, dir, archive_name);
-    defer gpa.free(archive);
-    return readArchiveEntry(gpa, archive, path, max_resource_bytes);
-}
-
 fn truncated(gpa: std.mem.Allocator, line: []const u8) ![]u8 {
     return gpa.dupe(u8, line[0..@min(line.len, max_line_len)]);
 }
