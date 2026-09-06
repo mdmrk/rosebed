@@ -16,7 +16,7 @@ const sdl3 = @import("sdl3");
 const world = @import("world");
 const BlockPos = world.BlockPos;
 
-const Link = @import("Link.zig");
+const Link = if (builtin.cpu.arch.isWasm()) @import("WebLink.zig") else @import("Link.zig");
 
 const ticks_per_second = 20.0;
 const screen_width = 854;
@@ -1567,10 +1567,6 @@ fn closeMultiplayer(app_state: *AppState) !void {
 
 fn connectToServer(app_state: *AppState) !void {
     if (!app_state.multiplayer_state.canConnect()) return;
-    if (wasm) {
-        reply(app_state, "Multiplayer is not available in the browser", .{});
-        return;
-    }
 
     var stored: [128]u8 = undefined;
     const typed = app_state.multiplayer_state.address.text();

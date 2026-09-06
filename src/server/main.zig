@@ -13,6 +13,7 @@ pub const default_port: u16 = 25565;
 pub const ticks_per_second: u32 = 20;
 pub const read_buffer_len: usize = 64 * 1024;
 pub const write_buffer_len: usize = 64 * 1024;
+pub const handshake_buffer_len: usize = 256;
 pub const outgoing_high_water: usize = 4 * 1024 * 1024;
 pub const autosave_interval_ticks: u64 = 900;
 pub const save_chunks_per_pass: usize = 64;
@@ -67,6 +68,9 @@ const Connection = struct {
     session: Session = .{},
     pending: std.ArrayList(net.packet.Packet) = .empty,
     outgoing: std.ArrayList(u8) = .empty,
+    inbound: std.ArrayList(u8) = .empty,
+    websocket: bool = false,
+    greeted: std.atomic.Value(bool) = .init(false),
     open: bool = true,
     reader_thread: ?std.Thread = null,
     writer_thread: ?std.Thread = null,
@@ -76,6 +80,7 @@ const Connection = struct {
         for (self.pending.items) |message| message.deinit(gpa);
         self.pending.deinit(gpa);
         self.outgoing.deinit(gpa);
+        self.inbound.deinit(gpa);
     }
 };
 
@@ -339,15 +344,29 @@ fn noteSink(dim: *Dim) world.World.NoteSink {
     return .{ .context = dim, .playNote = playNote };
 }
 
-fn readLoop(server: *Server, connection: *Connection) void {
-    var buffer: [read_buffer_len]u8 = undefined;
-    var reader = connection.stream.reader(server.io, &buffer);
+fn greet(server: *Server, connection: *Connection, r: *std.Io.Reader) bool {
+    defer connection.greeted.store(true, .release);
 
+    const upgrade = net.websocket.isUpgrade(r) catch return false;
+    if (!upgrade) return true;
+
+    const accept = net.websocket.readUpgrade(r) catch return false;
+
+    var buffer: [handshake_buffer_len]u8 = undefined;
+    var writer = connection.stream.writer(server.io, &buffer);
+    net.websocket.writeAccept(&writer.interface, accept) catch return false;
+    writer.interface.flush() catch return false;
+
+    connection.websocket = true;
+    return true;
+}
+
+fn streamLoop(server: *Server, connection: *Connection, r: *std.Io.Reader) void {
     while (server.running.load(.acquire)) {
-        const packet_id = net.packet.readId(&reader.interface) catch break;
+        const packet_id = net.packet.readId(r) catch break;
         if (!net.packet.direction(packet_id).to_server) break;
 
-        const message = net.packet.readBody(server.gpa, &reader.interface, packet_id) catch break;
+        const message = net.packet.readBody(server.gpa, r, packet_id) catch break;
 
         server.lock();
         connection.pending.append(server.gpa, message) catch {
@@ -356,6 +375,37 @@ fn readLoop(server: *Server, connection: *Connection) void {
             break;
         };
         server.unlock();
+    }
+}
+
+fn framedLoop(server: *Server, connection: *Connection, r: *std.Io.Reader) void {
+    while (server.running.load(.acquire)) {
+        const frame = net.websocket.readFrame(server.gpa, r, &connection.inbound) catch break;
+        if (frame.opcode == .close) break;
+        if (frame.opcode.control() or !frame.final) continue;
+
+        server.lock();
+        const consumed = net.packet.drain(server.gpa, connection.inbound.items, true, &connection.pending) catch {
+            server.unlock();
+            break;
+        };
+        server.unlock();
+
+        const rest = connection.inbound.items.len - consumed;
+        std.mem.copyForwards(u8, connection.inbound.items[0..rest], connection.inbound.items[consumed..]);
+        connection.inbound.shrinkRetainingCapacity(rest);
+    }
+}
+
+fn readLoop(server: *Server, connection: *Connection) void {
+    var buffer: [read_buffer_len]u8 = undefined;
+    var reader = connection.stream.reader(server.io, &buffer);
+
+    if (greet(server, connection, &reader.interface)) {
+        if (connection.websocket)
+            framedLoop(server, connection, &reader.interface)
+        else
+            streamLoop(server, connection, &reader.interface);
     }
 
     server.lock();
@@ -367,6 +417,10 @@ fn writeLoop(server: *Server, connection: *Connection) void {
     var buffer: [write_buffer_len]u8 = undefined;
     var writer = connection.stream.writer(server.io, &buffer);
 
+    while (!connection.greeted.load(.acquire) and server.running.load(.acquire)) {
+        std.Io.sleep(server.io, .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
+    }
+
     while (true) {
         server.lock();
         const open = connection.open;
@@ -376,7 +430,10 @@ fn writeLoop(server: *Server, connection: *Connection) void {
         defer server.gpa.free(bytes);
 
         if (bytes.len > 0) {
-            writer.interface.writeAll(bytes) catch break;
+            if (connection.websocket)
+                net.websocket.writeFrame(&writer.interface, .binary, bytes) catch break
+            else
+                writer.interface.writeAll(bytes) catch break;
             writer.interface.flush() catch break;
             continue;
         }

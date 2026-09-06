@@ -624,6 +624,27 @@ pub fn read(gpa: std.mem.Allocator, r: *std.Io.Reader, from_client: bool) ReadEr
     return readBody(gpa, r, packet_id);
 }
 
+pub fn drain(
+    gpa: std.mem.Allocator,
+    bytes: []const u8,
+    from_client: bool,
+    out: *std.ArrayList(Packet),
+) ReadError!usize {
+    var reader: std.Io.Reader = .fixed(bytes);
+    var consumed: usize = 0;
+
+    while (true) {
+        const message = read(gpa, &reader, from_client) catch |err| switch (err) {
+            error.EndOfStream => return consumed,
+            else => |other| return other,
+        };
+        errdefer message.deinit(gpa);
+
+        try out.append(gpa, message);
+        consumed = reader.seek;
+    }
+}
+
 pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadError!Packet {
     switch (packet_id) {
         .keep_alive => return .keep_alive,
@@ -1982,4 +2003,37 @@ test "a packet body reads exactly as many bytes as vanilla wrote" {
 
         try std.testing.expectEqual(@as(usize, 0), reader.bufferedLen());
     }
+}
+
+test drain {
+    const gpa = std.testing.allocator;
+
+    const first = try encodeAlloc(gpa, .{ .chat = .{ .message = "hello" } });
+    defer gpa.free(first);
+    const second = try encodeAlloc(gpa, .{ .block_item_switch = .{ .slot = 3 } });
+    defer gpa.free(second);
+
+    var stream: std.ArrayList(u8) = .empty;
+    defer stream.deinit(gpa);
+    try stream.appendSlice(gpa, first);
+    try stream.appendSlice(gpa, second);
+
+    var messages: std.ArrayList(Packet) = .empty;
+    defer {
+        for (messages.items) |message| message.deinit(gpa);
+        messages.deinit(gpa);
+    }
+
+    const partial = try drain(gpa, stream.items[0 .. stream.items.len - 1], true, &messages);
+    try std.testing.expectEqual(first.len, partial);
+    try std.testing.expectEqual(@as(usize, 1), messages.items.len);
+    try std.testing.expectEqualStrings("hello", messages.items[0].chat.message);
+
+    const rest = try drain(gpa, stream.items[partial..], true, &messages);
+    try std.testing.expectEqual(second.len, rest);
+    try std.testing.expectEqual(@as(usize, 2), messages.items.len);
+    try std.testing.expectEqual(@as(i16, 3), messages.items[1].block_item_switch.slot);
+
+    try std.testing.expectEqual(@as(usize, 0), try drain(gpa, &.{}, true, &messages));
+    try std.testing.expectError(error.WrongDirection, drain(gpa, second, false, &messages));
 }

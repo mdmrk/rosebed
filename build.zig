@@ -394,6 +394,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     run_emcc.addArg("-sSTACK_SIZE=4mb");
     run_emcc.addArg("-sALLOW_MEMORY_GROWTH=1");
     run_emcc.addArg("-lidbfs.js");
+    run_emcc.addArg("-lwebsocket.js");
     run_emcc.addArg("-sEXPORTED_RUNTIME_METHODS=addRunDependency,removeRunDependency");
     run_emcc.addArg("--pre-js");
     run_emcc.addFileArg(b.addWriteFiles().add("pre.js", (
@@ -423,6 +424,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         \\            if (err) console.error('rosebed: saving to browser storage failed', err);
         \\        });
         \\    },
+        \\    rosebed_page_is_secure: () => (typeof location !== 'undefined' && location.protocol === 'https:') ? 1 : 0,
         \\});
     )));
     run_emcc.addArg("--shell-file");

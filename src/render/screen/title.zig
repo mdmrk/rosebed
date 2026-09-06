@@ -38,7 +38,7 @@ fn entries(scaled_width: f32, scaled_height: f32) [menu_len]Entry {
 
     var list: [menu_len]Entry = undefined;
     list[0] = .{ .button = .{ .x = cx - 100, .y = top, .w = 200, .label = "Singleplayer", .enabled = true }, .action = .singleplayer };
-    list[1] = .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = !wasm }, .action = .multiplayer };
+    list[1] = .{ .button = .{ .x = cx - 100, .y = top + 24, .w = 200, .label = "Multiplayer", .enabled = true }, .action = .multiplayer };
     list[2] = .{ .button = .{ .x = cx - 100, .y = top + 48, .w = 200, .label = "Mods and Texture Packs", .enabled = true }, .action = .texture_packs };
     list[3] = .{ .button = .{ .x = cx - 100, .y = bottom_row, .w = if (hide_quit) 200 else 98, .label = "Options...", .enabled = true }, .action = .options };
     if (!hide_quit) {

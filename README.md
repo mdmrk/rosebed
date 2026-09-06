@@ -31,7 +31,7 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 
 ## Play
 
-**[Play browser build online](https://mdmrk.github.io/rosebed/)**. Worlds are saved in browser storage. Needs WebGL2.
+**[Play browser build online](https://mdmrk.github.io/rosebed/)**. Worlds are saved in browser storage. Multiplayer connects over WebSocket. Needs WebGL2.
 
 | Platform            | Stable                                                                                               | Nightly                                                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
