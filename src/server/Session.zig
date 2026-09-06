@@ -1003,11 +1003,29 @@ pub const action_stop_sneaking: i8 = 2;
 pub const use_interact: i8 = 0;
 pub const use_attack: i8 = 1;
 
-fn entityPositionOf(level: *game.Level, id: game.Entity.Id) ?math.Vec3 {
-    if (level.entities.mobById(id)) |entry| return entry.animal.base.position;
-    if (level.entities.boatById(id)) |boat| return boat.base.position;
-    if (level.entities.minecartById(id)) |cart| return cart.base.position;
+const Sight = struct { at: math.Vec3, eye_height: f64 };
+
+fn entitySightOf(level: *game.Level, id: game.Entity.Id) ?Sight {
+    if (level.entities.mobById(id)) |entry| return .{ .at = entry.animal.base.position, .eye_height = entry.animal.eyeHeight() };
+    if (level.entities.boatById(id)) |boat| return .{ .at = boat.base.position, .eye_height = 0 };
+    if (level.entities.minecartById(id)) |cart| return .{ .at = cart.base.position, .eye_height = 0 };
     return null;
+}
+
+fn withinUseRange(player: *const game.Player, world_map: *const world.World, seen: Sight) bool {
+    if (player.base.position.distanceSquaredTo(seen.at) > reach_squared) return false;
+
+    const eye = player.eyePosition();
+    const to_target = math.Vec3.init(
+        seen.at.x - eye.x,
+        seen.at.y + seen.eye_height - eye.y,
+        seen.at.z - eye.z,
+    );
+    const reach = @sqrt(to_target.lengthSquared());
+    if (reach == 0.0) return true;
+
+    const along = math.Vec3.init(to_target.x / reach, to_target.y / reach, to_target.z / reach);
+    return game.raycast.castCollision(world_map, eye, along, reach) == null;
 }
 
 fn targetOf(level: *game.Level, id: game.Entity.Id) ?game.Entities.Target {
@@ -1125,37 +1143,45 @@ fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: gam
     const player = self.player orelse return;
 
     if (click == use_interact) {
-        const at = entityPositionOf(level, id) orelse return;
-        if (player.base.position.distanceSquaredTo(at) > reach_squared) return;
+        const seen = entitySightOf(level, id) orelse return;
+        if (!withinUseRange(player, &level.world_map, seen)) return;
         return self.interactEntity(gpa, level, id);
     }
     if (click != use_attack) return;
 
     if (game.Entities.playerById(level.roster.items, id)) |struck| {
         if (struck == player) return;
-        if (player.base.position.distanceSquaredTo(struck.base.position) > reach_squared) return;
+        const seen: Sight = .{ .at = struck.base.position, .eye_height = game.Player.eye_height };
+        if (!withinUseRange(player, &level.world_map, seen)) return;
         var damage = heldDamage(player);
         if (damage <= 0) return;
         if (player.base.motion.y < 0.0) damage += 1;
-        struck.hurtFrom(&level.world_map, damage, player.base.position);
+        if (level.world_map.pvp) {
+            game.Wolf.defendOwner(&level.entities, struck, .{ .player = player.base.id }, true);
+            struck.hurtFrom(&level.world_map, damage, player.base.position);
+        }
         try self.award(gpa, .{ .general = .damage_dealt }, damage);
         return;
     }
 
     const target = targetOf(level, id) orelse return;
 
-    const at = switch (target) {
-        .mob => (level.entities.mobById(id) orelse return).animal.base.position,
-        .boat => (level.entities.boatById(id) orelse return).base.position,
-        .minecart => (level.entities.minecartById(id) orelse return).base.position,
+    const seen: Sight = switch (target) {
+        .player => return,
+        .mob => blk: {
+            const entry = level.entities.mobById(id) orelse return;
+            break :blk .{ .at = entry.animal.base.position, .eye_height = entry.animal.eyeHeight() };
+        },
+        .boat => .{ .at = (level.entities.boatById(id) orelse return).base.position, .eye_height = 0 },
+        .minecart => .{ .at = (level.entities.minecartById(id) orelse return).base.position, .eye_height = 0 },
         .painting => blk: {
             for (level.entities.paintings.items) |hung| {
-                if (hung.id == id) break :blk hung.position;
+                if (hung.id == id) break :blk .{ .at = hung.position, .eye_height = 0 };
             }
             return;
         },
     };
-    if (player.base.position.distanceSquaredTo(at) > reach_squared) return;
+    if (!withinUseRange(player, &level.world_map, seen)) return;
 
     var damage = heldDamage(player);
     if (damage <= 0) return;

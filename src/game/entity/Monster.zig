@@ -8,6 +8,7 @@ const Mob = @import("../mob.zig");
 const physics = @import("../physics.zig");
 const raycast = @import("../raycast.zig");
 const Animal = @import("Animal.zig");
+const Wolf = @import("Wolf.zig");
 
 const Monster = @This();
 
@@ -179,6 +180,13 @@ pub fn deliverAttack(self: *Monster, animal: *Animal, context: Mob.Tick) void {
 
     const player = context.playerById(self.target orelse return) orelse return;
     if (player.health <= 0) return;
+    if (context.world_map.difficulty.scaleHostileDamage(self.attack_strength) != 0) {
+        const Entities = @import("../Entities.zig");
+        const entities: *Entities = @ptrCast(@alignCast(context.entities));
+        if (entities.quarryOf(.{ .position = animal.base.position, .mob = animal.base.id })) |from| {
+            Wolf.defendOwner(entities, player, from, context.world_map.pvp);
+        }
+    }
     player.hurtByHostile(context.world_map, self.attack_strength, animal.base.position);
 }
 

@@ -28,6 +28,7 @@ pub const Options = struct {
     seed: ?i64 = null,
     ticks: ?u64 = null,
     difficulty: world.Difficulty = default_difficulty,
+    pvp: bool = true,
 };
 
 pub fn parseArgs(args: []const [:0]const u8) !Options {
@@ -51,6 +52,13 @@ pub fn parseArgs(args: []const [:0]const u8) !Options {
             index += 1;
             options.difficulty = std.meta.stringToEnum(world.Difficulty, args[index]) orelse
                 return error.UnknownArgument;
+        } else if (std.mem.eql(u8, arg, "--pvp") and index + 1 < args.len) {
+            index += 1;
+            if (std.mem.eql(u8, args[index], "true")) {
+                options.pvp = true;
+            } else if (std.mem.eql(u8, args[index], "false")) {
+                options.pvp = false;
+            } else return error.UnknownArgument;
         } else {
             return error.UnknownArgument;
         }
@@ -780,6 +788,7 @@ pub fn main(init: std.process.Init) !void {
         dim.level.world_map.brightness = world.light.brightnessTable(dim.dimension.ambientLight());
         dim.level.world_map.has_sky = dim.dimension.hasSky();
         dim.level.world_map.difficulty = options.difficulty;
+        dim.level.world_map.pvp = options.pvp;
     }
     server.dimOf(.nether).level.entities.next_entity_id = nether_id_base;
 
@@ -877,6 +886,13 @@ test "an empty command line falls back to the vanilla port" {
     try std.testing.expectEqual(default_port, options.port);
     try std.testing.expect(options.seed == null);
     try std.testing.expect(options.ticks == null);
+}
+
+test "pvp is on unless the command line turns it off" {
+    try std.testing.expect((try parseArgs(&.{"rosebed-server"})).pvp);
+    try std.testing.expect((try parseArgs(&.{ "rosebed-server", "--pvp", "true" })).pvp);
+    try std.testing.expect(!(try parseArgs(&.{ "rosebed-server", "--pvp", "false" })).pvp);
+    try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "rosebed-server", "--pvp", "maybe" }));
 }
 
 test "an argument the server does not know is refused rather than ignored" {

@@ -660,6 +660,12 @@ fn bite(self: *Wolf, entities: anytype, context: Mob.Tick, damage: i32) void {
         .player => |id| {
             const player = context.playerById(id) orelse return;
             if (player.health <= 0) return;
+            defendOwner(
+                entities,
+                player,
+                .{ .mob = .{ .type_id = Mob.wolf, .animal = &self.animal } },
+                context.world_map.pvp,
+            );
             player.hurtFrom(context.world_map, damage, self.animal.base.position);
         },
         .prey => |hunted| {
@@ -688,21 +694,49 @@ fn splash(self: *Wolf, entities: anytype, gpa: std.mem.Allocator, rand: *world.J
     }
 }
 
-pub fn alertOwned(entities: anytype, attacker: Animal.Attacker, victim: *Animal, skip_sitting: bool) void {
-    const at = attacker.position;
+pub const Quarry = union(enum) {
+    player: Animal.Entity.Id,
+    mob: struct { type_id: Mob.Id, animal: *Animal },
+};
+
+pub fn alertOwned(entities: anytype, owner: Animal.Attacker, quarry: Quarry, pvp: bool, skip_sitting: bool) void {
+    switch (quarry) {
+        .mob => |hunted| {
+            if (hunted.type_id == Mob.creeper or hunted.type_id == Mob.ghast) return;
+            if (hunted.type_id == Mob.wolf) {
+                const dog: *Wolf = @fieldParentPtr("animal", hunted.animal);
+                if (dog.tamed and dog.owner_id == owner.player) return;
+            }
+        },
+        .player => if (!pvp) return,
+    }
+
+    const at = owner.position;
     const box = math.Aabb.init(at.x, at.y, at.z, at.x + 1.0, at.y + 1.0, at.z + 1.0)
         .expand(pack_reach, pack_lift, pack_reach);
 
     var pack = entities.of(Wolf, Mob.wolf);
     while (pack.next()) |wolf| {
-        if (&wolf.animal == victim) continue;
         if (!box.intersects(wolf.animal.base.boundingBox())) continue;
         if (!wolf.tamed or wolf.target != null) continue;
-        if (wolf.owner_id != Animal.Entity.no_id and wolf.owner_id != attacker.player) continue;
+        if (wolf.owner_id != Animal.Entity.no_id and wolf.owner_id != owner.player) continue;
         if (skip_sitting and wolf.sitting) continue;
         wolf.sitting = false;
-        wolf.target = .{ .prey = victim };
+        wolf.target = switch (quarry) {
+            .player => |id| .{ .player = id },
+            .mob => |hunted| .{ .prey = hunted.animal },
+        };
     }
+}
+
+pub fn defendOwner(entities: anytype, victim: *const Player, attacker: Quarry, pvp: bool) void {
+    alertOwned(
+        entities,
+        .{ .position = victim.base.position, .player = victim.base.id },
+        attacker,
+        pvp,
+        false,
+    );
 }
 
 test "a wolf is the size and speed EntityWolf sets itself to" {

@@ -7,6 +7,7 @@ const world = @import("world");
 const Mob = @import("../mob.zig");
 const raycast = @import("../raycast.zig");
 const Animal = @import("Animal.zig");
+const Wolf = @import("Wolf.zig");
 
 const Slime = @This();
 
@@ -673,6 +674,9 @@ fn mobAfterTick(animal: *Animal, tick_context: Mob.Tick) anyerror!void {
         const view = tick_context.players.byId(player.base.id) orelse continue;
         if (self.attackDamage(tick_context.world_map, view)) |damage| {
             const absorbed = player.absorbsHit(damage);
+            if (entities.quarryOf(.{ .position = self.animal.base.position, .mob = self.animal.base.id })) |from| {
+                Wolf.defendOwner(entities, player, from, tick_context.world_map.pvp);
+            }
             player.hurtFrom(tick_context.world_map, damage, self.animal.base.position);
             if (!absorbed) self.playAttack(tick_context.world_map, tick_context.rand);
         }

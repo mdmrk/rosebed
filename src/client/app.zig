@@ -557,7 +557,7 @@ fn clickLeft(app_state: *AppState) !void {
     if (app_state.freecam.active) return;
     if (app_state.missed_click_cooldown > 0) return;
     swingArm(app_state);
-    if (pickedEntity(app_state)) |target| {
+    if (try pickedEntity(app_state)) |target| {
         try attackEntity(app_state, target);
         return;
     }
@@ -2359,8 +2359,15 @@ fn pickedBlock(app_state: *AppState) ?game.raycast.Hit {
     return interactContext(app_state).pickedBlock();
 }
 
-fn pickedEntity(app_state: *AppState) ?game.Entities.Target {
-    return interactContext(app_state).pickedEntity();
+fn peerPlayers(app_state: *AppState) ![]const *game.Player {
+    const link = app_state.link orelse return &.{};
+    const others = try app_state.frame.alloc(*game.Player, link.connection.peers.items.len);
+    for (link.connection.peers.items, others) |*peer, *slot| slot.* = &peer.player;
+    return others;
+}
+
+fn pickedEntity(app_state: *AppState) !?game.Entities.Target {
+    return interactContext(app_state).pickedEntity(try peerPlayers(app_state));
 }
 
 fn applyBlockChanges(app_state: *AppState) !void {
@@ -2392,7 +2399,7 @@ fn dismount(app_state: *AppState) void {
 }
 
 fn useBlockOrPlace(app_state: *AppState) !bool {
-    if (pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
+    if (try pickedEntity(app_state)) |target| return interactWithEntity(app_state, target);
     if (app_state.link) |link| return useBlockRemote(app_state, link);
     if (pickedBlock(app_state)) |hit| {
         switch (app_state.level.world_map.getBlock(hit.pos)) {
@@ -4904,7 +4911,7 @@ fn releaseTouches(app_state: *AppState) void {
 
 fn touchTap(app_state: *AppState) !void {
     if (app_state.freecam.active) return;
-    if (pickedEntity(app_state) != null) return clickLeft(app_state);
+    if ((try pickedEntity(app_state)) != null) return clickLeft(app_state);
     if (try useBlockOrPlace(app_state)) {
         swingArm(app_state);
     } else if (app_state.link == null) {

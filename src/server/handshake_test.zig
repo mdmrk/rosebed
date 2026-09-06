@@ -1025,6 +1025,7 @@ test "a punch aimed at a mob is carried out by the server, not the puncher" {
     try pair.start();
     try pair.settle(6);
 
+    _ = pair.standOnGround();
     const cow = try spawnServerMob(&pair, game.Cow, game.mob.cow);
     const before = cow.animal.health;
 
@@ -1242,6 +1243,120 @@ test "one player punching another takes health off on the server" {
     try std.testing.expect(struck.health < before);
 }
 
+test "a wolf tamed to one player sets on whoever punches them" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    const puncher = trio.a.session.player.?;
+    const struck = trio.b.session.player.?;
+    struck.base.position = puncher.base.position;
+
+    try trio.level.entities.spawnWolf(gpa, struck.base.position, &trio.level.world_map.rand);
+    const dog = trio.level.entities.first(game.Wolf, game.mob.wolf).?;
+    dog.tamed = true;
+    dog.owner_id = struck.base.id;
+    dog.sitting = true;
+
+    try trio.a.connection.reportUse(gpa, struck.base.id, true);
+    try trio.settle(2);
+
+    try std.testing.expect(!dog.sitting);
+    try std.testing.expectEqual(puncher.base.id, dog.target.?.player);
+}
+
+test "with pvp off the blow lands no damage but is still tallied" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+    trio.level.world_map.pvp = false;
+
+    const puncher = trio.a.session.player.?;
+    const struck = trio.b.session.player.?;
+    struck.base.position = puncher.base.position;
+
+    const before = struck.health;
+    try trio.a.connection.reportUse(gpa, struck.base.id, true);
+    try trio.settle(2);
+
+    try std.testing.expectEqual(before, struck.health);
+
+    const awards = try trio.a.connection.takeAwards(gpa);
+    defer gpa.free(awards);
+    var dealt: i32 = 0;
+    for (awards) |given| switch (given.stat) {
+        .general => |which| if (which == .damage_dealt) {
+            dealt += given.amount;
+        },
+        else => {},
+    };
+    try std.testing.expect(dealt > 0);
+}
+
+test "a wall between two players stops the blow" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    _ = try trio.level.world_map.createChunk(0, 0);
+
+    const puncher = trio.a.session.player.?;
+    const struck = trio.b.session.player.?;
+    const stand = math.Vec3.init(8.5, 120, 8.5);
+    const across = math.Vec3.init(11.5, 120, 8.5);
+
+    puncher.base.position = stand;
+    struck.base.position = across;
+    try trio.level.world_map.setBlockAndMetadataWithNotify(.init(10, 121, 8), .stone, 0);
+
+    const before = struck.health;
+    try trio.a.connection.reportUse(gpa, struck.base.id, true);
+    try trio.settle(2);
+    try std.testing.expectEqual(before, struck.health);
+
+    puncher.base.position = stand;
+    struck.base.position = across;
+    try trio.level.world_map.setBlockAndMetadataWithNotify(.init(10, 121, 8), .air, 0);
+
+    try trio.a.connection.reportUse(gpa, struck.base.id, true);
+    try trio.settle(2);
+    try std.testing.expect(struck.health < before);
+}
+
+test "a player in the crosshair is a target the client can name" {
+    const gpa = std.testing.allocator;
+    var trio = try Trio.init(gpa);
+    defer trio.deinit();
+    try trio.start();
+    try trio.settle(4);
+
+    try std.testing.expectEqual(@as(usize, 1), trio.a.connection.peers.items.len);
+    const peer = &trio.a.connection.peers.items[0];
+
+    const eye = trio.a.player.eyePosition();
+    const look = trio.a.player.lookVector();
+    const range = 2.0;
+    peer.player.base.position = math.Vec3.init(
+        eye.x + look[0] * range,
+        eye.y + look[1] * range - game.Player.height / 2.0,
+        eye.z + look[2] * range,
+    );
+
+    var roster: [1]*game.Player = .{&peer.player};
+    const target = trio.a.level.entities.pick(eye, look, game.Entities.entity_reach, &roster);
+
+    try std.testing.expectEqual(
+        game.Entities.Target{ .player = trio.b.session.player.?.base.id },
+        target.?,
+    );
+}
+
 test "a sign one player writes is readable by the other" {
     const gpa = std.testing.allocator;
     var pair = try Pair.init(gpa);
@@ -1425,6 +1540,7 @@ test "shearing a sheep is done by the server when a client asks" {
     try pair.start();
     try pair.settle(6);
 
+    _ = pair.standOnGround();
     const sheep = try spawnServerMob(&pair, game.Sheep, game.mob.sheep);
     sheep.animal.base.position = pair.session.player.?.base.position;
 

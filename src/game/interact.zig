@@ -45,13 +45,13 @@ pub const Context = struct {
         );
     }
 
-    pub fn pickedEntity(ctx: Context) ?Entities.Target {
+    pub fn pickedEntity(ctx: Context, roster: []const *Player) ?Entities.Target {
         var reach: f64 = reach_distance;
         if (ctx.pickedBlock()) |hit| {
             reach = hit.distance;
         }
         reach = @min(reach, Entities.entity_reach);
-        return ctx.level.entities.pick(ctx.player.eyePosition(), ctx.player.lookVector(), reach);
+        return ctx.level.entities.pick(ctx.player.eyePosition(), ctx.player.lookVector(), reach, roster);
     }
 
     pub fn consumeSelectedStack(ctx: Context) void {

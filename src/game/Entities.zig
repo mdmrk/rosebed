@@ -140,6 +140,7 @@ pub const Target = union(enum) {
     painting: Entity.Id,
     boat: Entity.Id,
     minecart: Entity.Id,
+    player: Entity.Id,
 };
 
 pub fn Iterator(comptime T: type) type {
@@ -191,7 +192,7 @@ pub fn mobById(self: *const Entities, id: Entity.Id) ?Mob {
 pub fn mobAt(self: *const Entities, target: Target) ?Mob {
     return switch (target) {
         .mob => |id| self.mobById(id),
-        .painting, .boat, .minecart => null,
+        .painting, .boat, .minecart, .player => null,
     };
 }
 
@@ -444,7 +445,7 @@ fn boxHolds(box: math.Aabb, point: math.Vec3) bool {
         point.z >= box.min_z and point.z <= box.max_z;
 }
 
-pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Target {
+pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64, roster: []const *Player) ?Target {
     const start = origin;
     const along = math.Vec3.init(look[0], look[1], look[2]);
 
@@ -515,6 +516,22 @@ pub fn pick(self: *Entities, origin: math.Vec3, look: [3]f32, reach: f64) ?Targe
         }
     }
 
+    for (roster) |other| {
+        if (other.health <= 0) continue;
+
+        const box = other.base.boundingBox().expand(collision_border, collision_border, collision_border);
+        const target: Target = .{ .player = other.base.id };
+        if (boxHolds(box, start)) {
+            found = target;
+            nearest = 0;
+        } else if (boxRayDistance(box, start, along, reach)) |distance| {
+            if (distance < nearest or nearest == 0) {
+                found = target;
+                nearest = distance;
+            }
+        }
+    }
+
     return found;
 }
 
@@ -524,11 +541,17 @@ pub fn hurtTarget(self: *Entities, world_map: *const world.World, target: Target
             const entry = self.mobById(id) orelse return false;
             const hit = mob.get(entry.type_id).hurt(entry.animal, world_map, amount, source, rand);
             if (hit and entry.animal.isAlive()) {
-                if (source) |from| Wolf.alertOwned(self, from, entry.animal, true);
+                if (source) |from| Wolf.alertOwned(
+                    self,
+                    from,
+                    .{ .mob = .{ .type_id = entry.type_id, .animal = entry.animal } },
+                    world_map.pvp,
+                    true,
+                );
             }
             return hit;
         },
-        .painting => false,
+        .painting, .player => false,
         .boat => |id| (self.boatById(id) orelse return false).hurt(amount),
         .minecart => |id| (self.minecartById(id) orelse return false).hurt(amount),
     };
@@ -1494,6 +1517,13 @@ fn arrowStrike(self: *Entities, arrow: Arrow, roster: []const *Player, limit: f6
     return found;
 }
 
+pub fn quarryOf(self: *const Entities, source: ?Animal.Attacker) ?Wolf.Quarry {
+    const from = source orelse return null;
+    if (from.player != Entity.no_id) return .{ .player = from.player };
+    const entry = self.mobById(from.mob) orelse return null;
+    return .{ .mob = .{ .type_id = entry.type_id, .animal = entry.animal } };
+}
+
 fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?Animal.Attacker {
     if (arrow.from_player) {
         const shooter = playerById(roster, arrow.owner) orelse return null;
@@ -1788,7 +1818,13 @@ pub fn tickArrows(
                     .mob => |target| self.hurtTarget(world_map, target, Arrow.damage, source, rand),
                     .player => |id| blk: {
                         const struck = playerById(roster, id) orelse break :blk false;
+                        if (!world_map.pvp and arrow.from_player) break :blk false;
                         const absorbed = struck.absorbsHit(Arrow.damage);
+                        if (world_map.difficulty.scaleHostileDamage(Arrow.damage) != 0) {
+                            if (self.quarryOf(source)) |shooter| {
+                                Wolf.defendOwner(self, struck, shooter, world_map.pvp);
+                            }
+                        }
                         struck.hurtByHostile(world_map, Arrow.damage, null);
                         break :blk !absorbed;
                     },
@@ -4060,9 +4096,9 @@ test "the crosshair picks the animal it is aimed at, and nothing off to the side
 
     const cow = entities.first(Cow, mob.cow).?.animal.base.id;
     const eye = math.Vec3.init(0, 1, 0);
-    try std.testing.expectEqual(Target{ .mob = cow }, entities.pick(eye, .{ 0, 0, 1 }, entity_reach).?);
-    try std.testing.expect(entities.pick(eye, .{ 0, 0, -1 }, entity_reach) == null);
-    try std.testing.expect(entities.pick(eye, .{ 0, 1, 0 }, entity_reach) == null);
+    try std.testing.expectEqual(Target{ .mob = cow }, entities.pick(eye, .{ 0, 0, 1 }, entity_reach, &.{}).?);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, -1 }, entity_reach, &.{}) == null);
+    try std.testing.expect(entities.pick(eye, .{ 0, 1, 0 }, entity_reach, &.{}) == null);
 }
 
 test "an animal beyond the three block reach is not picked" {
@@ -4073,8 +4109,8 @@ test "an animal beyond the three block reach is not picked" {
 
     const cow = entities.first(Cow, mob.cow).?.animal.base.id;
     const eye = math.Vec3.init(0, 1, 0);
-    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) == null);
-    try std.testing.expectEqual(Target{ .mob = cow }, entities.pick(eye, .{ 0, 0, 1 }, 8.0).?);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach, &.{}) == null);
+    try std.testing.expectEqual(Target{ .mob = cow }, entities.pick(eye, .{ 0, 0, 1 }, 8.0, &.{}).?);
 }
 
 test "the nearer of two animals in a line is the one picked" {
@@ -4086,7 +4122,7 @@ test "the nearer of two animals in a line is the one picked" {
     try entities.spawnPig(gpa, math.Vec3.init(0, 0, 1.5));
 
     const eye = math.Vec3.init(0, 1, 0);
-    const picked = entities.pick(eye, .{ 0, 0, 1 }, entity_reach).?;
+    const picked = entities.pick(eye, .{ 0, 0, 1 }, entity_reach, &.{}).?;
     try std.testing.expectEqual(mob.pig, entities.mobAt(picked).?.type_id);
 }
 
@@ -4097,10 +4133,10 @@ test "a dead animal is no longer picked" {
     try entities.spawnCow(gpa, math.Vec3.init(0, 0, 2));
 
     const eye = math.Vec3.init(0, 1, 0);
-    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) != null);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach, &.{}) != null);
 
     entities.first(Cow, mob.cow).?.animal.health = 0;
-    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach) == null);
+    try std.testing.expect(entities.pick(eye, .{ 0, 0, 1 }, entity_reach, &.{}) == null);
 }
 
 test "a hit takes health off the animal the crosshair found" {
@@ -5377,4 +5413,261 @@ test "a mob and the one riding it are the one pair that never shoves itself apar
     entities.pushNeighbours(spider);
     try std.testing.expectEqual(math.Vec3.init(0, 0, 0), spider.base.motion);
     try std.testing.expectEqual(math.Vec3.init(0, 0, 0), skeleton.base.motion);
+}
+
+test "a player standing in the line of sight is picked, and a dead one is not" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var other = Player.spawn(math.Vec3.init(0, 0, 3));
+    other.base.id = entities.takeId();
+
+    const eye = math.Vec3.init(0, 1, 0);
+    const look = [3]f32{ 0, 0, 1 };
+    var roster: [1]*Player = .{&other};
+
+    try std.testing.expectEqual(
+        Target{ .player = other.base.id },
+        entities.pick(eye, look, 4.0, &roster).?,
+    );
+
+    other.health = 0;
+    try std.testing.expectEqual(@as(?Target, null), entities.pick(eye, look, 4.0, &roster));
+}
+
+test "whichever of a player and an animal stands nearer is the one picked" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    try entities.spawnCow(gpa, math.Vec3.init(0, 1, 2));
+    const cow = entities.mobs.items[0].animal;
+
+    var other = Player.spawn(math.Vec3.init(0, 1, 4));
+    other.base.id = entities.takeId();
+
+    const eye = math.Vec3.init(0, 2, 0);
+    const look = [3]f32{ 0, 0, 1 };
+    var roster: [1]*Player = .{&other};
+
+    try std.testing.expectEqual(
+        Target{ .mob = cow.base.id },
+        entities.pick(eye, look, 5.0, &roster).?,
+    );
+
+    other.base.position = math.Vec3.init(0, 1, 1);
+    try std.testing.expectEqual(
+        Target{ .player = other.base.id },
+        entities.pick(eye, look, 5.0, &roster).?,
+    );
+}
+
+test "with pvp off an arrow one player looses glances off another" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    w.pvp = false;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    var shooter = archer(math.Vec3.init(8.5, 1, 8.5), 0, 0);
+    shooter.base.id = entities.takeId();
+    var struck = Player.spawn(math.Vec3.init(12.5, 1, 8.5));
+    struck.base.id = entities.takeId();
+    const roster = [_]*Player{ &shooter, &struck };
+
+    try entities.shootArrow(gpa, &shooter, &rand);
+    const chest = math.Vec3.init(struck.base.position.x, struck.base.position.y + 1.0, struck.base.position.z);
+
+    entities.arrows.items[0].base.position = chest;
+    entities.arrows.items[0].base.motion = math.Vec3.init(0.01, 0, 0);
+    try entities.tickArrows(gpa, &w, &roster, &rand);
+    try std.testing.expectEqual(@as(i32, 20), struck.health);
+    try std.testing.expectEqual(@as(usize, 1), entities.arrows.items.len);
+
+    w.pvp = true;
+    entities.arrows.items[0].base.position = chest;
+    entities.arrows.items[0].base.motion = math.Vec3.init(0.01, 0, 0);
+    try entities.tickArrows(gpa, &w, &roster, &rand);
+    try std.testing.expectEqual(@as(i32, 20 - Arrow.damage), struck.health);
+}
+
+test "with pvp off an arrow a skeleton loosed still finds the player" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+    w.pvp = false;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1);
+    try entities.spawnSkeleton(gpa, math.Vec3.init(8.5, 1, 8.5));
+    const bowman = entities.first(Skeleton, mob.skeleton).?.animal.base.id;
+
+    var target = Player.spawn(math.Vec3.init(12.5, 1, 8.5));
+    target.base.id = entities.takeId();
+
+    try entities.loose(gpa, .{
+        .owner = bowman,
+        .from = math.Vec3.init(8.5, 2, 8.5),
+        .toward = math.Vec3.init(1, 0, 0),
+    }, &rand);
+
+    const chest = math.Vec3.init(target.base.position.x, target.base.position.y + 1.0, target.base.position.z);
+    entities.arrows.items[0].base.position = chest;
+    entities.arrows.items[0].base.motion = math.Vec3.init(0.01, 0, 0);
+    try entities.tickArrows(gpa, &w, &[_]*Player{&target}, &rand);
+
+    try std.testing.expectEqual(@as(i32, 20 - Arrow.damage), target.health);
+}
+
+test "a tamed wolf sets on whatever just hurt its owner, sitting or not" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(1);
+
+    var owner = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    owner.base.id = 1;
+
+    try entities.spawnSkeleton(gpa, math.Vec3.init(20.5, 1, 8.5));
+    const bowman = &entities.first(Skeleton, mob.skeleton).?.animal;
+
+    try entities.spawnWolf(gpa, math.Vec3.init(9.5, 1, 8.5), &rand);
+    const dog = entities.first(Wolf, mob.wolf).?;
+    dog.tamed = true;
+    dog.owner_id = owner.base.id;
+    dog.sitting = true;
+
+    try entities.loose(gpa, .{
+        .owner = bowman.base.id,
+        .from = math.Vec3.init(20.5, 2, 8.5),
+        .toward = math.Vec3.init(-1, 0, 0),
+    }, &rand);
+
+    entities.arrows.items[0].base.position = math.Vec3.init(8.5, 2, 8.5);
+    entities.arrows.items[0].base.motion = math.Vec3.init(-0.01, 0, 0);
+    try entities.tickArrows(gpa, &w, &[_]*Player{&owner}, &rand);
+
+    try std.testing.expect(owner.health < 20);
+    try std.testing.expect(!dog.sitting);
+    try std.testing.expectEqual(bowman, dog.target.?.prey);
+}
+
+test "a wolf sitting when its owner throws the punch stays put" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(1);
+
+    var owner = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    owner.base.id = 1;
+
+    try entities.spawnCow(gpa, math.Vec3.init(10.5, 1, 8.5));
+    try entities.spawnWolf(gpa, math.Vec3.init(9.5, 1, 8.5), &rand);
+    const dog = entities.first(Wolf, mob.wolf).?;
+    dog.tamed = true;
+    dog.owner_id = owner.base.id;
+    dog.sitting = true;
+
+    _ = entities.hurtTarget(
+        &w,
+        .{ .mob = entities.first(Cow, mob.cow).?.animal.base.id },
+        1,
+        .{ .position = owner.base.position, .player = owner.base.id },
+        &rand,
+    );
+
+    try std.testing.expect(dog.sitting);
+    try std.testing.expect(dog.target == null);
+}
+
+test "punching a creeper leaves the pack out of it" {
+    const gpa = std.testing.allocator;
+    var w = try world.testing.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(1);
+
+    var owner = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    owner.base.id = 1;
+
+    try entities.spawnCreeper(gpa, math.Vec3.init(10.5, 1, 8.5));
+    try entities.spawnWolf(gpa, math.Vec3.init(9.5, 1, 8.5), &rand);
+    const dog = entities.first(Wolf, mob.wolf).?;
+    dog.tamed = true;
+    dog.owner_id = owner.base.id;
+
+    _ = entities.hurtTarget(
+        &w,
+        .{ .mob = entities.first(Creeper, mob.creeper).?.animal.base.id },
+        1,
+        .{ .position = owner.base.position, .player = owner.base.id },
+        &rand,
+    );
+
+    try std.testing.expect(dog.target == null);
+}
+
+test "a player's own wolf biting them does not set the rest of the pack on it" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(1);
+
+    var owner = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    owner.base.id = 1;
+
+    try entities.spawnWolf(gpa, math.Vec3.init(9.5, 1, 8.5), &rand);
+    try entities.spawnWolf(gpa, math.Vec3.init(7.5, 1, 8.5), &rand);
+
+    var pack = entities.of(Wolf, mob.wolf);
+    const biter = pack.next().?;
+    const rest = pack.next().?;
+    for ([_]*Wolf{ biter, rest }) |dog| {
+        dog.tamed = true;
+        dog.owner_id = owner.base.id;
+    }
+
+    Wolf.defendOwner(&entities, &owner, .{ .mob = .{ .type_id = mob.wolf, .animal = &biter.animal } }, true);
+
+    try std.testing.expect(rest.target == null);
+    try std.testing.expect(biter.target == null);
+}
+
+test "with pvp off a punch does not set the struck player's wolves on the puncher" {
+    const gpa = std.testing.allocator;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+    var rand = world.JavaRandom.init(1);
+
+    var owner = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    owner.base.id = 1;
+
+    try entities.spawnWolf(gpa, math.Vec3.init(9.5, 1, 8.5), &rand);
+    const dog = entities.first(Wolf, mob.wolf).?;
+    dog.tamed = true;
+    dog.owner_id = owner.base.id;
+
+    Wolf.defendOwner(&entities, &owner, .{ .player = 2 }, false);
+    try std.testing.expect(dog.target == null);
+
+    Wolf.defendOwner(&entities, &owner, .{ .player = 2 }, true);
+    try std.testing.expectEqual(@as(Entity.Id, 2), dog.target.?.player);
 }
