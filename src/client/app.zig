@@ -183,6 +183,7 @@ pub const AppState = struct {
     pause_saving: bool = false,
     link: ?*Link = null,
     stats: game.stats.Stats = .{},
+    stats_sync_cooldown: i32 = 0,
     stats_open: bool = false,
     achievements_open: bool = false,
     achievements_view: render.screen.achievements.State = .{},
@@ -2791,6 +2792,22 @@ fn centimetres(value: f64) i32 {
     return @intFromFloat(@round(@as(f32, @floatCast(value)) * 100.0));
 }
 
+const stats_sync_ticks: i32 = 100;
+
+fn syncStats(app_state: *AppState) void {
+    if (app_state.stats.dirty and app_state.stats_sync_cooldown <= 0) {
+        game.stats_file.save(
+            app_state.gpa,
+            app_state.io,
+            app_state.base_dir,
+            game.stats_file.default_username,
+            &app_state.stats,
+        ) catch {};
+        app_state.stats_sync_cooldown = stats_sync_ticks;
+    }
+    if (app_state.stats_sync_cooldown > 0) app_state.stats_sync_cooldown -= 1;
+}
+
 fn awardAchievement(app_state: *AppState, id: game.achievements.Id) !void {
     if (!try app_state.stats.award(app_state.gpa, id)) return;
     app_state.achievement_toast.announce(id, @floatFromInt(sdl3.timer.getMillisecondsSinceInit()));
@@ -4590,6 +4607,7 @@ pub fn iterate(
     }
 
     const ticks_started_ns = sdl3.timer.getNanosecondsSinceInit();
+    for (0..@intCast(app_state.timer.elapsed_ticks)) |_| syncStats(app_state);
     if (world_ticking) {
         for (0..@intCast(app_state.timer.elapsed_ticks)) |_| {
             try tick(app_state);
@@ -4768,15 +4786,6 @@ pub fn iterate(
         );
     }
 
-    if (app_state.screen == .playing) {
-        try render.achievement_toast.draw(
-            uiContext(app_state, gui),
-            app_state.achievement_toast,
-            @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
-            inventoryKeyName(app_state),
-        );
-    }
-
     const now_ns = sdl3.timer.getNanosecondsSinceInit();
     if (app_state.show_debug) {
         app_state.debug_graph.record(now_ns, tick_ns);
@@ -4790,6 +4799,13 @@ pub fn iterate(
     } else {
         app_state.debug_graph.skip(now_ns);
     }
+
+    try render.achievement_toast.draw(
+        uiContext(app_state, gui),
+        app_state.achievement_toast,
+        @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
+        inventoryKeyName(app_state),
+    );
 
     if (app_state.screenshot_pending) {
         app_state.screenshot_pending = false;

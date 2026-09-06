@@ -224,6 +224,7 @@ pub fn registered(stat: Key) bool {
 
 pub const Stats = struct {
     counts: std.AutoHashMapUnmanaged(Key, i32) = .empty,
+    dirty: bool = false,
 
     pub fn deinit(self: *Stats, gpa: std.mem.Allocator) void {
         self.counts.deinit(gpa);
@@ -243,6 +244,7 @@ pub const Stats = struct {
         const entry = try self.counts.getOrPut(gpa, stat);
         if (!entry.found_existing) entry.value_ptr.* = 0;
         entry.value_ptr.* +|= amount;
+        self.dirty = true;
     }
 
     pub fn hasAchievement(self: *const Stats, id: achievements.Id) bool {
