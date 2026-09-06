@@ -54,6 +54,7 @@ prev_camera_yaw: f32 = 0,
 camera_pitch: f32 = 0,
 prev_camera_pitch: f32 = 0,
 jumped: bool = false,
+flying: bool = false,
 drowned: bool = false,
 fire: i32 = 0,
 in_lava: bool = false,
@@ -117,6 +118,10 @@ const lava_drag: f64 = 0.5;
 const liquid_gravity: f64 = 0.02;
 const liquid_jump: f64 = 0.04;
 const liquid_climb_out: f64 = 0.3;
+
+const fly_speed: f64 = 0.05;
+const fly_lift: f64 = 0.15;
+const fly_vertical_drag: f64 = 0.6;
 
 pub const max_air: i32 = 300;
 pub const max_health: i32 = 20;
@@ -234,18 +239,24 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
     if (self.health <= 0) self.death_time += 1;
 
-    if (self.base.in_water or self.in_lava) {
+    if (self.flying) {
+        self.fall_distance = 0;
+        if (jump) self.base.motion.y += fly_lift;
+        if (sneak) self.base.motion.y -= fly_lift;
+    } else if (self.base.in_water or self.in_lava) {
         if (jump) self.base.motion.y += liquid_jump;
     } else if (self.base.on_ground and jump) {
         self.base.motion.y = jump_velocity;
         self.jumped = true;
     }
 
-    const friction: f32 = if (self.base.on_ground)
+    const friction: f32 = if (self.base.on_ground and !self.flying)
         game_physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
     else
         air_friction;
-    const speed: f64 = if (self.base.in_water or self.in_lava)
+    const speed: f64 = if (self.flying)
+        fly_speed
+    else if (self.base.in_water or self.in_lava)
         liquid_speed
     else if (self.base.on_ground)
         game_physics.walkAcceleration(friction)
@@ -272,7 +283,11 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
     }
     self.hurtOnCactus(world_map);
 
-    if (self.base.in_water or self.in_lava) {
+    if (self.flying) {
+        self.base.motion.x *= @as(f64, friction);
+        self.base.motion.y *= fly_vertical_drag;
+        self.base.motion.z *= @as(f64, friction);
+    } else if (self.base.in_water or self.in_lava) {
         const drag: f64 = if (self.base.in_water) water_drag else lava_drag;
         self.base.motion.x *= drag;
         self.base.motion.y *= drag;
@@ -2224,4 +2239,54 @@ test "an awake player's camera still follows the mouse" {
         if (@abs(settled.m[cell] - turned.m[cell]) > 1.0e-4) moved = true;
     }
     try std.testing.expect(moved);
+}
+
+test "a flying player hangs in the air instead of falling" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 40, 8));
+    player.flying = true;
+    for (0..100) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expectApproxEqAbs(@as(f64, 40), player.base.position.y, 1.0e-9);
+}
+
+test "jump lifts a flying player and sneak lowers them" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var rising = Player.spawn(math.Vec3.init(8, 40, 8));
+    rising.flying = true;
+    rising.tick(&w, 0, 0, true, false);
+    try std.testing.expectApproxEqAbs(40 + fly_lift, rising.base.position.y, 1.0e-9);
+
+    var sinking = Player.spawn(math.Vec3.init(8, 40, 8));
+    sinking.flying = true;
+    sinking.tick(&w, 0, 0, false, true);
+    try std.testing.expectApproxEqAbs(40 - fly_lift, sinking.base.position.y, 1.0e-9);
+}
+
+test "flight cancels the fall the player was already taking" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 40, 8));
+    for (0..30) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(player.fall_distance > safe_fall_distance);
+
+    player.flying = true;
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expect(player.fall_distance < safe_fall_distance);
+    try std.testing.expectEqual(max_health, player.health);
+}
+
+test "a flying player still lands on the ground rather than through it" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 4, 8));
+    player.flying = true;
+    for (0..100) |_| player.tick(&w, 0, 0, false, true);
+    try std.testing.expect(player.base.on_ground);
+    try std.testing.expectApproxEqAbs(@as(f64, 1), player.base.position.y, 1.0e-9);
 }

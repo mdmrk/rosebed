@@ -1423,6 +1423,13 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                 app_state.chat.addMessage(app_state.font, game.commands.freecam_on_line);
             }
         },
+        .fly => {
+            app_state.player.flying = !app_state.player.flying;
+            app_state.chat.addMessage(app_state.font, if (app_state.player.flying)
+                game.commands.fly_on_line
+            else
+                game.commands.fly_off_line);
+        },
         .kill => {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);

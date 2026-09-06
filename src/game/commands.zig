@@ -7,6 +7,7 @@ pub const max_count: u8 = 64;
 pub const Verb = enum {
     help,
     freecam,
+    fly,
     give,
     kill,
     spawn,
@@ -19,6 +20,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "",
             .freecam => "",
+            .fly => "",
             .give => "<id|name> [num]",
             .kill => "",
             .spawn => "<mob> [num]",
@@ -33,6 +35,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "shows this message",
             .freecam => "detaches the camera from the player",
+            .fly => "lets the player fly, free of gravity",
             .give => "gives the player a resource",
             .kill => "kills the player",
             .spawn => "spawns a mob where you look",
@@ -85,6 +88,7 @@ pub const Result = union(enum) {
     nothing,
     help,
     freecam,
+    fly,
     kill,
     seed: Seed,
     give: Give,
@@ -130,6 +134,9 @@ pub const kill_line = "Ouch. That look like it hurt.";
 
 pub const freecam_on_line = "Freecam on. The camera flies, your body stays.";
 pub const freecam_off_line = "Freecam off.";
+
+pub const fly_on_line = "Flying on. Jump to rise, sneak to sink.";
+pub const fly_off_line = "Flying off.";
 
 pub const no_sky_line = "There is no sky here to change.";
 
@@ -186,6 +193,7 @@ pub fn parse(line: []const u8) Result {
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
         .freecam => if (words.next() == null) .freecam else .nothing,
+        .fly => if (words.next() == null) .fly else .nothing,
         .kill => if (words.next() == null) .kill else .nothing,
         .give => parseGive(&words),
         .spawn => parseSpawn(&words),
@@ -411,7 +419,7 @@ test "weather stays silent when the argument count is wrong" {
 }
 
 test "an unrecognised verb reports itself" {
-    try std.testing.expectEqualStrings("fly", parse("/fly").unknown);
+    try std.testing.expectEqualStrings("gamemode", parse("/gamemode").unknown);
     try std.testing.expectEqualStrings("warp", parse("/warp Player Notch").unknown);
     try std.testing.expectEqual(Result.nothing, parse("/"));
 }
@@ -492,4 +500,9 @@ test "a name reports the id it resolved to, so the reply reads the same either w
 test "freecam takes no arguments at all" {
     try std.testing.expectEqual(Result.freecam, parse("/freecam"));
     try std.testing.expectEqual(Result.nothing, parse("/freecam on"));
+}
+
+test "fly takes no arguments at all" {
+    try std.testing.expectEqual(Result.fly, parse("/fly"));
+    try std.testing.expectEqual(Result.nothing, parse("/fly on"));
 }
