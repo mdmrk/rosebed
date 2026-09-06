@@ -6,6 +6,7 @@ pub const Kind = world.item.MinecartKind;
 const testing_world = world.testing;
 
 const Entity = @import("../Entity.zig");
+const Player = @import("../Player.zig");
 
 const Minecart = @This();
 
@@ -498,6 +499,11 @@ pub fn riderPosition(self: Minecart) math.Vec3 {
     );
 }
 
+pub fn playerPosition(self: Minecart) math.Vec3 {
+    const seat = self.riderPosition();
+    return math.Vec3.init(seat.x, seat.y + Player.rider_y_offset, seat.z);
+}
+
 pub const scoop_speed_squared: f64 = 0.01;
 
 pub fn wouldScoop(self: Minecart) bool {
@@ -802,11 +808,16 @@ test "stepping off a cart sets you down on top of it, not in the seat" {
     try std.testing.expectApproxEqAbs(cart.base.position.z, off.z, 1.0e-12);
 }
 
-test "a rider sits just above the cart floor" {
+test "a rider sits just above the cart floor, and a player half a block lower still" {
     const cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     const seat = cart.riderPosition();
     try std.testing.expectApproxEqAbs(@as(f64, 12.15 + 0.05), seat.y, 1.0e-12);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), seat.x, 1.0e-12);
+
+    const driver = cart.playerPosition();
+    try std.testing.expectApproxEqAbs(@as(f64, 12.15 + 0.05 - 0.5), driver.y, 1.0e-12);
+    try std.testing.expectApproxEqAbs(seat.x, driver.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(seat.z, driver.z, 1.0e-12);
 }
 
 test "a minecart breaks after enough damage and shrugs off a little" {

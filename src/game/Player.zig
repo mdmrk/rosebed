@@ -151,6 +151,7 @@ const sneak_input_scale: f32 = 0.3;
 const sneak_camera_dip: f64 = 0.2;
 
 pub const step_height: f64 = 0.5;
+pub const rider_y_offset: f64 = -0.5;
 
 pub const sleep_size: f64 = 0.2;
 pub const sleep_eye_height: f64 = 0.2;

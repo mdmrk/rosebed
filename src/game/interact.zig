@@ -409,11 +409,12 @@ pub fn insertRecordAtTarget(ctx: Context, record: world.Item) !bool {
 }
 
 pub fn placeBoatAtTarget(ctx: Context) !bool {
-    const hit = raycast.cast(
+    const hit = raycast.castWith(
         &ctx.level.world_map,
         ctx.player.eyePosition(),
         ctx.player.lookVector(),
         boat_reach,
+        true,
     ) orelse return false;
 
     const on_snow = ctx.level.world_map.getBlock(hit.pos) == .snow_layer;
@@ -523,4 +524,38 @@ test "right-clicking a held snowball throws it" {
     try std.testing.expectEqual(@as(usize, 1), level.entities.thrown.items.len);
     try std.testing.expectEqual(Thrown.Kind.snowball, level.entities.thrown.items[0].kind);
     try std.testing.expectEqual(@as(u8, 2), player.inventory.slots[player.inventory.selected].?.count);
+}
+
+test "a boat aimed at open water lands on the surface, not the seabed" {
+    const gpa = std.testing.allocator;
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    level.attach();
+    _ = try level.world_map.createChunk(0, 0);
+    level.world_map.setBlock(.init(8, 7, 8), .stone);
+    level.world_map.setBlock(.init(8, 8, 8), .stationary_water);
+
+    var tally: stats.Stats = .{};
+    defer tally.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 10.5, 8.5));
+    player.pitch = 90;
+    try level.enter(gpa, &player);
+    player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .boat }, .count = 1 };
+
+    try std.testing.expect(try placeBoatAtTarget(.{
+        .gpa = gpa,
+        .frame = gpa,
+        .level = &level,
+        .player = &player,
+        .stats = &tally,
+        .dimension = .overworld,
+    }));
+
+    try std.testing.expectEqual(@as(usize, 1), level.entities.boats.items.len);
+    const boat = level.entities.boats.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 9.0), boat.base.position.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.5), boat.base.position.x, 1.0e-9);
+    try std.testing.expect(player.inventory.slots[player.inventory.selected] == null);
 }

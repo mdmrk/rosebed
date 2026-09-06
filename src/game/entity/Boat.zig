@@ -5,6 +5,7 @@ const world = @import("world");
 
 const Entity = @import("../Entity.zig");
 const physics = @import("../physics.zig");
+const Player = @import("../Player.zig");
 
 const Boat = @This();
 
@@ -180,7 +181,7 @@ pub fn riderPosition(self: Boat) math.Vec3 {
     const radians = @as(f64, self.yaw) * std.math.pi / 180.0;
     return math.Vec3.init(
         self.base.position.x + @cos(radians) * rider_reach,
-        self.base.position.y,
+        self.base.position.y + y_offset + mounted_offset + Player.rider_y_offset,
         self.base.position.z + @sin(radians) * rider_reach,
     );
 }
@@ -328,7 +329,7 @@ test "the rider sits ahead of the boat's centre along its heading" {
     boat.yaw = 0;
     const east = boat.riderPosition();
     try std.testing.expectApproxEqAbs(@as(f64, 8.9), east.x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 64), east.y, 1.0e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 63.5), east.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), east.z, 1.0e-9);
 
     boat.yaw = 90;

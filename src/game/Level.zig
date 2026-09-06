@@ -214,7 +214,7 @@ fn dropStaleRides(self: *Level) void {
         }
         if (self.entities.mobById(player.riding)) |mount| {
             if (mount.animal.isAlive()) {
-                player.base.position = mountedSeat(mount.animal);
+                player.base.position = playerSeat(mount.animal);
                 player.base.motion = math.Vec3.init(0, 0, 0);
                 continue;
             }
@@ -246,9 +246,14 @@ fn seatMobRiders(self: *Level) void {
 fn mountedSeat(animal: *const Animal) math.Vec3 {
     return math.Vec3.init(
         animal.base.position.x,
-        animal.base.position.y + animal.base.height * mounted_fraction,
+        animal.base.position.y + animal.base.height * mounted_fraction + animal.mounted_offset,
         animal.base.position.z,
     );
+}
+
+fn playerSeat(animal: *const Animal) math.Vec3 {
+    const seat = mountedSeat(animal);
+    return math.Vec3.init(seat.x, seat.y + Player.rider_y_offset, seat.z);
 }
 
 fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) !void {
@@ -257,7 +262,7 @@ fn tickMinecarts(self: *Level, gpa: std.mem.Allocator, rand: *world.JavaRandom) 
     for (self.roster.items) |player| {
         if (player.riding == Animal.Entity.no_id) continue;
         const cart = self.entities.minecartById(player.riding) orelse continue;
-        player.base.position = cart.riderPosition();
+        player.base.position = cart.playerPosition();
         player.base.motion = math.Vec3.init(0, 0, 0);
     }
 
@@ -950,6 +955,44 @@ test "a jockey's skeleton is carried on its spider's back every tick" {
         try level.tick(gpa, arena.allocator());
         try std.testing.expectEqual(mountedSeat(spider), skeleton.base.position);
     }
+}
+
+test "a player riding a pig sits half a block below a mob's seat" {
+    const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
+    try enterLevel(gpa, &level, &player);
+
+    try level.entities.spawnPig(gpa, math.Vec3.init(4.5, 6, 4.5));
+    const pig = level.entities.mobs.items[0].animal;
+    player.riding = pig.base.id;
+
+    try level.tick(gpa, arena.allocator());
+
+    const seat = mountedSeat(pig);
+    try std.testing.expectApproxEqAbs(seat.y - 0.5, player.base.position.y, 1.0e-12);
+    try std.testing.expectApproxEqAbs(seat.x, player.base.position.x, 1.0e-12);
+    try std.testing.expectApproxEqAbs(seat.z, player.base.position.z, 1.0e-12);
+}
+
+test "a spider seats its rider half a block below its back, where a plain mob does not" {
+    const gpa = std.testing.allocator;
+
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    try level.entities.spawnSpider(gpa, math.Vec3.init(4.5, 6, 4.5));
+    try level.entities.spawnPig(gpa, math.Vec3.init(4.5, 6, 4.5));
+    const spider = level.entities.mobs.items[0].animal;
+    const pig = level.entities.mobs.items[1].animal;
+
+    try std.testing.expectApproxEqAbs(@as(f64, 6 + 0.9 * 0.75 - 0.5), mountedSeat(spider).y, 1.0e-12);
+    try std.testing.expectApproxEqAbs(6 + pig.base.height * 0.75, mountedSeat(pig).y, 1.0e-12);
 }
 
 test "a jockey steps off when its spider dies, and stays where it was let down" {

@@ -24,6 +24,7 @@ pub const pounce_near: f32 = 2.0;
 pub const pounce_far: f32 = 6.0;
 pub const pounce_odds: i32 = 10;
 pub const pounce_lift: f64 = 0.4;
+pub const mounted_offset: f64 = -0.5;
 
 pub const spec: Animal.Spec = .{
     .width = width,
@@ -41,6 +42,7 @@ fn init(position: math.Vec3) Spider {
     self.animal.action_state = updateActionState;
     self.animal.path_weight = Monster.blockPathWeight;
     self.animal.climbs_walls = true;
+    self.animal.mounted_offset = mounted_offset;
     self.animal.base.triggers_walking = false;
     self.animal.death_max_rotation = death_max_rotation;
     self.monster.attack = attackEntity;
