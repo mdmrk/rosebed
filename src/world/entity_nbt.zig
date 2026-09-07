@@ -4,6 +4,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const ItemId = @import("item.zig").Item;
+const MinecartKind = @import("item.zig").MinecartKind;
 const nbt = @import("nbt.zig");
 const put = nbt.putDuped;
 
@@ -169,7 +170,7 @@ pub const minecart_slots = 27;
 
 pub const Minecart = struct {
     base: Base,
-    kind: u8 = 0,
+    kind: MinecartKind = .empty,
     fuel: i32 = 0,
     push: [2]f64 = .{ 0, 0 },
     items: [minecart_slots]?block.Stack = @splat(null),
@@ -480,14 +481,14 @@ pub fn storeMinecart(gpa: std.mem.Allocator, cart: Minecart) !nbt.Tag {
     }
 
     try storeBase(gpa, &compound, minecart_id, cart.base);
-    try put(gpa, &compound, "Type", .{ .int = cart.kind });
-    if (cart.kind == 2) {
+    try put(gpa, &compound, "Type", .{ .int = @intFromEnum(cart.kind) });
+    if (cart.kind == .furnace) {
         try put(gpa, &compound, "Fuel", .{ .int = cart.fuel });
         try put(gpa, &compound, "PushX", .{ .double = cart.push[0] });
         try put(gpa, &compound, "PushZ", .{ .double = cart.push[1] });
     }
 
-    if (cart.kind == 1) {
+    if (cart.kind == .chest) {
         var items: std.ArrayList(nbt.Tag) = .empty;
         errdefer {
             for (items.items) |*tag| nbt.deinit(gpa, tag);
@@ -732,7 +733,7 @@ pub fn loadMinecart(compound: nbt.Compound) ?Minecart {
     if (!isMinecart(compound)) return null;
     var cart: Minecart = .{ .base = loadBase(compound) orelse return null };
 
-    cart.kind = @intCast(@max(intField(compound, "Type", 0), 0));
+    cart.kind = std.enums.fromInt(MinecartKind, intField(compound, "Type", 0)) orelse .empty;
     cart.fuel = intField(compound, "Fuel", 0);
     cart.push = .{ doubleField(compound, "PushX", 0), doubleField(compound, "PushZ", 0) };
 

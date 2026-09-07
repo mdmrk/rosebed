@@ -2,6 +2,7 @@ const std = @import("std");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const Dimension = @import("gen/generator.zig").Dimension;
 const nbt = @import("nbt.zig");
 const World = @import("World.zig");
 
@@ -12,11 +13,15 @@ pub const area: usize = @intCast(width * height);
 pub const default_scale: u8 = 3;
 pub const max_scale: u8 = 4;
 pub const marker_reach: f32 = 64.0;
-pub const payload_columns: u8 = 0;
-pub const payload_markers: u8 = 1;
 const marker_period: i32 = 4;
 const columns_per_send: usize = 10;
 const column_stride: i32 = 11;
+
+pub const Payload = enum(u8) {
+    columns = 0,
+    markers = 1,
+    _,
+};
 
 pub const Marker = struct {
     icon: u8,
@@ -29,7 +34,7 @@ pub const ViewerState = struct {
     id: u32,
     x: f64,
     z: f64,
-    dimension: i8,
+    dimension: Dimension,
     alive: bool,
     holding: bool,
 };
@@ -55,7 +60,7 @@ pub const MapData = struct {
     id: i16,
     center_x: i32 = 0,
     center_z: i32 = 0,
-    dimension: i8 = 0,
+    dimension: Dimension = .overworld,
     scale: u8 = default_scale,
     colors: [area]u8 = @splat(0),
     stripe: i32 = 0,
@@ -85,12 +90,12 @@ pub const MapData = struct {
     pub fn updateColors(
         self: *MapData,
         world_map: *const World,
-        world_type: i8,
-        has_sky: bool,
+        world_type: Dimension,
         at_x: f64,
         at_z: f64,
     ) void {
         if (world_type != self.dimension) return;
+        const has_sky = world_type.hasSky();
 
         const step: i32 = @as(i32, 1) << @intCast(self.scale);
         const player_column = @divTrunc(floorDouble(at_x - @as(f64, @floatFromInt(self.center_x))), step) + @divTrunc(width, 2);
@@ -220,7 +225,7 @@ pub const MapData = struct {
             if (from_x < -marker_reach or from_z < -marker_reach or from_x > marker_reach or from_z > marker_reach) continue;
 
             var rotation: i8 = @intCast(@as(i32, @intFromFloat(@as(f64, holder_yaw * 16.0 / 360.0) + 0.5)) & 0xff);
-            if (self.dimension < 0) {
+            if (self.dimension == .nether) {
                 const spin: i32 = @divTrunc(self.stripe, 10);
                 rotation = @truncate(spin *% spin *% 34187121 +% spin *% 121 >> 15 & 15);
             }
@@ -249,7 +254,7 @@ pub const MapData = struct {
         if (viewer.marker_countdown < 0) {
             viewer.marker_countdown = marker_period;
             out.clearRetainingCapacity();
-            try out.append(gpa, payload_markers);
+            try out.append(gpa, @intFromEnum(Payload.markers));
             for (self.markers.items) |marker| {
                 try out.append(gpa, marker.icon +% (marker.rotation & 15) *% 16);
                 try out.append(gpa, @bitCast(marker.x));
@@ -271,7 +276,7 @@ pub const MapData = struct {
             const first = viewer.min_row[at];
             const rows: usize = @intCast(viewer.max_row[at] - first + 1);
             out.clearRetainingCapacity();
-            try out.append(gpa, payload_columns);
+            try out.append(gpa, @intFromEnum(Payload.columns));
             try out.append(gpa, @intCast(column));
             try out.append(gpa, @intCast(first));
             for (0..rows) |offset| {
@@ -288,7 +293,7 @@ pub const MapData = struct {
 
     pub fn applyPayload(self: *MapData, gpa: std.mem.Allocator, bytes: []const u8) !void {
         if (bytes.len == 0) return;
-        if (bytes[0] == payload_columns) {
+        if (@as(Payload, @enumFromInt(bytes[0])) == .columns) {
             if (bytes.len < 3) return;
             const column: usize = bytes[1];
             const first: usize = bytes[2];
@@ -300,7 +305,7 @@ pub const MapData = struct {
             self.markDirty();
             return;
         }
-        if (bytes[0] != payload_markers) return;
+        if (@as(Payload, @enumFromInt(bytes[0])) != .markers) return;
 
         self.markers.clearRetainingCapacity();
         var index: usize = 0;
@@ -365,7 +370,7 @@ fn floorDouble(value: f64) i32 {
 }
 
 pub fn writeToNbt(data: *const MapData, gpa: std.mem.Allocator, compound: *nbt.Compound) !void {
-    try nbt.putDuped(gpa, compound, "dimension", .{ .byte = data.dimension });
+    try nbt.putDuped(gpa, compound, "dimension", .{ .byte = @intFromEnum(data.dimension) });
     try nbt.putDuped(gpa, compound, "xCenter", .{ .int = data.center_x });
     try nbt.putDuped(gpa, compound, "zCenter", .{ .int = data.center_z });
     try nbt.putDuped(gpa, compound, "scale", .{ .byte = @intCast(data.scale) });
@@ -375,7 +380,7 @@ pub fn writeToNbt(data: *const MapData, gpa: std.mem.Allocator, compound: *nbt.C
 }
 
 pub fn readFromNbt(data: *MapData, compound: nbt.Compound) void {
-    data.dimension = byteField(compound, "dimension", 0);
+    data.dimension = std.enums.fromInt(Dimension, byteField(compound, "dimension", 0)) orelse .overworld;
     data.center_x = intField(compound, "xCenter", 0);
     data.center_z = intField(compound, "zCenter", 0);
 

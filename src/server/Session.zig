@@ -14,7 +14,6 @@ pub const State = enum { greeting, awaiting_login, playing, closed };
 pub const view_radius: i32 = 8;
 pub const chunks_per_tick: usize = 8;
 pub const offline_server_id = "-";
-pub const dig_finished: u8 = 2;
 pub const reach_squared: f64 = 36.0;
 pub const join_colour = "\u{00a7}e";
 
@@ -425,10 +424,10 @@ fn encodeFireballSpeed(value: f64) i16 {
     return @truncate(@as(i32, @intFromFloat(value * net.packet.fireball_speed_scale)));
 }
 
-fn fallingVehicleKind(block: world.Block) ?u8 {
+fn fallingVehicleKind(block: world.Block) ?net.packet.Vehicle {
     return switch (block) {
-        .sand => net.packet.vehicle_falling_sand,
-        .gravel => net.packet.vehicle_falling_gravel,
+        .sand => .falling_sand,
+        .gravel => .falling_gravel,
         else => null,
     };
 }
@@ -481,7 +480,7 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .arrow => |shot| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_arrow,
+            .kind = .arrow,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -489,7 +488,7 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .fireball => |shot| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_fireball,
+            .kind = .fireball,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -501,8 +500,8 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         .thrown => |projectile| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
             .kind = switch (projectile.kind) {
-                .egg => net.packet.vehicle_egg,
-                .snowball => net.packet.vehicle_snowball,
+                .egg => .egg,
+                .snowball => .snowball,
             },
             .x = now.x,
             .y = now.y,
@@ -510,35 +509,39 @@ fn spawnPeer(self: *Session, gpa: std.mem.Allocator, peer: Peer, now: Tracked, e
         } }),
         .falling_block => |falling| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = fallingVehicleKind(falling.block_id) orelse net.packet.vehicle_falling_sand,
+            .kind = fallingVehicleKind(falling.block_id) orelse .falling_sand,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .primed_tnt => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_primed_tnt,
+            .kind = .primed_tnt,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .boat => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_boat,
+            .kind = .boat,
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .minecart => |cart| try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_minecart + @intFromEnum(cart.kind),
+            .kind = switch (cart.kind) {
+                .empty => .minecart,
+                .chest => .minecart_chest,
+                .furnace => .minecart_furnace,
+            },
             .x = now.x,
             .y = now.y,
             .z = now.z,
         } }),
         .hook => try self.send(gpa, .{ .vehicle_spawn = .{
             .entity_id = @bitCast(peer.id),
-            .kind = net.packet.vehicle_fish_hook,
+            .kind = .fish_hook,
             .x = now.x,
             .y = now.y,
             .z = now.z,
@@ -563,7 +566,7 @@ fn reportOwnStatus(self: *Session, gpa: std.mem.Allocator, mine: *const game.Pla
     if (mine.hurt_time > self.own_hurt_time) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(mine.base.id),
-            .status = net.packet.status_hurt,
+            .status = .hurt,
         } });
     }
     self.own_hurt_time = mine.hurt_time;
@@ -572,7 +575,7 @@ fn reportOwnStatus(self: *Session, gpa: std.mem.Allocator, mine: *const game.Pla
     if (self.own_alive and !alive_now) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(mine.base.id),
-            .status = net.packet.status_death,
+            .status = .death,
         } });
     }
     self.own_alive = alive_now;
@@ -583,7 +586,7 @@ fn reportStatus(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Trac
     if (hurt_now > entry.hurt_time) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(peer.id),
-            .status = net.packet.status_hurt,
+            .status = .hurt,
         } });
     }
     entry.hurt_time = hurt_now;
@@ -592,7 +595,7 @@ fn reportStatus(self: *Session, gpa: std.mem.Allocator, peer: Peer, entry: *Trac
     if (entry.alive and !alive_now) {
         try self.send(gpa, .{ .entity_status = .{
             .entity_id = @bitCast(peer.id),
-            .status = net.packet.status_death,
+            .status = .death,
         } });
     }
     entry.alive = alive_now;
@@ -691,7 +694,7 @@ fn tickCarriedMaps(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !
                 .id = occupant.player.base.id,
                 .x = occupant.player.base.position.x,
                 .z = occupant.player.base.position.z,
-                .dimension = @intFromEnum(self.dimension),
+                .dimension = self.dimension,
                 .alive = !occupant.player.isDead(),
                 .holding = holdsMap(occupant.player, stack),
             });
@@ -701,8 +704,7 @@ fn tickCarriedMaps(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !
         if (slot == player.inventory.selected) {
             data.updateColors(
                 &level.world_map,
-                @intFromEnum(self.dimension),
-                self.dimension.hasSky(),
+                self.dimension,
                 player.base.position.x,
                 player.base.position.z,
             );
@@ -978,12 +980,12 @@ fn handlePlaying(
             }
         },
         .animation => |body| {
-            if (body.animate == net.packet.swing_animation) self.pending_swing = true;
+            if (body.animate == .swing) self.pending_swing = true;
         },
-        .use_entity => |body| try self.useEntity(gpa, level, @bitCast(body.target_id), body.left_click),
+        .use_entity => |body| try self.useEntity(gpa, level, @bitCast(body.target_id), body.action),
         .entity_action => |body| switch (body.state) {
-            action_start_sneaking => player.base.sneaking = true,
-            action_stop_sneaking => player.base.sneaking = false,
+            .start_sneaking => player.base.sneaking = true,
+            .stop_sneaking => player.base.sneaking = false,
             else => {},
         },
         .block_dig => |body| try self.digBlock(gpa, level, body.status, body.x, body.y, body.z, body.face),
@@ -997,11 +999,6 @@ fn handlePlaying(
         else => {},
     }
 }
-
-pub const action_start_sneaking: i8 = 1;
-pub const action_stop_sneaking: i8 = 2;
-pub const use_interact: i8 = 0;
-pub const use_attack: i8 = 1;
 
 const Sight = struct { at: math.Vec3, eye_height: f64 };
 
@@ -1053,7 +1050,7 @@ fn interactMinecart(self: *Session, gpa: std.mem.Allocator, level: *game.Level, 
             if (!level.entities.boardMinecart(cart, player.base.id)) return;
             player.riding = cart.base.id;
         },
-        .chest => try self.openContainer(gpa, level, .{ .minecart = cart.base.id }, window_chest, game.Minecart.inventory_name),
+        .chest => try self.openContainer(gpa, level, .{ .minecart = cart.base.id }, .chest, game.Minecart.inventory_name),
         .furnace => {
             if (player.inventory.selectedStack()) |stack| {
                 if (stack.id.eql(.{ .item = .coal })) {
@@ -1139,15 +1136,15 @@ fn interactEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id
     }
 }
 
-fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: game.Entity.Id, click: i8) !void {
+fn useEntity(self: *Session, gpa: std.mem.Allocator, level: *game.Level, id: game.Entity.Id, click: net.packet.Use) !void {
     const player = self.player orelse return;
 
-    if (click == use_interact) {
+    if (click == .interact) {
         const seen = entitySightOf(level, id) orelse return;
         if (!withinUseRange(player, &level.world_map, seen)) return;
         return self.interactEntity(gpa, level, id);
     }
-    if (click != use_attack) return;
+    if (click != .attack) return;
 
     if (game.Entities.playerById(level.roster.items, id)) |struck| {
         if (struck == player) return;
@@ -1231,11 +1228,6 @@ pub const carried_window: i8 = -1;
 pub const carried_slot: i16 = -1;
 pub const player_window_slots: usize = 45;
 pub const last_window_id: i8 = 100;
-
-pub const window_chest: i8 = 0;
-pub const window_workbench: i8 = 1;
-pub const window_furnace: i8 = 2;
-pub const window_dispenser: i8 = 3;
 
 pub const Open = union(enum) {
     player,
@@ -1368,7 +1360,7 @@ fn takeWindowId(self: *Session) i8 {
     return self.next_window_id;
 }
 
-fn openContainer(self: *Session, gpa: std.mem.Allocator, level: *game.Level, open: Open, kind: i8, title: []const u8) !void {
+fn openContainer(self: *Session, gpa: std.mem.Allocator, level: *game.Level, open: Open, kind: net.packet.Window, title: []const u8) !void {
     self.open = open;
     self.window_id = self.takeWindowId();
     self.progress = @splat(-1);
@@ -1403,7 +1395,7 @@ fn mintCraftedMap(self: *Session, level: *game.Level, window: *game.Window) !voi
     data.center_x = math.util.floorDouble(player.base.position.x);
     data.center_z = math.util.floorDouble(player.base.position.z);
     data.scale = world.map.default_scale;
-    data.dimension = @intFromEnum(self.dimension);
+    data.dimension = self.dimension;
     data.markDirty();
 }
 
@@ -1528,7 +1520,7 @@ pub fn sendRainState(self: *Session, gpa: std.mem.Allocator, raining: bool) !voi
     if (self.raining == raining) return;
 
     self.raining = raining;
-    try self.send(gpa, .{ .bed = .{ .state = if (raining) bed_rain_starts else bed_rain_stops } });
+    try self.send(gpa, .{ .bed = .{ .state = if (raining) .rain_starts else .rain_stops } });
 }
 
 pub fn sendLightning(
@@ -1543,7 +1535,7 @@ pub fn sendLightning(
 
     try self.send(gpa, .{ .weather = .{
         .entity_id = @bitCast(id),
-        .lightning = lightning_kind,
+        .kind = .lightning,
         .x = encodePosition(at.x),
         .y = encodePosition(at.y),
         .z = encodePosition(at.z),
@@ -1642,7 +1634,7 @@ pub fn sendSwing(self: *Session, gpa: std.mem.Allocator, id: game.Entity.Id) !vo
     if (!self.tracked.contains(id)) return;
     try self.send(gpa, .{ .animation = .{
         .entity_id = @bitCast(id),
-        .animate = net.packet.swing_animation,
+        .animate = .swing,
     } });
 }
 
@@ -1677,13 +1669,11 @@ fn withinReach(player: *const game.Player, pos: BlockPos) bool {
     return dx * dx + dy * dy + dz * dz <= reach_squared;
 }
 
-pub const dig_started: u8 = 0;
-
 fn digBlock(
     self: *Session,
     gpa: std.mem.Allocator,
     level: *game.Level,
-    status: u8,
+    status: net.packet.Dig,
     x: i32,
     y: u8,
     z: i32,
@@ -1693,7 +1683,7 @@ fn digBlock(
     const height: i32 = y;
     if (!withinReach(player, .init(x, height, z))) return;
 
-    if (status == dig_started) {
+    if (status == .started) {
         if (face <= 5) try level.world_map.onBlockHit(.init(x, height, z), @enumFromInt(face));
 
         const punched = level.world_map.getBlock(.init(x, height, z));
@@ -1702,7 +1692,7 @@ fn digBlock(
         }
         return world.note.onPunched(&level.world_map, .init(x, height, z));
     }
-    if (status != dig_finished) return;
+    if (status != .finished) return;
 
     const broken = level.world_map.getBlock(.init(x, height, z));
     if (broken == .air) return;
@@ -1756,7 +1746,7 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
     const standing = level.world_map.getBlock(pos);
     switch (standing) {
         .workbench => {
-            try self.openContainer(gpa, level, .workbench, window_workbench, "Crafting");
+            try self.openContainer(gpa, level, .workbench, .workbench, "Crafting");
             return true;
         },
         .chest => {
@@ -1765,17 +1755,17 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
             _ = try level.world_map.addChest(pair.upper);
             if (pair.lower) |at| _ = try level.world_map.addChest(at);
             const title = if (pair.lower == null) "Chest" else "Large chest";
-            try self.openContainer(gpa, level, .{ .chest = pair }, window_chest, title);
+            try self.openContainer(gpa, level, .{ .chest = pair }, .chest, title);
             return true;
         },
         .furnace, .burning_furnace => {
             _ = try level.world_map.addFurnace(pos);
-            try self.openContainer(gpa, level, .{ .furnace = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, window_furnace, "Furnace");
+            try self.openContainer(gpa, level, .{ .furnace = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, .furnace, "Furnace");
             return true;
         },
         .dispenser => {
             _ = try level.world_map.addDispenser(pos);
-            try self.openContainer(gpa, level, .{ .dispenser = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, window_dispenser, "Trap");
+            try self.openContainer(gpa, level, .{ .dispenser = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, .dispenser, "Trap");
             return true;
         },
         else => {},
@@ -1806,8 +1796,6 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
         },
     }
 }
-
-pub const in_air_face: u8 = 255;
 
 fn holdStack(self: *Session, held: world.Item) void {
     const player = self.player orelse return;
@@ -1981,10 +1969,6 @@ fn placeSign(self: *Session, level: *game.Level, pos: BlockPos, face: world.bloc
     self.consumeHeld();
 }
 
-pub const bed_not_valid: i8 = 0;
-pub const bed_rain_starts: i8 = 1;
-pub const bed_rain_stops: i8 = 2;
-pub const lightning_kind: i8 = 1;
 pub const weather_range: f64 = 512.0;
 pub const bed_reach_x: f64 = 3.0;
 pub const bed_reach_y: f64 = 2.0;
@@ -2033,7 +2017,7 @@ pub fn sendWakeUp(self: *Session, gpa: std.mem.Allocator, id: game.Entity.Id) !v
     if (id != self.playerId() and !self.tracked.contains(id)) return;
     try self.send(gpa, .{ .animation = .{
         .entity_id = @bitCast(id),
-        .animate = net.packet.wake_up_animation,
+        .animate = .wake_up,
     } });
 }
 
@@ -2065,7 +2049,7 @@ fn respawnPlacement(self: *Session, gpa: std.mem.Allocator, level: *game.Level) 
             };
         }
         player.spawn_point = null;
-        try self.send(gpa, .{ .bed = .{ .state = bed_not_valid } });
+        try self.send(gpa, .{ .bed = .{ .state = .not_valid } });
     }
     return spawnPlacement(level);
 }
@@ -2091,7 +2075,7 @@ fn placeBlock(
     face: u8,
 ) !void {
     const player = self.player orelse return;
-    if (face == in_air_face) return self.useItemInAir(gpa, level);
+    if (face == net.packet.in_air_face) return self.useItemInAir(gpa, level);
     if (face > 5) return;
 
     const hit_y: i32 = y;
@@ -2575,7 +2559,7 @@ test "a finished dig takes the block out of the world and leaves its drop" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
 
     try session.handle(gpa, &level, .{ .block_dig = .{
-        .status = dig_finished,
+        .status = .finished,
         .x = 8,
         .y = 63,
         .z = 8,
@@ -2603,10 +2587,10 @@ test "punching tnt with flint and steel lights it instead of dropping it" {
     player.inventory.slots[player.inventory.selected] = .{ .id = .{ .item = .flint_and_steel }, .count = 1 };
     try level.world_map.setBlockWithNotify(.init(8, 64, 8), .tnt);
 
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .started, .x = 8, .y = 64, .z = 8, .face = 1 } });
     try std.testing.expect(world.tnt.isLit(level.world_map.getBlockMetadata(.init(8, 64, 8))));
 
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
 
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expectEqual(@as(usize, 0), level.entities.items.items.len);
@@ -2627,8 +2611,8 @@ test "punching tnt bare handed still drops it as an item" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
     try level.world_map.setBlockWithNotify(.init(8, 64, 8), .tnt);
 
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 64, .z = 8, .face = 1 } });
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .started, .x = 8, .y = 64, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .finished, .x = 8, .y = 64, .z = 8, .face = 1 } });
 
     try std.testing.expectEqual(@as(usize, 0), level.world_map.primed.items.len);
     try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
@@ -2647,7 +2631,7 @@ test "a dig that has only started leaves the block alone" {
     try joinedSession(gpa, &level, &session);
 
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = 0, .x = 8, .y = 63, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .started, .x = 8, .y = 63, .z = 8, .face = 1 } });
 
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 8)));
 }
@@ -2666,7 +2650,7 @@ test "starting a dig on the block under a fire puts the fire out" {
     session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
     try level.world_map.setBlockWithNotify(.init(8, 64, 8), .fire);
 
-    try session.handle(gpa, &level, .{ .block_dig = .{ .status = dig_started, .x = 8, .y = 63, .z = 8, .face = 1 } });
+    try session.handle(gpa, &level, .{ .block_dig = .{ .status = .started, .x = 8, .y = 63, .z = 8, .face = 1 } });
 
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 8)));
@@ -2687,7 +2671,7 @@ test "a block out of arm's reach cannot be dug" {
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 28)));
 
     try session.handle(gpa, &level, .{ .block_dig = .{
-        .status = dig_finished,
+        .status = .finished,
         .x = 8,
         .y = 63,
         .z = 28,

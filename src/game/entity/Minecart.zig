@@ -562,7 +562,7 @@ pub fn toRecord(self: Minecart) world.entity_nbt.Minecart {
             .pitch = self.pitch,
             .on_ground = self.base.on_ground,
         },
-        .kind = @intFromEnum(self.kind),
+        .kind = self.kind,
         .fuel = self.fuel,
         .push = .{ self.push.x, self.push.z },
         .items = self.items,
@@ -570,7 +570,7 @@ pub fn toRecord(self: Minecart) world.entity_nbt.Minecart {
 }
 
 pub fn fromRecord(record: world.entity_nbt.Minecart) Minecart {
-    var self = Minecart.spawn(record.base.position, @enumFromInt(@min(record.kind, 2)));
+    var self = Minecart.spawn(record.base.position, record.kind);
     self.base.motion = record.base.motion;
     self.base.on_ground = record.base.on_ground;
     self.yaw = record.base.yaw;

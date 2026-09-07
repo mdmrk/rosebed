@@ -129,17 +129,62 @@ pub fn direction(id: Id) Direction {
     };
 }
 
-pub const swing_animation: i8 = 1;
-pub const hurt_animation: i8 = 2;
-pub const wake_up_animation: i8 = 3;
+pub const Animation = enum(i8) {
+    swing = 1,
+    hurt = 2,
+    wake_up = 3,
+    _,
+};
 
-pub const status_hurt: i8 = 2;
-pub const status_death: i8 = 3;
-pub const status_wolf_smoke: i8 = 6;
-pub const status_wolf_hearts: i8 = 7;
-pub const status_wolf_shake: i8 = 8;
+pub const EntityStatus = enum(i8) {
+    hurt = 2,
+    death = 3,
+    wolf_smoke = 6,
+    wolf_hearts = 7,
+    wolf_shake = 8,
+    _,
+};
+
+pub const Dig = enum(u8) {
+    started = 0,
+    finished = 2,
+    _,
+};
+
+pub const Use = enum(i8) {
+    interact = 0,
+    attack = 1,
+    _,
+};
+
+pub const EntityAction = enum(i8) {
+    start_sneaking = 1,
+    stop_sneaking = 2,
+    _,
+};
+
+pub const Window = enum(i8) {
+    chest = 0,
+    workbench = 1,
+    furnace = 2,
+    dispenser = 3,
+    _,
+};
+
+pub const BedState = enum(i8) {
+    not_valid = 0,
+    rain_starts = 1,
+    rain_stops = 2,
+    _,
+};
+
+pub const WeatherKind = enum(i8) {
+    lightning = 1,
+    _,
+};
 
 pub const enter_bed_state: i8 = 0;
+pub const in_air_face: u8 = 255;
 
 pub const max_username = 16;
 pub const max_handshake_name = 32;
@@ -153,16 +198,21 @@ pub const max_window_slots = 256;
 pub const max_explosion_blocks = 1 << 20;
 pub const max_map_bytes = 255;
 
-pub const vehicle_boat: u8 = 1;
-pub const vehicle_minecart: u8 = 10;
-pub const vehicle_arrow: u8 = 60;
-pub const vehicle_fireball: u8 = 63;
-pub const vehicle_snowball: u8 = 61;
-pub const vehicle_egg: u8 = 62;
-pub const vehicle_primed_tnt: u8 = 50;
-pub const vehicle_falling_sand: u8 = 70;
-pub const vehicle_falling_gravel: u8 = 71;
-pub const vehicle_fish_hook: u8 = 90;
+pub const Vehicle = enum(u8) {
+    boat = 1,
+    minecart = 10,
+    minecart_chest = 11,
+    minecart_furnace = 12,
+    primed_tnt = 50,
+    arrow = 60,
+    snowball = 61,
+    egg = 62,
+    fireball = 63,
+    falling_sand = 70,
+    falling_gravel = 71,
+    fish_hook = 90,
+    _,
+};
 pub const fireball_speed_scale: f64 = 8000.0;
 pub const item_motion_scale: f64 = 128.0;
 pub const velocity_scale: f64 = 8000.0;
@@ -255,7 +305,7 @@ pub const Packet = union(Id) {
     update_time: struct { time: i64 },
     player_inventory: struct { entity_id: i32, slot: i16, item_id: i16, damage: i16 },
     spawn_position: struct { x: i32, y: i32, z: i32 },
-    use_entity: struct { player_id: i32, target_id: i32, left_click: i8 },
+    use_entity: struct { player_id: i32, target_id: i32, action: Use },
     update_health: struct { health: i16 },
     respawn: struct { dimension: i8 },
     flying: struct { on_ground: bool },
@@ -276,12 +326,12 @@ pub const Packet = union(Id) {
         pitch: f32,
         on_ground: bool,
     },
-    block_dig: struct { status: u8, x: i32, y: u8, z: i32, face: u8 },
+    block_dig: struct { status: Dig, x: i32, y: u8, z: i32, face: u8 },
     place: struct { x: i32, y: u8, z: i32, face: u8, held: ?Stack },
     block_item_switch: struct { slot: i16 },
     sleep: struct { entity_id: i32, state: i8, x: i32, y: i8, z: i32 },
-    animation: struct { entity_id: i32, animate: i8 },
-    entity_action: struct { entity_id: i32, state: i8 },
+    animation: struct { entity_id: i32, animate: Animation },
+    entity_action: struct { entity_id: i32, state: EntityAction },
     named_entity_spawn: struct {
         entity_id: i32,
         name: []const u8,
@@ -307,7 +357,7 @@ pub const Packet = union(Id) {
     collect: struct { collected_id: i32, collector_id: i32 },
     vehicle_spawn: struct {
         entity_id: i32,
-        kind: u8,
+        kind: Vehicle,
         x: i32,
         y: i32,
         z: i32,
@@ -363,7 +413,7 @@ pub const Packet = union(Id) {
         yaw: i8,
         pitch: i8,
     },
-    entity_status: struct { entity_id: i32, status: i8 },
+    entity_status: struct { entity_id: i32, status: EntityStatus },
     attach_entity: struct { entity_id: i32, vehicle_id: i32 },
     entity_metadata: struct { entity_id: i32, metadata: Metadata },
     pre_chunk: struct { x: i32, z: i32, load: bool },
@@ -393,9 +443,9 @@ pub const Packet = union(Id) {
         broken: []const [3]i8,
     },
     door_change: struct { effect: i32, x: i32, y: i8, z: i32, data: i32 },
-    bed: struct { state: i8 },
-    weather: struct { entity_id: i32, lightning: i8, x: i32, y: i32, z: i32 },
-    open_window: struct { window_id: i8, kind: i8, title: []const u8, slots: i8 },
+    bed: struct { state: BedState },
+    weather: struct { entity_id: i32, kind: WeatherKind, x: i32, y: i32, z: i32 },
+    open_window: struct { window_id: i8, kind: Window, title: []const u8, slots: i8 },
     close_window: struct { window_id: i8 },
     window_click: struct {
         window_id: i8,
@@ -692,7 +742,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .on_ground = try r.takeInt(u8, .big) != 0,
         } },
         .block_dig => return .{ .block_dig = .{
-            .status = try r.takeInt(u8, .big),
+            .status = @enumFromInt(try r.takeInt(u8, .big)),
             .x = try r.takeInt(i32, .big),
             .y = try r.takeInt(u8, .big),
             .z = try r.takeInt(i32, .big),
@@ -708,7 +758,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .block_item_switch => return .{ .block_item_switch = .{ .slot = try r.takeInt(i16, .big) } },
         .animation => return .{ .animation = .{
             .entity_id = try r.takeInt(i32, .big),
-            .animate = try r.takeInt(i8, .big),
+            .animate = @enumFromInt(try r.takeInt(i8, .big)),
         } },
         .named_entity_spawn => {
             const entity_id = try r.takeInt(i32, .big);
@@ -841,7 +891,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .use_entity => return .{ .use_entity = .{
             .player_id = try r.takeInt(i32, .big),
             .target_id = try r.takeInt(i32, .big),
-            .left_click = try r.takeInt(i8, .big),
+            .action = @enumFromInt(try r.takeInt(i8, .big)),
         } },
         .sleep => return .{ .sleep = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -852,7 +902,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .entity_action => return .{ .entity_action = .{
             .entity_id = try r.takeInt(i32, .big),
-            .state = try r.takeInt(i8, .big),
+            .state = @enumFromInt(try r.takeInt(i8, .big)),
         } },
         .pickup_spawn => return .{ .pickup_spawn = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -873,7 +923,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .vehicle_spawn => {
             var body: @FieldType(Packet, "vehicle_spawn") = .{
                 .entity_id = try r.takeInt(i32, .big),
-                .kind = try r.takeInt(u8, .big),
+                .kind = @enumFromInt(try r.takeInt(u8, .big)),
                 .x = try r.takeInt(i32, .big),
                 .y = try r.takeInt(i32, .big),
                 .z = try r.takeInt(i32, .big),
@@ -915,7 +965,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .entity_status => return .{ .entity_status = .{
             .entity_id = try r.takeInt(i32, .big),
-            .status = try r.takeInt(i8, .big),
+            .status = @enumFromInt(try r.takeInt(i8, .big)),
         } },
         .attach_entity => return .{ .attach_entity = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -953,17 +1003,17 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .z = try r.takeInt(i32, .big),
             .data = try r.takeInt(i32, .big),
         } },
-        .bed => return .{ .bed = .{ .state = try r.takeInt(i8, .big) } },
+        .bed => return .{ .bed = .{ .state = @enumFromInt(try r.takeInt(i8, .big)) } },
         .weather => return .{ .weather = .{
             .entity_id = try r.takeInt(i32, .big),
-            .lightning = try r.takeInt(i8, .big),
+            .kind = @enumFromInt(try r.takeInt(i8, .big)),
             .x = try r.takeInt(i32, .big),
             .y = try r.takeInt(i32, .big),
             .z = try r.takeInt(i32, .big),
         } },
         .open_window => {
             const window_id = try r.takeInt(i8, .big);
-            const kind = try r.takeInt(i8, .big);
+            const kind: Window = @enumFromInt(try r.takeInt(i8, .big));
             const title = try readUtf8(gpa, r, max_window_title);
             errdefer gpa.free(title);
             return .{ .open_window = .{
@@ -1079,7 +1129,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(u8, @intFromBool(body.on_ground), .big);
         },
         .block_dig => |body| {
-            try w.writeInt(u8, body.status, .big);
+            try w.writeInt(u8, @intFromEnum(body.status), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(u8, body.y, .big);
             try w.writeInt(i32, body.z, .big);
@@ -1095,7 +1145,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         .block_item_switch => |body| try w.writeInt(i16, body.slot, .big),
         .animation => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, body.animate, .big);
+            try w.writeInt(i8, @intFromEnum(body.animate), .big);
         },
         .named_entity_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1189,7 +1239,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         .use_entity => |body| {
             try w.writeInt(i32, body.player_id, .big);
             try w.writeInt(i32, body.target_id, .big);
-            try w.writeInt(i8, body.left_click, .big);
+            try w.writeInt(i8, @intFromEnum(body.action), .big);
         },
         .sleep => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1200,7 +1250,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .entity_action => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, body.state, .big);
+            try w.writeInt(i8, @intFromEnum(body.state), .big);
         },
         .pickup_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1220,7 +1270,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .vehicle_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(u8, body.kind, .big);
+            try w.writeInt(u8, @intFromEnum(body.kind), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(i32, body.y, .big);
             try w.writeInt(i32, body.z, .big);
@@ -1255,7 +1305,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .entity_status => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, body.status, .big);
+            try w.writeInt(i8, @intFromEnum(body.status), .big);
         },
         .attach_entity => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1287,17 +1337,17 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i32, body.z, .big);
             try w.writeInt(i32, body.data, .big);
         },
-        .bed => |body| try w.writeInt(i8, body.state, .big),
+        .bed => |body| try w.writeInt(i8, @intFromEnum(body.state), .big),
         .weather => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, body.lightning, .big);
+            try w.writeInt(i8, @intFromEnum(body.kind), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(i32, body.y, .big);
             try w.writeInt(i32, body.z, .big);
         },
         .open_window => |body| {
             try w.writeInt(i8, body.window_id, .big);
-            try w.writeInt(i8, body.kind, .big);
+            try w.writeInt(i8, @intFromEnum(body.kind), .big);
             try writeUtf8(w, body.title, max_window_title);
             try w.writeInt(i8, body.slots, .big);
         },
@@ -1413,7 +1463,7 @@ const golden = [_]Golden{
         } },
     },
     .{ .hex = "0e02ffffffe2c80000002f04", .packet = .{ .block_dig = .{
-        .status = 2,
+        .status = .finished,
         .x = -30,
         .y = 200,
         .z = 47,
@@ -1434,7 +1484,7 @@ const golden = [_]Golden{
         .held = .{ .id = 35, .count = 17, .damage = 11 },
     } } },
     .{ .hex = "100007", .packet = .{ .block_item_switch = .{ .slot = 7 } } },
-    .{ .hex = "120000232901", .packet = .{ .animation = .{ .entity_id = 9001, .animate = 1 } } },
+    .{ .hex = "120000232901", .packet = .{ .animation = .{ .entity_id = 9001, .animate = .swing } } },
     .{
         .hex = "1400001092000500530074006500760065ffffff9c000008000000004d88280116",
         .packet = .{ .named_entity_spawn = .{
@@ -1569,7 +1619,7 @@ const golden = [_]Golden{
     .{ .hex = "0700000009fffffffd01", .packet = .{ .use_entity = .{
         .player_id = 9,
         .target_id = -3,
-        .left_click = 1,
+        .action = .attack,
     } } },
     .{ .hex = "110000000c00ffffffd8460000012c", .packet = .{ .sleep = .{
         .entity_id = 12,
@@ -1578,7 +1628,7 @@ const golden = [_]Golden{
         .y = 70,
         .z = 300,
     } } },
-    .{ .hex = "130000005802", .packet = .{ .entity_action = .{ .entity_id = 88, .state = 2 } } },
+    .{ .hex = "130000005802", .packet = .{ .entity_action = .{ .entity_id = 88, .state = .stop_sneaking } } },
     .{ .hex = "150000004d01080c000300000400000008c0fffffe000aec1e", .packet = .{ .pickup_spawn = .{
         .entity_id = 77,
         .item_id = 264,
@@ -1597,14 +1647,14 @@ const golden = [_]Golden{
     } } },
     .{ .hex = "170000001f0a00000064000000c80000012c00000000", .packet = .{ .vehicle_spawn = .{
         .entity_id = 31,
-        .kind = 10,
+        .kind = .minecart,
         .x = 100,
         .y = 200,
         .z = 300,
     } } },
     .{ .hex = "170000001f3c00000064000000c80000012c0000000903e8f8300bb8", .packet = .{ .vehicle_spawn = .{
         .entity_id = 31,
-        .kind = 60,
+        .kind = .arrow,
         .x = 100,
         .y = 200,
         .z = 300,
@@ -1638,7 +1688,7 @@ const golden = [_]Golden{
         .motion_y = -1600,
         .motion_z = 32,
     } } },
-    .{ .hex = "260000001502", .packet = .{ .entity_status = .{ .entity_id = 21, .status = 2 } } },
+    .{ .hex = "260000001502", .packet = .{ .entity_status = .{ .entity_id = 21, .status = .hurt } } },
     .{ .hex = "2700000003ffffffff", .packet = .{ .attach_entity = .{
         .entity_id = 3,
         .vehicle_id = -1,
@@ -1667,17 +1717,17 @@ const golden = [_]Golden{
         .z = -7,
         .data = 9,
     } } },
-    .{ .hex = "4602", .packet = .{ .bed = .{ .state = 2 } } },
+    .{ .hex = "4602", .packet = .{ .bed = .{ .state = .rain_stops } } },
     .{ .hex = "47000000630100000140000008c0fffffd80", .packet = .{ .weather = .{
         .entity_id = 99,
-        .lightning = 1,
+        .kind = .lightning,
         .x = 320,
         .y = 2240,
         .z = -640,
     } } },
     .{ .hex = "640300000543686573741b", .packet = .{ .open_window = .{
         .window_id = 3,
-        .kind = 0,
+        .kind = .chest,
         .title = "Chest",
         .slots = 27,
     } } },

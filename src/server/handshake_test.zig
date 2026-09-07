@@ -1407,7 +1407,7 @@ test "a chest the client opens is filled in from the server's copy" {
     try pair.settle(2);
 
     try std.testing.expect(pair.connection.opened != null);
-    try std.testing.expectEqual(remote.Connection.window_chest, pair.connection.opened.?.kind);
+    try std.testing.expectEqual(net.packet.Window.chest, pair.connection.opened.?.kind);
     try std.testing.expectEqual(@as(usize, world.chest.slot_count), pair.connection.opened.?.store);
 
     const mirrored = pair.client_level.world_map.chestAt(.init(x, y + 1, z)).?;
@@ -1461,7 +1461,7 @@ test "a furnace window carries its burn and cook progress across" {
     try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
-    try std.testing.expectEqual(remote.Connection.window_furnace, pair.connection.opened.?.kind);
+    try std.testing.expectEqual(net.packet.Window.furnace, pair.connection.opened.?.kind);
 
     const fire = pair.server_level.world_map.furnaceAt(.init(x, y + 1, z)).?;
     fire.input = .{ .id = .{ .block = .ore_iron }, .count = 1 };
@@ -1493,7 +1493,7 @@ test "a workbench window crafts on the server and hands back the result" {
 
     try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
-    try std.testing.expectEqual(remote.Connection.window_workbench, pair.connection.opened.?.kind);
+    try std.testing.expectEqual(net.packet.Window.workbench, pair.connection.opened.?.kind);
 
     for (0..3) |slot| pair.session.workbench[slot] = .{ .id = .{ .block = .planks }, .count = 1 };
     pair.session.workbench[4] = .{ .id = .{ .item = .stick }, .count = 1 };

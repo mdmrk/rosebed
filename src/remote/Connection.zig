@@ -216,11 +216,11 @@ fn handlePlaying(
         .animation => |body| {
             const id: game.Entity.Id = @bitCast(body.entity_id);
             switch (body.animate) {
-                net.packet.swing_animation => {
+                .swing => {
                     const peer = self.peerById(id) orelse return;
                     peer.player.swingItem();
                 },
-                net.packet.wake_up_animation => {
+                .wake_up => {
                     const player = self.playerById(level, id) orelse return;
                     try player.wakeUp(&level.world_map, false, false);
                 },
@@ -284,7 +284,7 @@ fn handlePlaying(
         ),
         .explosion => |body| try self.showBlast(gpa, level, body),
         .weather => |body| {
-            if (body.lightning != lightning_kind) return;
+            if (body.kind != .lightning) return;
             try level.entities.showLightning(gpa, @bitCast(body.entity_id), .{
                 .x = game.Entity.Remote.decode(body.x),
                 .y = game.Entity.Remote.decode(body.y),
@@ -293,11 +293,11 @@ fn handlePlaying(
         },
         .bed => |body| {
             switch (body.state) {
-                bed_rain_starts => level.world_map.weather.raining = true,
-                bed_rain_stops => level.world_map.weather.raining = false,
+                .rain_starts => level.world_map.weather.raining = true,
+                .rain_stops => level.world_map.weather.raining = false,
                 else => {},
             }
-            if (body.state != bed_not_valid) return;
+            if (body.state != .not_valid) return;
             var line: ChatLine = .{};
             line.len = @min(bed_not_valid_line.len, line.bytes.len);
             @memcpy(line.bytes[0..line.len], bed_not_valid_line[0..line.len]);
@@ -573,15 +573,15 @@ fn outfitPeer(self: *Connection, body: anytype) void {
     peer.player.inventory.armor[@intCast(armour)] = worn;
 }
 
-fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, status: i8) void {
+fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, status: net.packet.EntityStatus) void {
     if (self.playerById(level, id)) |player| {
         switch (status) {
-            net.packet.status_hurt => {
+            .hurt => {
                 player.hurt_time = hurt_flash_ticks;
                 player.limb_swing_amount = 1.5;
                 player.playHurtSound(&level.world_map);
             },
-            net.packet.status_death => {
+            .death => {
                 player.playHurtSound(&level.world_map);
                 player.health = 0;
                 player.death_time = 1;
@@ -593,17 +593,17 @@ fn entityStatus(self: *Connection, level: *game.Level, id: game.Entity.Id, statu
 
     const entry = level.entities.mobById(id) orelse return;
     switch (status) {
-        net.packet.status_hurt => {
+        .hurt => {
             entry.animal.hurt_time = hurt_flash_ticks;
             entry.animal.limb_swing_amount = 1.5;
             entry.animal.playDamageSound(&level.world_map, entry.animal.hurt_sound, &level.world_map.rand);
         },
-        net.packet.status_death => {
+        .death => {
             entry.animal.playDamageSound(&level.world_map, entry.animal.death_sound, &level.world_map.rand);
             entry.animal.health = 0;
             entry.animal.death_time = 1;
         },
-        net.packet.status_wolf_shake => {
+        .wolf_shake => {
             if (entry.type_id == game.mob.wolf) {
                 const dog: *game.Wolf = @fieldParentPtr("animal", entry.animal);
                 dog.shaking = true;
@@ -698,19 +698,23 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
     _ = level.entities.removeById(gpa, id);
 
     switch (body.kind) {
-        net.packet.vehicle_boat => {
+        .boat => {
             var boat = game.Boat.spawn(math.Vec3.init(0, 0, 0));
             boat.base.id = id;
             (Body{ .boat = &boat }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.boats.append(gpa, boat);
         },
-        net.packet.vehicle_minecart, net.packet.vehicle_minecart + 1, net.packet.vehicle_minecart + 2 => {
-            var cart = game.Minecart.spawn(math.Vec3.init(0, 0, 0), @enumFromInt(body.kind - net.packet.vehicle_minecart));
+        .minecart, .minecart_chest, .minecart_furnace => {
+            var cart = game.Minecart.spawn(math.Vec3.init(0, 0, 0), switch (body.kind) {
+                .minecart_chest => .chest,
+                .minecart_furnace => .furnace,
+                else => .empty,
+            });
             cart.base.id = id;
             (Body{ .minecart = &cart }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.minecarts.append(gpa, cart);
         },
-        net.packet.vehicle_arrow => {
+        .arrow => {
             var shot: game.Arrow = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Arrow.size, game.Arrow.size),
                 .owner = @bitCast(body.thrower_id),
@@ -719,7 +723,7 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .arrow = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.arrows.append(gpa, shot);
         },
-        net.packet.vehicle_fireball => {
+        .fireball => {
             var shot: game.Fireball = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Fireball.size, game.Fireball.size),
                 .shooter = @bitCast(body.thrower_id),
@@ -733,9 +737,9 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .fireball = &shot }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.fireballs.append(gpa, shot);
         },
-        net.packet.vehicle_egg, net.packet.vehicle_snowball => {
+        .egg, .snowball => {
             var projectile: game.Thrown = .{
-                .kind = if (body.kind == net.packet.vehicle_egg) .egg else .snowball,
+                .kind = if (body.kind == .egg) .egg else .snowball,
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.Thrown.size, game.Thrown.size),
                 .owner = @bitCast(body.thrower_id),
             };
@@ -743,20 +747,20 @@ fn spawnVehicle(gpa: std.mem.Allocator, level: *game.Level, body: anytype) !void
             (Body{ .thrown = &projectile }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.thrown.append(gpa, projectile);
         },
-        net.packet.vehicle_primed_tnt => {
+        .primed_tnt => {
             var lit = game.PrimedTnt.spawn(math.Vec3.init(0, 0, 0), world.tnt.fuse_ticks, &level.world_map.rand);
             lit.base.id = id;
             (Body{ .primed_tnt = &lit }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.primed.append(gpa, lit);
         },
-        net.packet.vehicle_falling_sand, net.packet.vehicle_falling_gravel => {
-            const block: world.Block = if (body.kind == net.packet.vehicle_falling_sand) .sand else .gravel;
+        .falling_sand, .falling_gravel => {
+            const block: world.Block = if (body.kind == .falling_sand) .sand else .gravel;
             var falling = game.FallingBlock.spawn(math.Vec3.init(0, 0, 0), block);
             falling.base.id = id;
             (Body{ .falling_block = &falling }).place(body.x, body.y, body.z, 0, 0);
             try level.entities.falling_blocks.append(gpa, falling);
         },
-        net.packet.vehicle_fish_hook => {
+        .fish_hook => {
             var hook: game.FishHook = .{
                 .base = game.Entity.init(math.Vec3.init(0, 0, 0), game.FishHook.size, game.FishHook.size),
                 .angler = @bitCast(body.thrower_id),
@@ -928,14 +932,10 @@ pub fn reportSwing(self: *Connection, gpa: std.mem.Allocator) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .animation = .{
         .entity_id = @bitCast(self.entity_id),
-        .animate = net.packet.swing_animation,
+        .animate = .swing,
     } });
 }
 
-pub const use_interact: i8 = 0;
-pub const use_attack: i8 = 1;
-pub const action_start_sneaking: i8 = 1;
-pub const action_stop_sneaking: i8 = 2;
 pub const player_window: i8 = 0;
 pub const carried_window: i8 = -1;
 pub const carried_slot: i16 = -1;
@@ -949,14 +949,9 @@ pub const armor_start: usize = 5;
 pub const main_start: usize = 9;
 pub const hotbar_start: usize = 36;
 
-pub const window_chest: i8 = 0;
-pub const window_workbench: i8 = 1;
-pub const window_furnace: i8 = 2;
-pub const window_dispenser: i8 = 3;
-
 pub const Opened = struct {
     id: i8,
-    kind: i8,
+    kind: net.packet.Window,
     store: usize,
     at: [3]i32,
     cart: game.Entity.Id = game.Entity.no_id,
@@ -1017,11 +1012,11 @@ fn playerSlot(level: *game.Level, slot: usize, store: usize) ?*?world.Stack {
 
 fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?*?world.Stack {
     switch (open.kind) {
-        window_workbench => {
+        .workbench => {
             if (slot == craft_result_slot) return null;
             return &self.workbench[slot - craft_input_start];
         },
-        window_furnace => {
+        .furnace => {
             const fire = level.world_map.furnaceAt(.init(open.at[0], open.at[1], open.at[2])) orelse return null;
             return switch (slot) {
                 0 => &fire.input,
@@ -1030,11 +1025,11 @@ fn storeSlot(self: *Connection, level: *game.Level, open: Opened, slot: usize) ?
                 else => null,
             };
         },
-        window_dispenser => {
+        .dispenser => {
             const trap = level.world_map.dispenserAt(.init(open.at[0], open.at[1], open.at[2])) orelse return null;
             return trap.slot(slot);
         },
-        window_chest => {
+        .chest => {
             if (open.cart != game.Entity.no_id) {
                 const cart = level.entities.minecartById(open.cart) orelse return null;
                 return cart.slot(slot);
@@ -1075,15 +1070,15 @@ fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
         .at = self.aiming_at,
         .cart = self.aiming_cart,
     };
-    if (body.kind == window_workbench) {
+    if (body.kind == .workbench) {
         open.store = workbench_grid + 1;
         self.workbench = @splat(null);
     }
 
     switch (body.kind) {
-        window_furnace => _ = try level.world_map.addFurnace(.init(open.at[0], open.at[1], open.at[2])),
-        window_dispenser => _ = try level.world_map.addDispenser(.init(open.at[0], open.at[1], open.at[2])),
-        window_chest => {
+        .furnace => _ = try level.world_map.addFurnace(.init(open.at[0], open.at[1], open.at[2])),
+        .dispenser => _ = try level.world_map.addDispenser(.init(open.at[0], open.at[1], open.at[2])),
+        .chest => {
             if (open.cart == game.Entity.no_id) {
                 const pair = level.world_map.chestPairAt(.init(open.at[0], open.at[1], open.at[2]));
                 _ = try level.world_map.addChest(pair.upper);
@@ -1165,7 +1160,7 @@ const blast_falloff: f64 = 0.1;
 
 fn setProgress(self: *Connection, level: *game.Level, body: anytype) void {
     const open = self.opened orelse return;
-    if (body.window_id != open.id or open.kind != window_furnace) return;
+    if (body.window_id != open.id or open.kind != .furnace) return;
 
     const fire = level.world_map.furnaceAt(.init(open.at[0], open.at[1], open.at[2])) orelse return;
     switch (body.bar) {
@@ -1187,7 +1182,7 @@ pub fn reportUse(self: *Connection, gpa: std.mem.Allocator, target: game.Entity.
     try self.send(gpa, .{ .use_entity = .{
         .player_id = @bitCast(self.entity_id),
         .target_id = @bitCast(target),
-        .left_click = if (attack) use_attack else use_interact,
+        .action = if (attack) .attack else .interact,
     } });
 }
 
@@ -1196,7 +1191,7 @@ pub fn reportSneak(self: *Connection, gpa: std.mem.Allocator, sneaking: bool) !v
     self.sneaking = sneaking;
     try self.send(gpa, .{ .entity_action = .{
         .entity_id = @bitCast(self.entity_id),
-        .state = if (sneaking) action_start_sneaking else action_stop_sneaking,
+        .state = if (sneaking) .start_sneaking else .stop_sneaking,
     } });
 }
 
@@ -1211,13 +1206,10 @@ pub fn reportRespawn(self: *Connection, gpa: std.mem.Allocator) !void {
     try self.send(gpa, .{ .respawn = .{ .dimension = 0 } });
 }
 
-pub const dig_started: u8 = 0;
-pub const dig_finished: u8 = 2;
-
 pub fn reportDigStart(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, face: u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .block_dig = .{
-        .status = dig_started,
+        .status = .started,
         .x = pos.x,
         .y = @intCast(pos.y),
         .z = pos.z,
@@ -1228,7 +1220,7 @@ pub fn reportDigStart(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, 
 pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, face: u8) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .block_dig = .{
-        .status = dig_finished,
+        .status = .finished,
         .x = pos.x,
         .y = @intCast(pos.y),
         .z = pos.z,
@@ -1236,20 +1228,15 @@ pub fn reportDig(self: *Connection, gpa: std.mem.Allocator, pos: BlockPos, face:
     } });
 }
 
-pub const bed_not_valid: i8 = 0;
-pub const bed_rain_starts: i8 = 1;
-pub const bed_rain_stops: i8 = 2;
-pub const lightning_kind: i8 = 1;
 pub const bed_not_valid_line = "Your home bed was missing or obstructed";
-pub const in_air_face: u8 = 255;
 
 pub fn reportUseInAir(self: *Connection, gpa: std.mem.Allocator, held: ?net.packet.Stack) !void {
     if (self.state != .playing) return;
     try self.send(gpa, .{ .place = .{
         .x = -1,
-        .y = in_air_face,
+        .y = net.packet.in_air_face,
         .z = -1,
-        .face = in_air_face,
+        .face = net.packet.in_air_face,
         .held = held,
     } });
 }

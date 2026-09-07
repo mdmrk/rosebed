@@ -987,7 +987,7 @@ fn mintCraftedMap(app_state: *AppState, window: *game.Window) !void {
     data.center_x = math.util.floorDouble(app_state.player.base.position.x);
     data.center_z = math.util.floorDouble(app_state.player.base.position.z);
     data.scale = world.map.default_scale;
-    data.dimension = @intFromEnum(app_state.dimension);
+    data.dimension = app_state.dimension;
     data.markDirty();
 }
 
@@ -2658,19 +2658,19 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
     };
 
     switch (open.kind) {
-        remote.Connection.window_workbench => {
+        .workbench => {
             if (app_state.workbench_open) return;
             app_state.workbench_open = true;
         },
-        remote.Connection.window_furnace => {
+        .furnace => {
             if (app_state.furnace_open != null) return;
             app_state.furnace_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
         },
-        remote.Connection.window_dispenser => {
+        .dispenser => {
             if (app_state.dispenser_open != null) return;
             app_state.dispenser_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
         },
-        remote.Connection.window_chest => {
+        .chest => {
             if (open.cart != game.Entity.no_id) {
                 if (app_state.minecart_open == open.cart) return;
                 app_state.minecart_open = open.cart;
@@ -2983,7 +2983,7 @@ fn tickCarriedMaps(app_state: *AppState) !void {
         .id = app_state.player.base.id,
         .x = app_state.player.base.position.x,
         .z = app_state.player.base.position.z,
-        .dimension = @intFromEnum(app_state.dimension),
+        .dimension = app_state.dimension,
         .alive = !app_state.player.isDead(),
         .holding = true,
     }};
@@ -2995,8 +2995,7 @@ fn tickCarriedMaps(app_state: *AppState) !void {
         if (slot != app_state.player.inventory.selected) continue;
         data.updateColors(
             &app_state.level.world_map,
-            @intFromEnum(app_state.dimension),
-            app_state.dimension.hasSky(),
+            app_state.dimension,
             app_state.player.base.position.x,
             app_state.player.base.position.z,
         );
