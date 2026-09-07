@@ -419,6 +419,7 @@ pub fn init(
         .open_gl = true,
         .resizable = true,
         .fill_document = wasm,
+        .fullscreen = android,
     });
     errdefer window.deinit();
 
