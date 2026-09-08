@@ -137,6 +137,7 @@ const lava_damage: i32 = 4;
 const void_damage: i32 = 4;
 const void_floor: f64 = -64.0;
 const lava_fire_ticks: i32 = 600;
+const fire_resistance: i32 = 20;
 const extinguish_volume: f32 = 0.7;
 const extinguish_pitch_base: f32 = 1.6;
 const hurt_resistance_ticks: i32 = 20;
@@ -283,6 +284,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         self.base.motion.y = world.block.ladder_climb_lift;
     }
     self.hurtOnCactus(world_map);
+    self.hurtInFire(world_map);
 
     if (self.flying) {
         self.base.motion.x *= @as(f64, friction);
@@ -334,6 +336,7 @@ pub fn tickEnvironment(self: *Player, world_map: *const world.World, dy: f64) vo
     self.updateAir(world_map);
     self.updateFallState(world_map, dy);
     self.hurtOnCactus(world_map);
+    self.hurtInFire(world_map);
     if (self.hurt_time > 0) self.hurt_time -= 1;
     if (self.hurt_resistance > 0) self.hurt_resistance -= 1;
 }
@@ -406,15 +409,19 @@ fn updateFire(self: *Player, world_map: *const world.World) void {
         self.hurt(world_map, lava_damage);
         self.fire = lava_fire_ticks;
     }
+}
 
-    if (self.fire > 0 and self.isWet(world_map)) {
+fn hurtInFire(self: *Player, world_map: *const world.World) void {
+    const burning = game_physics.isBoundingBoxBurning(world_map, self.base.boundingBox());
+    if (burning) self.hurt(world_map, burn_damage);
+
+    if (Entity.stepFireContact(&self.fire, fire_resistance, burning, self.isWet(world_map)) == .sizzled) {
         world_map.playSoundEffect(
             self.base.position,
             assets.sounds.random.fizz,
             extinguish_volume,
             extinguish_pitch_base + (self.hurt_rand.nextFloat() - self.hurt_rand.nextFloat()) * 0.4,
         );
-        self.fire = 0;
     }
 }
 
@@ -1408,7 +1415,7 @@ test "lava scalds on contact and leaves the player alight for half a minute" {
     player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.in_lava);
     try std.testing.expectEqual(@as(i32, 16), player.health);
-    try std.testing.expectEqual(@as(i32, lava_fire_ticks), player.fire);
+    try std.testing.expectEqual(@as(i32, lava_fire_ticks + 1), player.fire);
 }
 
 test "burning outside lava costs half a heart a second until the flames die" {
@@ -1420,8 +1427,28 @@ test "burning outside lava costs half a heart a second until the flames die" {
     player.fire = 40;
 
     for (0..40) |_| player.tick(&w, 0, 0, false, false);
-    try std.testing.expectEqual(@as(i32, 0), player.fire);
+    try std.testing.expectEqual(-fire_resistance, player.fire);
     try std.testing.expectEqual(@as(i32, 18), player.health);
+}
+
+test "a player crossing fire is scorched, and only catches alight once resistance runs out" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var player = Player.spawn(math.Vec3.init(8, 1, 8));
+    player.base.on_ground = true;
+
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(-fire_resistance, player.fire);
+    try std.testing.expectEqual(max_health, player.health);
+
+    w.setBlock(.init(8, 1, 8), .fire);
+    player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(-fire_resistance + 1, player.fire);
+    try std.testing.expectEqual(max_health - burn_damage, player.health);
+
+    for (0..fire_resistance - 1) |_| player.tick(&w, 0, 0, false, false);
+    try std.testing.expectEqual(Entity.caught_fire_ticks, player.fire);
 }
 
 test "water snuffs the flames out" {
@@ -1431,7 +1458,7 @@ test "water snuffs the flames out" {
     var player = Player.spawn(math.Vec3.init(8, 10, 8));
     player.fire = lava_fire_ticks;
     player.tick(&w, 0, 0, false, false);
-    try std.testing.expectEqual(@as(i32, 0), player.fire);
+    try std.testing.expectEqual(-fire_resistance, player.fire);
 }
 
 test "wading through lava is slower than swimming the same input" {

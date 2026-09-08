@@ -137,6 +137,7 @@ const burn_damage: i32 = 1;
 const lava_damage: i32 = 4;
 const void_damage: i32 = 4;
 const lava_fire_ticks: i32 = 600;
+const fire_resistance: i32 = 1;
 const fireproof_cooling: i32 = 4;
 const void_floor: f64 = -64.0;
 const extinguish_volume: f32 = 0.7;
@@ -730,17 +731,21 @@ fn updateFireAndWater(self: *Animal, world_map: *const world.World, rand: *world
         self.fire = lava_fire_ticks;
     }
 
-    if (self.fire > 0 and self.isWet(world_map)) {
+    if (self.base.position.y < void_floor) _ = self.hurt(world_map, void_damage, null, rand);
+}
+
+fn hurtInFire(self: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+    const burning = physics.isBoundingBoxBurning(world_map, self.base.boundingBox());
+    if (burning and !self.immune_to_fire) _ = self.hurt(world_map, burn_damage, null, rand);
+
+    if (Entity.stepFireContact(&self.fire, fire_resistance, burning, self.isWet(world_map)) == .sizzled) {
         world_map.playSoundEffect(
             self.base.position,
             assets.sounds.random.fizz,
             extinguish_volume,
             extinguish_pitch_base + (rand.nextFloat() - rand.nextFloat()) * 0.4,
         );
-        self.fire = 0;
     }
-
-    if (self.base.position.y < void_floor) _ = self.hurt(world_map, void_damage, null, rand);
 }
 
 fn isWet(self: *const Animal, world_map: *const world.World) bool {
@@ -828,6 +833,7 @@ pub fn tick(
     self.move_forward *= 0.98;
     self.random_yaw_velocity *= 0.9;
     self.moveWithHeading(world_map, self.move_strafing, self.move_forward, rand);
+    self.hurtInFire(world_map, rand);
     self.after_move(self, world_map, rand);
 
     Entity.updateRenderYaw(self);
@@ -1236,6 +1242,47 @@ test "an animal standing in lava catches fire and burns" {
     try animal.tick(gpa, &w, .{}, &rand);
     try std.testing.expectEqual(animal.max_health - lava_damage, animal.health);
     try std.testing.expect(animal.fire > 0);
+}
+
+test "an animal in a fire block is scorched and catches alight once its resistance runs out" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
+    defer animal.deinit(gpa);
+
+    try animal.tick(gpa, &w, .{}, &rand);
+    try std.testing.expectEqual(-fire_resistance, animal.fire);
+    try std.testing.expectEqual(animal.max_health, animal.health);
+
+    w.setBlock(.init(8, 1, 8), .fire);
+    try animal.tick(gpa, &w, .{}, &rand);
+    try std.testing.expectEqual(Entity.caught_fire_ticks, animal.fire);
+    try std.testing.expectEqual(animal.max_health - burn_damage, animal.health);
+}
+
+test "rain sizzles a burning animal out" {
+    const gpa = std.testing.allocator;
+    var w = try testing_world.flatWorld(gpa, 1);
+    defer w.deinit();
+    w.weather.raining = true;
+    w.weather.rain_strength = 1.0;
+
+    const chunk = w.getChunk(0, 0).?;
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| chunk.setClimate(@intCast(x), @intCast(z), 0.7, 0.8);
+    }
+    try std.testing.expect(w.canBlockBeRainedOn(.init(8, 1, 8)));
+
+    var rand = world.JavaRandom.init(0);
+    var animal = testAnimal(math.Vec3.init(8.5, 1, 8.5));
+    defer animal.deinit(gpa);
+    animal.fire = lava_fire_ticks;
+
+    try animal.tick(gpa, &w, .{}, &rand);
+    try std.testing.expectEqual(-fire_resistance, animal.fire);
 }
 
 test "an animal far from the player despawns" {

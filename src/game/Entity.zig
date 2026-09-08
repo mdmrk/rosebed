@@ -196,6 +196,27 @@ pub fn lightSamplePosition(self: Entity) [3]i32 {
     };
 }
 
+pub const caught_fire_ticks: i32 = 300;
+
+pub const FireContact = enum { none, sizzled };
+
+pub fn stepFireContact(fire: *i32, resistance: i32, burning: bool, wet: bool) FireContact {
+    if (burning) {
+        if (!wet) {
+            fire.* += 1;
+            if (fire.* == 0) fire.* = caught_fire_ticks;
+        }
+    } else if (fire.* <= 0) {
+        fire.* = -resistance;
+    }
+
+    if (wet and fire.* > 0) {
+        fire.* = -resistance;
+        return .sizzled;
+    }
+    return .none;
+}
+
 pub fn beginTick(self: *Entity) void {
     self.prev_position = self.position;
 }

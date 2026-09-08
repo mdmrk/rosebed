@@ -14,6 +14,7 @@ base: Entity,
 stack: Inventory.ItemStack,
 age: u32 = 0,
 health: i32 = max_health,
+fire: i32 = 0,
 pickup_delay: u16 = 10,
 hover: f32 = 0,
 
@@ -26,6 +27,12 @@ const air_friction: f32 = 0.98;
 const despawn_age: u32 = 6000;
 pub const max_health: i32 = 5;
 const cactus_damage: i32 = 1;
+const burn_damage: i32 = 1;
+const lava_damage: i32 = 4;
+const lava_fire_ticks: i32 = 600;
+const fire_resistance: i32 = 1;
+const extinguish_volume: f32 = 0.7;
+const extinguish_pitch_base: f32 = 1.6;
 const lava_lift: f64 = 0.2;
 const lava_scatter: f64 = 0.2;
 const lava_fizz_volume: f32 = 0.4;
@@ -48,6 +55,7 @@ pub fn spawn(position: math.Vec3, stack: Inventory.ItemStack, rand: *world.JavaR
 
 pub fn tick(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaRandom) void {
     self.base.beginTick();
+    self.updateFire(world_map);
     if (self.pickup_delay > 0) self.pickup_delay -= 1;
 
     self.base.motion.y -= gravity;
@@ -68,6 +76,7 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaR
     }
     _ = self.base.move(world_map);
     if (physics.touchesBlock(world_map, self.base.boundingBox(), .cactus)) self.health -= cactus_damage;
+    self.hurtInFire(world_map, rand);
 
     const friction: f32 = if (self.base.on_ground)
         physics.groundFriction(world_map, self.base.boundingBox(), self.base.position.x, self.base.position.z, air_friction)
@@ -79,6 +88,41 @@ pub fn tick(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaR
     if (self.base.on_ground) self.base.motion.y *= -0.5;
 
     self.age += 1;
+}
+
+fn updateFire(self: *ItemEntity, world_map: *const world.World) void {
+    if (self.fire > 0) {
+        if (@rem(self.fire, 20) == 0) self.health -= burn_damage;
+        self.fire -= 1;
+    }
+
+    if (physics.isInLava(world_map, self.base.boundingBox())) {
+        self.health -= lava_damage;
+        self.fire = lava_fire_ticks;
+    }
+}
+
+fn isWet(self: *const ItemEntity, world_map: *const world.World) bool {
+    if (self.base.in_water) return true;
+    return world_map.canBlockBeRainedOn(.init(
+        math.util.floorDouble(self.base.position.x),
+        math.util.floorDouble(self.base.position.y),
+        math.util.floorDouble(self.base.position.z),
+    ));
+}
+
+fn hurtInFire(self: *ItemEntity, world_map: *const world.World, rand: *world.JavaRandom) void {
+    const burning = physics.isBoundingBoxBurning(world_map, self.base.boundingBox());
+    if (burning) self.health -= burn_damage;
+
+    if (Entity.stepFireContact(&self.fire, fire_resistance, burning, self.isWet(world_map)) == .sizzled) {
+        world_map.playSoundEffect(
+            self.base.position,
+            assets.sounds.random.fizz,
+            extinguish_volume,
+            extinguish_pitch_base + (rand.nextFloat() - rand.nextFloat()) * 0.4,
+        );
+    }
 }
 
 pub fn isExpired(self: ItemEntity) bool {
@@ -163,6 +207,63 @@ test "an item lying on a cactus is whittled away and destroyed" {
     try std.testing.expect(item.isDestroyed());
 }
 
+test "an item dropped in lava is scalded and burns up on the spot" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    const chunk = w.getChunk(0, 0).?;
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
+            chunk.setBlock(@intCast(x), 1, @intCast(z), .stationary_lava);
+        }
+    }
+
+    var rand = world.JavaRandom.init(0);
+    var item = ItemEntity.spawn(math.Vec3.init(8.5, 1.5, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    item.base.motion = math.Vec3.init(0, 0, 0);
+
+    item.tick(&w, &rand);
+    try std.testing.expectEqual(lava_fire_ticks + 1, item.fire);
+    try std.testing.expect(item.isDestroyed());
+}
+
+test "an item lying in a fire block is whittled away a point a tick" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+    w.setBlock(.init(8, 1, 8), .fire);
+
+    var rand = world.JavaRandom.init(0);
+    var item = ItemEntity.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    item.base.motion = math.Vec3.init(0, 0, 0);
+
+    for (0..max_health) |_| {
+        try std.testing.expect(!item.isDestroyed());
+        item.tick(&w, &rand);
+    }
+    try std.testing.expect(item.isDestroyed());
+}
+
+test "an item well clear of any flame takes no damage and settles below zero fire" {
+    var w = try world.testing.flatWorld(std.testing.allocator, 1);
+    defer w.deinit();
+
+    var rand = world.JavaRandom.init(0);
+    var item = ItemEntity.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    item.base.motion = math.Vec3.init(0, 0, 0);
+
+    item.tick(&w, &rand);
+    try std.testing.expectEqual(max_health, item.health);
+    try std.testing.expectEqual(-fire_resistance, item.fire);
+}
+
+test "the fire an item is carrying survives a save and reload" {
+    var rand = world.JavaRandom.init(0);
+    var item = ItemEntity.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
+    item.fire = lava_fire_ticks;
+
+    try std.testing.expectEqual(lava_fire_ticks, fromRecord(item.toRecord()).fire);
+}
+
 pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {
     return .{
         .base = .{
@@ -172,6 +273,7 @@ pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {
                 .z = self.base.position.z,
             },
             .motion = self.base.motion,
+            .fire = @intCast(self.fire),
             .on_ground = self.base.on_ground,
         },
         .stack = self.stack,
@@ -186,6 +288,7 @@ pub fn fromRecord(record: world.entity_nbt.Item) ItemEntity {
         .stack = record.stack,
         .health = record.health,
         .age = @intCast(@max(0, record.age)),
+        .fire = record.base.fire,
     };
     item.base.triggers_walking = false;
     item.base.motion = record.base.motion;

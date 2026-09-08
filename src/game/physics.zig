@@ -351,6 +351,19 @@ pub fn touchesBlock(world_map: *const world.World, box: math.Aabb, id: world.Blo
     return countTouchedBlocks(world_map, box, id) > 0;
 }
 
+pub fn isBoundingBoxBurning(world_map: *const world.World, box: math.Aabb) bool {
+    var cells = touchedCells(box);
+    if (!world_map.chunksExist(cells.min[0], cells.min[1], cells.min[2], cells.max[0], cells.max[1], cells.max[2])) return false;
+
+    while (cells.next()) |cell| {
+        switch (world_map.getBlock(.init(cell[0], cell[1], cell[2]))) {
+            .fire, .flowing_lava, .stationary_lava => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
 pub fn isBoxInMaterial(world_map: *const world.World, box: math.Aabb, material: world.Material) bool {
     const min_x = math.util.floorDouble(box.min_x);
     const max_x = math.util.floorDouble(box.max_x + 1.0);
