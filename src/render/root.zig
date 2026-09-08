@@ -23,6 +23,7 @@ pub const mesh_testing = @import("mesh_testing.zig");
 pub const MeshBuilder = @import("MeshBuilder.zig");
 pub const mob_model = @import("mob_model.zig");
 pub const overlay = @import("overlay.zig");
+pub const portal_overlay = @import("portal_overlay.zig");
 pub const pumpkin_blur = @import("pumpkin_blur.zig");
 pub const screen = @import("screen.zig");
 pub const screenshot = @import("screenshot.zig");
@@ -77,6 +78,7 @@ test {
     _ = chat;
     _ = achievement_toast;
     _ = map_render;
+    _ = portal_overlay;
     _ = pumpkin_blur;
     _ = text_wrap;
     _ = texture_pack;

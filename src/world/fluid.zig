@@ -69,10 +69,10 @@ const Fluid = enum {
         };
     }
 
-    fn spreadPerBlock(self: Fluid) i32 {
+    fn spreadPerBlock(self: Fluid, has_sky: bool) i32 {
         return switch (self) {
             .water => 1,
-            .lava => 2,
+            .lava => if (has_sky) 2 else 1,
         };
     }
 
@@ -252,7 +252,7 @@ pub fn onNeighborChange(world_map: *World, pos: BlockPos) !void {
 
 pub fn tick(world_map: *World, pos: BlockPos) !void {
     const fluid = Fluid.at(world_map, pos) orelse return;
-    const spread_per_block = fluid.spreadPerBlock();
+    const spread_per_block = fluid.spreadPerBlock(world_map.has_sky);
 
     var decay = fluid.flowDecay(world_map, pos);
     var settles = true;
@@ -597,6 +597,22 @@ test "a lava source spreads exactly three blocks and settles into stationary lav
         try std.testing.expectEqual(expected, world_map.getBlockMetadata(.init(x, 64, 8)));
     }
     try std.testing.expectEqual(.air, world_map.getBlock(.init(12, 64, 8)));
+}
+
+test "lava under no sky spreads as far as water does" {
+    var world_map = try testWorld(64);
+    defer world_map.deinit();
+    world_map.has_sky = false;
+
+    try placeLava(&world_map, .init(8, 64, 8), 0);
+    try runTicks(&world_map, 2000);
+
+    for ([_]u4{ 1, 2, 3, 4, 5, 6, 7 }, 1..) |expected, distance| {
+        const x = 8 + @as(i32, @intCast(distance));
+        try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(x, 64, 8))));
+        try std.testing.expectEqual(expected, world_map.getBlockMetadata(.init(x, 64, 8)));
+    }
+    try std.testing.expectEqual(.air, world_map.getBlock(.init(16, 64, 8)));
 }
 
 test "lava falls straight down and marks the falling metadata bit" {

@@ -367,9 +367,10 @@ portal: Portal = .{},
 compass: Compass = .{},
 clock: Clock = .{},
 rand: world.JavaRandom,
+spin_rand: world.JavaRandom,
 
 pub fn init(seed: i64) TextureFx {
-    return .{ .rand = .init(seed), .portal = Portal.init() };
+    return .{ .rand = .init(seed), .spin_rand = .init(seed +% 1), .portal = Portal.init() };
 }
 
 fn readTile(png: []const u8, index: u8, out: *[cells * 4]u8) !void {
@@ -395,9 +396,13 @@ pub fn loadSprites(self: *TextureFx, items_png: []const u8, dial_png: []const u8
     try readTile(dial_png, 0, &self.clock.dial);
 }
 
-pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64) void {
-    self.compass.tick(compass_target);
-    self.clock.tick(clock_target);
+fn freeSpin(self: *TextureFx) f64 {
+    return self.spin_rand.nextDouble() * @as(f64, @as(f32, std.math.pi)) * 2.0;
+}
+
+pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64, spins_freely: bool) void {
+    self.compass.tick(if (spins_freely) self.freeSpin() else compass_target);
+    self.clock.tick(if (spins_freely) self.freeSpin() else clock_target);
     self.lava.tick(&self.rand);
     self.water.tick(&self.rand);
     self.water_flow.tick(&self.rand);

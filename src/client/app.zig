@@ -3436,7 +3436,7 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
 
     const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
     app_state.shader.setInt(.u_fog_exponential, 0);
-    app_state.shader.setFloat(.u_fog_start, far * 0.25);
+    app_state.shader.setFloat(.u_fog_start, if (app_state.dimension.hasSky()) far * 0.25 else 0.0);
     app_state.shader.setFloat(.u_fog_end, far);
 }
 
@@ -4628,7 +4628,8 @@ pub fn iterate(
     }
 
     if (!app_state.paused and app_state.timer.elapsed_ticks > 0) {
-        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state), clockAngle(app_state));
+        const spins_freely = app_state.screen == .playing and !app_state.dimension.hasSky();
+        for (0..@intCast(app_state.timer.elapsed_ticks)) |_| app_state.texture_fx.tick(compassAngle(app_state), clockAngle(app_state), spins_freely);
         app_state.texture_fx.upload(app_state.textures.terrain, app_state.textures.items, app_state.settings.anaglyph);
     }
     const tick_ns = sdl3.timer.getNanosecondsSinceInit() -% ticks_started_ns;
@@ -4676,6 +4677,10 @@ pub fn iterate(
         const blurred = if (wornBlock(app_state.player)) |id| id == .pumpkin else false;
         if (blurred and !app_state.third_person and !app_state.freecam.active) {
             try render.pumpkin_blur.draw(app_state.frame, app_state.shader, app_state.textures.pumpkin_blur);
+        }
+        const in_portal = app_state.player.portalOverlay(app_state.timer.render_partial_ticks);
+        if (in_portal > 0.0) {
+            try render.portal_overlay.draw(app_state.frame, app_state.shader, app_state.textures.terrain, in_portal);
         }
         if (!app_state.hide_gui or !worldFocused(app_state)) {
             try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
