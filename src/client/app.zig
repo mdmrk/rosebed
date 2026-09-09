@@ -1468,7 +1468,8 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             reply(app_state, "{s}{s}", .{ world_seed, copy_msg });
         },
         .give => |give| {
-            const leftover = app_state.player.inventory.addStack(.{ .id = give.id, .count = give.count });
+            const stack: world.Stack = .{ .id = give.id, .count = give.count };
+            const leftover = app_state.player.inventory.addStack(stack);
             if (leftover > 0) {
                 try app_state.level.entities.throwFromPlayer(
                     app_state.gpa,
@@ -1477,7 +1478,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                     &app_state.level.world_map.rand,
                 );
             }
-            reply(app_state, "Giving you some {d}", .{give.raw_id});
+            reply(app_state, "Giving you some {s}", .{stack.displayName()});
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);

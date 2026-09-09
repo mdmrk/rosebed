@@ -61,7 +61,6 @@ pub const Fill = struct {
 
 pub const Give = struct {
     id: world.Id,
-    raw_id: u32,
     count: u8,
 };
 
@@ -196,13 +195,6 @@ pub fn resolveName(name: []const u8) ?world.Id {
     return null;
 }
 
-pub fn numericId(id: world.Id) u32 {
-    return switch (id) {
-        .block => |block| @intFromEnum(block),
-        .item => |item| @intFromEnum(item),
-    };
-}
-
 pub fn parse(line: []const u8) Result {
     if (!std.mem.startsWith(u8, line, "/")) return .nothing;
 
@@ -275,7 +267,6 @@ fn parseGive(words: *Words) Result {
 
     return .{ .give = .{
         .id = id,
-        .raw_id = numericId(id),
         .count = tryParse(count_text, 1),
     } };
 }
@@ -350,7 +341,6 @@ test "help answers to its own name and to a question mark" {
 test "give hands over a block id and defaults to one" {
     const result = parse("/give 1");
     try std.testing.expectEqual(world.Block.stone, result.give.id.block);
-    try std.testing.expectEqual(@as(u32, 1), result.give.raw_id);
     try std.testing.expectEqual(@as(u8, 1), result.give.count);
 }
 
@@ -548,10 +538,9 @@ test "the count still follows a name the way it follows an id" {
     try std.testing.expectEqual(@as(u8, 32), given.count);
 }
 
-test "a name reports the id it resolved to, so the reply reads the same either way" {
-    try std.testing.expectEqual(@as(u32, 264), parse("/give diamond").give.raw_id);
-    try std.testing.expectEqual(@as(u32, 264), parse("/give 264").give.raw_id);
-    try std.testing.expectEqual(@as(u32, 1), parse("/give 001").give.raw_id);
+test "a name and its id land on the same thing, so the reply reads the same either way" {
+    try std.testing.expect(parse("/give diamond").give.id.eql(parse("/give 264").give.id));
+    try std.testing.expect(parse("/give stone").give.id.eql(parse("/give 001").give.id));
 }
 
 test "freecam takes no arguments at all" {
