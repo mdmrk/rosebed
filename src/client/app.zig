@@ -1375,6 +1375,15 @@ fn sendChat(app_state: *AppState) !void {
     try closeChat(app_state);
 }
 
+fn resourceName(stack: world.Stack) []const u8 {
+    const named = stack.displayName();
+    if (named.len > 0) return named;
+    return switch (stack.id) {
+        .block => |id| @tagName(id),
+        .item => |id| @tagName(id),
+    };
+}
+
 fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void {
     var buf: [render.chat.max_message_length * 2]u8 = undefined;
     app_state.chat.addMessage(app_state.font, std.fmt.bufPrint(&buf, format, args) catch return);
@@ -1452,7 +1461,10 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                     }
                 }
             }
-            reply(app_state, "Filled {d} blocks with {s}", .{ placed, @tagName(box.id) });
+            reply(app_state, "Filled {d} blocks with {s}", .{
+                placed,
+                resourceName(.{ .id = .{ .block = box.id }, .count = 1 }),
+            });
         },
         .seed => |seed| {
             var buffer: [64]u8 = undefined;
@@ -1478,7 +1490,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
                     &app_state.level.world_map.rand,
                 );
             }
-            reply(app_state, "Giving you some {s}", .{stack.displayName()});
+            reply(app_state, "Giving you some {s}", .{resourceName(stack)});
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
