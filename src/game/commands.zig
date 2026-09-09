@@ -10,6 +10,7 @@ pub const max_fill_volume: u32 = 32768;
 pub const Verb = enum {
     help,
     achievement,
+    clear,
     freecam,
     fill,
     fly,
@@ -25,6 +26,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "",
             .achievement => "<grant|revoke> <name|everything>",
+            .clear => "",
             .freecam => "",
             .fill => "<x1> <y1> <z1> <x2> <y2> <z2> <id|name>",
             .fly => "",
@@ -42,6 +44,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "shows this message",
             .achievement => "grants or revokes an achievement",
+            .clear => "empties your inventory, armor and all",
             .freecam => "detaches the camera from the player",
             .fill => "fills a box of blocks, corner to corner",
             .fly => "lets the player fly, free of gravity",
@@ -116,6 +119,7 @@ pub const Result = union(enum) {
     freecam,
     fly,
     kill,
+    clear,
     achievement: Achievement,
     fill: Fill,
     seed: Seed,
@@ -223,6 +227,7 @@ pub fn parse(line: []const u8) Result {
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
         .achievement => parseAchievement(&words),
+        .clear => if (words.next() == null) .clear else .nothing,
         .freecam => if (words.next() == null) .freecam else .nothing,
         .fill => parseFill(&words),
         .fly => if (words.next() == null) .fly else .nothing,
@@ -674,4 +679,10 @@ test "achievement stays silent when the argument count is wrong" {
     try std.testing.expectEqual(Result.nothing, parse("/achievement"));
     try std.testing.expectEqual(Result.nothing, parse("/achievement grant"));
     try std.testing.expectEqual(Result.nothing, parse("/achievement grant mine_wood now"));
+}
+
+test "clear takes no arguments at all" {
+    try std.testing.expectEqual(Result.clear, parse("/clear"));
+    try std.testing.expectEqual(Result.nothing, parse("/clear all"));
+    try std.testing.expectEqualStrings("Clear", parse("/Clear").unknown);
 }

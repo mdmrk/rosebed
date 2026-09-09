@@ -287,6 +287,19 @@ pub fn consumeItem(self: *Inventory, id: world.Id) bool {
     return false;
 }
 
+pub fn clear(self: *Inventory) u32 {
+    var removed: u32 = 0;
+    for (&self.slots) |*slot| {
+        if (slot.*) |stack| removed += stack.count;
+        slot.* = null;
+    }
+    for (&self.armor) |*slot| {
+        if (slot.*) |stack| removed += stack.count;
+        slot.* = null;
+    }
+    return removed;
+}
+
 pub fn saveEntry(slot: u8, stack: ItemStack) world.save.InventoryEntry {
     return .{
         .slot = slot,
@@ -426,4 +439,20 @@ test "selectedStack reflects the currently selected hotbar slot" {
     inv.slots[3] = .{ .id = .{ .block = .cobblestone }, .count = 1 };
     inv.selectHotbar(3);
     try std.testing.expectEqual(world.Id{ .block = .cobblestone }, inv.selectedStack().?.id);
+}
+
+test "clear empties every slot and counts what it took" {
+    var inventory: Inventory = .{};
+    inventory.slots[0] = .{ .id = .{ .block = .stone }, .count = 64 };
+    inventory.slots[35] = .{ .id = .{ .item = .diamond }, .count = 3 };
+    inventory.armor[0] = .{ .id = .{ .item = .helmet_iron }, .count = 1 };
+
+    try std.testing.expectEqual(@as(u32, 68), inventory.clear());
+    for (inventory.slots) |slot| try std.testing.expect(slot == null);
+    for (inventory.armor) |slot| try std.testing.expect(slot == null);
+}
+
+test "clearing an empty inventory takes nothing" {
+    var inventory: Inventory = .{};
+    try std.testing.expectEqual(@as(u32, 0), inventory.clear());
 }

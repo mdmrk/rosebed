@@ -1445,6 +1445,14 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);
         },
+        .clear => {
+            var removed = app_state.player.inventory.clear();
+            if (app_state.held_stack) |stack| {
+                removed += stack.count;
+                app_state.held_stack = null;
+            }
+            reply(app_state, "Cleared {d} items", .{removed});
+        },
         .achievement => |asked| {
             var touched: u32 = 0;
             switch (asked.method) {
