@@ -1436,6 +1436,24 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);
         },
+        .fill => |box| {
+            var placed: u32 = 0;
+            var y = box.from.y;
+            while (y <= box.to.y) : (y += 1) {
+                if (y < 0 or y >= world.Chunk.height) continue;
+                var x = box.from.x;
+                while (x <= box.to.x) : (x += 1) {
+                    var z = box.from.z;
+                    while (z <= box.to.z) : (z += 1) {
+                        const pos: BlockPos = .init(x, y, z);
+                        if (app_state.level.world_map.getBlock(pos) == box.id) continue;
+                        try app_state.level.world_map.setBlockWithNotify(pos, box.id);
+                        placed += 1;
+                    }
+                }
+            }
+            reply(app_state, "Filled {d} blocks with {s}", .{ placed, @tagName(box.id) });
+        },
         .seed => |seed| {
             var buffer: [64]u8 = undefined;
             const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.level.generator.worldSeed()}, 0);
@@ -1507,6 +1525,8 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
+        .missing_block => |text| reply(app_state, "There's no block called {s}", .{text}),
+        .too_many_blocks => |volume| reply(app_state, "That's {d} blocks, more than the {d} allowed", .{ volume, game.commands.max_fill_volume }),
         .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
         .unparsed => |text| reply(app_state, "Unable to parse value, {s}", .{text}),
         .unknown_method => |text| reply(app_state, "Unknown method, use {s}", .{text}),

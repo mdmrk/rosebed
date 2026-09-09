@@ -3,10 +3,12 @@ const std = @import("std");
 const world = @import("world");
 
 pub const max_count: u8 = 64;
+pub const max_fill_volume: u32 = 32768;
 
 pub const Verb = enum {
     help,
     freecam,
+    fill,
     fly,
     give,
     kill,
@@ -20,6 +22,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "",
             .freecam => "",
+            .fill => "<x1> <y1> <z1> <x2> <y2> <z2> <id|name>",
             .fly => "",
             .give => "<id|name> [num]",
             .kill => "",
@@ -35,6 +38,7 @@ pub const Verb = enum {
         return switch (self) {
             .help => "shows this message",
             .freecam => "detaches the camera from the player",
+            .fill => "fills a box of blocks, corner to corner",
             .fly => "lets the player fly, free of gravity",
             .give => "gives the player a resource",
             .kill => "kills the player",
@@ -48,6 +52,12 @@ pub const Verb = enum {
 };
 
 pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
+
+pub const Fill = struct {
+    from: world.BlockPos,
+    to: world.BlockPos,
+    id: world.Block,
+};
 
 pub const Give = struct {
     id: world.Id,
@@ -90,6 +100,7 @@ pub const Result = union(enum) {
     freecam,
     fly,
     kill,
+    fill: Fill,
     seed: Seed,
     give: Give,
     spawn: Spawn,
@@ -97,7 +108,9 @@ pub const Result = union(enum) {
     tp: Tp,
     weather: Weather,
     missing_item: u32,
+    missing_block: []const u8,
     missing_mob: []const u8,
+    too_many_blocks: u128,
     unparsed: []const u8,
     unparsed_item: []const u8,
     unknown_method: []const u8,
@@ -166,6 +179,12 @@ pub fn resolveId(raw: u32) ?world.Id {
     return if (std.enums.tagName(world.Item, id) == null) null else .{ .item = id };
 }
 
+pub fn resolveBlock(raw: u32) ?world.Block {
+    if (raw > 255) return null;
+    const id: world.Block = @enumFromInt(raw);
+    return if (std.enums.tagName(world.Block, id) == null) null else id;
+}
+
 fn verbFromWord(word: []const u8) ?Verb {
     if (std.mem.eql(u8, word, "?")) return .help;
     return std.meta.stringToEnum(Verb, word);
@@ -193,6 +212,7 @@ pub fn parse(line: []const u8) Result {
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
         .freecam => if (words.next() == null) .freecam else .nothing,
+        .fill => parseFill(&words),
         .fly => if (words.next() == null) .fly else .nothing,
         .kill => if (words.next() == null) .kill else .nothing,
         .give => parseGive(&words),
@@ -205,6 +225,43 @@ pub fn parse(line: []const u8) Result {
 }
 
 const Words = std.mem.TokenIterator(u8, .scalar);
+
+fn parseFill(words: *Words) Result {
+    var texts: [6][]const u8 = undefined;
+    for (&texts) |*text| text.* = words.next() orelse return .nothing;
+    const id_text = words.next() orelse return .nothing;
+    if (words.next() != null) return .nothing;
+
+    var coords: [6]i32 = undefined;
+    for (&coords, texts) |*coord, text| {
+        coord.* = std.fmt.parseInt(i32, text, 10) catch return .{ .unparsed = text };
+    }
+
+    const id = if (std.fmt.parseInt(u32, id_text, 10)) |raw|
+        resolveBlock(raw) orelse return .{ .missing_block = id_text }
+    else |_|
+        std.meta.stringToEnum(world.Block, id_text) orelse return .{ .missing_block = id_text };
+
+    const from: world.BlockPos = .init(
+        @min(coords[0], coords[3]),
+        @min(coords[1], coords[4]),
+        @min(coords[2], coords[5]),
+    );
+    const to: world.BlockPos = .init(
+        @max(coords[0], coords[3]),
+        @max(coords[1], coords[4]),
+        @max(coords[2], coords[5]),
+    );
+
+    const volume = span(from.x, to.x) * span(from.y, to.y) * span(from.z, to.z);
+    if (volume > max_fill_volume) return .{ .too_many_blocks = volume };
+
+    return .{ .fill = .{ .from = from, .to = to, .id = id } };
+}
+
+fn span(low: i32, high: i32) u128 {
+    return @intCast(@as(i64, high) - @as(i64, low) + 1);
+}
 
 fn parseGive(words: *Words) Result {
     const id_text = words.next() orelse return .nothing;
@@ -505,4 +562,57 @@ test "freecam takes no arguments at all" {
 test "fly takes no arguments at all" {
     try std.testing.expectEqual(Result.fly, parse("/fly"));
     try std.testing.expectEqual(Result.nothing, parse("/fly on"));
+}
+
+test "fill reads two corners and a block" {
+    const box = parse("/fill 0 64 0 3 66 5 stone").fill;
+    try std.testing.expectEqual(world.Block.stone, box.id);
+    try std.testing.expectEqual(@as(i32, 0), box.from.x);
+    try std.testing.expectEqual(@as(i32, 64), box.from.y);
+    try std.testing.expectEqual(@as(i32, 0), box.from.z);
+    try std.testing.expectEqual(@as(i32, 3), box.to.x);
+    try std.testing.expectEqual(@as(i32, 66), box.to.y);
+    try std.testing.expectEqual(@as(i32, 5), box.to.z);
+}
+
+test "fill sorts the corners onto each other" {
+    const box = parse("/fill 3 66 5 -2 64 0 1").fill;
+    try std.testing.expectEqual(@as(i32, -2), box.from.x);
+    try std.testing.expectEqual(@as(i32, 64), box.from.y);
+    try std.testing.expectEqual(@as(i32, 0), box.from.z);
+    try std.testing.expectEqual(@as(i32, 3), box.to.x);
+    try std.testing.expectEqual(@as(i32, 66), box.to.y);
+    try std.testing.expectEqual(@as(i32, 5), box.to.z);
+}
+
+test "fill takes a block by number or by name, air included" {
+    try std.testing.expectEqual(world.Block.wool, parse("/fill 0 0 0 0 0 0 35").fill.id);
+    try std.testing.expectEqual(world.Block.air, parse("/fill 0 0 0 0 0 0 0").fill.id);
+    try std.testing.expectEqual(world.Block.air, parse("/fill 0 0 0 0 0 0 air").fill.id);
+}
+
+test "fill refuses anything that is not a block" {
+    try std.testing.expectEqualStrings("264", parse("/fill 0 0 0 0 0 0 264").missing_block);
+    try std.testing.expectEqualStrings("250", parse("/fill 0 0 0 0 0 0 250").missing_block);
+    try std.testing.expectEqualStrings("diamond", parse("/fill 0 0 0 0 0 0 diamond").missing_block);
+    try std.testing.expectEqualStrings("Stone", parse("/fill 0 0 0 0 0 0 Stone").missing_block);
+}
+
+test "fill reports whichever coordinate it could not read" {
+    try std.testing.expectEqualStrings("here", parse("/fill here 0 0 0 0 0 stone").unparsed);
+    try std.testing.expectEqualStrings("64.5", parse("/fill 0 64.5 0 0 0 0 stone").unparsed);
+    try std.testing.expectEqualStrings("yonder", parse("/fill 0 0 0 0 0 yonder stone").unparsed);
+}
+
+test "fill refuses a box bigger than a stack of chunks" {
+    const one_over = max_fill_volume + 1;
+    try std.testing.expectEqual(@as(u128, one_over), parse("/fill 0 0 0 0 0 32768 stone").too_many_blocks);
+    try std.testing.expectEqual(@as(i32, 32767), parse("/fill 0 0 0 0 0 32767 stone").fill.to.z);
+    try std.testing.expect(parse("/fill -2147483648 -2147483648 -2147483648 2147483647 2147483647 2147483647 stone") == .too_many_blocks);
+}
+
+test "fill stays silent when the argument count is wrong" {
+    try std.testing.expectEqual(Result.nothing, parse("/fill"));
+    try std.testing.expectEqual(Result.nothing, parse("/fill 0 0 0 0 0 0"));
+    try std.testing.expectEqual(Result.nothing, parse("/fill 0 0 0 0 0 0 stone 1"));
 }
