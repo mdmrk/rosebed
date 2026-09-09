@@ -27,6 +27,14 @@ pub const Id = enum(u8) {
     pub fn statId(self: Id) u32 {
         return stat_base + @intFromEnum(self);
     }
+
+    pub fn descendsFrom(self: Id, ancestor: Id) bool {
+        var current = self.def().parent;
+        while (current) |parent| : (current = parent.def().parent) {
+            if (parent == ancestor) return true;
+        }
+        return false;
+    }
 };
 
 pub const Def = struct {
@@ -386,4 +394,13 @@ test "the furnace hands out only the two achievements SlotFurnace checks for" {
     try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .item = .ingot_gold }));
     try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .block = .glass }));
     try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .item = .pickaxe_wood }));
+}
+
+test "descendsFrom walks the whole chain up to the root" {
+    try std.testing.expect(Id.mine_wood.descendsFrom(.open_inventory));
+    try std.testing.expect(Id.build_pickaxe.descendsFrom(.open_inventory));
+    try std.testing.expect(Id.fly_pig.descendsFrom(.kill_cow));
+    try std.testing.expect(!Id.open_inventory.descendsFrom(.mine_wood));
+    try std.testing.expect(!Id.mine_wood.descendsFrom(.mine_wood));
+    try std.testing.expect(!Id.cook_fish.descendsFrom(.build_sword));
 }

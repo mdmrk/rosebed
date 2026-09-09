@@ -2,11 +2,14 @@ const std = @import("std");
 
 const world = @import("world");
 
+const achievements = @import("achievements.zig");
+
 pub const max_count: u8 = 64;
 pub const max_fill_volume: u32 = 32768;
 
 pub const Verb = enum {
     help,
+    achievement,
     freecam,
     fill,
     fly,
@@ -21,6 +24,7 @@ pub const Verb = enum {
     pub fn usage(self: Verb) []const u8 {
         return switch (self) {
             .help => "",
+            .achievement => "<grant|revoke> <name|everything>",
             .freecam => "",
             .fill => "<x1> <y1> <z1> <x2> <y2> <z2> <id|name>",
             .fly => "",
@@ -37,6 +41,7 @@ pub const Verb = enum {
     pub fn description(self: Verb) []const u8 {
         return switch (self) {
             .help => "shows this message",
+            .achievement => "grants or revokes an achievement",
             .freecam => "detaches the camera from the player",
             .fill => "fills a box of blocks, corner to corner",
             .fly => "lets the player fly, free of gravity",
@@ -52,6 +57,18 @@ pub const Verb = enum {
 };
 
 pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
+
+pub const Achievement = struct {
+    method: Method,
+    target: Target,
+
+    pub const Method = enum { grant, revoke };
+
+    pub const Target = union(enum) {
+        everything,
+        one: achievements.Id,
+    };
+};
 
 pub const Fill = struct {
     from: world.BlockPos,
@@ -99,6 +116,7 @@ pub const Result = union(enum) {
     freecam,
     fly,
     kill,
+    achievement: Achievement,
     fill: Fill,
     seed: Seed,
     give: Give,
@@ -108,6 +126,7 @@ pub const Result = union(enum) {
     weather: Weather,
     missing_item: u32,
     missing_block: []const u8,
+    missing_achievement: []const u8,
     missing_mob: []const u8,
     too_many_blocks: u128,
     unparsed: []const u8,
@@ -203,6 +222,7 @@ pub fn parse(line: []const u8) Result {
 
     return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
         .help => .help,
+        .achievement => parseAchievement(&words),
         .freecam => if (words.next() == null) .freecam else .nothing,
         .fill => parseFill(&words),
         .fly => if (words.next() == null) .fly else .nothing,
@@ -217,6 +237,23 @@ pub fn parse(line: []const u8) Result {
 }
 
 const Words = std.mem.TokenIterator(u8, .scalar);
+
+fn parseAchievement(words: *Words) Result {
+    const method_text = words.next() orelse return .nothing;
+    const target_text = words.next() orelse return .nothing;
+    if (words.next() != null) return .nothing;
+
+    const target: Achievement.Target = if (std.mem.eql(u8, target_text, "everything"))
+        .everything
+    else
+        .{ .one = std.meta.stringToEnum(achievements.Id, target_text) orelse
+            return .{ .missing_achievement = target_text } };
+
+    const method = std.meta.stringToEnum(Achievement.Method, method_text) orelse
+        return .{ .unknown_method = "either \"grant\" or \"revoke\"" };
+
+    return .{ .achievement = .{ .method = method, .target = target } };
+}
 
 fn parseFill(words: *Words) Result {
     var texts: [6][]const u8 = undefined;
@@ -604,4 +641,37 @@ test "fill stays silent when the argument count is wrong" {
     try std.testing.expectEqual(Result.nothing, parse("/fill"));
     try std.testing.expectEqual(Result.nothing, parse("/fill 0 0 0 0 0 0"));
     try std.testing.expectEqual(Result.nothing, parse("/fill 0 0 0 0 0 0 stone 1"));
+}
+
+test "achievement names a method and a target" {
+    const granted = parse("/achievement grant mine_wood").achievement;
+    try std.testing.expectEqual(Achievement.Method.grant, granted.method);
+    try std.testing.expectEqual(achievements.Id.mine_wood, granted.target.one);
+
+    const taken = parse("/achievement revoke fly_pig").achievement;
+    try std.testing.expectEqual(Achievement.Method.revoke, taken.method);
+    try std.testing.expectEqual(achievements.Id.fly_pig, taken.target.one);
+}
+
+test "achievement takes everything in place of a name" {
+    try std.testing.expect(parse("/achievement grant everything").achievement.target == .everything);
+    try std.testing.expect(parse("/achievement revoke everything").achievement.target == .everything);
+}
+
+test "achievement reads its target before it judges the method" {
+    try std.testing.expectEqualStrings("nothing", parse("/achievement grant nothing").missing_achievement);
+    try std.testing.expectEqualStrings("nothing", parse("/achievement bestow nothing").missing_achievement);
+    try std.testing.expect(parse("/achievement bestow mine_wood") == .unknown_method);
+    try std.testing.expect(parse("/achievement Grant mine_wood") == .unknown_method);
+}
+
+test "achievement matches a name exactly, key spelling included" {
+    try std.testing.expectEqualStrings("mineWood", parse("/achievement grant mineWood").missing_achievement);
+    try std.testing.expectEqualStrings("Everything", parse("/achievement grant Everything").missing_achievement);
+}
+
+test "achievement stays silent when the argument count is wrong" {
+    try std.testing.expectEqual(Result.nothing, parse("/achievement"));
+    try std.testing.expectEqual(Result.nothing, parse("/achievement grant"));
+    try std.testing.expectEqual(Result.nothing, parse("/achievement grant mine_wood now"));
 }

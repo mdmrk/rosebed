@@ -263,6 +263,12 @@ pub const Stats = struct {
         return fresh;
     }
 
+    pub fn revoke(self: *Stats, id: achievements.Id) bool {
+        if (!self.counts.remove(.{ .achievement = id })) return false;
+        self.dirty = true;
+        return true;
+    }
+
     pub fn mine(self: *Stats, gpa: std.mem.Allocator, block: world.Block) !void {
         const id: world.Id = .{ .block = block };
         if (!tracksMining(id)) return;

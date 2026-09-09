@@ -1445,6 +1445,30 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
             app_state.player.kill();
             app_state.chat.addMessage(app_state.font, game.commands.kill_line);
         },
+        .achievement => |asked| {
+            var touched: u32 = 0;
+            switch (asked.method) {
+                .grant => switch (asked.target) {
+                    .everything => for (std.enums.values(game.achievements.Id)) |id| {
+                        touched += try grantAchievement(app_state, id);
+                    },
+                    .one => |id| touched += try grantAchievement(app_state, id),
+                },
+                .revoke => switch (asked.target) {
+                    .everything => for (std.enums.values(game.achievements.Id)) |id| {
+                        if (app_state.stats.revoke(id)) touched += 1;
+                    },
+                    .one => |id| for (std.enums.values(game.achievements.Id)) |other| {
+                        if (other != id and !other.descendsFrom(id)) continue;
+                        if (app_state.stats.revoke(other)) touched += 1;
+                    },
+                },
+            }
+            reply(app_state, "{s} {d} achievements", .{
+                if (asked.method == .grant) "Granted" else "Revoked",
+                touched,
+            });
+        },
         .fill => |box| {
             var placed: u32 = 0;
             var y = box.from.y;
@@ -1539,6 +1563,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         .unparsed_item => |text| reply(app_state, "There's no item with id {s}", .{text}),
         .missing_item => |raw| reply(app_state, "There's no item with id {d}", .{raw}),
         .missing_block => |text| reply(app_state, "There's no block called {s}", .{text}),
+        .missing_achievement => |text| reply(app_state, "There's no achievement called {s}", .{text}),
         .too_many_blocks => |volume| reply(app_state, "That's {d} blocks, more than the {d} allowed", .{ volume, game.commands.max_fill_volume }),
         .missing_mob => |name| reply(app_state, "There's no mob called {s}", .{name}),
         .unparsed => |text| reply(app_state, "Unable to parse value, {s}", .{text}),
@@ -2848,6 +2873,14 @@ fn syncStats(app_state: *AppState) void {
 fn awardAchievement(app_state: *AppState, id: game.achievements.Id) !void {
     if (!try app_state.stats.award(app_state.gpa, id)) return;
     app_state.achievement_toast.announce(id, @floatFromInt(sdl3.timer.getMillisecondsSinceInit()));
+}
+
+fn grantAchievement(app_state: *AppState, id: game.achievements.Id) !u32 {
+    var granted: u32 = 0;
+    if (id.def().parent) |parent| granted += try grantAchievement(app_state, parent);
+    if (app_state.stats.hasAchievement(id)) return granted;
+    try awardAchievement(app_state, id);
+    return granted + 1;
 }
 
 fn drainEarnedAchievements(app_state: *AppState) !void {
