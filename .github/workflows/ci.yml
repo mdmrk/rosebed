@@ -16,11 +16,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            name: linux-x86_64
+            name: x86_64-linux
           - os: windows-latest
-            name: windows-x86_64
+            name: x86_64-windows
           - os: macos-latest
-            name: macos-aarch64
+            name: aarch64-macos
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -131,11 +131,11 @@ jobs:
       - name: package
         run: |
           mkdir -p dist
-          cp zig-out/rosebed.apk dist/rosebed-android-aarch64.apk
+          cp zig-out/rosebed.apk dist/rosebed-aarch64-linux-android.apk
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: rosebed-android-aarch64
+          name: rosebed-aarch64-linux-android
           path: dist/*
   ios:
     name: build (macos-latest, aarch64-ios)
@@ -162,11 +162,11 @@ jobs:
       - name: package
         run: |
           mkdir -p dist
-          cp zig-out/rosebed.ipa dist/rosebed-ios-aarch64.ipa
+          cp zig-out/rosebed.ipa dist/rosebed-aarch64-ios.ipa
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: rosebed-ios-aarch64
+          name: rosebed-aarch64-ios
           path: dist/*
   pages:
     if: github.event_name != 'pull_request'

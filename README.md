@@ -45,25 +45,25 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
   <tbody>
     <tr valign="middle">
       <td><code>x86_64-linux</code></td>
-      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz">tar.gz</a></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-linux.tar.gz">tar.gz</a></td>
       <td align="center">
-        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz">tar.gz</a>
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-linux.tar.gz">tar.gz</a>
         <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=linux" alt="nightly linux"></a>
       </td>
     </tr>
     <tr valign="middle">
       <td><code>x86_64-windows</code></td>
-      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip">zip</a></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-windows.zip">zip</a></td>
       <td align="center">
-        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip">zip</a>
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-windows.zip">zip</a>
         <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=windows" alt="nightly windows"></a>
       </td>
     </tr>
     <tr valign="middle">
       <td><code>aarch64-macos</code></td>
-      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz">tar.gz</a></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-macos.tar.gz">tar.gz</a></td>
       <td align="center">
-        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz">tar.gz</a>
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-macos.tar.gz">tar.gz</a>
         <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=macos" alt="nightly macos"></a>
       </td>
     </tr>
@@ -76,18 +76,18 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
       </td>
     </tr>
     <tr valign="middle">
-      <td><code>aarch64-android</code></td>
-      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-android-aarch64.apk">apk</a></td>
+      <td><code>aarch64-linux-android</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-linux-android.apk">apk</a></td>
       <td align="center">
-        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-android-aarch64.apk">apk</a>
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-linux-android.apk">apk</a>
         <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=android" alt="nightly android"></a>
       </td>
     </tr>
     <tr valign="middle">
       <td><code>aarch64-ios</code></td>
-      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-ios-aarch64.ipa">ipa</a></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-ios.ipa">ipa</a></td>
       <td align="center">
-        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-ios-aarch64.ipa">ipa</a>
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-ios.ipa">ipa</a>
         <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=ios" alt="nightly ios"></a>
       </td>
     </tr>
