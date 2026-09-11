@@ -8,7 +8,7 @@ const gui = @import("gui.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
 const hotbar_width: f32 = 182;
-const hotbar_height: f32 = 22;
+pub const hotbar_height: f32 = 22;
 const highlight_width: f32 = 24;
 const highlight_height: f32 = 22;
 const slot_pitch: f32 = 20;

@@ -91,6 +91,22 @@ pub const GuiScale = enum(u2) {
     }
 };
 
+pub const TouchScheme = enum(u2) {
+    joystick,
+    dpad,
+
+    pub fn label(self: TouchScheme) []const u8 {
+        return switch (self) {
+            .joystick => "Joystick",
+            .dpad => "D-Pad",
+        };
+    }
+
+    pub fn next(self: TouchScheme) TouchScheme {
+        return if (self == .joystick) .dpad else .joystick;
+    }
+};
+
 pub const Binding = enum {
     forward,
     left,
@@ -165,6 +181,7 @@ gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
 fullscreen: bool = false,
 auto_jump: bool = touch,
+touch_scheme: TouchScheme = .joystick,
 skin: Name = .init(default_skin),
 last_server: Name = .{},
 keys: KeyBindings = .init(.{

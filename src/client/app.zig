@@ -104,7 +104,7 @@ pub const AppState = struct {
     equip: render.held_item.Equip = .{},
     player: game.Player = playerAtSpawn(),
     touches: [max_touches]Touch = @splat(.{}),
-    touch_stick: ?[2]f32 = null,
+    touch_move: ?[2]f32 = null,
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -2376,6 +2376,10 @@ fn optionsClick(app_state: *AppState) !void {
         },
         .toggle_auto_jump => {
             app_state.settings.auto_jump = !app_state.settings.auto_jump;
+            saveOptions(app_state);
+        },
+        .cycle_touch_scheme => {
+            app_state.settings.touch_scheme = app_state.settings.touch_scheme.next();
             saveOptions(app_state);
         },
         .cycle_difficulty => {
@@ -4768,10 +4772,9 @@ pub fn iterate(
             try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
             if (touch_ui and worldFocused(app_state)) {
                 if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
-                    .stick = app_state.touch_stick,
-                    .jump = app_state.keys.jump,
-                    .attack = touchHeld(app_state, .attack),
-                    .sneak = app_state.keys.sneak,
+                    .scheme = app_state.settings.touch_scheme,
+                    .move = app_state.touch_move,
+                    .held = touchHeld(app_state),
                 }, atlas);
             }
             if (app_state.show_debug) try render.debug_overlay.draw(ui, debugStats(app_state));
@@ -4978,18 +4981,22 @@ fn touchSlot(app_state: *AppState, id: u64) ?*Touch {
     return null;
 }
 
-fn applyStick(app_state: *AppState, stick: ?[2]f32) void {
-    app_state.touch_stick = stick;
-    const value = stick orelse [2]f32{ 0, 0 };
+fn applyMove(app_state: *AppState, move: ?[2]f32) void {
+    app_state.touch_move = move;
+    const value = move orelse [2]f32{ 0, 0 };
     app_state.keys.forward = value[1] <= -render.touch.dead_zone;
     app_state.keys.back = value[1] >= render.touch.dead_zone;
     app_state.keys.left = value[0] <= -render.touch.dead_zone;
     app_state.keys.right = value[0] >= render.touch.dead_zone;
 }
 
+fn touchMoveAt(app_state: *AppState, gx: f32, gy: f32, res: render.gui.Scaled) [2]f32 {
+    return render.touch.moveAt(gx, gy, app_state.settings.touch_scheme, res);
+}
+
 fn releaseTouches(app_state: *AppState) void {
     app_state.touches = @splat(.{});
-    applyStick(app_state, null);
+    applyMove(app_state, null);
     app_state.keys.jump = false;
     app_state.keys.sneak = false;
     app_state.mouse_left_down = false;
@@ -4999,6 +5006,11 @@ fn releaseTouches(app_state: *AppState) void {
 fn touchTap(app_state: *AppState) !void {
     if (app_state.freecam.active) return;
     if ((try pickedEntity(app_state)) != null) return clickLeft(app_state);
+    try touchInteract(app_state);
+}
+
+fn touchInteract(app_state: *AppState) !void {
+    if (app_state.freecam.active) return;
     if (try useBlockOrPlace(app_state)) {
         swingArm(app_state);
     } else if (app_state.link == null) {
@@ -5012,9 +5024,9 @@ fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     const gx = finger.x * res.width;
     const gy = finger.y * res.height;
 
-    if (render.touch.controlAt(gx, gy, res)) |control| {
+    if (render.touch.controlAt(gx, gy, app_state.settings.touch_scheme, res)) |control| {
         switch (control) {
-            .move => applyStick(app_state, render.touch.stickAt(gx, gy, res)),
+            .move => applyMove(app_state, touchMoveAt(app_state, gx, gy, res)),
             .jump => app_state.keys.jump = true,
             .sneak => app_state.keys.sneak = true,
             .attack => {
@@ -5022,13 +5034,20 @@ fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
                 app_state.last_held_swing_tick = app_state.level.tick_count;
                 try clickLeft(app_state);
             },
+            .interact => try touchInteract(app_state),
+            .drop => try dropSelectedItem(app_state),
+            .perspective => app_state.third_person = !app_state.third_person,
             .inventory => {
                 releaseTouches(app_state);
                 return toggleInventory(app_state);
             },
-            .pause => {
+            .menu => {
                 releaseTouches(app_state);
                 return togglePause(app_state);
+            },
+            .chat => {
+                releaseTouches(app_state);
+                return openChat(app_state);
             },
         }
         const slot = freeTouch(app_state) orelse return;
@@ -5064,7 +5083,7 @@ fn touchMotion(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     const slot = touchSlot(app_state, finger.finger_id.value) orelse return;
     const res = guiSize(app_state);
     switch (slot.role) {
-        .move => applyStick(app_state, render.touch.stickAt(finger.x * res.width, finger.y * res.height, res)),
+        .move => applyMove(app_state, touchMoveAt(app_state, finger.x * res.width, finger.y * res.height, res)),
         .world => {
             const px = drawableSize(app_state);
             const dx = finger.dx * @as(f32, @floatFromInt(px.w));
@@ -5089,7 +5108,7 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     slot.* = .{};
 
     switch (role) {
-        .move => applyStick(app_state, null),
+        .move => applyMove(app_state, null),
         .button => switch (control) {
             .jump => app_state.keys.jump = false,
             .sneak => app_state.keys.sneak = false,
@@ -5108,11 +5127,13 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     }
 }
 
-fn touchHeld(app_state: *const AppState, control: render.touch.Control) bool {
+fn touchHeld(app_state: *const AppState) render.touch.Held {
+    var held: render.touch.Held = .initEmpty();
     for (app_state.touches) |touch| {
-        if (touch.role == .button and touch.control == control) return true;
+        if (touch.role == .button) held.insert(touch.control);
+        if (touch.role == .world and touch.digging) held.insert(.attack);
     }
-    return false;
+    return held;
 }
 
 fn touchAttacking(app_state: *const AppState) bool {

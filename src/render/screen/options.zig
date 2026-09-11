@@ -10,14 +10,14 @@ pub const Backdrop = gui.Backdrop;
 const MeshBuilder = @import("../MeshBuilder.zig");
 
 const touch = builtin.abi == .android or builtin.abi == .androideabi or builtin.os.tag == .ios;
-const extra_controls: usize = if (touch) 1 else 0;
+const extra_controls: usize = if (touch) 2 else 0;
 
 const gui_texture_size: f32 = 256;
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 
 pub const Slider = enum { music, sound, sensitivity };
-pub const Hit = union(enum) { slider: Slider, toggle_invert, toggle_auto_jump, cycle_difficulty, video, controls, done };
+pub const Hit = union(enum) { slider: Slider, toggle_invert, toggle_auto_jump, cycle_touch_scheme, cycle_difficulty, video, controls, done };
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
 
@@ -34,6 +34,7 @@ fn controls(scaled_width: f32, scaled_height: f32) [8 + extra_controls]Control {
         .{ .x = left, .y = sixth + 48, .w = opt_width, .hit = .cycle_difficulty },
     } ++ (if (touch) [_]Control{
         .{ .x = right, .y = sixth + 48, .w = opt_width, .hit = .toggle_auto_jump },
+        .{ .x = left, .y = sixth + 72, .w = opt_width, .hit = .cycle_touch_scheme },
     } else [_]Control{}) ++ [_]Control{
         .{ .x = cx - 100, .y = sixth + 96 + 12, .w = 200, .hit = .video },
         .{ .x = cx - 100, .y = sixth + 120 + 12, .w = 200, .hit = .controls },
@@ -84,6 +85,7 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
         },
         .toggle_invert => if (settings.invert_mouse) "Invert Mouse: ON" else "Invert Mouse: OFF",
         .toggle_auto_jump => if (settings.auto_jump) "Auto-Jump: ON" else "Auto-Jump: OFF",
+        .cycle_touch_scheme => std.fmt.bufPrint(buf, "Controls: {s}", .{settings.touch_scheme.label()}) catch "Controls: ",
         .cycle_difficulty => std.fmt.bufPrint(buf, "Difficulty: {s}", .{settings.difficulty.label()}) catch "Difficulty: ",
         .video => "Video Settings...",
         .controls => "Controls...",
