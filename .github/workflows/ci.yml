@@ -137,6 +137,37 @@ jobs:
         with:
           name: rosebed-android-aarch64
           path: dist/*
+  ios:
+    name: build (macos-latest, aarch64-ios)
+    runs-on: macos-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+      - name: setup zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: seed freetype tarball
+        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: fetch assets
+        run: zig build fetch-assets
+      - name: fetch sdl for ios
+        run: zig build fetch-ios-sdl
+      - name: build
+        run: |
+          zig build \
+            -Dtarget=aarch64-ios \
+            -Doptimize=ReleaseFast \
+            -Dios-sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+      - name: package
+        run: |
+          mkdir -p dist
+          cp zig-out/rosebed.ipa dist/rosebed-ios-aarch64.ipa
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosebed-ios-aarch64
+          path: dist/*
   pages:
     if: github.event_name != 'pull_request'
     needs: web
@@ -153,7 +184,7 @@ jobs:
         uses: actions/deploy-pages@v5
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    needs: [build, web, android]
+    needs: [build, web, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -178,7 +209,7 @@ jobs:
           gh release upload nightly dist/*
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, web, android]
+    needs: [build, web, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

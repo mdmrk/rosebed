@@ -148,7 +148,7 @@ const left_shift: u32 = scancode_mask | 225;
 
 const Settings = @This();
 
-const touch = builtin.abi == .android or builtin.abi == .androideabi;
+const touch = builtin.abi == .android or builtin.abi == .androideabi or builtin.os.tag == .ios;
 
 music_volume: f32 = 1.0,
 sound_volume: f32 = 1.0,

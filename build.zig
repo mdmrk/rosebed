@@ -28,10 +28,11 @@ pub fn setupModules(
     const linux = target.result.os.tag == .linux;
     const emscripten = target.result.os.tag == .emscripten;
     const android = androidTarget(target);
+    const ios = iosTarget(target);
     const lto: std.zig.LtoMode = if (!debug and linux) .full else .none;
 
     const gl_bindings =
-        if (emscripten or android) zigglgen.generateModule(b, .{
+        if (emscripten or android or ios) zigglgen.generateModule(b, .{
             .api = .gles,
             .version = .@"3.0",
         }) else zigglgen.generateModule(b, .{
@@ -181,6 +182,7 @@ pub fn build(b: *std.Build) void {
 
     if (target.result.os.tag == .emscripten) return buildWeb(b, target, optimize);
     if (androidTarget(target)) return buildAndroid(b, target, optimize);
+    if (iosTarget(target)) return buildIos(b, target, optimize);
 
     const modules = setupModules(b, target, optimize, null);
 
@@ -265,6 +267,7 @@ pub fn build(b: *std.Build) void {
     fetch_assets_step.dependOn(&fetch_assets_run.step);
 
     addFetchAndroidSdl(b);
+    addFetchIosSdl(b);
 
     const client_test_mod = b.createModule(.{
         .root_source_file = b.path("src/client/app.zig"),
@@ -536,14 +539,14 @@ fn androidPatchSdl(module: *std.Build.Module) void {
     translate.defineCMacroRaw("_Null_unspecified=");
 }
 
-fn androidSystemLibsWithoutPkgConfig(module: *std.Build.Module) void {
+fn systemLibsWithoutPkgConfig(module: *std.Build.Module) void {
     for (module.link_objects.items) |*object| switch (object.*) {
         .system_lib => |*system_lib| system_lib.use_pkg_config = .no,
         else => {},
     };
 }
 
-fn androidLinkedLibrary(module: *std.Build.Module, name: []const u8) *std.Build.Step.Compile {
+fn linkedLibrary(module: *std.Build.Module, name: []const u8) *std.Build.Step.Compile {
     for (module.link_objects.items) |object| switch (object) {
         .other_step => |compile| if (std.mem.eql(u8, compile.name, name)) return compile,
         else => {},
@@ -609,11 +612,11 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 
     androidPatchSdl(modules.sdl3_mod);
 
-    androidSystemLibsWithoutPkgConfig(modules.sdl3_mod);
+    systemLibsWithoutPkgConfig(modules.sdl3_mod);
 
-    const mixer = androidLinkedLibrary(modules.sdl3_mod, "SDL3_mixer");
+    const mixer = linkedLibrary(modules.sdl3_mod, "SDL3_mixer");
     mixer.root_module.addLibraryPath(sdl_lib_dir);
-    androidSystemLibsWithoutPkgConfig(mixer.root_module);
+    systemLibsWithoutPkgConfig(mixer.root_module);
     mixer.version = null;
     mixer.out_filename = "libSDL3_mixer.so";
     mixer.out_lib_filename = mixer.out_filename;
@@ -734,5 +737,157 @@ fn addFetchAndroidSdl(b: *std.Build) void {
     const run = b.addRunArtifact(fetch);
     run.addArg(android_sdl_root);
     const step = b.step("fetch-android-sdl", "Download the prebuilt SDL3 Android library and its Java glue");
+    step.dependOn(&run.step);
+}
+
+fn iosTarget(target: std.Build.ResolvedTarget) bool {
+    return target.result.os.tag == .ios;
+}
+
+const ios_sdl_root = "ios/sdl";
+const ios_app_dir = "Payload/rosebed.app";
+
+fn iosSdk(b: *std.Build) []const u8 {
+    if (b.option([]const u8, "ios-sdk", "Path to the iPhoneOS SDK")) |value| return value;
+    var code: u8 = undefined;
+    const output = b.runAllowFail(&.{ "xcrun", "--sdk", "iphoneos", "--show-sdk-path" }, &code, .ignore) catch {
+        std.log.err("'-Dios-sdk' is required when 'xcrun' cannot locate the iPhoneOS SDK", .{});
+        std.process.exit(1);
+    };
+    return b.dupe(std.mem.trim(u8, output, " \r\n"));
+}
+
+fn iosLibC(b: *std.Build, sdk: []const u8) std.Build.LazyPath {
+    const contents = b.fmt(
+        \\include_dir={s}/usr/include
+        \\sys_include_dir={s}/usr/include
+        \\crt_dir={s}/usr/lib
+        \\msvc_lib_dir=
+        \\kernel32_lib_dir=
+        \\gcc_dir=
+        \\
+    , .{ sdk, sdk, sdk });
+
+    const name = "ios-libc.txt";
+    b.cache_root.handle.writeFile(b.graph.io, .{ .sub_path = name, .data = contents }) catch |err| {
+        std.log.err("unable to write {s}: {t}", .{ name, err });
+        std.process.exit(1);
+    };
+    return .{ .cwd_relative = b.cache_root.join(b.allocator, &.{name}) catch @panic("OOM") };
+}
+
+fn iosPatchSdl(module: *std.Build.Module, sdk_include: std.Build.LazyPath) void {
+    const c_module = module.import_table.get("c") orelse return;
+    const root = c_module.root_source_file orelse return;
+    const generated = switch (root) {
+        .generated => |generated| generated,
+        else => return,
+    };
+    if (generated.file.step.id != .translate_c) return;
+    const translate: *std.Build.Step.TranslateC = @fieldParentPtr("step", generated.file.step);
+
+    translate.system_libs.clearRetainingCapacity();
+    translate.addSystemIncludePath(sdk_include);
+}
+
+fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+    const debug = optimize == .Debug;
+    const sdk = iosSdk(b);
+    const libc_file = iosLibC(b, sdk);
+
+    b.graph.system_library_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
+
+    const sdl_lib_dir = b.path(ios_sdl_root ++ "/lib");
+    const modules = setupModules(b, target, optimize, b.path(ios_sdl_root ++ "/include"));
+
+    const client_mod = b.createModule(.{
+        .root_source_file = b.path("src/client/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .strip = !debug,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "gl", .module = modules.gl_bindings },
+            .{ .name = "sdl3", .module = modules.sdl3_mod },
+            .{ .name = "math", .module = modules.math_mod },
+            .{ .name = "core", .module = modules.core_mod },
+            .{ .name = "world", .module = modules.world_mod },
+            .{ .name = "render", .module = modules.render_mod },
+            .{ .name = "game", .module = modules.game_mod },
+            .{ .name = "assets", .module = modules.assets_mod },
+            .{ .name = "audio", .module = modules.audio_mod },
+            .{ .name = "net", .module = modules.net_mod },
+            .{ .name = "remote", .module = modules.remote_mod },
+        },
+    });
+    client_mod.addAnonymousImport("icon_png", .{
+        .root_source_file = b.path("web/favicon-96x96.png"),
+    });
+    client_mod.addAnonymousImport("github_png", .{
+        .root_source_file = b.path("web/github.png"),
+    });
+    client_mod.addAnonymousImport("touch_png", .{
+        .root_source_file = b.path("android/hud.png"),
+    });
+    client_mod.addLibraryPath(sdl_lib_dir);
+    client_mod.addRPathSpecial("@executable_path/Frameworks");
+
+    const client = b.addExecutable(.{
+        .name = "rosebed",
+        .root_module = client_mod,
+    });
+    client.setLibCFile(libc_file);
+
+    iosPatchSdl(modules.sdl3_mod, .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+
+    systemLibsWithoutPkgConfig(modules.sdl3_mod);
+
+    const mixer = linkedLibrary(modules.sdl3_mod, "SDL3_mixer");
+    mixer.setLibCFile(libc_file);
+    mixer.root_module.addLibraryPath(sdl_lib_dir);
+    systemLibsWithoutPkgConfig(mixer.root_module);
+    mixer.version = null;
+    mixer.out_filename = "libSDL3_mixer.dylib";
+    mixer.out_lib_filename = mixer.out_filename;
+    mixer.major_only_filename = null;
+    mixer.name_only_filename = null;
+
+    const ipa = iosIpa(b, client, mixer);
+
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(ipa, .prefix, "rosebed.ipa").step);
+
+    addFetchIosSdl(b);
+}
+
+fn iosIpa(b: *std.Build, client: *std.Build.Step.Compile, mixer: *std.Build.Step.Compile) std.Build.LazyPath {
+    const staging = b.addWriteFiles();
+    _ = staging.addCopyFile(client.getEmittedBin(), ios_app_dir ++ "/rosebed");
+    _ = staging.addCopyFile(b.path("ios/Info.plist"), ios_app_dir ++ "/Info.plist");
+    _ = staging.addCopyFile(mixer.getEmittedBin(), ios_app_dir ++ "/Frameworks/libSDL3_mixer.dylib");
+    _ = staging.addCopyDirectory(
+        b.path(ios_sdl_root ++ "/SDL3.framework"),
+        ios_app_dir ++ "/Frameworks/SDL3.framework",
+        .{},
+    );
+
+    const zip = b.addSystemCommand(&.{ "zip", "-q", "-X", "-r" });
+    const ipa = zip.addOutputFileArg("rosebed.ipa");
+    zip.addArg("Payload");
+    zip.setCwd(staging.getDirectory());
+
+    return ipa;
+}
+
+fn addFetchIosSdl(b: *std.Build) void {
+    const fetch = b.addExecutable(.{
+        .name = "fetch-ios-sdl",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/fetch_ios_sdl.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const run = b.addRunArtifact(fetch);
+    run.addArg(ios_sdl_root);
+    const step = b.step("fetch-ios-sdl", "Download the prebuilt SDL3 iOS framework from the official disk image");
     step.dependOn(&run.step);
 }

@@ -13,7 +13,7 @@ const entry_padding = scroll_list.entry_padding;
 const entry_half_width = scroll_list.entry_half_width;
 
 const wasm = builtin.cpu.arch.isWasm();
-const android = builtin.abi == .android or builtin.abi == .androideabi;
+const android = builtin.abi == .android or builtin.abi == .androideabi or builtin.os.tag == .ios;
 
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };
 const folder_info_color: [4]u8 = .{ 128, 128, 128, 255 };

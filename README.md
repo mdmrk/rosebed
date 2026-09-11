@@ -17,6 +17,7 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 - [Build](#build)
   - [Web](#web)
   - [Android](#android)
+  - [iOS](#ios)
 - [License](#license)
 
 ## Not in b1.7.3
@@ -26,20 +27,72 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 - [x] **Chat and commands in single player** - `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
 - [x] **Chat input editing** - History recall, ctrl+backspace, paste.
 - [x] **Fullscreen in Video Settings** - Vanilla has F11 and no setting.
-- [x] **On-screen touch controls** - Only on Android, where there is no keyboard or mouse to bind.
-- [x] **Auto-jump** - Android only, on by default, toggled in Options.
+- [x] **On-screen touch controls** - Only on Android and iOS, where there is no keyboard or mouse to bind.
+- [x] **Auto-jump** - Android and iOS only, on by default, toggled in Options.
 
 ## Play
 
 **[Play browser build online](https://mdmrk.github.io/rosebed/)**. Worlds are saved in browser storage. Multiplayer connects over WebSocket. Needs WebGL2.
 
-| Platform            | Stable                                                                                               | Nightly                                                                                                                                                                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `x86_64-linux`      | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz) [![nightly linux](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&label=linux)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml)  |
-| `x86_64-windows`    | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip)          | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip) [![nightly windows](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&label=windows)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml)  |
-| `aarch64-macos`     | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz)     | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz) [![nightly macos](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&label=macos)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml) |
-| `wasm32-emscripten` | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) [![nightly web](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&label=web)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml) |
-| `aarch64-android`   | [apk](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-android-aarch64.apk)         | [apk](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-android-aarch64.apk) [![nightly android](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&label=android)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml) |
+<table>
+  <thead>
+    <tr>
+      <th align="center">Platform</th>
+      <th align="center">Stable</th>
+      <th align="center">Nightly</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr valign="middle">
+      <td><code>x86_64-linux</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-linux-x86_64.tar.gz">tar.gz</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-linux-x86_64.tar.gz">tar.gz</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=linux" alt="nightly linux"></a>
+      </td>
+    </tr>
+    <tr valign="middle">
+      <td><code>x86_64-windows</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-windows-x86_64.zip">zip</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-windows-x86_64.zip">zip</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=windows" alt="nightly windows"></a>
+      </td>
+    </tr>
+    <tr valign="middle">
+      <td><code>aarch64-macos</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-macos-aarch64.tar.gz">tar.gz</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-macos-aarch64.tar.gz">tar.gz</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=macos" alt="nightly macos"></a>
+      </td>
+    </tr>
+    <tr valign="middle">
+      <td><code>wasm32-emscripten</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz">tar.gz</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz">tar.gz</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=web" alt="nightly web"></a>
+      </td>
+    </tr>
+    <tr valign="middle">
+      <td><code>aarch64-android</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-android-aarch64.apk">apk</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-android-aarch64.apk">apk</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=android" alt="nightly android"></a>
+      </td>
+    </tr>
+    <tr valign="middle">
+      <td><code>aarch64-ios</code></td>
+      <td align="center"><a href="https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-ios-aarch64.ipa">ipa</a></td>
+      <td align="center">
+        <a href="https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-ios-aarch64.ipa">ipa</a>
+        <a href="https://github.com/mdmrk/rosebed/actions/workflows/ci.yml"><img align="absmiddle" src="https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main&event=schedule&style=plastic&label=ios" alt="nightly ios"></a>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 ```sh
 # Client
@@ -99,6 +152,20 @@ zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast \
 The NDK and SDK paths also come from `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT` and `ANDROID_HOME`/`ANDROID_SDK_ROOT` when the options are left out. `-Dandroid-api` (default 21), `-Dandroid-build-tools` (default `35.0.0`) and `-Dandroid-platform` (default `android-35`) pick the levels to build against.
 
 Output is a signed debug APK in `zig-out/rosebed.apk`. `zig build run` with the same options installs it on a connected device over `adb` and starts it.
+
+### iOS
+
+Needs macOS with Xcode installed, plus `zip` on `PATH`. SDL3 itself is the official prebuilt `SDL3.framework`, taken from the `ios-arm64` slice of the disk image Apple-side releases ship, not compiled from source:
+
+```sh
+zig build fetch-ios-sdl           # once, unpacks SDL3.framework into ios/sdl
+
+zig build -Dtarget=aarch64-ios -Doptimize=ReleaseFast
+```
+
+The iPhoneOS SDK comes from `xcrun --sdk iphoneos --show-sdk-path` unless `-Dios-sdk` names one.
+
+Output is an unsigned IPA in `zig-out/rosebed.ipa`. Signing it with a provisioning profile is left to you; the CI artifact will not install on a stock device as-is.
 
 ## License
 

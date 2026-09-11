@@ -30,8 +30,9 @@ const chunk_stream_budget_ns = 4 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
 const wasm = builtin.cpu.arch.isWasm();
 const android = builtin.abi == .android or builtin.abi == .androideabi;
-const gles = wasm or android;
-const touch_ui = android;
+const ios = builtin.os.tag == .ios;
+const gles = wasm or android or ios;
+const touch_ui = android or ios;
 const touch_dig_delay_ms = 180;
 const touch_drag_slop = 12.0;
 const max_touches = 4;
@@ -405,7 +406,7 @@ pub fn init(
     try sdl3.init(init_flags);
     errdefer sdl3.quit(init_flags);
 
-    if (android) try sdl3.hints.set(.orientations, "LandscapeLeft LandscapeRight");
+    if (android or ios) try sdl3.hints.set(.orientations, "LandscapeLeft LandscapeRight");
     if (android) try sdl3.hints.set(.android_trap_back_button, "1");
 
     try sdl3.video.gl.setAttribute(.depth_size, 24);
@@ -419,11 +420,11 @@ pub fn init(
         .open_gl = true,
         .resizable = true,
         .fill_document = wasm,
-        .fullscreen = android,
+        .fullscreen = android or ios,
     });
     errdefer window.deinit();
 
-    if (!wasm and !android) setIcon(window) catch |err| {
+    if (!wasm and !android and !ios) setIcon(window) catch |err| {
         std.log.warn("could not set the window icon: {t}", .{err});
     };
 
@@ -441,7 +442,14 @@ pub fn init(
     frame_arena = .init(gpa);
     io_threaded = .init(gpa, .{});
     const io = io_threaded.io();
-    const base_path = if (wasm) persist_root else if (android) try internalStoragePath() else try sdl3.filesystem.getBasePath();
+    const base_path = if (wasm)
+        persist_root
+    else if (android)
+        try internalStoragePath()
+    else if (ios)
+        try sdl3.filesystem.getPrefPath("mdmrk", "rosebed")
+    else
+        try sdl3.filesystem.getBasePath();
     const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
     const saves_dir = try world.save.openSavesDir(io, base_dir);
     const packs_dir = try render.texture_pack.open(io, base_dir);
@@ -5160,7 +5168,7 @@ pub fn event(
         .finger_down => |f| if (touch_ui) try touchDown(app_state, f),
         .finger_motion => |f| if (touch_ui) try touchMotion(app_state, f),
         .finger_up, .finger_canceled => |f| if (touch_ui) try touchUp(app_state, f),
-        .key_down => |k| if (!wasm and !android and k.key == .func11 and !k.repeat) {
+        .key_down => |k| if (!wasm and !android and !ios and k.key == .func11 and !k.repeat) {
             app_state.settings.fullscreen = !app_state.settings.fullscreen;
             applyFullscreen(app_state);
             saveOptions(app_state);
