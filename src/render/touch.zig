@@ -48,6 +48,7 @@ pub const Control = enum {
     menu,
     chat,
     perspective,
+    debug,
 
     fn uv(control: Control) Atlas.Uv {
         return switch (control) {
@@ -61,6 +62,7 @@ pub const Control = enum {
             .chat => tileUv(192, 80),
             .perspective => tileUv(224, 80),
             .drop => tileUv(0, 112),
+            .debug => tileUv(64, 144),
         };
     }
 };
@@ -103,6 +105,7 @@ pub fn rect(control: Control, scheme: Scheme, res: gui.Scaled) Rect {
         .menu => .{ .x = margin, .y = margin, .w = button_size, .h = button_size },
         .chat => .{ .x = margin + button_size + gap, .y = margin, .w = button_size, .h = button_size },
         .perspective => .{ .x = right, .y = margin, .w = button_size, .h = button_size },
+        .debug => .{ .x = left, .y = margin, .w = button_size, .h = button_size },
     };
 }
 

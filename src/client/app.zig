@@ -5037,6 +5037,7 @@ fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
             .interact => try touchInteract(app_state),
             .drop => try dropSelectedItem(app_state),
             .perspective => app_state.third_person = !app_state.third_person,
+            .debug => app_state.show_debug = !app_state.show_debug,
             .inventory => {
                 releaseTouches(app_state);
                 return toggleInventory(app_state);
