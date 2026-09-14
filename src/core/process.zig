@@ -13,9 +13,9 @@ pub fn sample() Usage {
     return switch (builtin.os.tag) {
         .linux => sampleLinux(),
         .windows => sampleWindows(),
-        .macos => sampleMacos(),
+        .freebsd => sampleFreebsd(),
         .emscripten => sampleEmscripten(),
-        else => unknown,
+        else => if (builtin.os.tag.isDarwin()) sampleDarwin() else unknown,
     };
 }
 
@@ -30,7 +30,7 @@ fn readFile(path: [*:0]const u8, buf: []u8) ?[]u8 {
 }
 
 fn sampleLinux() Usage {
-    const page_size: u64 = 4096;
+    const page_size: u64 = std.heap.pageSize();
 
     var statm_buf: [256]u8 = undefined;
     const statm = readFile("/proc/self/statm", &statm_buf) orelse return unknown;
@@ -104,7 +104,7 @@ fn sampleWindows() Usage {
     };
 }
 
-fn sampleMacos() Usage {
+fn sampleDarwin() Usage {
     var info: std.c.task_vm_info_data_t = undefined;
     var count: std.c.mach_msg_type_number_t = std.c.TASK.VM.INFO_COUNT;
     if (std.c.task_info(std.c.mach_task_self(), std.c.TASK.VM.INFO, @ptrCast(&info), &count) != 0) return unknown;
@@ -114,6 +114,42 @@ fn sampleMacos() Usage {
     if (std.c.sysctlbyname("hw.memsize", &max, &max_len, null, 0) != 0) max = 0;
 
     return .{ .used = info.resident_size, .allocated = info.virtual_size, .max = @max(max, 1) };
+}
+
+const kinfo_proc_prefix = extern struct {
+    ki_structsize: c_int,
+    ki_layout: c_int,
+    ki_pointers: [8]*anyopaque,
+    ki_ids: [6]i32,
+    ki_jobc: c_short,
+    ki_spare_short1: c_short,
+    ki_tdev_freebsd11: u32,
+    ki_signals: [4][4]u32,
+    ki_creds: [5]u32,
+    ki_ngroups: c_short,
+    ki_spare_short2: c_short,
+    ki_groups: [16]u32,
+    ki_size: usize,
+    ki_rssize: isize,
+};
+
+const KERN_PROC_PID = 1;
+
+fn sampleFreebsd() Usage {
+    comptime std.debug.assert(@sizeOf(usize) != 8 or @offsetOf(kinfo_proc_prefix, "ki_size") == 256);
+    var buf: [8]kinfo_proc_prefix = undefined;
+    var len: usize = @sizeOf(@TypeOf(buf));
+    const mib = [_]c_int{ std.c.CTL.KERN, std.c.KERN.PROC, KERN_PROC_PID, std.c.getpid() };
+    if (std.c.sysctl(&mib, mib.len, &buf, &len, null, 0) != 0) return unknown;
+    if (len < @sizeOf(kinfo_proc_prefix) or buf[0].ki_structsize != len) return unknown;
+
+    var max: c_ulong = 0;
+    var max_len: usize = @sizeOf(c_ulong);
+    if (std.c.sysctlbyname("hw.physmem", &max, &max_len, null, 0) != 0) max = 0;
+
+    const page_size: u64 = std.heap.pageSize();
+    const resident: u64 = @intCast(@max(buf[0].ki_rssize, 0));
+    return .{ .used = resident * page_size, .allocated = buf[0].ki_size, .max = @max(max, 1) };
 }
 
 const mallinfo_t = extern struct {
