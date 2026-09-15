@@ -50,6 +50,7 @@ pub fn connect(
     host: []const u8,
     port: u16,
     username: []const u8,
+    mods: net.packet.ModList,
 ) !*Link {
     var address = try resolve(io, host, port);
     const stream = try address.connect(io, .{ .mode = .stream });
@@ -59,6 +60,7 @@ pub fn connect(
     errdefer gpa.destroy(self);
     self.* = .{ .gpa = gpa, .io = io, .stream = stream };
     self.username.set(username);
+    self.connection.mods = mods;
 
     try self.connection.begin(gpa, self.username.text());
 

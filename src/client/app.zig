@@ -1754,6 +1754,7 @@ fn connectToServer(app_state: *AppState) !void {
         address.host,
         address.port,
         game.stats_file.default_username,
+        if (app_state.loaded_mods) |loaded| loaded.list else .{},
     ) catch |err| {
         reply(app_state, "Could not reach {s}: {s}", .{ typed, @errorName(err) });
         closeWorld(app_state);
