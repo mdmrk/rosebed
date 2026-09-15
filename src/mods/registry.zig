@@ -14,29 +14,47 @@ pub const Registrar = struct {
 
 pub fn install(lua: *Lua, registrar: *Registrar) void {
     lua.newTable();
-    lua.pushLightUserdata(registrar);
-    lua.pushClosure(zlua.wrap(registerBlock), 1);
-    lua.setField(-2, "register_block");
-    lua.pushLightUserdata(registrar);
-    lua.pushClosure(zlua.wrap(registerItem), 1);
-    lua.setField(-2, "register_item");
+    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+        .{ .name = "register_block", .function = zlua.wrap(registerFn(world.Block, world.block.Def)) },
+        .{ .name = "register_item", .function = zlua.wrap(registerFn(world.Item, world.item.Def)) },
+        .{ .name = "override_block", .function = zlua.wrap(overrideFn(world.Block, world.block.Def, "block")) },
+        .{ .name = "override_item", .function = zlua.wrap(overrideFn(world.Item, world.item.Def, "item")) },
+    };
+    for (functions) |entry| {
+        lua.pushLightUserdata(registrar);
+        lua.pushClosure(entry.function, 1);
+        lua.setField(-2, entry.name);
+    }
     lua.setGlobal("rosebed");
 }
 
-fn registerBlock(lua: *Lua) i32 {
-    const registrar = context(lua);
-    const definition = readDef(world.block.Def, lua, registrar);
-    _ = world.Block.claim(definition) catch |err| raise(lua, err, definition.key);
-    _ = lua.pushString(definition.key);
-    return 1;
+fn registerFn(comptime Registry: type, comptime Def: type) fn (*Lua) i32 {
+    return struct {
+        fn call(lua: *Lua) i32 {
+            const registrar = context(lua);
+            lua.checkType(1, .table);
+            var definition: Def = .{ .key = namespacedKey(lua, registrar) };
+            readFields(Def, &definition, lua, registrar, 1, .skip_key);
+            _ = Registry.claim(definition) catch |err| raise(lua, err, definition.key);
+            _ = lua.pushString(definition.key);
+            return 1;
+        }
+    }.call;
 }
 
-fn registerItem(lua: *Lua) i32 {
-    const registrar = context(lua);
-    const definition = readDef(world.item.Def, lua, registrar);
-    _ = world.Item.claim(definition) catch |err| raise(lua, err, definition.key);
-    _ = lua.pushString(definition.key);
-    return 1;
+fn overrideFn(comptime Registry: type, comptime Def: type, comptime noun: []const u8) fn (*Lua) i32 {
+    return struct {
+        fn call(lua: *Lua) i32 {
+            const registrar = context(lua);
+            const key = lua.checkString(1);
+            lua.checkType(2, .table);
+            const target = Registry.fromKey(key) orelse lua.raiseErrorStr("no " ++ noun ++ " is registered as '%s'", .{key.ptr});
+            var definition: Def = target.def().*;
+            readFields(Def, &definition, lua, registrar, 2, .reject_key);
+            target.register(definition);
+            return 0;
+        }
+    }.call;
 }
 
 fn context(lua: *Lua) *Registrar {
@@ -54,25 +72,26 @@ fn raise(lua: *Lua, err: error{ DuplicateKey, RegistryFull, OutOfMemory }, key: 
     lua.raiseErrorStr(text, .{key.ptr});
 }
 
-fn readDef(comptime Def: type, lua: *Lua, registrar: *Registrar) Def {
-    lua.checkType(1, .table);
-    var definition: Def = .{};
-
+fn namespacedKey(lua: *Lua, registrar: *Registrar) []const u8 {
     if (lua.getField(1, "key") != .string) lua.raiseErrorStr("'key' must be a string", .{});
     const local_key = lua.toString(-1) catch unreachable;
     if (!Manifest.validId(local_key)) lua.raiseErrorStr("'%s' is not a valid key", .{local_key.ptr});
-    definition.key = std.fmt.allocPrintSentinel(registrar.arena, "{s}:{s}", .{ registrar.mod_id, local_key }, 0) catch
+    const key = std.fmt.allocPrintSentinel(registrar.arena, "{s}:{s}", .{ registrar.mod_id, local_key }, 0) catch
         raise(lua, error.OutOfMemory, local_key);
     lua.pop(1);
+    return key;
+}
 
+const KeyField = enum { skip_key, reject_key };
+
+fn readFields(comptime Def: type, definition: *Def, lua: *Lua, registrar: *Registrar, table: i32, key_field: KeyField) void {
     lua.pushNil();
-    while (lua.next(1)) {
+    while (lua.next(table)) {
         if (lua.typeOf(-2) != .string) lua.raiseErrorStr("field names must be strings", .{});
         const name = lua.toString(-2) catch unreachable;
-        if (!std.mem.eql(u8, name, "key")) setField(Def, &definition, lua, registrar, name);
+        if (!(key_field == .skip_key and std.mem.eql(u8, name, "key"))) setField(Def, definition, lua, registrar, name);
         lua.pop(1);
     }
-    return definition;
 }
 
 fn setField(comptime Def: type, definition: *Def, lua: *Lua, registrar: *Registrar, name: [:0]const u8) void {
@@ -145,6 +164,11 @@ const Harness = struct {
         world.Block.resetRegistry();
         world.Item.resetRegistry();
     }
+
+    fn expectFailure(self: *Harness, source: []const u8, message: []const u8) !void {
+        try std.testing.expectError(error.ScriptFailed, self.vm.exec("=quartz", source));
+        try std.testing.expect(std.mem.endsWith(u8, self.vm.errorMessage(), message));
+    }
 };
 
 test "a block registered from lua lands in the registry under its mod's namespace" {
@@ -192,18 +216,12 @@ test "a bad definition fails the script with a message naming the problem" {
     try harness.init();
     defer harness.deinit();
 
-    const cases = [_]struct { source: []const u8, message: []const u8 }{
-        .{ .source = "rosebed.register_block { key = 'marble', colour = 'white' }", .message = "unknown field 'colour'" },
-        .{ .source = "rosebed.register_block { key = 'marble', material = 'marble' }", .message = "'marble' is not a valid 'material'" },
-        .{ .source = "rosebed.register_block { key = 'marble', hardness = 'hard' }", .message = "'hardness' must be a number" },
-        .{ .source = "rosebed.register_block { key = 'stone:marble' }", .message = "'stone:marble' is not a valid key" },
-        .{ .source = "rosebed.register_block { name = 'Marble' }", .message = "'key' must be a string" },
-        .{ .source = "rosebed.register_item { key = 'gem', max_stack_size = 300 }", .message = "'max_stack_size' is out of range" },
-    };
-    for (cases) |case| {
-        try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=quartz", case.source));
-        try std.testing.expect(std.mem.endsWith(u8, harness.vm.errorMessage(), case.message));
-    }
+    try harness.expectFailure("rosebed.register_block { key = 'marble', colour = 'white' }", "unknown field 'colour'");
+    try harness.expectFailure("rosebed.register_block { key = 'marble', material = 'marble' }", "'marble' is not a valid 'material'");
+    try harness.expectFailure("rosebed.register_block { key = 'marble', hardness = 'hard' }", "'hardness' must be a number");
+    try harness.expectFailure("rosebed.register_block { key = 'stone:marble' }", "'stone:marble' is not a valid key");
+    try harness.expectFailure("rosebed.register_block { name = 'Marble' }", "'key' must be a string");
+    try harness.expectFailure("rosebed.register_item { key = 'gem', max_stack_size = 300 }", "'max_stack_size' is out of range");
 }
 
 test "the same key cannot be registered twice" {
@@ -212,8 +230,7 @@ test "the same key cannot be registered twice" {
     defer harness.deinit();
 
     try harness.vm.exec("=quartz", "rosebed.register_block { key = 'marble' }");
-    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=quartz", "rosebed.register_block { key = 'marble' }"));
-    try std.testing.expect(std.mem.endsWith(u8, harness.vm.errorMessage(), "'quartz:marble' is already registered"));
+    try harness.expectFailure("rosebed.register_block { key = 'marble' }", "'quartz:marble' is already registered");
 }
 
 test "registering after loading has finished is refused" {
@@ -222,7 +239,47 @@ test "registering after loading has finished is refused" {
     defer harness.deinit();
 
     harness.registrar.open = false;
-    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=quartz", "rosebed.register_block { key = 'marble' }"));
-    try std.testing.expect(std.mem.endsWith(u8, harness.vm.errorMessage(), "registration is closed once every mod has loaded"));
+    try harness.expectFailure("rosebed.register_block { key = 'marble' }", "registration is closed once every mod has loaded");
+    try harness.expectFailure("rosebed.override_block('stone', { hardness = 3 })", "registration is closed once every mod has loaded");
     try std.testing.expect(world.Block.fromKey("quartz:marble") == null);
+}
+
+test "overriding a vanilla block changes only the fields given" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    const before = world.Block.stone.def().*;
+    try harness.vm.exec("=quartz", "rosebed.override_block('stone', { hardness = 3, name = 'Hard Stone' })");
+    try std.testing.expectEqual(@as(f32, 3), world.Block.stone.def().hardness);
+    try std.testing.expectEqualStrings("Hard Stone", world.Block.stone.def().name);
+    try std.testing.expectEqualStrings("stone", world.Block.stone.def().key);
+    try std.testing.expectEqual(before.material, world.Block.stone.material());
+    try std.testing.expectEqual(before.explosion_resistance, world.Block.stone.def().explosion_resistance);
+    try std.testing.expectEqual(world.Block.stone, world.Block.fromKey("stone").?);
+}
+
+test "overriding reaches items and blocks another mod registered" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_block { key = "marble", hardness = 1 }
+        \\rosebed.override_block("quartz:marble", { hardness = 4 })
+        \\rosebed.override_item("shears", { max_stack_size = 16 })
+    );
+    try std.testing.expectEqual(@as(f32, 4), world.Block.fromKey("quartz:marble").?.def().hardness);
+    try std.testing.expectEqual(@as(u8, 16), world.Item.shears.def().max_stack_size);
+}
+
+test "an override names an existing key and cannot rename it" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.override_block('quartz:nothing', { hardness = 3 })", "no block is registered as 'quartz:nothing'");
+    try harness.expectFailure("rosebed.override_item('stick_of_truth', {})", "no item is registered as 'stick_of_truth'");
+    try harness.expectFailure("rosebed.override_block('stone', { key = 'granite' })", "unknown field 'key'");
+    try std.testing.expectEqualStrings("stone", world.Block.stone.def().key);
 }
