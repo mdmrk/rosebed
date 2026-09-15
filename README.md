@@ -2,13 +2,10 @@
 
 [![license](https://img.shields.io/github/license/mdmrk/rosebed)](LICENSE)
 
-A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and OpenGL 3.3. Client and dedicated server, both speaking the b1.7.3 protocol (version 14).
-
-> [!NOTE]
-> **The goal** is a standalone b1.7.3 you can actually play: same behavior, same world out of the same seed, same packets on the wire. One native binary, and nothing beyond b1.7.3.
+A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and OpenGL 3.3. Client and dedicated server, both speaking the b1.7.3 protocol (version 14). The goal is a standalone b1.7.3 you can actually play: same behavior, same world out of the same seed, same packets on the wire.
 
 > [!IMPORTANT]
-> **Work in progress.** Most of the game is playable, so what's left is the fine detail. Anything that behaves differently than it does in the real b1.7.3 counts as a bug: terrain, block or mob behavior, a sound, etc. If you spot one, [please open an issue](https://github.com/mdmrk/rosebed/issues) with what you did and what the original does instead.
+> Most of the game is playable, so what's left is the fine detail. Anything that behaves differently than it does in the real b1.7.3 counts as a bug: terrain, block or mob behavior, a sound, etc. If you spot one, [please open an issue](https://github.com/mdmrk/rosebed/issues) with what you did and what the original does instead.
 
 ## Index
 
@@ -22,7 +19,7 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
 
 ## Not in b1.7.3
 
-The short list of things b1.7.3 does not have. Everything else is meant to match it, and anything that doesn't is a bug.
+The short list of things b1.7.3 does not have. Everything else is meant to match it.
 
 - [x] **Chat and commands in single player** - `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
 - [x] **Chat input editing** - History recall, ctrl+backspace, paste.
@@ -140,32 +137,26 @@ Output is a static site in `zig-out/www`. You can serve it with `python -m http.
 
 ### Android
 
-Needs the [Android NDK](https://developer.android.com/ndk/downloads) and an Android SDK with `build-tools` and a platform installed, plus `zip` and `keytool` on `PATH`. SDL3 itself is the official prebuilt Android build, not compiled from source:
+Needs the [Android NDK](https://developer.android.com/ndk/downloads) and an Android SDK with `build-tools` and a platform installed, plus `zip` and `keytool` on `PATH`. SDL3 itself is the official prebuilt Android build:
 
 ```sh
-zig build fetch-android-sdl       # once, unpacks SDL3 and its Java glue into android/sdl
-
+zig build fetch-android-sdl # once, unpacks SDL3 and its Java glue into android/sdl
 zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast \
   -Dandroid-ndk="$ANDROID_NDK_HOME" -Dandroid-sdk="$ANDROID_HOME"
 ```
 
 The NDK and SDK paths also come from `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT` and `ANDROID_HOME`/`ANDROID_SDK_ROOT` when the options are left out. `-Dandroid-api` (default 21), `-Dandroid-build-tools` (default `35.0.0`) and `-Dandroid-platform` (default `android-35`) pick the levels to build against.
 
-Output is a signed debug APK in `zig-out/rosebed.apk`. `zig build run` with the same options installs it on a connected device over `adb` and starts it.
-
 ### iOS
 
-Needs macOS with Xcode installed, plus `zip` on `PATH`. SDL3 itself is the official prebuilt `SDL3.framework`, taken from the `ios-arm64` slice of the disk image Apple-side releases ship, not compiled from source:
+Needs macOS with Xcode installed, plus `zip` on `PATH`. SDL3 itself is the official prebuilt `SDL3.framework`, taken from the `ios-arm64` slice of the disk image Apple-side releases ship:
 
 ```sh
-zig build fetch-ios-sdl           # once, unpacks SDL3.framework into ios/sdl
-
+zig build fetch-ios-sdl # once, unpacks SDL3.framework into ios/sdl
 zig build -Dtarget=aarch64-ios -Doptimize=ReleaseFast
 ```
 
 The iPhoneOS SDK comes from `xcrun --sdk iphoneos --show-sdk-path` unless `-Dios-sdk` names one.
-
-Output is an unsigned IPA in `zig-out/rosebed.ipa`. Signing it with a provisioning profile is left to you; the CI artifact will not install on a stock device as-is.
 
 ## License
 
