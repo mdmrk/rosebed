@@ -151,6 +151,7 @@ const Server = struct {
     running: std.atomic.Value(bool) = .init(true),
     tick_count: u64 = 0,
     ticks_since_save: u64 = 0,
+    mods: net.packet.ModList = .{},
 
     fn lock(self: *Server) void {
         self.mutex.lockUncancelable(self.io);
@@ -464,7 +465,7 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
             stream.close(server.io);
             continue;
         };
-        connection.* = .{ .stream = stream };
+        connection.* = .{ .stream = stream, .session = .{ .mods = server.mods } };
 
         server.adopt(connection) catch {
             connection.deinit(server.gpa);
@@ -775,6 +776,7 @@ pub fn main(init: std.process.Init) !void {
     var server: Server = .{
         .gpa = gpa,
         .io = io,
+        .mods = loaded_mods.list,
         .dims = .{
             .{
                 .dimension = .overworld,
