@@ -111,6 +111,7 @@ pub fn setupModules(
         .optimize = optimize,
         .imports = &.{
             .{ .name = "zlua", .module = zlua_dep.module("zlua") },
+            .{ .name = "world", .module = world_mod },
         },
     });
 
