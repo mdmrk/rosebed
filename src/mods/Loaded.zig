@@ -3,6 +3,7 @@ const std = @import("std");
 const world = @import("world");
 
 const discovery = @import("discovery.zig");
+const Hooks = @import("Hooks.zig");
 const load_order = @import("load_order.zig");
 const registry = @import("registry.zig");
 const Vm = @import("Vm.zig");
@@ -11,6 +12,7 @@ const Loaded = @This();
 
 arena: *std.heap.ArenaAllocator,
 vm: Vm,
+hooks: *Hooks,
 mods: []const discovery.Mod,
 
 pub const folder_name = "mods";
@@ -34,11 +36,14 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         return err;
     };
 
+    const hooks = try allocator.create(Hooks);
+    hooks.* = .{};
     const registrar = try allocator.create(registry.Registrar);
-    registrar.* = .{ .arena = allocator };
+    registrar.* = .{ .arena = allocator, .hooks = hooks };
     var vm: Vm = try .init(gpa);
     errdefer vm.deinit();
     registry.install(vm.lua, registrar);
+    hooks.install(vm.lua);
 
     errdefer world.Block.resetRegistry();
     errdefer world.Item.resetRegistry();
@@ -60,11 +65,13 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         };
     }
     registrar.open = false;
+    Hooks.active = hooks;
 
-    return .{ .arena = arena, .vm = vm, .mods = mods };
+    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods };
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
+    if (Hooks.active == self.hooks) Hooks.active = null;
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);
@@ -161,4 +168,107 @@ test "a mod that depends on a missing one is reported" {
     defer report.deinit();
     try std.testing.expectError(error.MissingDependency, load(gpa, io, tmp.dir, &report.writer));
     try std.testing.expectEqualStrings("could not order the mods: MissingDependency\n", report.written());
+}
+
+fn testWorld() !world.World {
+    var world_map: world.World = .init(std.testing.allocator);
+    errdefer world_map.deinit();
+    var chunk_x: i32 = -1;
+    while (chunk_x <= 1) : (chunk_x += 1) {
+        var chunk_z: i32 = -1;
+        while (chunk_z <= 1) : (chunk_z += 1) _ = try world_map.createChunk(chunk_x, chunk_z);
+    }
+    return world_map;
+}
+
+fn loadOne(io: std.Io, dir: std.Io.Dir, common: []const u8) !Loaded {
+    try writeMod(io, dir, "quartz",
+        \\{ "id": "quartz", "version": "1.0.0" }
+    , common);
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    return load(std.testing.allocator, io, dir, &report.writer);
+}
+
+test "lua callbacks run when the game reaches their block" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.register_block {
+        \\  key = "lamp",
+        \\  on_activated = function(x, y, z)
+        \\    rosebed.world.set_block(x, y, z, "block_gold")
+        \\    return true
+        \\  end,
+        \\  on_tick = function(x, y, z)
+        \\    rosebed.world.set_block(x, y + 1, z, "stone")
+        \\  end,
+        \\  on_neighbor_change = function(x, y, z)
+        \\    rosebed.world.set_meta(x, y, z, 7)
+        \\  end,
+        \\}
+    );
+    defer loaded.deinit(std.testing.allocator);
+
+    var world_map = try testWorld();
+    defer world_map.deinit();
+    const lamp = world.Block.fromKey("quartz:lamp").?;
+    const pos: world.BlockPos = .init(4, 10, 4);
+    world_map.setBlock(pos, lamp);
+
+    try world_map.setBlockWithNotify(pos.offset(1, 0, 0), .stone);
+    try std.testing.expectEqual(@as(u4, 7), world_map.getBlockMetadata(pos));
+
+    try world_map.scheduleBlockUpdate(pos, lamp, 1);
+    world_map.time += 2;
+    try world_map.tickUpdates();
+    try std.testing.expectEqual(world.Block.stone, world_map.getBlock(pos.offset(0, 1, 0)));
+
+    try std.testing.expect(try lamp.def().on_activated.?(&world_map, pos, lamp));
+    try std.testing.expectEqual(world.Block.block_gold, world_map.getBlock(pos));
+}
+
+test "a vanilla block can be given a lua callback" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.override_block("stone", { on_activated = function() return true end })
+    );
+    defer loaded.deinit(std.testing.allocator);
+
+    var world_map = try testWorld();
+    defer world_map.deinit();
+    try std.testing.expect(try world.Block.stone.def().on_activated.?(&world_map, .init(4, 10, 4), .stone));
+}
+
+test "a failing callback is contained and unloaded mods stop answering" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.register_block { key = "trap", on_activated = function() error("boom") end }
+        \\rosebed.register_block { key = "switch", on_activated = function() return true end }
+    );
+
+    var world_map = try testWorld();
+    defer world_map.deinit();
+    const trap = world.Block.fromKey("quartz:trap").?;
+    const switch_block = world.Block.fromKey("quartz:switch").?;
+    const pos: world.BlockPos = .init(4, 10, 4);
+    world_map.setBlock(pos, trap);
+
+    try std.testing.expect(!try trap.def().on_activated.?(&world_map, pos, trap));
+    try std.testing.expectEqual(trap, world_map.getBlock(pos));
+    try std.testing.expect(try switch_block.def().on_activated.?(&world_map, pos, switch_block));
+
+    loaded.deinit(std.testing.allocator);
+    try std.testing.expect(!try switch_block.def().on_activated.?(&world_map, pos, switch_block));
 }

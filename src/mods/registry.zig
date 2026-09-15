@@ -4,10 +4,12 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Hooks = @import("Hooks.zig");
 const Manifest = @import("Manifest.zig");
 
 pub const Registrar = struct {
     arena: std.mem.Allocator,
+    hooks: *Hooks,
     mod_id: []const u8 = "",
     open: bool = true,
 };
@@ -34,8 +36,10 @@ fn registerFn(comptime Registry: type, comptime Def: type) fn (*Lua) i32 {
             const registrar = context(lua);
             lua.checkType(1, .table);
             var definition: Def = .{ .key = namespacedKey(lua, registrar) };
-            readFields(Def, &definition, lua, registrar, 1, .skip_key);
-            _ = Registry.claim(definition) catch |err| raise(lua, err, definition.key);
+            var refs: Callbacks(Def) = .{};
+            readFields(Def, &definition, &refs, lua, registrar, 1, .skip_key);
+            const claimed = Registry.claim(definition) catch |err| raise(lua, err, definition.key);
+            attach(registrar, claimed, refs);
             _ = lua.pushString(definition.key);
             return 1;
         }
@@ -50,8 +54,10 @@ fn overrideFn(comptime Registry: type, comptime Def: type, comptime noun: []cons
             lua.checkType(2, .table);
             const target = Registry.fromKey(key) orelse lua.raiseErrorStr("no " ++ noun ++ " is registered as '%s'", .{key.ptr});
             var definition: Def = target.def().*;
-            readFields(Def, &definition, lua, registrar, 2, .reject_key);
+            var refs: Callbacks(Def) = .{};
+            readFields(Def, &definition, &refs, lua, registrar, 2, .reject_key);
             target.register(definition);
+            attach(registrar, target, refs);
             return 0;
         }
     }.call;
@@ -82,19 +88,35 @@ fn namespacedKey(lua: *Lua, registrar: *Registrar) []const u8 {
     return key;
 }
 
+fn Callbacks(comptime Def: type) type {
+    return if (Def == world.block.Def) Hooks.BlockRefs else struct {};
+}
+
+fn attach(registrar: *Registrar, target: anytype, refs: anytype) void {
+    if (comptime @TypeOf(target) == world.Block) registrar.hooks.attachBlock(target, refs);
+}
+
 const KeyField = enum { skip_key, reject_key };
 
-fn readFields(comptime Def: type, definition: *Def, lua: *Lua, registrar: *Registrar, table: i32, key_field: KeyField) void {
+fn readFields(comptime Def: type, definition: *Def, refs: *Callbacks(Def), lua: *Lua, registrar: *Registrar, table: i32, key_field: KeyField) void {
     lua.pushNil();
     while (lua.next(table)) {
         if (lua.typeOf(-2) != .string) lua.raiseErrorStr("field names must be strings", .{});
         const name = lua.toString(-2) catch unreachable;
-        if (!(key_field == .skip_key and std.mem.eql(u8, name, "key"))) setField(Def, definition, lua, registrar, name);
+        if (!(key_field == .skip_key and std.mem.eql(u8, name, "key"))) setField(Def, definition, refs, lua, registrar, name);
         lua.pop(1);
     }
 }
 
-fn setField(comptime Def: type, definition: *Def, lua: *Lua, registrar: *Registrar, name: [:0]const u8) void {
+fn setField(comptime Def: type, definition: *Def, refs: *Callbacks(Def), lua: *Lua, registrar: *Registrar, name: [:0]const u8) void {
+    inline for (@typeInfo(Callbacks(Def)).@"struct".fields) |field| {
+        if (std.mem.eql(u8, field.name, name)) {
+            if (lua.typeOf(-1) != .function) lua.raiseErrorStr("'%s' must be a function", .{name.ptr});
+            lua.pushValue(-1);
+            @field(refs, field.name) = lua.ref(zlua.registry_index);
+            return;
+        }
+    }
     inline for (@typeInfo(Def).@"struct".fields) |field| {
         if (comptime !std.mem.eql(u8, field.name, "key") and readable(field.type)) {
             if (std.mem.eql(u8, field.name, name)) {
@@ -148,12 +170,14 @@ const Vm = @import("Vm.zig");
 
 const Harness = struct {
     arena: std.heap.ArenaAllocator,
+    hooks: Hooks,
     registrar: Registrar,
     vm: Vm,
 
     fn init(self: *Harness) !void {
         self.arena = .init(std.testing.allocator);
-        self.registrar = .{ .arena = self.arena.allocator(), .mod_id = "quartz" };
+        self.hooks = .{};
+        self.registrar = .{ .arena = self.arena.allocator(), .hooks = &self.hooks, .mod_id = "quartz" };
         self.vm = try .init(std.testing.allocator);
         install(self.vm.lua, &self.registrar);
     }
@@ -222,6 +246,8 @@ test "a bad definition fails the script with a message naming the problem" {
     try harness.expectFailure("rosebed.register_block { key = 'stone:marble' }", "'stone:marble' is not a valid key");
     try harness.expectFailure("rosebed.register_block { name = 'Marble' }", "'key' must be a string");
     try harness.expectFailure("rosebed.register_item { key = 'gem', max_stack_size = 300 }", "'max_stack_size' is out of range");
+    try harness.expectFailure("rosebed.register_block { key = 'marble', on_tick = 5 }", "'on_tick' must be a function");
+    try harness.expectFailure("rosebed.register_item { key = 'gem', on_tick = function() end }", "unknown field 'on_tick'");
 }
 
 test "the same key cannot be registered twice" {

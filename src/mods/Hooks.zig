@@ -6,9 +6,72 @@ const Lua = zlua.Lua;
 
 const Hooks = @This();
 
+lua: ?*Lua = null,
 current_world: ?*world.World = null,
+block_refs: [256]BlockRefs = @splat(.{}),
+
+pub var active: ?*Hooks = null;
+
+pub const BlockRefs = struct {
+    on_tick: ?i32 = null,
+    on_random_tick: ?i32 = null,
+    on_neighbor_change: ?i32 = null,
+    on_activated: ?i32 = null,
+};
+
+pub fn attachBlock(self: *Hooks, block: world.Block, refs: BlockRefs) void {
+    const slot = &self.block_refs[@intFromEnum(block)];
+    var definition = block.def().*;
+    inline for (@typeInfo(BlockRefs).@"struct".fields) |field| {
+        if (@field(refs, field.name)) |ref| {
+            @field(slot, field.name) = ref;
+            @field(definition, field.name) = if (comptime std.mem.eql(u8, field.name, "on_activated"))
+                activated
+            else
+                blockEvent(field.name);
+        }
+    }
+    block.register(definition);
+}
+
+fn blockEvent(comptime event: []const u8) *const fn (*world.World, world.BlockPos, world.Block) std.mem.Allocator.Error!void {
+    return &struct {
+        fn run(world_map: *world.World, pos: world.BlockPos, block: world.Block) std.mem.Allocator.Error!void {
+            const self = active orelse return;
+            const ref = @field(self.block_refs[@intFromEnum(block)], event) orelse return;
+            _ = self.call(world_map, ref, pos);
+        }
+    }.run;
+}
+
+fn activated(world_map: *world.World, pos: world.BlockPos, block: world.Block) std.mem.Allocator.Error!bool {
+    const self = active orelse return false;
+    const ref = self.block_refs[@intFromEnum(block)].on_activated orelse return false;
+    return self.call(world_map, ref, pos);
+}
+
+fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos) bool {
+    const lua = self.lua.?;
+    const outer_world = self.current_world;
+    self.current_world = world_map;
+    defer self.current_world = outer_world;
+
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    lua.pushInteger(pos.x);
+    lua.pushInteger(pos.y);
+    lua.pushInteger(pos.z);
+    lua.protectedCall(.{ .args = 3, .results = 1 }) catch {
+        std.log.warn("a mod callback failed: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+        return false;
+    };
+    const handled = lua.toBoolean(-1);
+    lua.pop(1);
+    return handled;
+}
 
 pub fn install(self: *Hooks, lua: *Lua) void {
+    self.lua = lua;
     if (lua.getGlobal("rosebed") != .table) {
         lua.pop(1);
         lua.newTable();
