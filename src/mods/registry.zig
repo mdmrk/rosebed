@@ -103,16 +103,25 @@ const BlockExtras = struct {
     textures: ?FaceFiles = null,
 };
 
+const ItemExtras = struct {
+    refs: Hooks.ItemRefs = .{},
+};
+
 fn Extras(comptime Def: type) type {
-    return if (Def == world.block.Def) BlockExtras else struct {};
+    return if (Def == world.block.Def) BlockExtras else ItemExtras;
 }
 
 fn attach(lua: *Lua, registrar: *Registrar, target: anytype, extras: anytype) void {
-    if (comptime @TypeOf(target) != world.Block) return;
-    registrar.hooks.attachBlock(target, extras.refs);
-    const faces = extras.textures orelse return;
-    registrar.block_textures.append(registrar.arena, .{ .block = target, .folder = registrar.mod_folder, .faces = faces }) catch
-        raise(lua, error.OutOfMemory, target.def().key);
+    switch (@TypeOf(target)) {
+        world.Block => {
+            registrar.hooks.attachBlock(target, extras.refs);
+            const faces = extras.textures orelse return;
+            registrar.block_textures.append(registrar.arena, .{ .block = target, .folder = registrar.mod_folder, .faces = faces }) catch
+                raise(lua, error.OutOfMemory, target.def().key);
+        },
+        world.Item => registrar.hooks.attachItem(target, extras.refs),
+        else => comptime unreachable,
+    }
 }
 
 const KeyField = enum { skip_key, reject_key };
@@ -133,13 +142,13 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             extras.textures = readTextures(lua, registrar);
             return;
         }
-        inline for (@typeInfo(Hooks.BlockRefs).@"struct".fields) |field| {
-            if (std.mem.eql(u8, field.name, name)) {
-                if (lua.typeOf(-1) != .function) lua.raiseErrorStr("'%s' must be a function", .{name.ptr});
-                lua.pushValue(-1);
-                @field(extras.refs, field.name) = lua.ref(zlua.registry_index);
-                return;
-            }
+    }
+    inline for (@typeInfo(@TypeOf(extras.refs)).@"struct".fields) |field| {
+        if (std.mem.eql(u8, field.name, name)) {
+            if (lua.typeOf(-1) != .function) lua.raiseErrorStr("'%s' must be a function", .{name.ptr});
+            lua.pushValue(-1);
+            @field(extras.refs, field.name) = lua.ref(zlua.registry_index);
+            return;
         }
     }
     inline for (@typeInfo(Def).@"struct".fields) |field| {
@@ -332,6 +341,8 @@ test "a bad definition fails the script with a message naming the problem" {
     try harness.expectFailure("rosebed.register_item { key = 'gem', max_stack_size = 300 }", "'max_stack_size' is out of range");
     try harness.expectFailure("rosebed.register_block { key = 'marble', on_tick = 5 }", "'on_tick' must be a function");
     try harness.expectFailure("rosebed.register_item { key = 'gem', on_tick = function() end }", "unknown field 'on_tick'");
+    try harness.expectFailure("rosebed.register_item { key = 'gem', on_use = 'yes' }", "'on_use' must be a function");
+    try harness.expectFailure("rosebed.register_item { key = 'gem', textures = 'gem.png' }", "unknown field 'textures'");
 }
 
 test "the same key cannot be registered twice" {

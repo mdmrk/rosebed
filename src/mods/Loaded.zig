@@ -253,6 +253,38 @@ test "lua callbacks run when the game reaches their block" {
     try std.testing.expectEqual(world.Block.block_gold, world_map.getBlock(pos));
 }
 
+test "an item's lua use callback gets the face and damage it was used with" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+    defer world.Item.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.register_item {
+        \\  key = "wand",
+        \\  on_use = function(x, y, z, face, damage)
+        \\    if face ~= "up" or damage ~= 3 then return false end
+        \\    rosebed.world.set_block(x, y + 1, z, "stone")
+        \\    return true
+        \\  end,
+        \\}
+        \\rosebed.override_item("shears", { on_use = function() return true end })
+    );
+    defer loaded.deinit(std.testing.allocator);
+
+    var world_map = try testWorld();
+    defer world_map.deinit();
+    const wand = world.Item.fromKey("quartz:wand").?;
+    const pos: world.BlockPos = .init(4, 10, 4);
+
+    try std.testing.expect(!try wand.def().on_use.?(&world_map, pos, .north, wand, 3));
+    try std.testing.expectEqual(world.Block.air, world_map.getBlock(pos.offset(0, 1, 0)));
+    try std.testing.expect(try wand.def().on_use.?(&world_map, pos, .up, wand, 3));
+    try std.testing.expectEqual(world.Block.stone, world_map.getBlock(pos.offset(0, 1, 0)));
+    try std.testing.expect(try world.Item.shears.def().on_use.?(&world_map, pos, .up, .shears, 0));
+}
+
 test "a vanilla block can be given a lua callback" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });

@@ -9,8 +9,27 @@ const Hooks = @This();
 lua: ?*Lua = null,
 current_world: ?*world.World = null,
 block_refs: [256]BlockRefs = @splat(.{}),
+item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
 pub var active: ?*Hooks = null;
+
+pub const ItemRefs = struct {
+    on_use: ?i32 = null,
+};
+
+pub fn attachItem(self: *Hooks, item: world.Item, refs: ItemRefs) void {
+    const ref = refs.on_use orelse return;
+    self.item_refs[@intFromEnum(item) - world.item.first_item_id].on_use = ref;
+    var definition = item.def().*;
+    definition.on_use = itemUsed;
+    item.register(definition);
+}
+
+fn itemUsed(world_map: *world.World, pos: world.BlockPos, side: world.Side, item: world.Item, damage: u16) std.mem.Allocator.Error!bool {
+    const self = active orelse return false;
+    const ref = self.item_refs[@intFromEnum(item) - world.item.first_item_id].on_use orelse return false;
+    return self.call(world_map, ref, pos, .{ @tagName(side), damage });
+}
 
 pub const BlockRefs = struct {
     on_tick: ?i32 = null,
@@ -39,7 +58,7 @@ fn blockEvent(comptime event: []const u8) *const fn (*world.World, world.BlockPo
         fn run(world_map: *world.World, pos: world.BlockPos, block: world.Block) std.mem.Allocator.Error!void {
             const self = active orelse return;
             const ref = @field(self.block_refs[@intFromEnum(block)], event) orelse return;
-            _ = self.call(world_map, ref, pos);
+            _ = self.call(world_map, ref, pos, .{});
         }
     }.run;
 }
@@ -47,10 +66,10 @@ fn blockEvent(comptime event: []const u8) *const fn (*world.World, world.BlockPo
 fn activated(world_map: *world.World, pos: world.BlockPos, block: world.Block) std.mem.Allocator.Error!bool {
     const self = active orelse return false;
     const ref = self.block_refs[@intFromEnum(block)].on_activated orelse return false;
-    return self.call(world_map, ref, pos);
+    return self.call(world_map, ref, pos, .{});
 }
 
-fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos) bool {
+fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos, extra: anytype) bool {
     const lua = self.lua.?;
     const outer_world = self.current_world;
     self.current_world = world_map;
@@ -60,7 +79,10 @@ fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos) bo
     lua.pushInteger(pos.x);
     lua.pushInteger(pos.y);
     lua.pushInteger(pos.z);
-    lua.protectedCall(.{ .args = 3, .results = 1 }) catch {
+    inline for (extra) |value| {
+        if (comptime @TypeOf(value) == u16) lua.pushInteger(value) else _ = lua.pushString(value);
+    }
+    lua.protectedCall(.{ .args = 3 + extra.len, .results = 1 }) catch {
         std.log.warn("a mod callback failed: {s}", .{lua.toString(-1) catch "(no message)"});
         lua.pop(1);
         return false;
