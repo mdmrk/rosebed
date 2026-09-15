@@ -112,6 +112,7 @@ pub fn setupModules(
         .imports = &.{
             .{ .name = "zlua", .module = zlua_dep.module("zlua") },
             .{ .name = "world", .module = world_mod },
+            .{ .name = "net", .module = net_mod },
         },
     });
 

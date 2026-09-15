@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const net = @import("net");
 const world = @import("world");
 
 const discovery = @import("discovery.zig");
@@ -16,6 +17,7 @@ hooks: *Hooks,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
+list: net.packet.ModList,
 
 pub const folder_name = "mods";
 pub const entry_point = "common.lua";
@@ -68,9 +70,37 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         };
     }
     registrar.open = false;
+    const list = try describe(allocator, mods);
     Hooks.active = hooks;
 
-    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods, .block_textures = registrar.block_textures.items, .item_textures = registrar.item_textures.items };
+    return .{
+        .arena = arena,
+        .vm = vm,
+        .hooks = hooks,
+        .mods = mods,
+        .block_textures = registrar.block_textures.items,
+        .item_textures = registrar.item_textures.items,
+        .list = list,
+    };
+}
+
+fn describe(arena: std.mem.Allocator, mods: []const discovery.Mod) !net.packet.ModList {
+    const entries = try arena.alloc(net.packet.ModList.Mod, mods.len);
+    for (mods, entries) |mod, *entry| entry.* = .{ .id = mod.manifest.id, .version = mod.manifest.version };
+
+    var keys: std.ArrayList(net.packet.ModList.Key) = .empty;
+    for (0..256) |raw| {
+        const block: world.Block = @enumFromInt(raw);
+        if (block.def().key.len == 0 or block.isVanilla()) continue;
+        try keys.append(arena, .{ .key = block.def().key, .numeric = @intCast(raw) });
+    }
+    for (0..world.item.def_capacity) |offset| {
+        const raw = world.item.first_item_id + offset;
+        const item: world.Item = @enumFromInt(raw);
+        if (item.def().key.len == 0 or item.isVanilla()) continue;
+        try keys.append(arena, .{ .key = item.def().key, .numeric = @intCast(raw) });
+    }
+    return .{ .mods = entries, .keys = keys.items };
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
@@ -139,6 +169,39 @@ test "block textures are kept with the folder of the mod that named them" {
     try std.testing.expectEqual(1, loaded.block_textures.len);
     try std.testing.expectEqualStrings("quartz_folder", loaded.block_textures[0].folder);
     try std.testing.expectEqualStrings("marble.png", loaded.block_textures[0].faces.get(.up).?);
+}
+
+test "the loaded mods describe themselves for the handshake" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+    defer world.Item.resetRegistry();
+
+    try writeMod(io, tmp.dir, "wiring",
+        \\{ "id": "wiring", "version": "2.1.0", "depends": ["copper"] }
+    , "rosebed.register_item { key = 'spool' }\nrosebed.override_block('stone', { hardness = 3 })");
+    try writeMod(io, tmp.dir, "copper",
+        \\{ "id": "copper", "version": "1.0.0" }
+    , "rosebed.register_block { key = 'ore' }");
+
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    var loaded = try load(std.testing.allocator, io, tmp.dir, &report.writer);
+    defer loaded.deinit(std.testing.allocator);
+
+    const list = loaded.list;
+    try std.testing.expectEqual(2, list.mods.len);
+    try std.testing.expectEqualStrings("copper", list.mods[0].id);
+    try std.testing.expectEqualStrings("1.0.0", list.mods[0].version);
+    try std.testing.expectEqualStrings("wiring", list.mods[1].id);
+    try std.testing.expectEqualStrings("2.1.0", list.mods[1].version);
+
+    try std.testing.expectEqual(2, list.keys.len);
+    try std.testing.expectEqualStrings("copper:ore", list.keys[0].key);
+    try std.testing.expectEqual(@as(i16, 97), list.keys[0].numeric);
+    try std.testing.expectEqualStrings("wiring:spool", list.keys[1].key);
+    try std.testing.expectEqual(@as(i16, 360), list.keys[1].numeric);
 }
 
 test "registration closes once loading has finished" {
