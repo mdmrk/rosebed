@@ -2,6 +2,7 @@ const std = @import("std");
 
 const core = @import("core");
 const game = @import("game");
+const mods = @import("mods");
 const net = @import("net");
 const world = @import("world");
 const BlockPos = world.BlockPos;
@@ -732,12 +733,28 @@ fn sendThroughPortal(server: *Server, connection: *Connection) !void {
     );
 }
 
+fn loadMods(gpa: std.mem.Allocator, io: std.Io) !mods.Loaded {
+    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, mods.Loaded.folder_name, .{ .open_options = .{ .iterate = true } });
+    defer dir.close(io);
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    const loaded = mods.Loaded.load(gpa, io, dir, &report.writer) catch |err| {
+        std.log.err("could not load mods: {s}", .{report.written()});
+        return err;
+    };
+    if (loaded.mods.len > 0) std.log.info("loaded {d} mods", .{loaded.mods.len});
+    return loaded;
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const options = try parseArgs(args);
+
+    var loaded_mods = try loadMods(gpa, io);
+    defer loaded_mods.deinit(gpa);
 
     var saves_dir = try world.save.openSavesDir(io, .cwd());
     defer saves_dir.close(io);
