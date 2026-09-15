@@ -451,6 +451,7 @@ fn writeLoop(server: *Server, connection: *Connection) void {
         if (!open or !server.running.load(.acquire)) break;
         std.Io.sleep(server.io, .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
     }
+    connection.stream.shutdown(server.io, .send) catch {};
 
     server.lock();
     connection.open = false;
@@ -641,7 +642,7 @@ fn tick(server: *Server) !void {
             queueOutbox(server, connection) catch {};
             connection.open = false;
             connection.session.leave(server.gpa, server.levelFor(connection));
-            connection.stream.shutdown(server.io, .both) catch {};
+            connection.stream.shutdown(server.io, .recv) catch {};
             try server.retired.append(server.gpa, connection);
             _ = server.connections.orderedRemove(index);
             continue;
