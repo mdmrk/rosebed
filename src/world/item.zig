@@ -383,6 +383,18 @@ pub const Item = enum(u16) {
         defs[raw - first_item_id] = definition;
     }
 
+    pub fn claim(definition: Def) error{ DuplicateKey, RegistryFull }!Item {
+        std.debug.assert(definition.key.len != 0);
+        if (fromKey(definition.key) != null) return error.DuplicateKey;
+        for (defs, 0..) |entry, offset| {
+            if (entry.key.len != 0) continue;
+            const item: Item = @enumFromInt(first_item_id + offset);
+            item.register(definition);
+            return item;
+        }
+        return error.RegistryFull;
+    }
+
     pub fn resetRegistry() void {
         defs = vanillaDefs();
     }
