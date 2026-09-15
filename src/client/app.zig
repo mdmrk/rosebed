@@ -552,9 +552,11 @@ fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
     };
 }
 
+const ModTiles = std.StringHashMapUnmanaged(?u8);
+
 fn applyModTextures(app_state: *AppState) bool {
     const loaded = app_state.loaded_mods orelse return false;
-    if (loaded.block_textures.len == 0) return false;
+    if (loaded.block_textures.len == 0 and loaded.item_textures.len == 0) return false;
 
     var mods_dir = app_state.base_dir.openDir(app_state.io, Mods.folder_name, .{}) catch |err| {
         std.log.warn("could not open the mods folder for textures: {t}", .{err});
@@ -564,40 +566,57 @@ fn applyModTextures(app_state: *AppState) bool {
 
     var arena: std.heap.ArenaAllocator = .init(app_state.gpa);
     defer arena.deinit();
-    var tiles: std.StringHashMapUnmanaged(?u8) = .empty;
+    var terrain_tiles: ModTiles = .empty;
+    var item_tiles: ModTiles = .empty;
 
     for (loaded.block_textures) |request| {
         var definition = request.block.def().*;
         for (std.enums.values(world.Side)) |side| {
             const file = request.faces.get(side) orelse continue;
-            const path = std.fs.path.join(arena.allocator(), &.{ request.folder, file }) catch continue;
-            const tile = tiles.get(path) orelse painted: {
-                const painted = paintModTile(app_state, mods_dir, path);
-                tiles.put(arena.allocator(), path, painted) catch {};
-                break :painted painted;
-            } orelse continue;
+            const tile = modTile(app_state, mods_dir, arena.allocator(), &terrain_tiles, &app_state.textures.terrain, request.folder, file) orelse continue;
             definition.face_textures.set(side, tile);
         }
         request.block.register(definition);
     }
+    for (loaded.item_textures) |request| {
+        const tile = modTile(app_state, mods_dir, arena.allocator(), &item_tiles, &app_state.textures.items, request.folder, request.file) orelse continue;
+        var definition = request.item.def().*;
+        definition.icon = tile;
+        request.item.register(definition);
+    }
     return true;
 }
 
-fn paintModTile(app_state: *AppState, mods_dir: std.Io.Dir, path: []const u8) ?u8 {
+fn modTile(
+    app_state: *AppState,
+    mods_dir: std.Io.Dir,
+    arena: std.mem.Allocator,
+    tiles: *ModTiles,
+    atlas: *render.Atlas,
+    folder: []const u8,
+    file: []const u8,
+) ?u8 {
+    const path = std.fs.path.join(arena, &.{ folder, file }) catch return null;
+    if (tiles.get(path)) |known| return known;
+    const painted = paintModTile(app_state, mods_dir, atlas, path);
+    tiles.put(arena, path, painted) catch {};
+    return painted;
+}
+
+fn paintModTile(app_state: *AppState, mods_dir: std.Io.Dir, atlas: *render.Atlas, path: []const u8) ?u8 {
     const png = mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
         std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
         return null;
     };
     defer app_state.gpa.free(png);
 
-    const terrain = &app_state.textures.terrain;
-    const tile = terrain.claimTile() orelse {
-        std.log.warn("no free terrain tile is left for {s}", .{path});
+    const tile = atlas.claimTile() orelse {
+        std.log.warn("no free atlas tile is left for {s}", .{path});
         return null;
     };
-    terrain.writeTilePng(tile, png, app_state.settings.anaglyph) catch |err| {
-        terrain.releaseTile(tile);
-        std.log.warn("could not use {s} as a block texture: {t}", .{ path, err });
+    atlas.writeTilePng(tile, png, app_state.settings.anaglyph) catch |err| {
+        atlas.releaseTile(tile);
+        std.log.warn("could not use {s} as a texture: {t}", .{ path, err });
         return null;
     };
     return tile;
