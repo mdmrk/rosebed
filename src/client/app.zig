@@ -9,6 +9,7 @@ const Timer = core.Timer;
 const game = @import("game");
 const gl = @import("gl");
 const math = @import("math");
+const Mods = @import("mods").Loaded;
 const net = @import("net");
 const remote = @import("remote");
 const render = @import("render");
@@ -161,6 +162,7 @@ pub const AppState = struct {
     base_dir: std.Io.Dir,
     saves_dir: std.Io.Dir,
     packs_dir: std.Io.Dir,
+    loaded_mods: ?Mods = null,
     packs: []render.texture_pack.Pack = &.{},
     pack_thumbnails: []render.Atlas = &.{},
     pack_scroll: f32 = 0,
@@ -453,6 +455,7 @@ pub fn init(
     const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
     const saves_dir = try world.save.openSavesDir(io, base_dir);
     const packs_dir = try render.texture_pack.open(io, base_dir);
+    const loaded_mods = loadMods(gpa, io, base_dir);
 
     var app_state: AppState = .{
         .gpa = gpa,
@@ -475,6 +478,7 @@ pub fn init(
         .base_dir = base_dir,
         .saves_dir = saves_dir,
         .packs_dir = packs_dir,
+        .loaded_mods = loaded_mods,
     };
     app_state.settings = game.options_file.load(gpa, io, base_dir);
     if (app_state.settings.fullscreen) applyFullscreen(&app_state);
@@ -531,6 +535,20 @@ pub fn init(
     errdefer app_state.level.deinit(gpa);
 
     return .{ app_state, .run };
+}
+
+fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
+    var dir = base_dir.createDirPathOpen(io, Mods.folder_name, .{ .open_options = .{ .iterate = true } }) catch |err| {
+        std.log.warn("could not open the mods folder: {t}", .{err});
+        return null;
+    };
+    defer dir.close(io);
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    return Mods.load(gpa, io, dir, &report.writer) catch |err| {
+        std.log.err("playing without mods, loading them failed ({t}): {s}", .{ err, report.written() });
+        return null;
+    };
 }
 
 const missed_click_ticks = 10;
@@ -5435,6 +5453,7 @@ pub fn quit(
         state.base_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.level.deinit(state.gpa);
+        if (state.loaded_mods) |*loaded| loaded.deinit(state.gpa);
         if (state.sound) |*sound| sound.deinit(state.gpa);
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);
