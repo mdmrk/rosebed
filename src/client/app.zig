@@ -497,6 +497,7 @@ pub fn init(
     app_state.textures = try render.Textures.load(gpa, startup_pack, app_state.settings.anaglyph);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
+    _ = applyModTextures(&app_state);
 
     if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"), app_state.settings.anaglyph);
     errdefer if (app_state.github_icon) |icon| icon.deinit();
@@ -549,6 +550,57 @@ fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
         std.log.err("playing without mods, loading them failed ({t}): {s}", .{ err, report.written() });
         return null;
     };
+}
+
+fn applyModTextures(app_state: *AppState) bool {
+    const loaded = app_state.loaded_mods orelse return false;
+    if (loaded.block_textures.len == 0) return false;
+
+    var mods_dir = app_state.base_dir.openDir(app_state.io, Mods.folder_name, .{}) catch |err| {
+        std.log.warn("could not open the mods folder for textures: {t}", .{err});
+        return false;
+    };
+    defer mods_dir.close(app_state.io);
+
+    var arena: std.heap.ArenaAllocator = .init(app_state.gpa);
+    defer arena.deinit();
+    var tiles: std.StringHashMapUnmanaged(?u8) = .empty;
+
+    for (loaded.block_textures) |request| {
+        var definition = request.block.def().*;
+        for (std.enums.values(world.Side)) |side| {
+            const file = request.faces.get(side) orelse continue;
+            const path = std.fs.path.join(arena.allocator(), &.{ request.folder, file }) catch continue;
+            const tile = tiles.get(path) orelse painted: {
+                const painted = paintModTile(app_state, mods_dir, path);
+                tiles.put(arena.allocator(), path, painted) catch {};
+                break :painted painted;
+            } orelse continue;
+            definition.face_textures.set(side, tile);
+        }
+        request.block.register(definition);
+    }
+    return true;
+}
+
+fn paintModTile(app_state: *AppState, mods_dir: std.Io.Dir, path: []const u8) ?u8 {
+    const png = mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
+        std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
+        return null;
+    };
+    defer app_state.gpa.free(png);
+
+    const terrain = &app_state.textures.terrain;
+    const tile = terrain.claimTile() orelse {
+        std.log.warn("no free terrain tile is left for {s}", .{path});
+        return null;
+    };
+    terrain.writeTilePng(tile, png, app_state.settings.anaglyph) catch |err| {
+        terrain.releaseTile(tile);
+        std.log.warn("could not use {s} as a block texture: {t}", .{ path, err });
+        return null;
+    };
+    return tile;
 }
 
 const missed_click_ticks = 10;
@@ -1756,6 +1808,7 @@ fn refreshTextures(app_state: *AppState) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    _ = applyModTextures(app_state);
 
     const font = try render.Font.load(font_png, app_state.settings.anaglyph);
     app_state.font.deinit();
@@ -1774,6 +1827,7 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    if (applyModTextures(app_state)) try app_state.chunks.markAllDirty(app_state.gpa);
     app_state.settings.skin.set(name);
     saveOptions(app_state);
 }
