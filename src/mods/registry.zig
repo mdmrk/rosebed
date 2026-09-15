@@ -11,7 +11,17 @@ pub const Registrar = struct {
     arena: std.mem.Allocator,
     hooks: *Hooks,
     mod_id: []const u8 = "",
+    mod_folder: []const u8 = "",
     open: bool = true,
+    block_textures: std.ArrayList(BlockTexture) = .empty,
+};
+
+pub const FaceFiles = std.EnumArray(world.Side, ?[]const u8);
+
+pub const BlockTexture = struct {
+    block: world.Block,
+    folder: []const u8,
+    faces: FaceFiles,
 };
 
 pub fn install(lua: *Lua, registrar: *Registrar) void {
@@ -36,10 +46,10 @@ fn registerFn(comptime Registry: type, comptime Def: type) fn (*Lua) i32 {
             const registrar = context(lua);
             lua.checkType(1, .table);
             var definition: Def = .{ .key = namespacedKey(lua, registrar) };
-            var refs: Callbacks(Def) = .{};
-            readFields(Def, &definition, &refs, lua, registrar, 1, .skip_key);
+            var extras: Extras(Def) = .{};
+            readFields(Def, &definition, &extras, lua, registrar, 1, .skip_key);
             const claimed = Registry.claim(definition) catch |err| raise(lua, err, definition.key);
-            attach(registrar, claimed, refs);
+            attach(lua, registrar, claimed, extras);
             _ = lua.pushString(definition.key);
             return 1;
         }
@@ -54,10 +64,10 @@ fn overrideFn(comptime Registry: type, comptime Def: type, comptime noun: []cons
             lua.checkType(2, .table);
             const target = Registry.fromKey(key) orelse lua.raiseErrorStr("no " ++ noun ++ " is registered as '%s'", .{key.ptr});
             var definition: Def = target.def().*;
-            var refs: Callbacks(Def) = .{};
-            readFields(Def, &definition, &refs, lua, registrar, 2, .reject_key);
+            var extras: Extras(Def) = .{};
+            readFields(Def, &definition, &extras, lua, registrar, 2, .reject_key);
             target.register(definition);
-            attach(registrar, target, refs);
+            attach(lua, registrar, target, extras);
             return 0;
         }
     }.call;
@@ -88,33 +98,48 @@ fn namespacedKey(lua: *Lua, registrar: *Registrar) []const u8 {
     return key;
 }
 
-fn Callbacks(comptime Def: type) type {
-    return if (Def == world.block.Def) Hooks.BlockRefs else struct {};
+const BlockExtras = struct {
+    refs: Hooks.BlockRefs = .{},
+    textures: ?FaceFiles = null,
+};
+
+fn Extras(comptime Def: type) type {
+    return if (Def == world.block.Def) BlockExtras else struct {};
 }
 
-fn attach(registrar: *Registrar, target: anytype, refs: anytype) void {
-    if (comptime @TypeOf(target) == world.Block) registrar.hooks.attachBlock(target, refs);
+fn attach(lua: *Lua, registrar: *Registrar, target: anytype, extras: anytype) void {
+    if (comptime @TypeOf(target) != world.Block) return;
+    registrar.hooks.attachBlock(target, extras.refs);
+    const faces = extras.textures orelse return;
+    registrar.block_textures.append(registrar.arena, .{ .block = target, .folder = registrar.mod_folder, .faces = faces }) catch
+        raise(lua, error.OutOfMemory, target.def().key);
 }
 
 const KeyField = enum { skip_key, reject_key };
 
-fn readFields(comptime Def: type, definition: *Def, refs: *Callbacks(Def), lua: *Lua, registrar: *Registrar, table: i32, key_field: KeyField) void {
+fn readFields(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lua, registrar: *Registrar, table: i32, key_field: KeyField) void {
     lua.pushNil();
     while (lua.next(table)) {
         if (lua.typeOf(-2) != .string) lua.raiseErrorStr("field names must be strings", .{});
         const name = lua.toString(-2) catch unreachable;
-        if (!(key_field == .skip_key and std.mem.eql(u8, name, "key"))) setField(Def, definition, refs, lua, registrar, name);
+        if (!(key_field == .skip_key and std.mem.eql(u8, name, "key"))) setField(Def, definition, extras, lua, registrar, name);
         lua.pop(1);
     }
 }
 
-fn setField(comptime Def: type, definition: *Def, refs: *Callbacks(Def), lua: *Lua, registrar: *Registrar, name: [:0]const u8) void {
-    inline for (@typeInfo(Callbacks(Def)).@"struct".fields) |field| {
-        if (std.mem.eql(u8, field.name, name)) {
-            if (lua.typeOf(-1) != .function) lua.raiseErrorStr("'%s' must be a function", .{name.ptr});
-            lua.pushValue(-1);
-            @field(refs, field.name) = lua.ref(zlua.registry_index);
+fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lua, registrar: *Registrar, name: [:0]const u8) void {
+    if (comptime Extras(Def) == BlockExtras) {
+        if (std.mem.eql(u8, name, "textures")) {
+            extras.textures = readTextures(lua, registrar);
             return;
+        }
+        inline for (@typeInfo(Hooks.BlockRefs).@"struct".fields) |field| {
+            if (std.mem.eql(u8, field.name, name)) {
+                if (lua.typeOf(-1) != .function) lua.raiseErrorStr("'%s' must be a function", .{name.ptr});
+                lua.pushValue(-1);
+                @field(extras.refs, field.name) = lua.ref(zlua.registry_index);
+                return;
+            }
         }
     }
     inline for (@typeInfo(Def).@"struct".fields) |field| {
@@ -126,6 +151,65 @@ fn setField(comptime Def: type, definition: *Def, refs: *Callbacks(Def), lua: *L
         }
     }
     lua.raiseErrorStr("unknown field '%s'", .{name.ptr});
+}
+
+fn readTextures(lua: *Lua, registrar: *Registrar) FaceFiles {
+    var faces: FaceFiles = .initFill(null);
+    switch (lua.typeOf(-1)) {
+        .string => {
+            faces = .initFill(texturePath(lua, registrar, -1, "textures"));
+            return faces;
+        },
+        .table => {},
+        else => lua.raiseErrorStr("'textures' must be a file name or a table of them", .{}),
+    }
+
+    var all: ?[]const u8 = null;
+    var side: ?[]const u8 = null;
+    var top: ?[]const u8 = null;
+    var bottom: ?[]const u8 = null;
+    var exact: FaceFiles = .initFill(null);
+    const table = lua.getTop();
+    lua.pushNil();
+    while (lua.next(table)) {
+        if (lua.typeOf(-2) != .string) lua.raiseErrorStr("texture faces must be named", .{});
+        const face = lua.toString(-2) catch unreachable;
+        const path = texturePath(lua, registrar, -1, face);
+        if (std.mem.eql(u8, face, "all")) {
+            all = path;
+        } else if (std.mem.eql(u8, face, "side")) {
+            side = path;
+        } else if (std.mem.eql(u8, face, "top")) {
+            top = path;
+        } else if (std.mem.eql(u8, face, "bottom")) {
+            bottom = path;
+        } else if (std.meta.stringToEnum(world.Side, face)) |exact_side| {
+            exact.set(exact_side, path);
+        } else {
+            lua.raiseErrorStr("'%s' is not a texture face", .{face.ptr});
+        }
+        lua.pop(1);
+    }
+
+    for (std.enums.values(world.Side)) |each| {
+        const group = switch (each) {
+            .up => top,
+            .down => bottom,
+            .north, .south, .west, .east => side,
+        };
+        faces.set(each, exact.get(each) orelse group orelse all);
+    }
+    return faces;
+}
+
+fn texturePath(lua: *Lua, registrar: *Registrar, index: i32, face: [:0]const u8) []const u8 {
+    if (lua.typeOf(index) != .string) lua.raiseErrorStr("the '%s' texture must be a file name", .{face.ptr});
+    const path = lua.toString(index) catch unreachable;
+    const escapes = std.mem.indexOf(u8, path, "..") != null or std.mem.indexOfScalar(u8, path, '\\') != null;
+    if (escapes or path.len == 0 or path[0] == '/' or !std.mem.endsWith(u8, path, ".png")) {
+        lua.raiseErrorStr("'%s' is not a png inside the mod folder", .{path.ptr});
+    }
+    return registrar.arena.dupe(u8, path) catch raise(lua, error.OutOfMemory, path);
 }
 
 fn readable(comptime T: type) bool {
@@ -297,6 +381,51 @@ test "overriding reaches items and blocks another mod registered" {
     );
     try std.testing.expectEqual(@as(f32, 4), world.Block.fromKey("quartz:marble").?.def().hardness);
     try std.testing.expectEqual(@as(u8, 16), world.Item.shears.def().max_stack_size);
+}
+
+test "a block names the textures its faces are painted with" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.registrar.mod_folder = "quartz_folder";
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_block { key = "marble", textures = "marble.png" }
+        \\rosebed.register_block {
+        \\  key = "pillar",
+        \\  textures = { all = "pillar.png", top = "textures/pillar_top.png", north = "pillar_front.png" },
+        \\}
+        \\rosebed.override_block("stone", { textures = { side = "granite.png" } })
+    );
+    const textures = harness.registrar.block_textures.items;
+    try std.testing.expectEqual(3, textures.len);
+
+    try std.testing.expectEqual(world.Block.fromKey("quartz:marble").?, textures[0].block);
+    try std.testing.expectEqualStrings("quartz_folder", textures[0].folder);
+    for (std.enums.values(world.Side)) |side| try std.testing.expectEqualStrings("marble.png", textures[0].faces.get(side).?);
+
+    const pillar = textures[1].faces;
+    try std.testing.expectEqualStrings("textures/pillar_top.png", pillar.get(.up).?);
+    try std.testing.expectEqualStrings("pillar.png", pillar.get(.down).?);
+    try std.testing.expectEqualStrings("pillar_front.png", pillar.get(.north).?);
+    try std.testing.expectEqualStrings("pillar.png", pillar.get(.east).?);
+
+    try std.testing.expectEqual(world.Block.stone, textures[2].block);
+    try std.testing.expectEqualStrings("granite.png", textures[2].faces.get(.west).?);
+    try std.testing.expect(textures[2].faces.get(.up) == null);
+}
+
+test "a texture must be a png inside the mod folder on a known face" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_block { key = 'a', textures = '../other/stone.png' }", "'../other/stone.png' is not a png inside the mod folder");
+    try harness.expectFailure("rosebed.register_block { key = 'b', textures = '/etc/stone.png' }", "'/etc/stone.png' is not a png inside the mod folder");
+    try harness.expectFailure("rosebed.register_block { key = 'c', textures = 'stone.jpg' }", "'stone.jpg' is not a png inside the mod folder");
+    try harness.expectFailure("rosebed.register_block { key = 'd', textures = { front = 'd.png' } }", "'front' is not a texture face");
+    try harness.expectFailure("rosebed.register_block { key = 'e', textures = 5 }", "'textures' must be a file name or a table of them");
+    try harness.expectFailure("rosebed.register_block { key = 'f', textures = { top = 5 } }", "the 'top' texture must be a file name");
 }
 
 test "an override names an existing key and cannot rename it" {

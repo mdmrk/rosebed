@@ -14,6 +14,7 @@ arena: *std.heap.ArenaAllocator,
 vm: Vm,
 hooks: *Hooks,
 mods: []const discovery.Mod,
+block_textures: []const registry.BlockTexture,
 
 pub const folder_name = "mods";
 pub const entry_point = "common.lua";
@@ -58,6 +59,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
             },
         };
         registrar.mod_id = mod.manifest.id;
+        registrar.mod_folder = mod.folder;
         const chunk_name = try std.fmt.allocPrintSentinel(allocator, "@{s}/{s}", .{ mod.folder, entry_point }, 0);
         vm.exec(chunk_name, source) catch |err| {
             report.print("{s}\n", .{vm.errorMessage()}) catch {};
@@ -67,7 +69,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registrar.open = false;
     Hooks.active = hooks;
 
-    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods };
+    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods, .block_textures = registrar.block_textures.items };
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
@@ -116,6 +118,26 @@ test "mods load in dependency and id order whatever their folders are called" {
     try std.testing.expectEqual(@as(world.Block, @enumFromInt(98)), world.Block.fromKey("stone:slate").?);
     try std.testing.expectEqual(@as(world.Block, @enumFromInt(99)), world.Block.fromKey("wiring:wire").?);
     try std.testing.expectEqualStrings("", report.written());
+}
+
+test "block textures are kept with the folder of the mod that named them" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    try writeMod(io, tmp.dir, "quartz_folder",
+        \\{ "id": "quartz", "version": "1.0.0" }
+    , "rosebed.register_block { key = 'marble', textures = 'marble.png' }");
+
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    var loaded = try load(std.testing.allocator, io, tmp.dir, &report.writer);
+    defer loaded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(1, loaded.block_textures.len);
+    try std.testing.expectEqualStrings("quartz_folder", loaded.block_textures[0].folder);
+    try std.testing.expectEqualStrings("marble.png", loaded.block_textures[0].faces.get(.up).?);
 }
 
 test "registration closes once loading has finished" {
