@@ -14,6 +14,13 @@ pub const Registrar = struct {
     mod_folder: []const u8 = "",
     open: bool = true,
     block_textures: std.ArrayList(BlockTexture) = .empty,
+    item_textures: std.ArrayList(ItemTexture) = .empty,
+};
+
+pub const ItemTexture = struct {
+    item: world.Item,
+    folder: []const u8,
+    file: []const u8,
 };
 
 pub const FaceFiles = std.EnumArray(world.Side, ?[]const u8);
@@ -105,6 +112,7 @@ const BlockExtras = struct {
 
 const ItemExtras = struct {
     refs: Hooks.ItemRefs = .{},
+    texture: ?[]const u8 = null,
 };
 
 fn Extras(comptime Def: type) type {
@@ -119,7 +127,12 @@ fn attach(lua: *Lua, registrar: *Registrar, target: anytype, extras: anytype) vo
             registrar.block_textures.append(registrar.arena, .{ .block = target, .folder = registrar.mod_folder, .faces = faces }) catch
                 raise(lua, error.OutOfMemory, target.def().key);
         },
-        world.Item => registrar.hooks.attachItem(target, extras.refs),
+        world.Item => {
+            registrar.hooks.attachItem(target, extras.refs);
+            const file = extras.texture orelse return;
+            registrar.item_textures.append(registrar.arena, .{ .item = target, .folder = registrar.mod_folder, .file = file }) catch
+                raise(lua, error.OutOfMemory, target.def().key);
+        },
         else => comptime unreachable,
     }
 }
@@ -140,6 +153,11 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
     if (comptime Extras(Def) == BlockExtras) {
         if (std.mem.eql(u8, name, "textures")) {
             extras.textures = readTextures(lua, registrar);
+            return;
+        }
+    } else {
+        if (std.mem.eql(u8, name, "texture")) {
+            extras.texture = texturePath(lua, registrar, -1, "texture");
             return;
         }
     }
@@ -424,6 +442,29 @@ test "a block names the textures its faces are painted with" {
     try std.testing.expectEqual(world.Block.stone, textures[2].block);
     try std.testing.expectEqualStrings("granite.png", textures[2].faces.get(.west).?);
     try std.testing.expect(textures[2].faces.get(.up) == null);
+}
+
+test "an item names the png its icon is painted with" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.registrar.mod_folder = "quartz_folder";
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_item { key = "gem", texture = "icons/gem.png" }
+        \\rosebed.override_item("shears", { texture = "shears.png" })
+    );
+    const textures = harness.registrar.item_textures.items;
+    try std.testing.expectEqual(2, textures.len);
+    try std.testing.expectEqual(world.Item.fromKey("quartz:gem").?, textures[0].item);
+    try std.testing.expectEqualStrings("quartz_folder", textures[0].folder);
+    try std.testing.expectEqualStrings("icons/gem.png", textures[0].file);
+    try std.testing.expectEqual(world.Item.shears, textures[1].item);
+    try std.testing.expectEqualStrings("shears.png", textures[1].file);
+
+    try harness.expectFailure("rosebed.register_item { key = 'bad', texture = '../gem.png' }", "'../gem.png' is not a png inside the mod folder");
+    try harness.expectFailure("rosebed.register_item { key = 'worse', texture = 7 }", "the 'texture' texture must be a file name");
+    try harness.expectFailure("rosebed.register_block { key = 'slab', texture = 'slab.png' }", "unknown field 'texture'");
 }
 
 test "a texture must be a png inside the mod folder on a known face" {

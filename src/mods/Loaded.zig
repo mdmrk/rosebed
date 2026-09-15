@@ -15,6 +15,7 @@ vm: Vm,
 hooks: *Hooks,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
+item_textures: []const registry.ItemTexture,
 
 pub const folder_name = "mods";
 pub const entry_point = "common.lua";
@@ -69,7 +70,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registrar.open = false;
     Hooks.active = hooks;
 
-    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods, .block_textures = registrar.block_textures.items };
+    return .{ .arena = arena, .vm = vm, .hooks = hooks, .mods = mods, .block_textures = registrar.block_textures.items, .item_textures = registrar.item_textures.items };
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
