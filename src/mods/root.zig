@@ -4,8 +4,10 @@ pub const discovery = @import("discovery.zig");
 pub const load_order = @import("load_order.zig");
 pub const registry = @import("registry.zig");
 pub const Loaded = @import("Loaded.zig");
+pub const Hooks = @import("Hooks.zig");
 
 test {
+    _ = Hooks;
     _ = Loaded;
     _ = registry;
     _ = Manifest;
