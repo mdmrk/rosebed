@@ -16,6 +16,7 @@ const Modules = struct {
     audio_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
     render_mod: *std.Build.Module,
+    mods_mod: *std.Build.Module,
 };
 
 pub fn setupModules(
@@ -91,6 +92,21 @@ pub fn setupModules(
         .root_source_file = b.path("src/net/root.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const zlua_dep = b.dependency("zlua", .{
+        .target = target,
+        .optimize = optimize,
+        .lang = .lua54,
+    });
+
+    const mods_mod = b.createModule(.{
+        .root_source_file = b.path("src/mods/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zlua", .module = zlua_dep.module("zlua") },
+        },
     });
 
     const audio_mod = b.createModule(.{
@@ -170,6 +186,7 @@ pub fn setupModules(
         .audio_mod = audio_mod,
         .game_mod = game_mod,
         .render_mod = render_mod,
+        .mods_mod = mods_mod,
     };
 }
 
@@ -306,6 +323,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.render_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.audio_mod })).step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.game_mod })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = modules.mods_mod })).step);
 }
 
 fn webBuildId(b: *std.Build) []const u8 {
