@@ -16,6 +16,7 @@ const Modules = struct {
     audio_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
     render_mod: *std.Build.Module,
+    lua_lib: *std.Build.Step.Compile,
     mods_mod: *std.Build.Module,
 };
 
@@ -94,11 +95,15 @@ pub fn setupModules(
         .optimize = optimize,
     });
 
+    const lua_system_headers: []const std.Build.LazyPath = if (emscripten) &.{sysroot_include_path.?} else &.{};
     const zlua_dep = b.dependency("zlua", .{
         .target = target,
         .optimize = optimize,
         .lang = .lua54,
+        .additional_system_headers = lua_system_headers,
     });
+    const lua_lib = zlua_dep.artifact("lua");
+    for (lua_system_headers) |include_path| lua_lib.root_module.addSystemIncludePath(include_path);
 
     const mods_mod = b.createModule(.{
         .root_source_file = b.path("src/mods/root.zig"),
@@ -186,6 +191,7 @@ pub fn setupModules(
         .audio_mod = audio_mod,
         .game_mod = game_mod,
         .render_mod = render_mod,
+        .lua_lib = lua_lib,
         .mods_mod = mods_mod,
     };
 }
@@ -222,6 +228,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "audio", .module = modules.audio_mod },
                 .{ .name = "net", .module = modules.net_mod },
                 .{ .name = "remote", .module = modules.remote_mod },
+                .{ .name = "mods", .module = modules.mods_mod },
             },
         }),
     });
@@ -259,6 +266,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "world", .module = modules.world_mod },
                 .{ .name = "game", .module = modules.game_mod },
                 .{ .name = "net", .module = modules.net_mod },
+                .{ .name = "mods", .module = modules.mods_mod },
             },
         }),
     });
@@ -302,6 +310,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "audio", .module = modules.audio_mod },
             .{ .name = "net", .module = modules.net_mod },
             .{ .name = "remote", .module = modules.remote_mod },
+            .{ .name = "mods", .module = modules.mods_mod },
         },
     });
     client_test_mod.addAnonymousImport("icon_png", .{
@@ -361,6 +370,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
             .{ .name = "audio", .module = modules.audio_mod },
             .{ .name = "net", .module = modules.net_mod },
             .{ .name = "remote", .module = modules.remote_mod },
+            .{ .name = "mods", .module = modules.mods_mod },
         },
     });
     client_mod.addAnonymousImport("icon_png", .{
@@ -609,6 +619,7 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
             .{ .name = "audio", .module = modules.audio_mod },
             .{ .name = "net", .module = modules.net_mod },
             .{ .name = "remote", .module = modules.remote_mod },
+            .{ .name = "mods", .module = modules.mods_mod },
         },
     });
     client_mod.addAnonymousImport("icon_png", .{
@@ -836,6 +847,7 @@ fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
             .{ .name = "audio", .module = modules.audio_mod },
             .{ .name = "net", .module = modules.net_mod },
             .{ .name = "remote", .module = modules.remote_mod },
+            .{ .name = "mods", .module = modules.mods_mod },
         },
     });
     client_mod.addAnonymousImport("icon_png", .{
@@ -859,6 +871,8 @@ fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     iosPatchSdl(modules.sdl3_mod, .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
 
     systemLibsWithoutPkgConfig(modules.sdl3_mod);
+
+    modules.lua_lib.setLibCFile(libc_file);
 
     const mixer = linkedLibrary(modules.sdl3_mod, "SDL3_mixer");
     mixer.setLibCFile(libc_file);
