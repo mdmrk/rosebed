@@ -596,6 +596,19 @@ fn applyModTextures(app_state: *AppState) bool {
     return true;
 }
 
+// A press only reaches the mods while the world has focus, so typing in chat is not
+// read as play. A release always does, so a mod never thinks a key is still held.
+fn tellModsKey(app_state: *AppState, current: sdl3.events.Event) void {
+    const loaded = app_state.loaded_mods orelse return;
+    if (app_state.screen != .playing) return;
+    const key, const pressed = switch (current) {
+        .key_down => |k| if (k.repeat or !worldFocused(app_state)) return else .{ k.key orelse return, true },
+        .key_up => |k| .{ k.key orelse return, false },
+        else => return,
+    };
+    loaded.input.key(render.screen.controls.keyName(@intFromEnum(key)), pressed);
+}
+
 fn drawModHud(app_state: *AppState, ui: render.gui.Ui) !void {
     const loaded = app_state.loaded_mods orelse return;
     const commands = loaded.hud.collect(app_state.frame, ui.res.width, ui.res.height);
@@ -5362,6 +5375,7 @@ pub fn event(
     var current = curr_event;
     // Without a keyboard the back gesture is the only way off a screen.
     if (touch_ui) backAsEscape(&current);
+    tellModsKey(app_state, current);
     switch (current) {
         .quit, .terminating => return .success,
         .finger_down => |f| if (touch_ui) try touchDown(app_state, f),

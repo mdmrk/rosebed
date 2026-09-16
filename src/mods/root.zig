@@ -7,10 +7,12 @@ pub const registry = @import("registry.zig");
 pub const Loaded = @import("Loaded.zig");
 pub const Hooks = @import("Hooks.zig");
 pub const Hud = @import("Hud.zig");
+pub const Input = @import("Input.zig");
 
 test {
     _ = Hooks;
     _ = Hud;
+    _ = Input;
     _ = Loaded;
     _ = mobs;
     _ = registry;

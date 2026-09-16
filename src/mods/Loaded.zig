@@ -7,6 +7,7 @@ const world = @import("world");
 const discovery = @import("discovery.zig");
 const Hooks = @import("Hooks.zig");
 const Hud = @import("Hud.zig");
+const Input = @import("Input.zig");
 const load_order = @import("load_order.zig");
 const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
@@ -18,6 +19,7 @@ arena: *std.heap.ArenaAllocator,
 vm: Vm,
 hooks: *Hooks,
 hud: *Hud,
+input: *Input,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -82,12 +84,15 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     Hooks.active = hooks;
     const hud = try allocator.create(Hud);
     hud.* = .{};
+    const input = try allocator.create(Input);
+    input.* = .{};
 
     return .{
         .arena = arena,
         .vm = vm,
         .hooks = hooks,
         .hud = hud,
+        .input = input,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
@@ -101,6 +106,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
 // would not know about.
 pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report: *std.Io.Writer) !void {
     self.hud.install(self.vm.lua);
+    self.input.install(self.vm.lua);
     const allocator = self.arena.allocator();
     for (self.mods) |mod| {
         var dir = try mods_dir.openDir(io, mod.folder, .{});
