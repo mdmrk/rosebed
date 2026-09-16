@@ -18,6 +18,14 @@ pub const Registrar = struct {
     open: bool = true,
     block_textures: std.ArrayList(BlockTexture) = .empty,
     item_textures: std.ArrayList(ItemTexture) = .empty,
+    mob_skins: std.ArrayList(MobSkin) = .empty,
+};
+
+pub const MobSkin = struct {
+    type_id: game.mob.Id,
+    model: game.mob.Model,
+    folder: []const u8,
+    file: []const u8,
 };
 
 pub const ItemTexture = struct {
@@ -122,6 +130,7 @@ const ItemExtras = struct {
 
 const MobExtras = struct {
     refs: mobs.Refs = .{},
+    texture: ?[]const u8 = null,
 };
 
 fn Extras(comptime Def: type) type {
@@ -173,7 +182,7 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             definition.shape = readShape(lua);
             return;
         }
-    } else if (comptime Extras(Def) == ItemExtras) {
+    } else {
         if (std.mem.eql(u8, name, "texture")) {
             extras.texture = texturePath(lua, registrar, -1, "texture");
             return;
@@ -206,7 +215,15 @@ fn registerMob(lua: *Lua) i32 {
     readFields(mobs.Def, &definition, &extras, lua, registrar, 1, .skip_key);
     if (!(definition.width > 0) or !(definition.height > 0)) lua.raiseErrorStr("'%s' needs a positive width and height", .{definition.key.ptr});
     if (definition.health <= 0) lua.raiseErrorStr("'%s' needs at least one heart's worth of health", .{definition.key.ptr});
-    _ = mobs.claim(definition, extras.refs) catch |err| raise(lua, err, definition.key);
+    const type_id = mobs.claim(definition, extras.refs) catch |err| raise(lua, err, definition.key);
+    if (extras.texture) |file| {
+        registrar.mob_skins.append(registrar.arena, .{
+            .type_id = type_id,
+            .model = definition.model,
+            .folder = registrar.mod_folder,
+            .file = file,
+        }) catch raise(lua, error.OutOfMemory, definition.key);
+    }
     _ = lua.pushString(definition.key);
     return 1;
 }
@@ -725,6 +742,8 @@ test "a mob registered from lua lands after the vanilla types, built to its spec
     try harness.vm.exec("=quartz",
         \\local key = rosebed.register_mob {
         \\  key = "bumbler",
+        \\  model = "cow",
+        \\  texture = "bumbler.png",
         \\  width = 0.7,
         \\  height = 0.9,
         \\  health = 8,
@@ -739,6 +758,10 @@ test "a mob registered from lua lands after the vanilla types, built to its spec
     const type_id = game.mob.find("quartz:bumbler").?;
     try std.testing.expectEqual(@as(game.mob.Id, 14), type_id);
     try std.testing.expect(game.mob.get(type_id).monster);
+    try std.testing.expectEqual(@as(usize, 1), harness.registrar.mob_skins.items.len);
+    try std.testing.expectEqual(type_id, harness.registrar.mob_skins.items[0].type_id);
+    try std.testing.expectEqual(game.mob.Model.cow, harness.registrar.mob_skins.items[0].model);
+    try std.testing.expectEqualStrings("bumbler.png", harness.registrar.mob_skins.items[0].file);
     try std.testing.expectEqual(@as(?u8, null), game.mob.get(type_id).wire_id);
 
     var rand: world.JavaRandom = .init(3);

@@ -217,6 +217,16 @@ pub const item_shadow_size: f32 = 0.15;
 pub const item_shadow_opacity: f32 = 12.0 / 16.0;
 pub const shadow_opacity: f32 = 1.0;
 
+pub fn modModel(kind: game.mob.Model) mob_model.Model {
+    return switch (kind) {
+        .pig => mob_model.pig,
+        .cow => mob_model.cow,
+        .sheep => mob_model.sheep,
+        .chicken => mob_model.chicken,
+        .creeper => mob_model.creeper,
+    };
+}
+
 pub fn mobShadowSize(type_id: game.mob.Id) f32 {
     return switch (type_id) {
         game.mob.spider => 1.0,
@@ -989,7 +999,7 @@ fn animalPose(mesh: *const MeshBuilder, animal: game.Animal, partial_ticks: f32,
     };
 }
 
-fn appendAnimal(
+pub fn appendAnimal(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
@@ -3966,4 +3976,20 @@ test "a ghast's tentacles sway with its age while its body holds still" {
         if (@abs(before.z - after.z) > 1.0e-3) moved = true;
     }
     try std.testing.expect(moved);
+}
+
+test "every model a mod can wear animates from the roles of its parts" {
+    for (std.enums.values(game.mob.Model)) |kind| {
+        const model = modModel(kind);
+        var head = false;
+        var stride = false;
+        for (model.parts) |part| switch (part.role) {
+            .head => head = true,
+            .leg_ahead, .leg_behind => stride = true,
+            else => {},
+        };
+        try std.testing.expect(head);
+        try std.testing.expect(stride);
+        try std.testing.expect(model.head_index < model.parts.len);
+    }
 }

@@ -30,6 +30,8 @@ pub const Tick = struct {
     }
 };
 
+pub const Model = enum { pig, cow, sheep, chicken, creeper };
+
 pub const Type = struct {
     name: []const u8,
     wire_id: ?u8 = null,

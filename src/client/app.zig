@@ -10,6 +10,7 @@ const game = @import("game");
 const gl = @import("gl");
 const math = @import("math");
 const Mods = @import("mods").Loaded;
+const ModRegistry = @import("mods").registry;
 const net = @import("net");
 const remote = @import("remote");
 const render = @import("render");
@@ -165,6 +166,7 @@ pub const AppState = struct {
     loaded_mods: ?Mods = null,
     packs: []render.texture_pack.Pack = &.{},
     pack_thumbnails: []render.Atlas = &.{},
+    mob_skins: []const ModSkin = &.{},
     pack_scroll: f32 = 0,
     save_handle: ?world.save.Save = null,
     open_folder: NameBuffer = .{},
@@ -556,7 +558,7 @@ const ModTiles = std.StringHashMapUnmanaged(?u8);
 
 fn applyModTextures(app_state: *AppState) bool {
     const loaded = app_state.loaded_mods orelse return false;
-    if (loaded.block_textures.len == 0 and loaded.item_textures.len == 0) return false;
+    if (loaded.block_textures.len == 0 and loaded.item_textures.len == 0 and loaded.mob_skins.len == 0) return false;
 
     var mods_dir = app_state.base_dir.openDir(app_state.io, Mods.folder_name, .{}) catch |err| {
         std.log.warn("could not open the mods folder for textures: {t}", .{err});
@@ -584,7 +586,50 @@ fn applyModTextures(app_state: *AppState) bool {
         definition.icon = tile;
         request.item.register(definition);
     }
+    loadModSkins(app_state, mods_dir, loaded.mob_skins, arena.allocator());
     return true;
+}
+
+const ModSkin = struct {
+    type_id: game.mob.Id,
+    model: game.mob.Model,
+    atlas: render.Atlas,
+};
+
+fn loadModSkins(app_state: *AppState, mods_dir: std.Io.Dir, requests: []const ModRegistry.MobSkin, arena: std.mem.Allocator) void {
+    freeModSkins(app_state);
+    if (requests.len == 0) return;
+
+    var skins: std.ArrayList(ModSkin) = .empty;
+    defer skins.deinit(app_state.gpa);
+    for (requests) |request| {
+        const atlas = modSkin(app_state, mods_dir, arena, request) orelse continue;
+        skins.append(app_state.gpa, .{ .type_id = request.type_id, .model = request.model, .atlas = atlas }) catch {
+            atlas.deinit();
+            break;
+        };
+    }
+    app_state.mob_skins = skins.toOwnedSlice(app_state.gpa) catch &.{};
+}
+
+fn freeModSkins(app_state: *AppState) void {
+    for (app_state.mob_skins) |skin| skin.atlas.deinit();
+    app_state.gpa.free(app_state.mob_skins);
+    app_state.mob_skins = &.{};
+}
+
+fn modSkin(app_state: *AppState, mods_dir: std.Io.Dir, arena: std.mem.Allocator, request: ModRegistry.MobSkin) ?render.Atlas {
+    const path = std.fs.path.join(arena, &.{ request.folder, request.file }) catch return null;
+    const png = mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
+        std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
+        return null;
+    };
+    defer app_state.gpa.free(png);
+
+    return render.Atlas.load(png, app_state.settings.anaglyph) catch |err| {
+        std.log.warn("could not use {s} as a mob texture: {t}", .{ path, err });
+        return null;
+    };
 }
 
 fn modTile(
@@ -3931,6 +3976,17 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     while (horde.next()) |pig_zombie| {
         try render.entity_render.appendPigZombie(&pig_zombie_mesh, app_state.frame, &app_state.level.world_map, pig_zombie.*, partial);
     }
+    const mod_mob_meshes = try app_state.frame.alloc(render.MeshBuilder, app_state.mob_skins.len);
+    for (mod_mob_meshes) |*mesh| mesh.* = .{ .origin = camera_eye };
+    defer for (mod_mob_meshes) |*mesh| mesh.deinit(app_state.frame);
+    for (mod_mob_meshes, app_state.mob_skins) |*mesh, skin| {
+        const model = render.entity_render.modModel(skin.model);
+        for (app_state.level.entities.mobs.items) |entry| {
+            if (entry.type_id != skin.type_id) continue;
+            try render.entity_render.appendAnimal(mesh, app_state.frame, &app_state.level.world_map, entry.animal.*, partial, model, .{});
+        }
+    }
+
     var painting_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer painting_mesh.deinit(app_state.frame);
     for (app_state.level.entities.paintings.items) |painting| {
@@ -3941,6 +3997,8 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         drawEntityMesh(&painting_mesh);
         app_state.textures.terrain.bind();
     }
+
+
 
     var arrow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer arrow_mesh.deinit(app_state.frame);
@@ -4059,6 +4117,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (chicken_mesh.vertices.items.len > 0) {
         app_state.textures.chicken.bind();
         drawEntityMesh(&chicken_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    for (mod_mob_meshes, app_state.mob_skins) |*mesh, skin| {
+        if (mesh.vertices.items.len == 0) continue;
+        skin.atlas.bind();
+        drawEntityMesh(mesh);
         app_state.textures.terrain.bind();
     }
 
@@ -5515,6 +5580,7 @@ pub fn quit(
         if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
         world.save.freeList(state.gpa, state.summaries);
         freeTexturePacks(state);
+        freeModSkins(state);
         state.saves_dir.close(state.io);
         state.packs_dir.close(state.io);
         state.base_dir.close(state.io);

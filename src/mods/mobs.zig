@@ -13,6 +13,7 @@ pub const capacity: usize = 16;
 
 pub const Def = struct {
     key: []const u8 = "",
+    model: Mob.Model = .pig,
     width: f64 = default_width,
     height: f64 = default_height,
     health: i32 = Animal.default_max_health,

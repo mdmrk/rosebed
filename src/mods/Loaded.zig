@@ -19,6 +19,7 @@ hooks: *Hooks,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
+mob_skins: []const registry.MobSkin,
 list: net.packet.ModList,
 
 pub const folder_name = "mods";
@@ -84,6 +85,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
+        .mob_skins = registrar.mob_skins.items,
         .list = list,
     };
 }
