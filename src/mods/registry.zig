@@ -847,3 +847,64 @@ test "a mob has to be built to a size that can stand somewhere" {
     try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", movement = \"burrowing\" }", "is not a valid 'movement'");
     try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", legs = 6 }", "unknown field 'legs'");
 }
+
+test "a mob from lua reaches the world and itself from its own tick" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\ticked = 0
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  health = 20,
+        \\  on_tick = function(x, y, z)
+        \\    ticked = ticked + 1
+        \\    seen = { x, y, z }
+        \\    rosebed.world.set_block(x, y - 1, z, "stone")
+        \\    local health, max = rosebed.mob.health()
+        \\    assert(max == 20)
+        \\    if health == max then rosebed.mob.hurt(3) end
+        \\  end,
+        \\}
+    );
+    const kind = game.mob.get(game.mob.find("quartz:bumbler").?);
+
+    var world_map: world.World = .init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+    var rand: world.JavaRandom = .init(4);
+    const animal = try kind.spawn(gpa, math.Vec3.init(4.5, 10.0, 6.5), &rand);
+    defer kind.destroy(animal, gpa);
+
+    const ticking: game.mob.Tick = .{
+        .entities = &world_map,
+        .gpa = gpa,
+        .world_map = &world_map,
+        .roster = &.{},
+        .players = .{},
+        .rand = &rand,
+    };
+    try kind.afterTick(animal, ticking);
+    try kind.afterTick(animal, ticking);
+
+    try std.testing.expectEqual(world.Block.stone, world_map.getBlock(.init(4, 9, 6)));
+    try std.testing.expectEqual(@as(i32, 17), animal.health);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("ticked"));
+    try std.testing.expectEqual(@as(i64, 2), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "a mob is out of reach outside its own callback" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.install(harness.vm.lua);
+
+    try harness.expectFailure("rosebed.mob.health()", "a mob is only reached from its own callback");
+    try harness.expectFailure("rosebed.mob.position()", "a mob is only reached from its own callback");
+}

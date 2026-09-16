@@ -28,6 +28,7 @@ pub const Def = struct {
 
 pub const Refs = struct {
     drop: ?i32 = null,
+    on_tick: ?i32 = null,
 };
 
 pub const default_width: f64 = 0.6;
@@ -64,6 +65,7 @@ pub fn claim(def: Def, refs: Refs) !Mob.Id {
         .store = store,
         .load = entry.load,
         .destroy = destroy,
+        .afterTick = afterTick,
     });
 }
 
@@ -136,6 +138,13 @@ fn tick(
     rand: *world.JavaRandom,
 ) anyerror!void {
     try animal.tick(gpa, world_map, players, rand);
+}
+
+fn afterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
+    const body: *Body = @fieldParentPtr("animal", animal);
+    const ref = slots[body.slot].refs.on_tick orelse return;
+    const hooks = Hooks.active orelse return;
+    hooks.callMob(ref, animal, context.world_map, context.rand);
 }
 
 fn takeDrops(animal: *Animal) ?Mob.Drops {

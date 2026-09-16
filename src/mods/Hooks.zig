@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const game = @import("game");
+const math = @import("math");
 const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
@@ -9,6 +11,7 @@ const Hooks = @This();
 lua: ?*Lua = null,
 current_world: ?*world.World = null,
 current_rand: ?*world.JavaRandom = null,
+current_mob: ?*game.Animal = null,
 block_refs: [256]BlockRefs = @splat(.{}),
 item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
@@ -114,6 +117,60 @@ pub fn rollDrop(self: *Hooks, ref: i32, meta: ?u4, rand: *world.JavaRandom) ?wor
     return .{ .id = id, .count = count, .meta = std.math.cast(u16, lua.toInteger(-1) catch 0) orelse 0 };
 }
 
+pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.World, rand: *world.JavaRandom) void {
+    const lua = self.lua orelse return;
+
+    const outer_world = self.current_world;
+    const outer_rand = self.current_rand;
+    const outer_mob = self.current_mob;
+    self.current_world = world_map;
+    self.current_rand = rand;
+    self.current_mob = animal;
+    defer {
+        self.current_world = outer_world;
+        self.current_rand = outer_rand;
+        self.current_mob = outer_mob;
+    }
+
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    lua.pushInteger(math.util.floorDouble(animal.base.position.x));
+    lua.pushInteger(math.util.floorDouble(animal.base.position.y));
+    lua.pushInteger(math.util.floorDouble(animal.base.position.z));
+    lua.protectedCall(.{ .args = 3, .results = 0 }) catch {
+        std.log.warn("a mod mob failed: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+    };
+}
+
+fn mobPosition(lua: *Lua) i32 {
+    const animal = currentMob(lua);
+    lua.pushNumber(animal.base.position.x);
+    lua.pushNumber(animal.base.position.y);
+    lua.pushNumber(animal.base.position.z);
+    return 3;
+}
+
+fn mobHealth(lua: *Lua) i32 {
+    const animal = currentMob(lua);
+    lua.pushInteger(animal.health);
+    lua.pushInteger(animal.max_health);
+    return 2;
+}
+
+fn mobHurt(lua: *Lua) i32 {
+    const self = hooks(lua);
+    const animal = self.current_mob orelse lua.raiseErrorStr("a mob is only reached from its own callback", .{});
+    const world_map = self.current_world orelse lua.raiseErrorStr("a mob is only reached from its own callback", .{});
+    const amount = std.math.cast(i32, lua.checkInteger(1)) orelse lua.argError(1, "the damage is out of range");
+    if (amount < 0) lua.argError(1, "the damage cannot be negative");
+    _ = animal.hurt(world_map, amount, null, self.current_rand orelse &world_map.rand);
+    return 0;
+}
+
+fn currentMob(lua: *Lua) *game.Animal {
+    return hooks(lua).current_mob orelse lua.raiseErrorStr("a mob is only reached from its own callback", .{});
+}
+
 fn random(lua: *Lua) i32 {
     const self = hooks(lua);
     const rand = self.current_rand orelse blk: {
@@ -171,6 +228,20 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         lua.setField(-2, entry.name);
     }
     lua.setField(-2, "world");
+
+    lua.newTable();
+    const mob_functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+        .{ .name = "position", .function = zlua.wrap(mobPosition) },
+        .{ .name = "health", .function = zlua.wrap(mobHealth) },
+        .{ .name = "hurt", .function = zlua.wrap(mobHurt) },
+    };
+    for (mob_functions) |entry| {
+        lua.pushLightUserdata(self);
+        lua.pushClosure(entry.function, 1);
+        lua.setField(-2, entry.name);
+    }
+    lua.setField(-2, "mob");
+
     lua.pushLightUserdata(self);
     lua.pushClosure(zlua.wrap(random), 1);
     lua.setField(-2, "random");
