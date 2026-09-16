@@ -16,7 +16,7 @@ const Modules = struct {
     audio_mod: *std.Build.Module,
     game_mod: *std.Build.Module,
     render_mod: *std.Build.Module,
-    lua_lib: *std.Build.Step.Compile,
+    lua_lib: ?*std.Build.Step.Compile,
     mods_mod: *std.Build.Module,
 };
 
@@ -102,8 +102,10 @@ pub fn setupModules(
         .lang = .lua54,
         .additional_system_headers = lua_system_headers,
     });
-    const lua_lib = zlua_dep.artifact("lua");
-    for (lua_system_headers) |include_path| lua_lib.root_module.addSystemIncludePath(include_path);
+    const lua_lib = installedArtifact(zlua_dep, "lua");
+    if (lua_lib) |lib| {
+        for (lua_system_headers) |include_path| lib.root_module.addSystemIncludePath(include_path);
+    }
 
     const audio_mod = b.createModule(.{
         .root_source_file = b.path("src/audio/root.zig"),
@@ -578,6 +580,14 @@ fn systemLibsWithoutPkgConfig(module: *std.Build.Module) void {
     };
 }
 
+fn installedArtifact(dependency: *std.Build.Dependency, name: []const u8) ?*std.Build.Step.Compile {
+    for (dependency.builder.install_tls.step.dependencies.items) |step| {
+        const install = step.cast(std.Build.Step.InstallArtifact) orelse continue;
+        if (std.mem.eql(u8, install.artifact.name, name)) return install.artifact;
+    }
+    return null;
+}
+
 fn linkedLibrary(module: *std.Build.Module, name: []const u8) *std.Build.Step.Compile {
     for (module.link_objects.items) |object| switch (object) {
         .other_step => |compile| if (std.mem.eql(u8, compile.name, name)) return compile,
@@ -876,7 +886,7 @@ fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
 
     systemLibsWithoutPkgConfig(modules.sdl3_mod);
 
-    modules.lua_lib.setLibCFile(libc_file);
+    if (modules.lua_lib) |lib| lib.setLibCFile(libc_file);
 
     const mixer = linkedLibrary(modules.sdl3_mod, "SDL3_mixer");
     mixer.setLibCFile(libc_file);
