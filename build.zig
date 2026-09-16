@@ -79,7 +79,7 @@ const Project = struct {
     modules: Modules,
     lua: ?*Compile,
 
-    fn init(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, sdl_include: ?LazyPath) Project {
+    fn init(b: *Build, target: ResolvedTarget, optimize: OptimizeMode, sdl_include: ?LazyPath, libc_include: []const LazyPath) Project {
         const platform = Platform.of(target);
         var project: Project = .{ .b = b, .target = target, .optimize = optimize, .modules = undefined, .lua = null };
         const modules = &project.modules;
@@ -110,17 +110,17 @@ const Project = struct {
         modules.world = project.source("src/world/root.zig", &.{ .math, .assets });
         modules.net = project.source("src/net/root.zig", &.{});
 
-        const lua_headers: []const LazyPath = if (platform == .web) &.{sdl_include.?} else &.{};
         const zlua = b.dependency("zlua", .{
             .target = target,
             .optimize = optimize,
             .lang = .lua54,
-            .additional_system_headers = lua_headers,
+            .additional_system_headers = libc_include,
         });
         modules.zlua = zlua.module("zlua");
         project.lua = installedArtifact(zlua, "lua");
         if (project.lua) |lua| {
-            for (lua_headers) |include_path| lua.root_module.addSystemIncludePath(include_path);
+            if (platform == .web) for (libc_include) |include_path| lua.root_module.addSystemIncludePath(include_path);
+            if (platform == .ios) lua.root_module.addCMacro("LUA_USE_IOS", "1");
         }
 
         modules.audio = project.source("src/audio/root.zig", &.{ .sdl3, .math, .assets });
@@ -191,7 +191,7 @@ pub fn build(b: *Build) void {
 }
 
 fn buildDesktop(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void {
-    const project = Project.init(b, target, optimize, null);
+    const project = Project.init(b, target, optimize, null, &.{});
     const modules = &project.modules;
 
     const client = b.addExecutable(.{
@@ -297,7 +297,7 @@ const web_persist_js =
 fn buildWeb(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void {
     const sysroot = b.sysroot orelse fail("'--sysroot' is required when building for Emscripten", .{});
     const sysroot_include: LazyPath = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) };
-    const project = Project.init(b, target, optimize, sysroot_include);
+    const project = Project.init(b, target, optimize, sysroot_include, &.{sysroot_include});
 
     const client_module = project.client(.{ .strip = !project.debug(), .link_libc = true });
     client_module.addSystemIncludePath(sysroot_include);
@@ -364,13 +364,18 @@ fn buildAndroid(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void 
     const build_tools = b.option([]const u8, "android-build-tools", "Android build-tools version (default: 35.0.0)") orelse "35.0.0";
     const platform = b.option([]const u8, "android-platform", "Android platform to link against (default: android-35)") orelse b.fmt("android-{d}", .{android_target_api});
 
-    const libc_file = androidLibC(b, ndk, arch, api);
+    const sysroot = b.pathJoin(&.{ ndk, "toolchains/llvm/prebuilt", androidHostTag(b.graph.host.result), "sysroot" });
+    const triple = androidTriple(arch);
+    const libc_file = androidLibC(b, sysroot, triple, api);
     b.libc_file = libc_file;
     b.graph.environ_map.put("ZIG_LIBC", libc_file) catch @panic("OOM");
     b.graph.system_library_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
 
     const sdl_lib_dir = b.path(b.fmt("{s}/lib/{s}", .{ android_sdl_root, abi_name }));
-    const project = Project.init(b, target, optimize, b.path(android_sdl_root ++ "/include"));
+    const project = Project.init(b, target, optimize, b.path(android_sdl_root ++ "/include"), &.{
+        .{ .cwd_relative = b.fmt("{s}/usr/include", .{sysroot}) },
+        .{ .cwd_relative = b.fmt("{s}/usr/include/{s}", .{ sysroot, triple }) },
+    });
 
     const client_module = project.client(.{ .strip = !project.debug(), .link_libc = true, .touch = true });
     client_module.addLibraryPath(sdl_lib_dir);
@@ -440,9 +445,7 @@ fn androidPath(b: *Build, option_name: []const u8, description: []const u8, vari
     fail("'-D{s}' is required when building for Android (or set {s})", .{ option_name, variables[0] });
 }
 
-fn androidLibC(b: *Build, ndk: []const u8, arch: std.Target.Cpu.Arch, api: u32) []const u8 {
-    const sysroot = b.pathJoin(&.{ ndk, "toolchains/llvm/prebuilt", androidHostTag(b.graph.host.result), "sysroot" });
-    const triple = androidTriple(arch);
+fn androidLibC(b: *Build, sysroot: []const u8, triple: []const u8, api: u32) []const u8 {
     return writeLibCFile(
         b,
         b.fmt("android-libc-{s}-{d}.txt", .{ triple, api }),
@@ -544,7 +547,8 @@ fn buildIos(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void {
     b.graph.system_library_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
 
     const sdl_lib_dir = b.path(ios_sdl_root ++ "/lib");
-    const project = Project.init(b, target, optimize, b.path(ios_sdl_root ++ "/include"));
+    const sdk_include: LazyPath = .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) };
+    const project = Project.init(b, target, optimize, b.path(ios_sdl_root ++ "/include"), &.{sdk_include});
 
     const client_module = project.client(.{ .strip = !project.debug(), .link_libc = true, .touch = true });
     client_module.addLibraryPath(sdl_lib_dir);
@@ -555,7 +559,7 @@ fn buildIos(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void {
     });
     client.setLibCFile(libc_file);
 
-    iosPatchSdl(project.modules.sdl3, .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+    iosPatchSdl(project.modules.sdl3, sdk_include);
     if (project.lua) |lua| lua.setLibCFile(libc_file);
     const mixer = project.prebuiltSdl(sdl_lib_dir, "libSDL3_mixer.dylib");
     mixer.setLibCFile(libc_file);
