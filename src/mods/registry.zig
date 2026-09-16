@@ -155,6 +155,10 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             extras.textures = readTextures(lua, registrar);
             return;
         }
+        if (std.mem.eql(u8, name, "shape")) {
+            definition.shape = readShape(lua);
+            return;
+        }
     } else {
         if (std.mem.eql(u8, name, "texture")) {
             extras.texture = texturePath(lua, registrar, -1, "texture");
@@ -178,6 +182,23 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
         }
     }
     lua.raiseErrorStr("unknown field '%s'", .{name.ptr});
+}
+
+fn readShape(lua: *Lua) world.Shape {
+    switch (lua.typeOf(-1)) {
+        .string => {
+            const tag = lua.toString(-1) catch unreachable;
+            if (std.mem.eql(u8, tag, "cube")) return .cube;
+            if (std.mem.eql(u8, tag, "cross")) return .cross;
+            lua.raiseErrorStr("'%s' is not a shape a mod can use", .{tag.ptr});
+        },
+        .number => {
+            const height = lua.toNumber(-1) catch unreachable;
+            if (!(height > 0) or height > 1) lua.raiseErrorStr("a partial shape stands between 0 and 1 high", .{});
+            return .{ .partial = @floatCast(height) };
+        },
+        else => lua.raiseErrorStr("'shape' is 'cube', 'cross' or a height", .{}),
+    }
 }
 
 fn readTextures(lua: *Lua, registrar: *Registrar) FaceFiles {
@@ -442,6 +463,36 @@ test "a block names the textures its faces are painted with" {
     try std.testing.expectEqual(world.Block.stone, textures[2].block);
     try std.testing.expectEqualStrings("granite.png", textures[2].faces.get(.west).?);
     try std.testing.expect(textures[2].faces.get(.up) == null);
+}
+
+test "a block can be a cross or stand less than a block high" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_block { key = "fern", shape = "cross", material = "plants" }
+        \\rosebed.register_block { key = "slab", shape = 0.5 }
+        \\rosebed.register_block { key = "pillar", shape = "cube" }
+    );
+    const fern = world.Block.fromKey("quartz:fern").?;
+    const slab = world.Block.fromKey("quartz:slab").?;
+    try std.testing.expectEqual(world.Shape.cross, fern.shape());
+    try std.testing.expectEqual(@as(f32, 0.5), slab.heightScale());
+    try std.testing.expectEqual(@as(f32, 0.5), slab.selectionBounds(0).max[1]);
+    try std.testing.expect(!slab.isNormalCube());
+    try std.testing.expect(world.Block.fromKey("quartz:pillar").?.isNormalCube());
+}
+
+test "shapes only vanilla blocks can draw are refused" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_block { key = 'a', shape = 'stairs' }", "'stairs' is not a shape a mod can use");
+    try harness.expectFailure("rosebed.register_block { key = 'b', shape = 0 }", "a partial shape stands between 0 and 1 high");
+    try harness.expectFailure("rosebed.register_block { key = 'c', shape = 1.5 }", "a partial shape stands between 0 and 1 high");
+    try harness.expectFailure("rosebed.register_block { key = 'd', shape = true }", "'shape' is 'cube', 'cross' or a height");
 }
 
 test "an item names the png its icon is painted with" {
