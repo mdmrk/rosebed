@@ -240,10 +240,17 @@ fn weighChoices(
         },
     }
 
+    var biome: ?world.biome.Biome = null;
     var type_id: mob.Id = 0;
     while (type_id < mob.registered()) : (type_id += 1) {
         const spawns = mob.get(type_id).spawns orelse continue;
         if (spawns.category != category) continue;
+        if (spawns.dimension != dimension) continue;
+        if (spawns.biomes) |allowed| {
+            const here = biome orelse world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width);
+            biome = here;
+            if (!allowed.contains(here)) continue;
+        }
         buffer[count] = .{ .weight = spawns.weight, .chosen = .{ .modded = type_id } };
         count += 1;
     }
@@ -1496,4 +1503,36 @@ test "a registered monster is held to the dark, and counted against the monster 
 
     try std.testing.expectEqual(monsters_before + 1, liveCount(&entities, .monster));
     try std.testing.expectEqual(creatures_before, liveCount(&entities, .creature));
+}
+
+test "a registered mob is only weighed in the biomes it names" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    const here = w.biomeAt(3 * world.Chunk.width, 0);
+    var elsewhere = std.EnumSet(world.biome.Biome).initFull();
+    elsewhere.remove(here);
+
+    _ = registerTestMob("rosebug:local", .{ .category = .creature, .weight = 5, .biomes = .initOne(here) });
+    _ = registerTestMob("rosebug:stranger", .{ .category = .creature, .weight = 7, .biomes = elsewhere });
+
+    var buffer: [max_choices]Choice = undefined;
+    const creatures = weighChoices(.creature, &w, .overworld, 3, 0, &buffer);
+    try std.testing.expectEqual(creatureList(here).len + 1, creatures.len);
+    try std.testing.expectEqual(@as(i32, 5), creatures[creatures.len - 1].weight);
+}
+
+test "a registered mob is only weighed in its own dimension" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    _ = registerTestMob("rosebug:imp", .{ .category = .monster, .weight = 5, .dimension = .nether });
+
+    var buffer: [max_choices]Choice = undefined;
+    try std.testing.expectEqual(overworld_monsters.len, weighChoices(.monster, &w, .overworld, 3, 0, &buffer).len);
+    try std.testing.expectEqual(nether_monsters.len + 1, weighChoices(.monster, &w, .nether, 3, 0, &buffer).len);
 }

@@ -39,6 +39,8 @@ pub const Spawns = struct {
     category: spawner.Category,
     weight: i32,
     max_per_chunk: u32 = spawner.max_per_chunk,
+    dimension: world.Dimension = .overworld,
+    biomes: ?std.EnumSet(world.biome.Biome) = null,
 };
 
 pub fn spawnCheckFor(category: spawner.Category) *const fn (*const Animal, *const world.World, i64, *world.JavaRandom) bool {

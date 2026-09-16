@@ -272,7 +272,44 @@ fn readSpawns(lua: *Lua) game.mob.Spawns {
     if (spawns.weight <= 0) lua.raiseErrorStr("'weight' is how often a mob is picked, so it must be positive", .{});
     spawns.max_per_chunk = spawnsNumber(lua, table, u32, "max_per_chunk", game.spawner.max_per_chunk);
     if (spawns.max_per_chunk == 0) lua.raiseErrorStr("'max_per_chunk' must be at least one", .{});
+
+    switch (lua.getField(table, "dimension")) {
+        .nil => {},
+        .string => {
+            const dimension = lua.toString(-1) catch unreachable;
+            spawns.dimension = std.meta.stringToEnum(world.Dimension, dimension) orelse
+                lua.raiseErrorStr("there is no dimension called '%s'", .{dimension.ptr});
+        },
+        else => lua.raiseErrorStr("'dimension' is 'overworld' or 'nether'", .{}),
+    }
+    lua.pop(1);
+
+    switch (lua.getField(table, "biomes")) {
+        .nil => {},
+        .table => spawns.biomes = readBiomes(lua),
+        else => lua.raiseErrorStr("'biomes' is a list of biome names", .{}),
+    }
+    lua.pop(1);
+    if (spawns.biomes != null and spawns.dimension == .nether) {
+        lua.raiseErrorStr("the nether has no biomes to choose from", .{});
+    }
     return spawns;
+}
+
+fn readBiomes(lua: *Lua) std.EnumSet(world.biome.Biome) {
+    const list = lua.getTop();
+    var biomes: std.EnumSet(world.biome.Biome) = .initEmpty();
+    var index: i64 = 1;
+    while (lua.getIndex(list, index) != .nil) : (index += 1) {
+        if (lua.typeOf(-1) != .string) lua.raiseErrorStr("'biomes' is a list of biome names", .{});
+        const name = lua.toString(-1) catch unreachable;
+        biomes.insert(std.meta.stringToEnum(world.biome.Biome, name) orelse
+            lua.raiseErrorStr("there is no biome called '%s'", .{name.ptr}));
+        lua.pop(1);
+    }
+    lua.pop(1);
+    if (biomes.count() == 0) lua.raiseErrorStr("'biomes' names at least one biome", .{});
+    return biomes;
 }
 
 fn spawnsNumber(lua: *Lua, table: i32, comptime T: type, name: [:0]const u8, fallback: T) T {
@@ -1155,4 +1192,54 @@ test "a mob has to exist before it can be changed" {
     try harness.expectFailure("rosebed.override_mob(\"Turnip\", { health = 4 })", "no mob is registered as 'Turnip'");
     try harness.expectFailure("rosebed.override_mob(\"Pig\", { health = 0 })", "'health' is at least one");
     try harness.expectFailure("rosebed.override_mob(\"Pig\", { legs = 6 })", "unknown field 'legs'");
+}
+
+test "a spawn rule can keep a mob to some biomes, or to the nether" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  spawns = { category = "creature", weight = 8, biomes = { "forest", "taiga" } },
+        \\}
+        \\rosebed.register_mob {
+        \\  key = "imp",
+        \\  spawns = { category = "monster", weight = 4, dimension = "nether" },
+        \\}
+    );
+
+    const bumbler = game.mob.get(game.mob.find("quartz:bumbler").?).spawns.?;
+    try std.testing.expectEqual(world.Dimension.overworld, bumbler.dimension);
+    try std.testing.expectEqual(@as(usize, 2), bumbler.biomes.?.count());
+    try std.testing.expect(bumbler.biomes.?.contains(.forest));
+    try std.testing.expect(bumbler.biomes.?.contains(.taiga));
+
+    const imp = game.mob.get(game.mob.find("quartz:imp").?).spawns.?;
+    try std.testing.expectEqual(world.Dimension.nether, imp.dimension);
+    try std.testing.expect(imp.biomes == null);
+}
+
+test "a spawn rule's biomes and dimension have to be real ones" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"a\", spawns = { category = \"creature\", weight = 1, biomes = { \"moon\" } } }",
+        "there is no biome called 'moon'",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"b\", spawns = { category = \"creature\", weight = 1, biomes = {} } }",
+        "'biomes' names at least one biome",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"c\", spawns = { category = \"monster\", weight = 1, dimension = \"end\" } }",
+        "there is no dimension called 'end'",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"d\", spawns = { category = \"monster\", weight = 1, dimension = \"nether\", biomes = { \"forest\" } } }",
+        "the nether has no biomes to choose from",
+    );
 }
