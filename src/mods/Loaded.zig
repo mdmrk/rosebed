@@ -61,6 +61,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     errdefer world.Item.resetRegistry();
     errdefer game.mob.reset();
     errdefer mobs.reset();
+    var shared: std.ArrayList(discovery.Mod) = .empty;
     for (mods) |mod| {
         var dir = try mods_dir.openDir(io, mod.folder, .{});
         defer dir.close(io);
@@ -78,9 +79,13 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
             report.print("{s}\n", .{vm.errorMessage()}) catch {};
             return err;
         };
+        try shared.append(allocator, mod);
     }
     registrar.open = false;
-    const list = try describe(allocator, mods);
+    // Only a mod with a common.lua can change what the server and the client have to
+    // agree on; one that is only a client.lua draws and listens on its own side, so a
+    // player can join with it and a server can run without it.
+    const list = try describe(allocator, shared.items);
     Hooks.active = hooks;
     if (hooks.decorators.items.len > 0) world.generator.after_decorate = Hooks.decorate;
     const hud = try allocator.create(Hud);
@@ -256,6 +261,29 @@ test "the loaded mods describe themselves for the handshake" {
     try std.testing.expectEqual(@as(i16, 97), list.keys[0].numeric);
     try std.testing.expectEqualStrings("wiring:spool", list.keys[1].key);
     try std.testing.expectEqual(@as(i16, 360), list.keys[1].numeric);
+}
+
+test "a mod with no common.lua is left out of the handshake" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    try writeMod(io, tmp.dir, "copper",
+        \\{ "id": "copper", "version": "1.0.0" }
+    , "rosebed.register_block { key = 'ore' }");
+    try writeMod(io, tmp.dir, "minimap",
+        \\{ "id": "minimap", "version": "3.0.0" }
+    , null);
+
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    var loaded = try load(std.testing.allocator, io, tmp.dir, &report.writer);
+    defer loaded.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(2, loaded.mods.len);
+    try std.testing.expectEqual(1, loaded.list.mods.len);
+    try std.testing.expectEqualStrings("copper", loaded.list.mods[0].id);
 }
 
 test "registration closes once loading has finished" {
