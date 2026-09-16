@@ -8,6 +8,7 @@ const Hooks = @This();
 
 lua: ?*Lua = null,
 current_world: ?*world.World = null,
+current_rand: ?*world.JavaRandom = null,
 block_refs: [256]BlockRefs = @splat(.{}),
 item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
@@ -32,6 +33,7 @@ fn itemUsed(world_map: *world.World, pos: world.BlockPos, side: world.Side, item
 }
 
 pub const BlockRefs = struct {
+    drop: ?i32 = null,
     on_tick: ?i32 = null,
     on_random_tick: ?i32 = null,
     on_neighbor_change: ?i32 = null,
@@ -46,6 +48,8 @@ pub fn attachBlock(self: *Hooks, block: world.Block, refs: BlockRefs) void {
             @field(slot, field.name) = ref;
             @field(definition, field.name) = if (comptime std.mem.eql(u8, field.name, "on_activated"))
                 activated
+            else if (comptime std.mem.eql(u8, field.name, "drop"))
+                dropped
             else
                 blockEvent(field.name);
         }
@@ -67,6 +71,52 @@ fn activated(world_map: *world.World, pos: world.BlockPos, block: world.Block) s
     const self = active orelse return false;
     const ref = self.block_refs[@intFromEnum(block)].on_activated orelse return false;
     return self.call(world_map, ref, pos, .{});
+}
+
+fn dropped(block: world.Block, meta: u4, rand: *world.JavaRandom) ?world.Stack {
+    const self = active orelse return null;
+    const ref = self.block_refs[@intFromEnum(block)].drop orelse return null;
+    const lua = self.lua.?;
+
+    const outer_rand = self.current_rand;
+    self.current_rand = rand;
+    defer self.current_rand = outer_rand;
+
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    lua.pushInteger(meta);
+    lua.protectedCall(.{ .args = 1, .results = 3 }) catch {
+        std.log.warn("a mod drop failed: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+        return null;
+    };
+    defer lua.pop(3);
+
+    if (lua.typeOf(-3) != .string) return null;
+    const key = lua.toString(-3) catch unreachable;
+    const id: world.Id = if (world.Block.fromKey(key)) |block_id|
+        .{ .block = block_id }
+    else if (world.Item.fromKey(key)) |item_id|
+        .{ .item = item_id }
+    else {
+        std.log.warn("a mod dropped '{s}', which nothing is registered as", .{key});
+        return null;
+    };
+
+    const count = std.math.cast(u8, lua.toInteger(-2) catch 1) orelse return null;
+    if (count == 0) return null;
+    return .{ .id = id, .count = count, .meta = std.math.cast(u16, lua.toInteger(-1) catch 0) orelse 0 };
+}
+
+fn random(lua: *Lua) i32 {
+    const self = hooks(lua);
+    const rand = self.current_rand orelse blk: {
+        const world_map = self.current_world orelse lua.raiseErrorStr("random only rolls inside a callback", .{});
+        break :blk &world_map.rand;
+    };
+    const bound = lua.checkInteger(1);
+    if (bound <= 0) lua.argError(1, "the bound must be positive");
+    lua.pushInteger(rand.nextIntBound(std.math.cast(i32, bound) orelse lua.argError(1, "the bound is too large")));
+    return 1;
 }
 
 fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos, extra: anytype) bool {
@@ -114,6 +164,9 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         lua.setField(-2, entry.name);
     }
     lua.setField(-2, "world");
+    lua.pushLightUserdata(self);
+    lua.pushClosure(zlua.wrap(random), 1);
+    lua.setField(-2, "random");
     lua.pop(1);
 }
 
@@ -156,9 +209,12 @@ fn scheduleTick(lua: *Lua) i32 {
     return 0;
 }
 
+fn hooks(lua: *Lua) *Hooks {
+    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+}
+
 fn currentWorld(lua: *Lua) *world.World {
-    const self: *Hooks = @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
-    return self.current_world orelse lua.raiseErrorStr("the world can only be reached from a callback", .{});
+    return hooks(lua).current_world orelse lua.raiseErrorStr("the world can only be reached from a callback", .{});
 }
 
 fn position(lua: *Lua, first: i32) world.BlockPos {

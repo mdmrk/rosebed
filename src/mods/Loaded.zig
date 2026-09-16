@@ -349,6 +349,55 @@ test "an item's lua use callback gets the face and damage it was used with" {
     try std.testing.expect(try world.Item.shears.def().on_use.?(&world_map, pos, .up, .shears, 0));
 }
 
+test "a block drops what its lua callback names, rolled on the game's own random" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+    defer world.Item.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.register_item { key = "gem" }
+        \\rosebed.register_block {
+        \\  key = "ore",
+        \\  drop = function(meta)
+        \\    if meta == 5 then return nil end
+        \\    return "quartz:gem", 1 + rosebed.random(3)
+        \\  end,
+        \\}
+        \\rosebed.override_block("stone", { drop = function() return "dirt", 2 end })
+    );
+    defer loaded.deinit(std.testing.allocator);
+
+    const ore = world.Block.fromKey("quartz:ore").?;
+    var rand: world.JavaRandom = .init(42);
+    const dropped = ore.drop(0, &rand).?;
+    try std.testing.expectEqual(world.Item.fromKey("quartz:gem").?, dropped.id.item);
+
+    var reference: world.JavaRandom = .init(42);
+    try std.testing.expectEqual(@as(u8, @intCast(1 + reference.nextIntBound(3))), dropped.count);
+    try std.testing.expect(ore.drop(5, &rand) == null);
+
+    const stone_drop = world.Block.stone.drop(0, &rand).?;
+    try std.testing.expectEqual(world.Block.dirt, stone_drop.id.block);
+    try std.testing.expectEqual(@as(u8, 2), stone_drop.count);
+}
+
+test "a drop of something nothing is registered as leaves the block dropping nothing" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    defer world.Block.resetRegistry();
+
+    var loaded = try loadOne(io, tmp.dir,
+        \\rosebed.register_block { key = "ore", drop = function() return "quartz:nothing", 1 end }
+    );
+    defer loaded.deinit(std.testing.allocator);
+
+    var rand: world.JavaRandom = .init(1);
+    try std.testing.expect(world.Block.fromKey("quartz:ore").?.drop(0, &rand) == null);
+}
+
 test "a vanilla block can be given a lua callback" {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
