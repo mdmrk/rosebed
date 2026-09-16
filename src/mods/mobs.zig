@@ -32,8 +32,6 @@ pub const Refs = struct {
     on_tick: ?i32 = null,
 };
 
-// What a mod may change about a mob that already exists. Everything is optional,
-// so a field left out keeps whatever the mob had.
 pub const Patch = struct {
     health: ?i32 = null,
     speed: ?f32 = null,
@@ -104,8 +102,6 @@ const Override = struct {
 
 var overrides: [Mob.capacity]Override = @splat(.{});
 
-// The vanilla call is kept and run first, so an override adds to what the mob
-// already did rather than standing in for it.
 pub fn override(type_id: Mob.Id, patch: Patch, refs: PatchRefs) void {
     const slot = &overrides[type_id];
     if (patch.health) |health| slot.health = health;
@@ -188,8 +184,6 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
 const Wounds = enum { fresh, restored };
 
 fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
-    // Every vanilla mob sets its death roll once as it is built, the same one for
-    // the whole kind, so the first mob built tells us what to run before ours.
     if (animal.on_death != wrappers[type_id].onDeath) {
         overrides[type_id].inner_on_death = animal.on_death;
         animal.on_death = wrappers[type_id].onDeath;
@@ -197,7 +191,6 @@ fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
     const slot = overrides[type_id];
     if (slot.health) |health| {
         animal.max_health = health;
-        // A mob read back out of a save keeps the wounds it was written with.
         if (wounds == .fresh) animal.health = health;
     }
     if (slot.speed) |speed| animal.move_speed = speed;

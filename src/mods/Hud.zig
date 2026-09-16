@@ -36,8 +36,6 @@ pub fn install(self: *Hud, lua: *Lua) void {
     lua.pop(1);
 }
 
-// Runs the mods' draw callbacks for one frame and returns what they asked for, in
-// the order they asked. Everything returned lives in `frame`.
 pub fn collect(self: *Hud, frame: std.mem.Allocator, width: f32, height: f32) []const Command {
     const lua = self.lua orelse return &.{};
     const ref = self.on_draw orelse return &.{};
@@ -50,8 +48,6 @@ pub fn collect(self: *Hud, frame: std.mem.Allocator, width: f32, height: f32) []
     lua.pushNumber(width);
     lua.pushNumber(height);
     lua.protectedCall(.{ .args = 2, .results = 0 }) catch {
-        // A draw callback runs every frame, so one that fails is dropped rather than
-        // left to fill the log sixty times a second.
         std.log.warn("a mod hud failed and is switched off: {s}", .{lua.toString(-1) catch "(no message)"});
         lua.pop(1);
         self.on_draw = null;
@@ -104,8 +100,6 @@ fn rect(lua: *Lua) i32 {
     return 0;
 }
 
-// Colours are written the way the original's font renderer takes them, 0xAARRGGBB,
-// and like it a colour with no alpha given at all is drawn fully opaque.
 fn color(lua: *Lua, arg: i32) [4]u8 {
     const value: u32 = switch (lua.typeOf(arg)) {
         .none, .nil => 0xFFFFFFFF,

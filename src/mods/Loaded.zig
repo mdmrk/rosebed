@@ -82,9 +82,6 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         try shared.append(allocator, mod);
     }
     registrar.open = false;
-    // Only a mod with a common.lua can change what the server and the client have to
-    // agree on; one that is only a client.lua draws and listens on its own side, so a
-    // player can join with it and a server can run without it.
     const list = try describe(allocator, shared.items);
     Hooks.active = hooks;
     if (hooks.decorators.items.len > 0) world.generator.after_decorate = Hooks.decorate;
@@ -107,9 +104,6 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     };
 }
 
-// Only a client calls this. It runs after every common.lua, once registration has
-// closed, so a client script can draw and listen but never add content the server
-// would not know about.
 pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report: *std.Io.Writer) !void {
     self.hud.install(self.vm.lua);
     self.input.install(self.vm.lua);

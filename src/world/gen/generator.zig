@@ -50,8 +50,6 @@ pub const Dimension = enum(i8) {
     }
 };
 
-// Set by the mod loader. It runs once vanilla has decorated a chunk and before the
-// chunk is relit, so whatever it places is lit like a vanilla feature.
 pub var after_decorate: ?*const fn (*World, Dimension, i64, i32, i32) std.mem.Allocator.Error!void = null;
 
 pub const Generator = union(Dimension) {

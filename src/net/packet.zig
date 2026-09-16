@@ -105,8 +105,6 @@ pub const ModList = struct {
             if (mine.numeric != entry.numeric) return ids_differ;
         }
 
-        // A mob is spawned by its entity id, so the two sides have to have handed the
-        // same byte to the same mob or a client would build the wrong one.
         const mobs_differ = "Mod mob ids differ from the server";
         if (ours.mobs.len != theirs.mobs.len) return mobs_differ;
         for (theirs.mobs) |entry| {

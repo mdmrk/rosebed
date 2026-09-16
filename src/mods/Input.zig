@@ -19,8 +19,6 @@ pub fn install(self: *Input, lua: *Lua) void {
     lua.pop(1);
 }
 
-// A mod only hears keys; whatever the game does with one still happens. That keeps
-// a script from ever swallowing the key that opens the pause menu.
 pub fn key(self: *Input, name: []const u8, pressed: bool) void {
     const lua = self.lua orelse return;
     const ref = self.on_key orelse return;

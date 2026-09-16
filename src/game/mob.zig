@@ -121,8 +121,6 @@ fn canSpawnHereBase(animal: *const Animal, world_map: *const world.World, _: i64
 pub const Id = u16;
 pub const capacity: usize = 64;
 
-// Vanilla's mob entity ids stop at the wolf's 95, and Beta 1.7.3 never grew another,
-// so a registered type is given a byte past them and no vanilla client is ever sent one.
 pub const first_mod_wire_id: u8 = 96;
 
 const vanilla = [_]Type{

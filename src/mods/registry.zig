@@ -355,8 +355,6 @@ fn registerRecipe(lua: *Lua) i32 {
     lua.raiseErrorStr("a recipe is laid out in a 'grid' or gathered in 'any'", .{});
 }
 
-// An ingredient is a key, which takes any damage value, or { key, meta }, which
-// takes only that one - birch planks, or orange wool.
 fn readIngredient(lua: *Lua) game.crafting.Ingredient {
     switch (lua.typeOf(-1)) {
         .string => return .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) },
@@ -1059,7 +1057,6 @@ test "a mob names where it spawns, and is checked by the rule of that category" 
     try std.testing.expectEqual(@as(u32, 1), horror.spawns.?.max_per_chunk);
     try std.testing.expectEqual(game.mob.spawnCheckFor(.monster), horror.canSpawnHere);
 
-    // A mob that says nothing about spawning never joins a roll.
     try std.testing.expect(game.mob.get(game.mob.find("quartz:drifter").?).spawns == null);
 }
 
@@ -1107,7 +1104,6 @@ test "an overridden vanilla mob is built to the numbers the mod gave it" {
     try std.testing.expectEqual(@as(i32, 25), animal.health);
     try std.testing.expectApproxEqAbs(@as(f32, 1.5), animal.move_speed, 1.0e-6);
 
-    // A mob left alone keeps the numbers it always had.
     const cow = game.mob.get(game.mob.cow);
     const other = try cow.spawn(gpa, math.Vec3.init(0, 64, 0), &rand);
     defer cow.destroy(other, gpa);
@@ -1146,7 +1142,6 @@ test "an overridden mob still does what it always did, then what the mod added" 
     Hooks.active = &harness.hooks;
     defer Hooks.active = null;
 
-    // A creeper's afterTick is what walks its fuse, so it has to keep running.
     const before = game.mob.get(game.mob.creeper).afterTick;
     try harness.vm.exec("=quartz",
         \\seen = 0
@@ -1165,7 +1160,6 @@ test "an overridden mob still does what it always did, then what the mod added" 
     const animal = try kind.spawn(gpa, math.Vec3.init(4.5, 10.0, 6.5), &rand);
     defer kind.destroy(animal, gpa);
 
-    // Its afterTick is what sets off a creeper that has burned down.
     const creeper: *game.Creeper = @fieldParentPtr("animal", animal);
     creeper.pending_blast = game.Creeper.blast_size;
 
@@ -1179,7 +1173,6 @@ test "an overridden mob still does what it always did, then what the mod added" 
     };
     try kind.afterTick(animal, ticking);
 
-    // The vanilla half ran: the creeper went off.
     try std.testing.expect(creeper.pending_blast == null);
     try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("seen"));
     try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
@@ -1200,7 +1193,6 @@ test "two mods overriding one mob both get their say, and neither loses the vani
     const wrapped = game.mob.get(game.mob.pig).spawn;
     try std.testing.expect(vanilla != wrapped);
 
-    // The second override wrapped nothing further, so there is still one layer.
     try harness.vm.exec("=quartz", "rosebed.override_mob(\"Pig\", { health = 30 })");
     try std.testing.expectEqual(wrapped, game.mob.get(game.mob.pig).spawn);
 
@@ -1300,7 +1292,6 @@ test "an overridden mob leaves what the mod adds after its own drops" {
         while (kind.takeDrops(animal)) |drops| {
             switch (drops.stack.id) {
                 .item => |item| if (item == .leather) {
-                    // The cow's own leather always comes out before the mod's feathers.
                     try std.testing.expect(feathers == null);
                     saw_leather = true;
                 } else if (item == .feather) {

@@ -210,9 +210,6 @@ const max_choices = @max(
     water_creatures.len,
 ) + mob.capacity;
 
-// A registered type joins the roll of its own category, weighted beside the vanilla
-// entries rather than after them, so one roll still picks what spawns. With nothing
-// registered the list is the vanilla one and the roll reads the same numbers.
 fn weighChoices(
     category: Category,
     world_map: *const world.World,
@@ -1367,7 +1364,6 @@ test "registering a mob with no spawn rule leaves the vanilla spawns untouched" 
     _ = registerTestMob("rosebug:bumbler", null);
     const alongside = try tallyVanillaSpawns(gpa);
 
-    // Same mobs in the same places, and the roll left the generator on the same number.
     try std.testing.expectEqual(plain.seed, alongside.seed);
     try std.testing.expectEqualSlices(usize, &plain.counts, &alongside.counts);
 }
@@ -1429,7 +1425,6 @@ test "a registered mob is weighed beside the vanilla entries of its own category
     try std.testing.expectEqual(@as(i32, 60), creatures[creatures.len - 1].weight);
     try std.testing.expectEqual(bumbler, creatures[creatures.len - 1].chosen.modded);
 
-    // Its category is its own: the monster and water rolls never see it.
     var other: [max_choices]Choice = undefined;
     try std.testing.expectEqual(overworld_monsters.len, weighChoices(.monster, &w, .overworld, 3, 0, &other).len);
     try std.testing.expectEqual(water_creatures.len, weighChoices(.water_creature, &w, .overworld, 3, 0, &other).len);
@@ -1492,7 +1487,6 @@ test "a registered monster is held to the dark, and counted against the monster 
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
     }
 
-    // The plateau is lit to the sky, so the dark check keeps every one of them out.
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(horror));
 
     const monsters_before = liveCount(&entities, .monster);

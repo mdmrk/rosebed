@@ -154,8 +154,6 @@ pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []
     try self.decorators.append(arena, .{ .ref = ref, .salt = @bitCast(std.hash.Fnv1a_64.hash(mod_id)) });
 }
 
-// Seeded as vanilla seeds a chunk's decoration, then mixed with the mod's own id,
-// so what one mod places depends only on the world seed, the chunk and that mod.
 pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
     const self = active orelse return;
     const lua = self.lua orelse return;
@@ -185,9 +183,6 @@ pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, 
         lua.pushInteger(chunk_z);
         _ = lua.pushString(@tagName(dimension));
         lua.protectedCall(.{ .args = 3, .results = 0 }) catch {
-            // Every chunk is decorated once, so a failure is not retried and not
-            // switched off either: skipping it only for some chunks would make the
-            // world depend on when the error first happened.
             if (!decorator.warned) {
                 std.log.warn("a mod's world generation failed: {s}", .{lua.toString(-1) catch "(no message)"});
                 decorator.warned = true;
@@ -320,8 +315,6 @@ fn setBlock(lua: *Lua) i32 {
     const world_map = currentWorld(lua);
     const pos = position(lua, 1);
     const block = blockArgument(lua, 4);
-    // While a chunk is being decorated blocks go in quietly, as vanilla's generator
-    // places them: no neighbour is told, so nothing falls, flows or loads more chunks.
     if (hooks(lua).decorating) {
         world_map.setBlock(pos, block);
         if (lua.typeOf(5) != .none and lua.typeOf(5) != .nil) world_map.setBlockMetadata(pos, metadata(lua, 5));

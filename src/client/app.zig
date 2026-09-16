@@ -552,8 +552,6 @@ fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
         std.log.err("playing without mods, loading them failed ({t}): {s}", .{ err, report.written() });
         return null;
     };
-    // The content a server checks for is already in; a broken client script only
-    // loses the mods their hud and keys, not the world they share with a server.
     loaded.runClientScripts(io, dir, &report.writer) catch |err| {
         std.log.err("a mod's client script failed ({t}): {s}", .{ err, report.written() });
     };
@@ -596,8 +594,6 @@ fn applyModTextures(app_state: *AppState) bool {
     return true;
 }
 
-// A press only reaches the mods while the world has focus, so typing in chat is not
-// read as play. A release always does, so a mod never thinks a key is still held.
 fn tellModsKey(app_state: *AppState, current: sdl3.events.Event) void {
     const loaded = app_state.loaded_mods orelse return;
     if (app_state.screen != .playing) return;
@@ -4036,8 +4032,6 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
         drawEntityMesh(&painting_mesh);
         app_state.textures.terrain.bind();
     }
-
-
 
     var arrow_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer arrow_mesh.deinit(app_state.frame);
