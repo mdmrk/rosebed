@@ -355,6 +355,25 @@ fn registerRecipe(lua: *Lua) i32 {
     lua.raiseErrorStr("a recipe is laid out in a 'grid' or gathered in 'any'", .{});
 }
 
+// An ingredient is a key, which takes any damage value, or { key, meta }, which
+// takes only that one - birch planks, or orange wool.
+fn readIngredient(lua: *Lua) game.crafting.Ingredient {
+    switch (lua.typeOf(-1)) {
+        .string => return .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) },
+        .table => {
+            const table = lua.getTop();
+            if (lua.getIndex(table, 1) != .string) lua.raiseErrorStr("an ingredient is a key, or { key, meta }", .{});
+            const id = keyedId(lua, lua.toString(-1) catch unreachable);
+            lua.pop(1);
+            defer lua.pop(1);
+            if (lua.getIndex(table, 2) == .nil) return .{ .id = id };
+            const meta = lua.toInteger(-1) catch lua.raiseErrorStr("an ingredient's meta must be a whole number", .{});
+            return .{ .id = id, .meta = std.math.cast(u16, meta) orelse lua.raiseErrorStr("an ingredient's meta is out of range", .{}) };
+        },
+        else => lua.raiseErrorStr("an ingredient is a key, or { key, meta }", .{}),
+    }
+}
+
 fn keyedId(lua: *Lua, key: [:0]const u8) world.Id {
     if (world.Block.fromKey(key)) |block| return .{ .block = block };
     if (world.Item.fromKey(key)) |item| return .{ .item = item };
@@ -388,8 +407,8 @@ fn readGrid(lua: *Lua, result: world.Id, count: u8, meta: u16) game.crafting.Rec
         for (row, 0..) |letter, column| {
             if (letter == ' ' or letter == '.') continue;
             var name: [1:0]u8 = .{letter};
-            if (lua.getField(where, &name) != .string) lua.raiseErrorStr("'where' does not name '%s'", .{&name});
-            pattern[column + height * width] = .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) };
+            if (lua.getField(where, &name) == .nil) lua.raiseErrorStr("'where' does not name '%s'", .{&name});
+            pattern[column + height * width] = readIngredient(lua);
             lua.pop(1);
         }
         lua.pop(1);
@@ -412,15 +431,15 @@ fn readShapeless(lua: *Lua, result: world.Id, count: u8, meta: u16) game.craftin
     var ingredients: [game.crafting.max_shapeless]?game.crafting.Ingredient = @splat(null);
     var gathered: usize = 0;
     while (gathered < ingredients.len) : (gathered += 1) {
-        if (lua.getIndex(list, @intCast(gathered + 1)) != .string) {
+        if (lua.getIndex(list, @intCast(gathered + 1)) == .nil) {
             lua.pop(1);
             break;
         }
-        ingredients[gathered] = .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) };
+        ingredients[gathered] = readIngredient(lua);
         lua.pop(1);
     }
     if (gathered == 0) lua.raiseErrorStr("a gathered recipe needs at least one ingredient", .{});
-    if (lua.getIndex(list, @intCast(gathered + 1)) == .string) lua.raiseErrorStr("a gathered recipe holds at most four ingredients", .{});
+    if (lua.getIndex(list, @intCast(gathered + 1)) != .nil) lua.raiseErrorStr("a gathered recipe holds at most four ingredients", .{});
     lua.pop(1);
 
     return .{ .ingredients = ingredients, .output_id = result, .output_count = count, .output_meta = meta };
@@ -1334,4 +1353,52 @@ test "decorating is only offered while mods load" {
     harness.registrar.open = false;
 
     try harness.expectFailure("rosebed.on_decorate(function() end)", "registration is closed once every mod has loaded");
+}
+
+test "a recipe can ask for one damage value of an ingredient" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_item { key = "gem" }
+        \\rosebed.register_item { key = "sash" }
+        \\rosebed.register_recipe {
+        \\  grid = { "gw" },
+        \\  where = { g = "quartz:gem", w = { "wool", 1 } },
+        \\  result = "quartz:sash",
+        \\}
+        \\rosebed.register_recipe { any = { "quartz:gem", { "dye", 4 } }, result = "quartz:gem", count = 3 }
+    );
+
+    const gem: world.Id = .{ .item = world.Item.fromKey("quartz:gem").? };
+    var grid: [4]?game.Inventory.ItemStack = @splat(null);
+
+    grid[0] = .{ .id = gem, .count = 1 };
+    grid[1] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 1 };
+    try std.testing.expectEqual(world.Item.fromKey("quartz:sash").?, game.crafting.findMatch(&grid, game.crafting.player_grid_size).?.id.item);
+    grid[1].?.meta = 0;
+    try std.testing.expect(game.crafting.findMatch(&grid, game.crafting.player_grid_size) == null);
+
+    grid = @splat(null);
+    grid[2] = .{ .id = gem, .count = 1 };
+    grid[3] = .{ .id = .{ .item = .dye }, .count = 1, .meta = 4 };
+    try std.testing.expectEqual(@as(u8, 3), game.crafting.findMatch(&grid, game.crafting.player_grid_size).?.count);
+    grid[3].?.meta = 1;
+    try std.testing.expect(game.crafting.findMatch(&grid, game.crafting.player_grid_size) == null);
+}
+
+test "an ingredient table has to name something first" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure(
+        "rosebed.register_recipe { any = { { 4, \"dye\" } }, result = \"stick\" }",
+        "an ingredient is a key, or { key, meta }",
+    );
+    try harness.expectFailure(
+        "rosebed.register_recipe { any = { { \"dye\", 70000 } }, result = \"stick\" }",
+        "an ingredient's meta is out of range",
+    );
 }
