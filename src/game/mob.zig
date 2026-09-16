@@ -180,6 +180,11 @@ pub fn register(entry: Type) Id {
     return @intCast(count - 1);
 }
 
+pub fn replace(id: Id, entry: Type) void {
+    std.debug.assert(id < count);
+    types[id] = entry;
+}
+
 pub fn find(name: []const u8) ?Id {
     for (types[0..count], 0..) |entry, id| {
         if (std.mem.eql(u8, entry.name, name)) return @intCast(id);

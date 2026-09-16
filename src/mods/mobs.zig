@@ -32,6 +32,17 @@ pub const Refs = struct {
     on_tick: ?i32 = null,
 };
 
+// What a mod may change about a mob that already exists. Everything is optional,
+// so a field left out keeps whatever the mob had.
+pub const Patch = struct {
+    health: ?i32 = null,
+    speed: ?f32 = null,
+};
+
+pub const PatchRefs = struct {
+    on_tick: ?i32 = null,
+};
+
 pub const default_width: f64 = 0.6;
 pub const default_height: f64 = 1.8;
 
@@ -75,6 +86,89 @@ pub fn claim(def: Def, refs: Refs) !Mob.Id {
 
 pub fn reset() void {
     count = 0;
+    overrides = @splat(.{});
+}
+
+const Override = struct {
+    health: ?i32 = null,
+    speed: ?f32 = null,
+    on_tick: ?i32 = null,
+    inner_spawn: ?*const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal = null,
+    inner_load: ?*const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal = null,
+    inner_after_tick: ?*const fn (*Animal, Mob.Tick) anyerror!void = null,
+};
+
+var overrides: [Mob.capacity]Override = @splat(.{});
+
+// The vanilla call is kept and run first, so an override adds to what the mob
+// already did rather than standing in for it.
+pub fn override(type_id: Mob.Id, patch: Patch, refs: PatchRefs) void {
+    const slot = &overrides[type_id];
+    if (patch.health) |health| slot.health = health;
+    if (patch.speed) |speed| slot.speed = speed;
+    if (refs.on_tick) |ref| slot.on_tick = ref;
+
+    var definition = Mob.get(type_id).*;
+    if (slot.inner_spawn == null) {
+        slot.inner_spawn = definition.spawn;
+        slot.inner_load = definition.load;
+        slot.inner_after_tick = definition.afterTick;
+        definition.spawn = wrappers[type_id].spawn;
+        definition.load = wrappers[type_id].load;
+        definition.afterTick = wrappers[type_id].afterTick;
+        Mob.replace(type_id, definition);
+    }
+}
+
+const Wrapper = struct {
+    spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
+    load: *const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal,
+    afterTick: *const fn (*Animal, Mob.Tick) anyerror!void,
+};
+
+const wrappers: [Mob.capacity]Wrapper = blk: {
+    var out: [Mob.capacity]Wrapper = undefined;
+    for (&out, 0..) |*entry, type_id| entry.* = wrapperFor(type_id);
+    break :blk out;
+};
+
+fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
+    return .{
+        .spawn = &struct {
+            fn call(gpa: std.mem.Allocator, position: math.Vec3, rand: *world.JavaRandom) anyerror!*Animal {
+                const animal = try overrides[type_id].inner_spawn.?(gpa, position, rand);
+                reshape(type_id, animal, .fresh);
+                return animal;
+            }
+        }.call,
+        .load = &struct {
+            fn call(gpa: std.mem.Allocator, entity: world.nbt.Compound) anyerror!?*Animal {
+                const animal = try overrides[type_id].inner_load.?(gpa, entity) orelse return null;
+                reshape(type_id, animal, .restored);
+                return animal;
+            }
+        }.call,
+        .afterTick = &struct {
+            fn call(animal: *Animal, context: Mob.Tick) anyerror!void {
+                try overrides[type_id].inner_after_tick.?(animal, context);
+                const ref = overrides[type_id].on_tick orelse return;
+                const hooks = Hooks.active orelse return;
+                hooks.callMob(ref, animal, context.world_map, context.rand);
+            }
+        }.call,
+    };
+}
+
+const Wounds = enum { fresh, restored };
+
+fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
+    const slot = overrides[type_id];
+    if (slot.health) |health| {
+        animal.max_health = health;
+        // A mob read back out of a save keeps the wounds it was written with.
+        if (wounds == .fresh) animal.health = health;
+    }
+    if (slot.speed) |speed| animal.move_speed = speed;
 }
 
 const Entry = struct {

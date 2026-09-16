@@ -50,6 +50,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "override_block", .function = zlua.wrap(overrideFn(world.Block, world.block.Def, "block")) },
         .{ .name = "override_item", .function = zlua.wrap(overrideFn(world.Item, world.item.Def, "item")) },
         .{ .name = "register_mob", .function = zlua.wrap(registerMob) },
+        .{ .name = "override_mob", .function = zlua.wrap(overrideMob) },
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
     };
     for (functions) |entry| {
@@ -133,11 +134,16 @@ const MobExtras = struct {
     texture: ?[]const u8 = null,
 };
 
+const PatchExtras = struct {
+    refs: mobs.PatchRefs = .{},
+};
+
 fn Extras(comptime Def: type) type {
     return switch (Def) {
         world.block.Def => BlockExtras,
         world.item.Def => ItemExtras,
         mobs.Def => MobExtras,
+        mobs.Patch => PatchExtras,
         else => comptime unreachable,
     };
 }
@@ -183,9 +189,11 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             return;
         }
     } else {
-        if (std.mem.eql(u8, name, "texture")) {
-            extras.texture = texturePath(lua, registrar, -1, "texture");
-            return;
+        if (comptime @hasField(Extras(Def), "texture")) {
+            if (std.mem.eql(u8, name, "texture")) {
+                extras.texture = texturePath(lua, registrar, -1, "texture");
+                return;
+            }
         }
         if (comptime Extras(Def) == MobExtras) {
             if (std.mem.eql(u8, name, "spawns")) {
@@ -232,6 +240,22 @@ fn registerMob(lua: *Lua) i32 {
     }
     _ = lua.pushString(definition.key);
     return 1;
+}
+
+fn overrideMob(lua: *Lua) i32 {
+    const registrar = context(lua);
+    const name = lua.checkString(1);
+    lua.checkType(2, .table);
+    const type_id = game.mob.find(name) orelse lua.raiseErrorStr("no mob is registered as '%s'", .{name.ptr});
+
+    var patch: mobs.Patch = .{};
+    var extras: PatchExtras = .{};
+    readFields(mobs.Patch, &patch, &extras, lua, registrar, 2, .reject_key);
+    if (patch.health) |health| {
+        if (health <= 0) lua.raiseErrorStr("'health' is at least one", .{});
+    }
+    mobs.override(type_id, patch, extras.refs);
+    return 0;
 }
 
 fn readSpawns(lua: *Lua) game.mob.Spawns {
@@ -998,4 +1022,137 @@ test "a spawn rule has to say where and how often" {
         "rosebed.register_mob { key = \"bumbler\", spawns = \"creature\" }",
         "'spawns' names a 'category' and a 'weight'",
     );
+}
+
+test "an overridden vanilla mob is built to the numbers the mod gave it" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+
+    try harness.vm.exec("=quartz", "rosebed.override_mob(\"Pig\", { health = 25, speed = 1.5 })");
+
+    const kind = game.mob.get(game.mob.pig);
+    var rand: world.JavaRandom = .init(2);
+    const animal = try kind.spawn(gpa, math.Vec3.init(0, 64, 0), &rand);
+    defer kind.destroy(animal, gpa);
+
+    try std.testing.expectEqual(@as(i32, 25), animal.max_health);
+    try std.testing.expectEqual(@as(i32, 25), animal.health);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), animal.move_speed, 1.0e-6);
+
+    // A mob left alone keeps the numbers it always had.
+    const cow = game.mob.get(game.mob.cow);
+    const other = try cow.spawn(gpa, math.Vec3.init(0, 64, 0), &rand);
+    defer cow.destroy(other, gpa);
+    try std.testing.expectEqual(game.Cow.max_health, other.max_health);
+}
+
+test "an overridden mob read back out of a save keeps the wounds it was written with" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+
+    const kind = game.mob.get(game.mob.pig);
+    var rand: world.JavaRandom = .init(2);
+    const animal = try kind.spawn(gpa, math.Vec3.init(0, 64, 0), &rand);
+    defer kind.destroy(animal, gpa);
+    animal.health = 4;
+
+    var stored = try kind.store(animal, gpa);
+    defer world.nbt.deinit(gpa, &stored);
+
+    try harness.vm.exec("=quartz", "rosebed.override_mob(\"Pig\", { health = 25 })");
+
+    const restored = try game.mob.get(game.mob.pig).load(gpa, stored.compound) orelse return error.TestUnexpectedResult;
+    defer game.mob.get(game.mob.pig).destroy(restored, gpa);
+    try std.testing.expectEqual(@as(i32, 4), restored.health);
+    try std.testing.expectEqual(@as(i32, 25), restored.max_health);
+}
+
+test "an overridden mob still does what it always did, then what the mod added" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    // A creeper's afterTick is what walks its fuse, so it has to keep running.
+    const before = game.mob.get(game.mob.creeper).afterTick;
+    try harness.vm.exec("=quartz",
+        \\seen = 0
+        \\rosebed.override_mob("Creeper", { on_tick = function(x, y, z) seen = seen + 1 end })
+    );
+    try std.testing.expect(before != game.mob.get(game.mob.creeper).afterTick);
+
+    var world_map: world.World = .init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(0, 0);
+    var entities: game.Entities = .{};
+    defer entities.deinit(gpa);
+    var rand: world.JavaRandom = .init(5);
+
+    const kind = game.mob.get(game.mob.creeper);
+    const animal = try kind.spawn(gpa, math.Vec3.init(4.5, 10.0, 6.5), &rand);
+    defer kind.destroy(animal, gpa);
+
+    // Its afterTick is what sets off a creeper that has burned down.
+    const creeper: *game.Creeper = @fieldParentPtr("animal", animal);
+    creeper.pending_blast = game.Creeper.blast_size;
+
+    const ticking: game.mob.Tick = .{
+        .entities = &entities,
+        .gpa = gpa,
+        .world_map = &world_map,
+        .roster = &.{},
+        .players = .{},
+        .rand = &rand,
+    };
+    try kind.afterTick(animal, ticking);
+
+    // The vanilla half ran: the creeper went off.
+    try std.testing.expect(creeper.pending_blast == null);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("seen"));
+    try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "two mods overriding one mob both get their say, and neither loses the vanilla call" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+
+    const vanilla = game.mob.get(game.mob.pig).spawn;
+    try harness.vm.exec("=quartz",
+        \\rosebed.override_mob("Pig", { health = 25 })
+        \\rosebed.override_mob("Pig", { speed = 1.5 })
+    );
+    const wrapped = game.mob.get(game.mob.pig).spawn;
+    try std.testing.expect(vanilla != wrapped);
+
+    // The second override wrapped nothing further, so there is still one layer.
+    try harness.vm.exec("=quartz", "rosebed.override_mob(\"Pig\", { health = 30 })");
+    try std.testing.expectEqual(wrapped, game.mob.get(game.mob.pig).spawn);
+
+    var rand: world.JavaRandom = .init(2);
+    const kind = game.mob.get(game.mob.pig);
+    const animal = try kind.spawn(gpa, math.Vec3.init(0, 64, 0), &rand);
+    defer kind.destroy(animal, gpa);
+
+    try std.testing.expectEqual(@as(i32, 30), animal.max_health);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), animal.move_speed, 1.0e-6);
+}
+
+test "a mob has to exist before it can be changed" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.override_mob(\"Turnip\", { health = 4 })", "no mob is registered as 'Turnip'");
+    try harness.expectFailure("rosebed.override_mob(\"Pig\", { health = 0 })", "'health' is at least one");
+    try harness.expectFailure("rosebed.override_mob(\"Pig\", { legs = 6 })", "unknown field 'legs'");
 }
