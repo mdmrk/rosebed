@@ -105,17 +105,6 @@ pub fn setupModules(
     const lua_lib = zlua_dep.artifact("lua");
     for (lua_system_headers) |include_path| lua_lib.root_module.addSystemIncludePath(include_path);
 
-    const mods_mod = b.createModule(.{
-        .root_source_file = b.path("src/mods/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "zlua", .module = zlua_dep.module("zlua") },
-            .{ .name = "world", .module = world_mod },
-            .{ .name = "net", .module = net_mod },
-        },
-    });
-
     const audio_mod = b.createModule(.{
         .root_source_file = b.path("src/audio/root.zig"),
         .target = target,
@@ -136,6 +125,18 @@ pub fn setupModules(
             .{ .name = "world", .module = world_mod },
             .{ .name = "assets", .module = assets_mod },
             .{ .name = "net", .module = net_mod },
+        },
+    });
+
+    const mods_mod = b.createModule(.{
+        .root_source_file = b.path("src/mods/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zlua", .module = zlua_dep.module("zlua") },
+            .{ .name = "world", .module = world_mod },
+            .{ .name = "net", .module = net_mod },
+            .{ .name = "game", .module = game_mod },
         },
     });
 

@@ -317,7 +317,7 @@ const recipes = tool_recipes ++ armor_recipes ++ [_]Recipe{
     shapedMeta(1, 1, &.{b(.block_lapis)}, .{ .item = .dye }, 9, world.item.dye_meta_lapis),
 };
 
-const max_shapeless = 4;
+pub const max_shapeless = 4;
 
 pub const ShapelessRecipe = struct {
     ingredients: [max_shapeless]?Ingredient,

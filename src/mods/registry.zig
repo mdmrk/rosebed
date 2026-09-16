@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const game = @import("game");
 const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
@@ -38,6 +39,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "register_item", .function = zlua.wrap(registerFn(world.Item, world.item.Def)) },
         .{ .name = "override_block", .function = zlua.wrap(overrideFn(world.Block, world.block.Def, "block")) },
         .{ .name = "override_item", .function = zlua.wrap(overrideFn(world.Item, world.item.Def, "item")) },
+        .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(registrar);
@@ -184,6 +186,103 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
     lua.raiseErrorStr("unknown field '%s'", .{name.ptr});
 }
 
+const max_grid = game.crafting.workbench_grid_size;
+
+fn registerRecipe(lua: *Lua) i32 {
+    _ = context(lua);
+    lua.checkType(1, .table);
+
+    if (lua.getField(1, "result") != .string) lua.raiseErrorStr("'result' must be a registered key", .{});
+    const result = keyedId(lua, lua.toString(-1) catch unreachable);
+    lua.pop(1);
+    const count = recipeNumber(lua, u8, "count", 1);
+    const meta = recipeNumber(lua, u16, "meta", 0);
+
+    if (lua.getField(1, "grid") == .table) {
+        game.crafting.register(readGrid(lua, result, count, meta)) catch lua.raiseErrorStr("no room is left for another recipe", .{});
+        return 0;
+    }
+    lua.pop(1);
+
+    if (lua.getField(1, "any") == .table) {
+        game.crafting.registerShapeless(readShapeless(lua, result, count, meta)) catch lua.raiseErrorStr("no room is left for another recipe", .{});
+        return 0;
+    }
+    lua.pop(1);
+    lua.raiseErrorStr("a recipe is laid out in a 'grid' or gathered in 'any'", .{});
+}
+
+fn keyedId(lua: *Lua, key: [:0]const u8) world.Id {
+    if (world.Block.fromKey(key)) |block| return .{ .block = block };
+    if (world.Item.fromKey(key)) |item| return .{ .item = item };
+    lua.raiseErrorStr("nothing is registered as '%s'", .{key.ptr});
+}
+
+fn recipeNumber(lua: *Lua, comptime T: type, name: [:0]const u8, fallback: T) T {
+    defer lua.pop(1);
+    if (lua.getField(1, name) == .nil) return fallback;
+    const value = lua.toInteger(-1) catch lua.raiseErrorStr("'%s' must be a whole number", .{name.ptr});
+    return std.math.cast(T, value) orelse lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
+}
+
+fn readGrid(lua: *Lua, result: world.Id, count: u8, meta: u16) game.crafting.Recipe {
+    const grid = lua.getTop();
+    if (lua.getField(1, "where") != .table) lua.raiseErrorStr("'where' names what each letter of the grid is", .{});
+    const where = lua.getTop();
+
+    var pattern: [max_grid * max_grid]?game.crafting.Ingredient = @splat(null);
+    var width: usize = 0;
+    var height: usize = 0;
+    while (height < max_grid) : (height += 1) {
+        if (lua.getIndex(grid, @intCast(height + 1)) != .string) {
+            lua.pop(1);
+            break;
+        }
+        const row = lua.toString(-1) catch unreachable;
+        if (height == 0) width = row.len;
+        if (row.len == 0 or row.len > max_grid) lua.raiseErrorStr("a grid row is 1 to 3 letters wide", .{});
+        if (row.len != width) lua.raiseErrorStr("every row of a grid is the same width", .{});
+        for (row, 0..) |letter, column| {
+            if (letter == ' ' or letter == '.') continue;
+            var name: [1:0]u8 = .{letter};
+            if (lua.getField(where, &name) != .string) lua.raiseErrorStr("'where' does not name '%s'", .{&name});
+            pattern[column + height * width] = .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) };
+            lua.pop(1);
+        }
+        lua.pop(1);
+    }
+    if (height == 0) lua.raiseErrorStr("a grid needs at least one row", .{});
+    lua.pop(1);
+
+    return .{
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .pattern = pattern,
+        .output_id = result,
+        .output_count = count,
+        .output_meta = meta,
+    };
+}
+
+fn readShapeless(lua: *Lua, result: world.Id, count: u8, meta: u16) game.crafting.ShapelessRecipe {
+    const list = lua.getTop();
+    var ingredients: [game.crafting.max_shapeless]?game.crafting.Ingredient = @splat(null);
+    var gathered: usize = 0;
+    while (gathered < ingredients.len) : (gathered += 1) {
+        if (lua.getIndex(list, @intCast(gathered + 1)) != .string) {
+            lua.pop(1);
+            break;
+        }
+        ingredients[gathered] = .{ .id = keyedId(lua, lua.toString(-1) catch unreachable) };
+        lua.pop(1);
+    }
+    if (gathered == 0) lua.raiseErrorStr("a gathered recipe needs at least one ingredient", .{});
+    if (lua.getIndex(list, @intCast(gathered + 1)) == .string) lua.raiseErrorStr("a gathered recipe holds at most four ingredients", .{});
+    lua.pop(1);
+
+    return .{ .ingredients = ingredients, .output_id = result, .output_count = count, .output_meta = meta };
+}
+
 fn readShape(lua: *Lua) world.Shape {
     switch (lua.typeOf(-1)) {
         .string => {
@@ -319,6 +418,7 @@ const Harness = struct {
         self.arena.deinit();
         world.Block.resetRegistry();
         world.Item.resetRegistry();
+        game.crafting.resetRegistry();
     }
 
     fn expectFailure(self: *Harness, source: []const u8, message: []const u8) !void {
@@ -463,6 +563,54 @@ test "a block names the textures its faces are painted with" {
     try std.testing.expectEqual(world.Block.stone, textures[2].block);
     try std.testing.expectEqualStrings("granite.png", textures[2].faces.get(.west).?);
     try std.testing.expect(textures[2].faces.get(.up) == null);
+}
+
+test "a mod lays out a recipe on the grid or gathers it in any order" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_item { key = "gem" }
+        \\rosebed.register_item { key = "wand" }
+        \\rosebed.register_recipe {
+        \\  grid = { "g", "s" },
+        \\  where = { g = "quartz:gem", s = "stick" },
+        \\  result = "quartz:wand",
+        \\}
+        \\rosebed.register_recipe { any = { "quartz:gem", "coal" }, result = "quartz:gem", count = 2 }
+    );
+
+    const gem = world.Item.fromKey("quartz:gem").?;
+    var grid: [4]?game.Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = gem }, .count = 1 };
+    grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
+    const wand = game.crafting.findMatch(&grid, game.crafting.player_grid_size).?;
+    try std.testing.expectEqual(world.Item.fromKey("quartz:wand").?, wand.id.item);
+    try std.testing.expectEqual(@as(u8, 1), wand.count);
+
+    grid = @splat(null);
+    grid[1] = .{ .id = .{ .item = .coal }, .count = 1 };
+    grid[3] = .{ .id = .{ .item = gem }, .count = 1 };
+    const gathered = game.crafting.findMatch(&grid, game.crafting.player_grid_size).?;
+    try std.testing.expectEqual(gem, gathered.id.item);
+    try std.testing.expectEqual(@as(u8, 2), gathered.count);
+}
+
+test "a recipe names what it is made of and what it makes" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_recipe { any = { 'stick' } }", "'result' must be a registered key");
+    try harness.expectFailure("rosebed.register_recipe { any = { 'stick' }, result = 'quartz:nothing' }", "nothing is registered as 'quartz:nothing'");
+    try harness.expectFailure("rosebed.register_recipe { result = 'stick' }", "a recipe is laid out in a 'grid' or gathered in 'any'");
+    try harness.expectFailure("rosebed.register_recipe { grid = { 'gg' }, result = 'stick' }", "'where' names what each letter of the grid is");
+    try harness.expectFailure("rosebed.register_recipe { grid = { 'gg' }, where = {}, result = 'stick' }", "'where' does not name 'g'");
+    try harness.expectFailure("rosebed.register_recipe { grid = { 'gg', 'g' }, where = { g = 'stick' }, result = 'stick' }", "every row of a grid is the same width");
+    try harness.expectFailure("rosebed.register_recipe { grid = { 'gggg' }, where = { g = 'stick' }, result = 'stick' }", "a grid row is 1 to 3 letters wide");
+    try harness.expectFailure("rosebed.register_recipe { any = { 'stick', 'stick', 'stick', 'stick', 'stick' }, result = 'stick' }", "a gathered recipe holds at most four ingredients");
+    try harness.expectFailure("rosebed.register_recipe { any = { 'stick' }, result = 'stick', count = 300 }", "'count' is out of range");
 }
 
 test "a block can be a cross or stand less than a block high" {
