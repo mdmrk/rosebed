@@ -226,19 +226,56 @@ fn tryParse(text: ?[]const u8, fallback: u8) u8 {
 
 pub fn resolveId(raw: u32) ?world.Id {
     if (raw == 0) return null;
-    if (raw < 256) {
-        const id: world.Block = @enumFromInt(raw);
-        return if (std.enums.tagName(world.Block, id) == null) null else .{ .block = id };
-    }
+    if (raw < 256) return .{ .block = resolveBlock(raw) orelse return null };
     if (raw > std.math.maxInt(u16)) return null;
     const id: world.Item = @enumFromInt(raw);
-    return if (std.enums.tagName(world.Item, id) == null) null else .{ .item = id };
+    return if (std.enums.tagName(world.Item, id) == null and id.def().key.len == 0) null else .{ .item = id };
 }
 
 pub fn resolveBlock(raw: u32) ?world.Block {
     if (raw > 255) return null;
     const id: world.Block = @enumFromInt(raw);
-    return if (std.enums.tagName(world.Block, id) == null) null else id;
+    return if (std.enums.tagName(world.Block, id) == null and id.def().key.len == 0) null else id;
+}
+
+pub fn resolveBlockName(name: []const u8) ?world.Block {
+    if (std.meta.stringToEnum(world.Block, name)) |id| return id;
+    const found = registeredName(name, .blocks) orelse return null;
+    return found.block;
+}
+
+const Searched = enum { blocks, everything };
+
+fn registeredName(name: []const u8, searched: Searched) ?world.Id {
+    if (std.mem.indexOfScalar(u8, name, ':') != null) {
+        if (world.Block.fromKey(name)) |id| return .{ .block = id };
+        if (searched == .everything) {
+            if (world.Item.fromKey(name)) |id| return .{ .item = id };
+        }
+        return null;
+    }
+
+    var found: ?world.Id = null;
+    for (0..256) |raw| {
+        const id: world.Block = @enumFromInt(raw);
+        if (!namespacedAs(id.def().key, name)) continue;
+        if (found != null) return null;
+        found = .{ .block = id };
+    }
+    if (searched == .everything) {
+        for (0..world.item.def_capacity) |offset| {
+            const id: world.Item = @enumFromInt(world.item.first_item_id + offset);
+            if (!namespacedAs(id.def().key, name)) continue;
+            if (found != null) return null;
+            found = .{ .item = id };
+        }
+    }
+    return found;
+}
+
+fn namespacedAs(key: []const u8, name: []const u8) bool {
+    const colon = std.mem.indexOfScalar(u8, key, ':') orelse return false;
+    return std.mem.eql(u8, key[colon + 1 ..], name);
 }
 
 fn verbFromWord(word: []const u8) ?Verb {
@@ -249,7 +286,7 @@ fn verbFromWord(word: []const u8) ?Verb {
 pub fn resolveName(name: []const u8) ?world.Id {
     if (std.meta.stringToEnum(world.Item, name)) |id| return .{ .item = id };
     if (std.meta.stringToEnum(world.Block, name)) |id| return .{ .block = id };
-    return null;
+    return registeredName(name, .everything);
 }
 
 pub fn parse(line: []const u8) Result {
@@ -308,7 +345,7 @@ fn parseFill(words: *Words) Result {
     const id = if (std.fmt.parseInt(u32, id_text, 10)) |raw|
         resolveBlock(raw) orelse return .{ .missing_block = id_text }
     else |_|
-        std.meta.stringToEnum(world.Block, id_text) orelse return .{ .missing_block = id_text };
+        resolveBlockName(id_text) orelse return .{ .missing_block = id_text };
 
     const from: world.BlockPos = .init(
         @min(coords[0], coords[3]),
@@ -744,4 +781,33 @@ test "clear takes no arguments at all" {
     try std.testing.expectEqual(Result.clear, parse("/clear"));
     try std.testing.expectEqual(Result.nothing, parse("/clear all"));
     try std.testing.expectEqualStrings("Clear", parse("/Clear").unknown);
+}
+
+test "give and fill reach a mod's blocks and items by key, bare name or number" {
+    defer world.Block.resetRegistry();
+    defer world.Item.resetRegistry();
+
+    const block = try world.Block.claim(.{ .key = "beetles:amber_block" });
+    const item = try world.Item.claim(.{ .key = "beetles:amber" });
+
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give beetles:amber_block").give.id);
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give amber_block 4").give.id);
+    try std.testing.expectEqual(world.Id{ .item = item }, parse("/give amber").give.id);
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give 97").give.id);
+    try std.testing.expectEqual(world.Id{ .item = item }, parse(std.fmt.comptimePrint("/give {d}", .{world.item.first_item_id + 104})).give.id);
+
+    try std.testing.expectEqual(block, parse("/fill 0 0 0 1 1 1 amber_block").fill.id);
+    try std.testing.expectEqual(block, parse("/fill 0 0 0 1 1 1 97").fill.id);
+    try std.testing.expectEqualStrings("amber", parse("/fill 0 0 0 1 1 1 amber").missing_block);
+    try std.testing.expectEqualStrings("beetles:nothing", parse("/give beetles:nothing").unparsed_item);
+}
+
+test "a bare name two mods both registered names neither" {
+    defer world.Block.resetRegistry();
+
+    _ = try world.Block.claim(.{ .key = "beetles:marble" });
+    _ = try world.Block.claim(.{ .key = "quarry:marble" });
+
+    try std.testing.expectEqualStrings("marble", parse("/give marble").unparsed_item);
+    try std.testing.expectEqual(world.Block.fromKey("quarry:marble").?, parse("/give quarry:marble").give.id.block);
 }

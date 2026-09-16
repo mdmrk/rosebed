@@ -1556,8 +1556,8 @@ fn resourceName(stack: world.Stack) []const u8 {
     const named = stack.displayName();
     if (named.len > 0) return named;
     return switch (stack.id) {
-        .block => |id| @tagName(id),
-        .item => |id| @tagName(id),
+        .block => |id| std.enums.tagName(world.Block, id) orelse id.def().key,
+        .item => |id| std.enums.tagName(world.Item, id) orelse id.def().key,
     };
 }
 
