@@ -548,10 +548,16 @@ fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
     defer dir.close(io);
     var report: std.Io.Writer.Allocating = .init(gpa);
     defer report.deinit();
-    return Mods.load(gpa, io, dir, &report.writer) catch |err| {
+    var loaded = Mods.load(gpa, io, dir, &report.writer) catch |err| {
         std.log.err("playing without mods, loading them failed ({t}): {s}", .{ err, report.written() });
         return null;
     };
+    // The content a server checks for is already in; a broken client script only
+    // loses the mods their hud and keys, not the world they share with a server.
+    loaded.runClientScripts(io, dir, &report.writer) catch |err| {
+        std.log.err("a mod's client script failed ({t}): {s}", .{ err, report.written() });
+    };
+    return loaded;
 }
 
 const ModTiles = std.StringHashMapUnmanaged(?u8);
@@ -588,6 +594,26 @@ fn applyModTextures(app_state: *AppState) bool {
     }
     loadModSkins(app_state, mods_dir, loaded.mob_skins, arena.allocator());
     return true;
+}
+
+fn drawModHud(app_state: *AppState, ui: render.gui.Ui) !void {
+    const loaded = app_state.loaded_mods orelse return;
+    const commands = loaded.hud.collect(app_state.frame, ui.res.width, ui.res.height);
+    if (commands.len == 0) return;
+
+    var rects: render.MeshBuilder = .{};
+    defer rects.deinit(app_state.frame);
+    var text: render.MeshBuilder = .{};
+    defer text.deinit(app_state.frame);
+    for (commands) |command| switch (command) {
+        .rect => |box| try render.gui.appendRectColor(&rects, app_state.frame, box.x, box.y, box.width, box.height, render.gui.opaque_texel, box.color, ui.res),
+        .text => |line| try render.gui.appendTextColor(&text, app_state.frame, ui.font, line.text, line.x, line.y, line.color, ui.res),
+    };
+
+    render.gui.beginOverlay();
+    defer render.gui.endOverlay();
+    try render.gui.drawColorMesh(&rects, ui.shader);
+    try render.gui.drawTexturedMesh(&text, ui.shader, ui.font);
 }
 
 const ModSkin = struct {
@@ -4920,6 +4946,7 @@ pub fn iterate(
         }
         if (!app_state.hide_gui or !worldFocused(app_state)) {
             try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
+            try drawModHud(app_state, ui);
             if (touch_ui and worldFocused(app_state)) {
                 if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
                     .scheme = app_state.settings.touch_scheme,

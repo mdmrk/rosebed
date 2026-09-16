@@ -6,6 +6,7 @@ const world = @import("world");
 
 const discovery = @import("discovery.zig");
 const Hooks = @import("Hooks.zig");
+const Hud = @import("Hud.zig");
 const load_order = @import("load_order.zig");
 const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
@@ -16,6 +17,7 @@ const Loaded = @This();
 arena: *std.heap.ArenaAllocator,
 vm: Vm,
 hooks: *Hooks,
+hud: *Hud,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -24,6 +26,7 @@ list: net.packet.ModList,
 
 pub const folder_name = "mods";
 pub const entry_point = "common.lua";
+pub const client_entry_point = "client.lua";
 
 const source_limit: std.Io.Limit = .limited(4 * 1024 * 1024);
 
@@ -77,17 +80,44 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registrar.open = false;
     const list = try describe(allocator, mods);
     Hooks.active = hooks;
+    const hud = try allocator.create(Hud);
+    hud.* = .{};
 
     return .{
         .arena = arena,
         .vm = vm,
         .hooks = hooks,
+        .hud = hud,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
         .mob_skins = registrar.mob_skins.items,
         .list = list,
     };
+}
+
+// Only a client calls this. It runs after every common.lua, once registration has
+// closed, so a client script can draw and listen but never add content the server
+// would not know about.
+pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report: *std.Io.Writer) !void {
+    self.hud.install(self.vm.lua);
+    const allocator = self.arena.allocator();
+    for (self.mods) |mod| {
+        var dir = try mods_dir.openDir(io, mod.folder, .{});
+        defer dir.close(io);
+        const source = dir.readFileAlloc(io, client_entry_point, allocator, source_limit) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => {
+                report.print("{s}/{s}: {t}\n", .{ mod.folder, client_entry_point, err }) catch {};
+                return err;
+            },
+        };
+        const chunk_name = try std.fmt.allocPrintSentinel(allocator, "@{s}/{s}", .{ mod.folder, client_entry_point }, 0);
+        self.vm.exec(chunk_name, source) catch |err| {
+            report.print("{s}\n", .{self.vm.errorMessage()}) catch {};
+            return err;
+        };
+    }
 }
 
 fn describe(arena: std.mem.Allocator, mods: []const discovery.Mod) !net.packet.ModList {
