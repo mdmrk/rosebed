@@ -12,11 +12,25 @@ pub const dirt_tile_scale: f32 = 32;
 pub const dirt_tint: [4]u8 = .{ 64, 64, 64, 255 };
 pub const list_dirt_tint: [4]u8 = .{ 32, 32, 32, 255 };
 
-const scrollbar_offset: f32 = 124;
+const scrollbar_gap: f32 = 14;
 const scrollbar_width: f32 = 6;
+pub const scrollbar_room: f32 = scrollbar_gap + scrollbar_width;
 const scrollbar_track: [4]u8 = .{ 0, 0, 0, 255 };
 const scrollbar_thumb: [4]u8 = .{ 128, 128, 128, 255 };
 const scrollbar_highlight: [4]u8 = .{ 192, 192, 192, 255 };
+
+pub const Column = struct {
+    left: f32,
+    width: f32,
+
+    pub fn centered(res: gui.Scaled) Column {
+        return .{ .left = @floor(res.width / 2.0) - entry_half_width, .width = entry_half_width * 2 };
+    }
+
+    pub fn scrollbarX(self: Column) f32 {
+        return self.left + self.width + scrollbar_gap;
+    }
+};
 
 pub fn List(comptime bottom_margin: f32) type {
     return struct {
@@ -40,9 +54,12 @@ pub fn List(comptime bottom_margin: f32) type {
         }
 
         pub fn rowAt(gx: f32, gy: f32, res: gui.Scaled, count: usize, scroll: f32) ?usize {
-            const cx = @floor(res.width / 2.0);
+            return rowIn(.centered(res), gx, gy, res, count, scroll);
+        }
+
+        pub fn rowIn(column: Column, gx: f32, gy: f32, res: gui.Scaled, count: usize, scroll: f32) ?usize {
             if (gy < list_top or gy >= listBottom(res)) return null;
-            if (gx < cx - entry_half_width or gx > cx + entry_half_width) return null;
+            if (gx < column.left or gx > column.left + column.width) return null;
 
             const offset = gy - list_top + scroll - entry_padding;
             if (offset < 0) return null;
@@ -64,10 +81,14 @@ pub fn List(comptime bottom_margin: f32) type {
         }
 
         pub fn scrollbarAt(mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize) bool {
+            return scrollbarIn(.centered(res), mouse_x, mouse_y, res, count);
+        }
+
+        pub fn scrollbarIn(column: Column, mouse_x: f32, mouse_y: f32, res: gui.Scaled, count: usize) bool {
             if (scrollbarThumb(res, count, 0) == null) return false;
             const gx = mouse_x / res.factor;
             const gy = mouse_y / res.factor;
-            const x = @floor(res.width / 2.0) + scrollbar_offset;
+            const x = column.scrollbarX();
             return gx >= x and gx <= x + scrollbar_width and gy >= list_top and gy <= listBottom(res);
         }
 
@@ -78,8 +99,12 @@ pub fn List(comptime bottom_margin: f32) type {
         }
 
         pub fn appendScrollbar(mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, count: usize, scroll: f32) !void {
+            return appendScrollbarIn(.centered(res), mesh, gpa, res, count, scroll);
+        }
+
+        pub fn appendScrollbarIn(column: Column, mesh: *MeshBuilder, gpa: std.mem.Allocator, res: gui.Scaled, count: usize, scroll: f32) !void {
             const thumb = scrollbarThumb(res, count, scroll) orelse return;
-            const x = @floor(res.width / 2.0) + scrollbar_offset;
+            const x = column.scrollbarX();
             const bottom = listBottom(res);
 
             try gui.appendRectColor(mesh, gpa, x, list_top, scrollbar_width, bottom - list_top, gui.opaque_texel, scrollbar_track, res);

@@ -168,6 +168,9 @@ pub const AppState = struct {
     pack_thumbnails: []render.Atlas = &.{},
     mob_skins: []const ModSkin = &.{},
     pack_scroll: f32 = 0,
+    mod_rows: []render.screen.texture_packs.Mod = &.{},
+    mod_scroll: f32 = 0,
+    dragged_list: render.screen.texture_packs.Side = .packs,
     save_handle: ?world.save.Save = null,
     open_folder: NameBuffer = .{},
     open_name: NameBuffer = .{},
@@ -1785,6 +1788,9 @@ fn freeTexturePacks(app_state: *AppState) void {
 
     render.texture_pack.deinitAll(app_state.gpa, app_state.packs);
     app_state.packs = &.{};
+
+    app_state.gpa.free(app_state.mod_rows);
+    app_state.mod_rows = &.{};
 }
 
 fn openRepository() void {
@@ -1876,7 +1882,13 @@ fn openTexturePacks(app_state: *AppState) !void {
     }
     app_state.pack_thumbnails = thumbnails;
 
+    const mods = if (app_state.loaded_mods) |loaded| loaded.mods else &.{};
+    const rows = try app_state.gpa.alloc(render.screen.texture_packs.Mod, mods.len);
+    for (mods, rows) |mod, *row| row.* = .{ .id = mod.manifest.id, .version = mod.manifest.version, .depends = mod.manifest.depends };
+    app_state.mod_rows = rows;
+
     app_state.pack_scroll = 0;
+    app_state.mod_scroll = 0;
     app_state.screen = .texture_packs;
     try updateMouseMode(app_state);
 }
@@ -1927,7 +1939,13 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
 
 fn texturePacksClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.screen.texture_packs.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+    if (render.screen.texture_packs.scrollbarAt(.packs, app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+        app_state.dragged_list = .packs;
+        app_state.dragging_scrollbar = true;
+        return;
+    }
+    if (render.screen.texture_packs.scrollbarAt(.mods, app_state.mouse_x, app_state.mouse_y, gui, app_state.mod_rows.len)) {
+        app_state.dragged_list = .mods;
         app_state.dragging_scrollbar = true;
         return;
     }
@@ -1947,7 +1965,8 @@ fn texturePacksClick(app_state: *AppState) !void {
 
     switch (hit) {
         .entry => |index| try selectTexturePack(app_state, index),
-        .open_folder => openTexturePackFolder(app_state),
+        .open_folder => openGameFolder(app_state, render.texture_pack.folder_name),
+        .open_mods_folder => openGameFolder(app_state, Mods.folder_name),
         .done => {
             freeTexturePacks(app_state);
             app_state.screen = .title;
@@ -1956,8 +1975,8 @@ fn texturePacksClick(app_state: *AppState) !void {
     }
 }
 
-fn openTexturePackFolder(app_state: *AppState) void {
-    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, render.texture_pack.folder_name }, 0) catch return;
+fn openGameFolder(app_state: *AppState, folder_name: []const u8) void {
+    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, folder_name }, 0) catch return;
     sdl3.openURL(url) catch {};
 }
 
@@ -2462,7 +2481,10 @@ fn dragScrollbar(app_state: *AppState, dy_pixels: f32) void {
     } else if (app_state.screen == .select_world) {
         app_state.list_scroll = render.screen.select_world.dragScroll(gui, app_state.summaries.len, app_state.list_scroll, dy);
     } else if (app_state.screen == .texture_packs) {
-        app_state.pack_scroll = render.screen.texture_packs.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy);
+        switch (app_state.dragged_list) {
+            .packs => app_state.pack_scroll = render.screen.texture_packs.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy),
+            .mods => app_state.mod_scroll = render.screen.texture_packs.dragScroll(gui, app_state.mod_rows.len, app_state.mod_scroll, dy),
+        }
     }
 }
 
@@ -5002,12 +5024,15 @@ pub fn iterate(
         try render.screen.multiplayer.draw(ui, &app_state.multiplayer_state);
     } else if (app_state.screen == .texture_packs) {
         app_state.pack_scroll = render.screen.texture_packs.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
+        app_state.mod_scroll = render.screen.texture_packs.clampScroll(gui, app_state.mod_rows.len, app_state.mod_scroll);
         try render.screen.texture_packs.draw(
             ui,
             app_state.packs,
             app_state.pack_thumbnails,
             render.texture_pack.indexOf(app_state.packs, app_state.settings.skin.text()),
             app_state.pack_scroll,
+            app_state.mod_rows,
+            app_state.mod_scroll,
         );
     } else if (app_state.screen == .confirm_delete) {
         var message: [96]u8 = undefined;
@@ -5512,8 +5537,12 @@ pub fn event(
             const step = w.scroll_y * render.screen.select_world.entry_height;
             app_state.list_scroll = render.screen.select_world.clampScroll(guiSize(app_state), app_state.summaries.len, app_state.list_scroll - step);
         } else if (app_state.screen == .texture_packs) {
+            const gui = guiSize(app_state);
             const step = w.scroll_y * render.screen.texture_packs.entry_height;
-            app_state.pack_scroll = render.screen.texture_packs.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
+            switch (render.screen.texture_packs.sideAt(app_state.mouse_x, gui)) {
+                .packs => app_state.pack_scroll = render.screen.texture_packs.clampScroll(gui, app_state.packs.len, app_state.pack_scroll - step),
+                .mods => app_state.mod_scroll = render.screen.texture_packs.clampScroll(gui, app_state.mod_rows.len, app_state.mod_scroll - step),
+            }
         },
         .text_input => |t| typeText(app_state, t.text),
         .mouse_button_down => |m| switch (m.button) {
