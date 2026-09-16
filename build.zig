@@ -386,6 +386,7 @@ fn buildAndroid(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) void 
     });
 
     androidPatchSdl(project.modules.sdl3);
+    if (project.lua) |lua| lua.root_module.pic = true;
     const mixer = project.prebuiltSdl(sdl_lib_dir, "libSDL3_mixer.so");
 
     const apk = androidApk(b, .{
