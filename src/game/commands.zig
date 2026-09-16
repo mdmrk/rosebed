@@ -3,6 +3,7 @@ const std = @import("std");
 const world = @import("world");
 
 const achievements = @import("achievements.zig");
+const mob = @import("mob.zig");
 
 pub const max_count: u8 = 64;
 pub const max_fill_volume: u32 = 32768;
@@ -59,7 +60,39 @@ pub const Verb = enum {
     }
 };
 
-pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
+pub const Mob = enum {
+    pig,
+    cow,
+    sheep,
+    chicken,
+    slime,
+    wolf,
+    ghast,
+    creeper,
+    skeleton,
+    spider,
+    zombie,
+    pigzombie,
+    squid,
+
+    pub fn typeId(self: Mob) mob.Id {
+        return switch (self) {
+            .pig => mob.pig,
+            .cow => mob.cow,
+            .sheep => mob.sheep,
+            .chicken => mob.chicken,
+            .slime => mob.slime,
+            .wolf => mob.wolf,
+            .ghast => mob.ghast,
+            .creeper => mob.creeper,
+            .skeleton => mob.skeleton,
+            .spider => mob.spider,
+            .zombie => mob.zombie,
+            .pigzombie => mob.pig_zombie,
+            .squid => mob.squid,
+        };
+    }
+};
 
 pub const Achievement = struct {
     method: Method,
@@ -89,7 +122,8 @@ pub const Seed = struct {
 };
 
 pub const Spawn = struct {
-    mob: Mob,
+    type_id: mob.Id,
+    name: []const u8,
     count: u8,
 };
 
@@ -318,8 +352,14 @@ fn parseSpawn(words: *Words) Result {
     const count_text = words.next();
     if (words.next() != null) return .nothing;
 
-    const mob = std.meta.stringToEnum(Mob, name) orelse return .{ .missing_mob = name };
-    return .{ .spawn = .{ .mob = mob, .count = tryParse(count_text, 1) } };
+    const type_id = spawnableMob(name) orelse return .{ .missing_mob = name };
+    return .{ .spawn = .{ .type_id = type_id, .name = name, .count = tryParse(count_text, 1) } };
+}
+
+fn spawnableMob(name: []const u8) ?mob.Id {
+    if (std.meta.stringToEnum(Mob, name)) |vanilla| return vanilla.typeId();
+    if (std.mem.indexOfScalar(u8, name, ':') == null) return null;
+    return mob.find(name);
 }
 
 fn parseSeed(words: *Words) Result {
@@ -413,12 +453,31 @@ test "give stays silent when the argument count is wrong" {
 
 test "spawn names a mob and defaults to one" {
     const result = parse("/spawn pig");
-    try std.testing.expectEqual(Mob.pig, result.spawn.mob);
+    try std.testing.expectEqual(mob.pig, result.spawn.type_id);
+    try std.testing.expectEqualStrings("pig", result.spawn.name);
     try std.testing.expectEqual(@as(u8, 1), result.spawn.count);
 
-    try std.testing.expectEqual(Mob.squid, parse("/spawn squid").spawn.mob);
-    try std.testing.expectEqual(Mob.chicken, parse("/spawn chicken 3").spawn.mob);
+    try std.testing.expectEqual(mob.squid, parse("/spawn squid").spawn.type_id);
+    try std.testing.expectEqual(mob.chicken, parse("/spawn chicken 3").spawn.type_id);
     try std.testing.expectEqual(@as(u8, 3), parse("/spawn chicken 3").spawn.count);
+}
+
+test "spawn names a registered mob by the key it was registered under" {
+    defer mob.reset();
+
+    const custom = mob.register(.{
+        .name = "rosebug:bumbler",
+        .spawn = mob.get(mob.pig).spawn,
+        .tick = mob.get(mob.pig).tick,
+        .takeDrops = mob.get(mob.pig).takeDrops,
+        .store = mob.get(mob.pig).store,
+        .load = mob.get(mob.pig).load,
+        .destroy = mob.get(mob.pig).destroy,
+    });
+
+    try std.testing.expectEqual(custom, parse("/spawn rosebug:bumbler").spawn.type_id);
+    try std.testing.expectEqualStrings("rosebug:bumbler", parse("/spawn rosebug:bumbler").spawn.name);
+    try std.testing.expectEqualStrings("rosebug:weevil", parse("/spawn rosebug:weevil").missing_mob);
 }
 
 test "spawn rejects a mob it cannot build" {

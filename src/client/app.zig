@@ -1623,22 +1623,15 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
-            for (0..spawn.count) |_| switch (spawn.mob) {
-                .pig => try app_state.level.entities.spawnPig(app_state.gpa, position),
-                .cow => try app_state.level.entities.spawnCow(app_state.gpa, position),
-                .sheep => try app_state.level.entities.spawnSheep(app_state.gpa, position, &app_state.level.world_map.rand),
-                .chicken => try app_state.level.entities.spawnChicken(app_state.gpa, position, &app_state.level.world_map.rand),
-                .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
-                .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
-                .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
-                .creeper => try app_state.level.entities.spawnCreeper(app_state.gpa, position),
-                .skeleton => try app_state.level.entities.spawnSkeleton(app_state.gpa, position),
-                .spider => try app_state.level.entities.spawnSpider(app_state.gpa, position),
-                .zombie => try app_state.level.entities.spawnZombie(app_state.gpa, position),
-                .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
-                .squid => try app_state.level.entities.spawnSquid(app_state.gpa, position, &app_state.level.world_map.rand),
-            };
-            reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
+            for (0..spawn.count) |_| {
+                _ = try app_state.level.entities.spawnMob(
+                    app_state.gpa,
+                    spawn.type_id,
+                    position,
+                    &app_state.level.world_map.rand,
+                );
+            }
+            reply(app_state, "Spawning {d} {s}", .{ spawn.count, spawn.name });
         },
         .time => |time| {
             switch (time.method) {
