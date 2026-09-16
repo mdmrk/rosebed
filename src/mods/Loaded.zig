@@ -1,11 +1,13 @@
 const std = @import("std");
 
+const game = @import("game");
 const net = @import("net");
 const world = @import("world");
 
 const discovery = @import("discovery.zig");
 const Hooks = @import("Hooks.zig");
 const load_order = @import("load_order.zig");
+const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
 const Vm = @import("Vm.zig");
 
@@ -51,6 +53,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
 
     errdefer world.Block.resetRegistry();
     errdefer world.Item.resetRegistry();
+    errdefer game.mob.reset();
+    errdefer mobs.reset();
     for (mods) |mod| {
         var dir = try mods_dir.openDir(io, mod.folder, .{});
         defer dir.close(io);

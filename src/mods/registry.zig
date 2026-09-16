@@ -1,12 +1,14 @@
 const std = @import("std");
 
 const game = @import("game");
+const math = @import("math");
 const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
 const Hooks = @import("Hooks.zig");
 const Manifest = @import("Manifest.zig");
+const mobs = @import("mobs.zig");
 
 pub const Registrar = struct {
     arena: std.mem.Allocator,
@@ -39,6 +41,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "register_item", .function = zlua.wrap(registerFn(world.Item, world.item.Def)) },
         .{ .name = "override_block", .function = zlua.wrap(overrideFn(world.Block, world.block.Def, "block")) },
         .{ .name = "override_item", .function = zlua.wrap(overrideFn(world.Item, world.item.Def, "item")) },
+        .{ .name = "register_mob", .function = zlua.wrap(registerMob) },
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
     };
     for (functions) |entry| {
@@ -117,8 +120,17 @@ const ItemExtras = struct {
     texture: ?[]const u8 = null,
 };
 
+const MobExtras = struct {
+    refs: mobs.Refs = .{},
+};
+
 fn Extras(comptime Def: type) type {
-    return if (Def == world.block.Def) BlockExtras else ItemExtras;
+    return switch (Def) {
+        world.block.Def => BlockExtras,
+        world.item.Def => ItemExtras,
+        mobs.Def => MobExtras,
+        else => comptime unreachable,
+    };
 }
 
 fn attach(lua: *Lua, registrar: *Registrar, target: anytype, extras: anytype) void {
@@ -161,7 +173,7 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             definition.shape = readShape(lua);
             return;
         }
-    } else {
+    } else if (comptime Extras(Def) == ItemExtras) {
         if (std.mem.eql(u8, name, "texture")) {
             extras.texture = texturePath(lua, registrar, -1, "texture");
             return;
@@ -184,6 +196,19 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
         }
     }
     lua.raiseErrorStr("unknown field '%s'", .{name.ptr});
+}
+
+fn registerMob(lua: *Lua) i32 {
+    const registrar = context(lua);
+    lua.checkType(1, .table);
+    var definition: mobs.Def = .{ .key = namespacedKey(lua, registrar) };
+    var extras: MobExtras = .{};
+    readFields(mobs.Def, &definition, &extras, lua, registrar, 1, .skip_key);
+    if (!(definition.width > 0) or !(definition.height > 0)) lua.raiseErrorStr("'%s' needs a positive width and height", .{definition.key.ptr});
+    if (definition.health <= 0) lua.raiseErrorStr("'%s' needs at least one heart's worth of health", .{definition.key.ptr});
+    _ = mobs.claim(definition, extras.refs) catch |err| raise(lua, err, definition.key);
+    _ = lua.pushString(definition.key);
+    return 1;
 }
 
 const max_grid = game.crafting.workbench_grid_size;
@@ -419,6 +444,8 @@ const Harness = struct {
         world.Block.resetRegistry();
         world.Item.resetRegistry();
         game.crafting.resetRegistry();
+        game.mob.reset();
+        mobs.reset();
     }
 
     fn expectFailure(self: *Harness, source: []const u8, message: []const u8) !void {
@@ -688,4 +715,112 @@ test "an override names an existing key and cannot rename it" {
     try harness.expectFailure("rosebed.override_item('stick_of_truth', {})", "no item is registered as 'stick_of_truth'");
     try harness.expectFailure("rosebed.override_block('stone', { key = 'granite' })", "unknown field 'key'");
     try std.testing.expectEqualStrings("stone", world.Block.stone.def().key);
+}
+
+test "a mob registered from lua lands after the vanilla types, built to its spec" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\local key = rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  width = 0.7,
+        \\  height = 0.9,
+        \\  health = 8,
+        \\  speed = 0.5,
+        \\  movement = "flying",
+        \\  monster = true,
+        \\  immune_to_fire = true,
+        \\}
+        \\assert(key == "quartz:bumbler")
+    );
+
+    const type_id = game.mob.find("quartz:bumbler").?;
+    try std.testing.expectEqual(@as(game.mob.Id, 14), type_id);
+    try std.testing.expect(game.mob.get(type_id).monster);
+    try std.testing.expectEqual(@as(?u8, null), game.mob.get(type_id).wire_id);
+
+    var rand: world.JavaRandom = .init(3);
+    const animal = try game.mob.get(type_id).spawn(std.testing.allocator, math.Vec3.init(1, 2, 3), &rand);
+    defer game.mob.get(type_id).destroy(animal, std.testing.allocator);
+
+    try std.testing.expectEqual(@as(f64, 0.7), animal.base.width);
+    try std.testing.expectEqual(@as(f64, 0.9), animal.base.height);
+    try std.testing.expectEqual(@as(i32, 8), animal.health);
+    try std.testing.expectEqual(@as(f32, 0.5), animal.move_speed);
+    try std.testing.expectEqual(game.Animal.Movement.flying, animal.movement);
+    try std.testing.expect(animal.immune_to_fire);
+}
+
+test "a mob from lua keeps its wounds and its name across a save" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+
+    try harness.vm.exec("=quartz", "rosebed.register_mob { key = \"bumbler\", height = 0.9 }");
+    const type_id = game.mob.find("quartz:bumbler").?;
+    const kind = game.mob.get(type_id);
+
+    var rand: world.JavaRandom = .init(3);
+    const animal = try kind.spawn(gpa, math.Vec3.init(12.5, 64.0, -3.25), &rand);
+    defer kind.destroy(animal, gpa);
+    animal.health = 4;
+    animal.yaw = 42.0;
+
+    var stored = try kind.store(animal, gpa);
+    defer world.nbt.deinit(gpa, &stored);
+    try std.testing.expectEqualStrings("quartz:bumbler", stored.compound.get("id").?.string);
+
+    const restored = try kind.load(gpa, stored.compound) orelse return error.TestUnexpectedResult;
+    defer kind.destroy(restored, gpa);
+    try std.testing.expectEqual(@as(i32, 4), restored.health);
+    try std.testing.expectApproxEqAbs(@as(f32, 42.0), restored.yaw, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.base.position.x, 1.0e-9);
+    try std.testing.expect(try game.mob.get(game.mob.cow).load(gpa, stored.compound) == null);
+}
+
+test "a mob from lua leaves what its drop callback names" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  health = 6,
+        \\  drop = function() return "feather", 1 + rosebed.random(2) end,
+        \\}
+    );
+    const kind = game.mob.get(game.mob.find("quartz:bumbler").?);
+
+    var world_map: world.World = .init(gpa);
+    defer world_map.deinit();
+    var rand: world.JavaRandom = .init(9);
+    const animal = try kind.spawn(gpa, math.Vec3.init(8, 1, 8), &rand);
+    defer kind.destroy(animal, gpa);
+
+    _ = animal.hurt(&world_map, 6, null, &rand);
+    try std.testing.expect(!animal.isAlive());
+
+    const drops = kind.takeDrops(animal) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(world.Id{ .item = .feather }, drops.stack.id);
+    try std.testing.expect(drops.count >= 1 and drops.count <= 2);
+    try std.testing.expect(kind.takeDrops(animal) == null);
+}
+
+test "a mob has to be built to a size that can stand somewhere" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", width = 0 }", "needs a positive width and height");
+    try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", health = 0 }", "at least one heart's worth of health");
+    try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", movement = \"burrowing\" }", "is not a valid 'movement'");
+    try harness.expectFailure("rosebed.register_mob { key = \"bumbler\", legs = 6 }", "unknown field 'legs'");
 }

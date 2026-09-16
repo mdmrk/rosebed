@@ -76,6 +76,10 @@ fn activated(world_map: *world.World, pos: world.BlockPos, block: world.Block) s
 fn dropped(block: world.Block, meta: u4, rand: *world.JavaRandom) ?world.Stack {
     const self = active orelse return null;
     const ref = self.block_refs[@intFromEnum(block)].drop orelse return null;
+    return self.rollDrop(ref, meta, rand);
+}
+
+pub fn rollDrop(self: *Hooks, ref: i32, meta: ?u4, rand: *world.JavaRandom) ?world.Stack {
     const lua = self.lua.?;
 
     const outer_rand = self.current_rand;
@@ -83,8 +87,11 @@ fn dropped(block: world.Block, meta: u4, rand: *world.JavaRandom) ?world.Stack {
     defer self.current_rand = outer_rand;
 
     _ = lua.getIndexRaw(zlua.registry_index, ref);
-    lua.pushInteger(meta);
-    lua.protectedCall(.{ .args = 1, .results = 3 }) catch {
+    const args: i32 = if (meta) |value| blk: {
+        lua.pushInteger(value);
+        break :blk 1;
+    } else 0;
+    lua.protectedCall(.{ .args = args, .results = 3 }) catch {
         std.log.warn("a mod drop failed: {s}", .{lua.toString(-1) catch "(no message)"});
         lua.pop(1);
         return null;
