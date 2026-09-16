@@ -1243,3 +1243,44 @@ test "a spawn rule's biomes and dimension have to be real ones" {
         "the nether has no biomes to choose from",
     );
 }
+
+test "an overridden mob leaves what the mod adds after its own drops" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz", "rosebed.override_mob(\"Cow\", { drop = function() return \"feather\", 3 end })");
+
+    var world_map: world.World = .init(gpa);
+    defer world_map.deinit();
+    const kind = game.mob.get(game.mob.cow);
+
+    var saw_leather = false;
+    for (0..20) |seed| {
+        var rand: world.JavaRandom = .init(@intCast(seed));
+        const animal = try kind.spawn(gpa, math.Vec3.init(8, 1, 8), &rand);
+        defer kind.destroy(animal, gpa);
+
+        _ = animal.hurt(&world_map, game.Cow.max_health, null, &rand);
+
+        var feathers: ?u8 = null;
+        while (kind.takeDrops(animal)) |drops| {
+            switch (drops.stack.id) {
+                .item => |item| if (item == .leather) {
+                    // The cow's own leather always comes out before the mod's feathers.
+                    try std.testing.expect(feathers == null);
+                    saw_leather = true;
+                } else if (item == .feather) {
+                    feathers = drops.count;
+                },
+                else => {},
+            }
+        }
+        try std.testing.expectEqual(@as(?u8, 3), feathers);
+    }
+    try std.testing.expect(saw_leather);
+}

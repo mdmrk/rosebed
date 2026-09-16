@@ -41,6 +41,7 @@ pub const Patch = struct {
 
 pub const PatchRefs = struct {
     on_tick: ?i32 = null,
+    drop: ?i32 = null,
 };
 
 pub const default_width: f64 = 0.6;
@@ -93,9 +94,12 @@ const Override = struct {
     health: ?i32 = null,
     speed: ?f32 = null,
     on_tick: ?i32 = null,
+    drop: ?i32 = null,
     inner_spawn: ?*const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal = null,
     inner_load: ?*const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal = null,
     inner_after_tick: ?*const fn (*Animal, Mob.Tick) anyerror!void = null,
+    inner_take_drops: ?*const fn (*Animal) ?Mob.Drops = null,
+    inner_on_death: ?*const fn (*Animal, *world.JavaRandom) void = null,
 };
 
 var overrides: [Mob.capacity]Override = @splat(.{});
@@ -107,15 +111,18 @@ pub fn override(type_id: Mob.Id, patch: Patch, refs: PatchRefs) void {
     if (patch.health) |health| slot.health = health;
     if (patch.speed) |speed| slot.speed = speed;
     if (refs.on_tick) |ref| slot.on_tick = ref;
+    if (refs.drop) |ref| slot.drop = ref;
 
     var definition = Mob.get(type_id).*;
     if (slot.inner_spawn == null) {
         slot.inner_spawn = definition.spawn;
         slot.inner_load = definition.load;
         slot.inner_after_tick = definition.afterTick;
+        slot.inner_take_drops = definition.takeDrops;
         definition.spawn = wrappers[type_id].spawn;
         definition.load = wrappers[type_id].load;
         definition.afterTick = wrappers[type_id].afterTick;
+        definition.takeDrops = wrappers[type_id].takeDrops;
         Mob.replace(type_id, definition);
     }
 }
@@ -124,6 +131,8 @@ const Wrapper = struct {
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
     load: *const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal,
     afterTick: *const fn (*Animal, Mob.Tick) anyerror!void,
+    takeDrops: *const fn (*Animal) ?Mob.Drops,
+    onDeath: *const fn (*Animal, *world.JavaRandom) void,
 };
 
 const wrappers: [Mob.capacity]Wrapper = blk: {
@@ -156,12 +165,35 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
                 hooks.callMob(ref, animal, context.world_map, context.rand);
             }
         }.call,
+        .takeDrops = &struct {
+            fn call(animal: *Animal) ?Mob.Drops {
+                if (overrides[type_id].inner_take_drops.?(animal)) |drops| return drops;
+                const stack = animal.owed_drop orelse return null;
+                animal.owed_drop = null;
+                return .{ .count = stack.count, .stack = .{ .id = stack.id, .count = 1, .meta = stack.meta } };
+            }
+        }.call,
+        .onDeath = &struct {
+            fn call(animal: *Animal, rand: *world.JavaRandom) void {
+                const slot = overrides[type_id];
+                if (slot.inner_on_death) |inner| inner(animal, rand);
+                const ref = slot.drop orelse return;
+                const hooks = Hooks.active orelse return;
+                animal.owed_drop = hooks.rollDrop(ref, null, rand);
+            }
+        }.call,
     };
 }
 
 const Wounds = enum { fresh, restored };
 
 fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
+    // Every vanilla mob sets its death roll once as it is built, the same one for
+    // the whole kind, so the first mob built tells us what to run before ours.
+    if (animal.on_death != wrappers[type_id].onDeath) {
+        overrides[type_id].inner_on_death = animal.on_death;
+        animal.on_death = wrappers[type_id].onDeath;
+    }
     const slot = overrides[type_id];
     if (slot.health) |health| {
         animal.max_health = health;
