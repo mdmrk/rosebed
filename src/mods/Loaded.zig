@@ -82,6 +82,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registrar.open = false;
     const list = try describe(allocator, mods);
     Hooks.active = hooks;
+    if (hooks.decorators.items.len > 0) world.generator.after_decorate = Hooks.decorate;
     const hud = try allocator.create(Hud);
     hud.* = .{};
     const input = try allocator.create(Input);
@@ -154,7 +155,10 @@ fn describe(arena: std.mem.Allocator, mods: []const discovery.Mod) !net.packet.M
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
-    if (Hooks.active == self.hooks) Hooks.active = null;
+    if (Hooks.active == self.hooks) {
+        Hooks.active = null;
+        world.generator.after_decorate = null;
+    }
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);

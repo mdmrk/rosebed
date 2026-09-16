@@ -12,10 +12,18 @@ lua: ?*Lua = null,
 current_world: ?*world.World = null,
 current_rand: ?*world.JavaRandom = null,
 current_mob: ?*game.Animal = null,
+decorating: bool = false,
+decorators: std.ArrayList(Decorator) = .empty,
 block_refs: [256]BlockRefs = @splat(.{}),
 item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
 pub var active: ?*Hooks = null;
+
+pub const Decorator = struct {
+    ref: i32,
+    salt: i64,
+    warned: bool = false,
+};
 
 pub const ItemRefs = struct {
     on_use: ?i32 = null,
@@ -142,6 +150,53 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
     };
 }
 
+pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {
+    try self.decorators.append(arena, .{ .ref = ref, .salt = @bitCast(std.hash.Fnv1a_64.hash(mod_id)) });
+}
+
+// Seeded as vanilla seeds a chunk's decoration, then mixed with the mod's own id,
+// so what one mod places depends only on the world seed, the chunk and that mod.
+pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
+    const self = active orelse return;
+    const lua = self.lua orelse return;
+    if (self.decorators.items.len == 0) return;
+
+    var seeder = world.JavaRandom.init(seed);
+    const mult_x = @divTrunc(seeder.nextLong(), 2) *% 2 +% 1;
+    const mult_z = @divTrunc(seeder.nextLong(), 2) *% 2 +% 1;
+    const chunk_seed = (@as(i64, chunk_x) *% mult_x +% @as(i64, chunk_z) *% mult_z) ^ seed;
+
+    const outer_world = self.current_world;
+    const outer_rand = self.current_rand;
+    const outer_decorating = self.decorating;
+    self.current_world = world_map;
+    self.decorating = true;
+    defer {
+        self.current_world = outer_world;
+        self.current_rand = outer_rand;
+        self.decorating = outer_decorating;
+    }
+
+    for (self.decorators.items) |*decorator| {
+        var rand = world.JavaRandom.init(chunk_seed ^ decorator.salt);
+        self.current_rand = &rand;
+        _ = lua.getIndexRaw(zlua.registry_index, decorator.ref);
+        lua.pushInteger(chunk_x);
+        lua.pushInteger(chunk_z);
+        _ = lua.pushString(@tagName(dimension));
+        lua.protectedCall(.{ .args = 3, .results = 0 }) catch {
+            // Every chunk is decorated once, so a failure is not retried and not
+            // switched off either: skipping it only for some chunks would make the
+            // world depend on when the error first happened.
+            if (!decorator.warned) {
+                std.log.warn("a mod's world generation failed: {s}", .{lua.toString(-1) catch "(no message)"});
+                decorator.warned = true;
+            }
+            lua.pop(1);
+        };
+    }
+}
+
 fn mobPosition(lua: *Lua) i32 {
     const animal = currentMob(lua);
     lua.pushNumber(animal.base.position.x);
@@ -265,6 +320,13 @@ fn setBlock(lua: *Lua) i32 {
     const world_map = currentWorld(lua);
     const pos = position(lua, 1);
     const block = blockArgument(lua, 4);
+    // While a chunk is being decorated blocks go in quietly, as vanilla's generator
+    // places them: no neighbour is told, so nothing falls, flows or loads more chunks.
+    if (hooks(lua).decorating) {
+        world_map.setBlock(pos, block);
+        if (lua.typeOf(5) != .none and lua.typeOf(5) != .nil) world_map.setBlockMetadata(pos, metadata(lua, 5));
+        return 0;
+    }
     const changed = switch (lua.typeOf(5)) {
         .none, .nil => world_map.setBlockWithNotify(pos, block),
         else => world_map.setBlockAndMetadataWithNotify(pos, block, metadata(lua, 5)),
@@ -275,6 +337,10 @@ fn setBlock(lua: *Lua) i32 {
 
 fn setMeta(lua: *Lua) i32 {
     const world_map = currentWorld(lua);
+    if (hooks(lua).decorating) {
+        world_map.setBlockMetadata(position(lua, 1), metadata(lua, 4));
+        return 0;
+    }
     world_map.setBlockMetadataWithNotify(position(lua, 1), metadata(lua, 4)) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }

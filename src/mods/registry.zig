@@ -52,6 +52,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "register_mob", .function = zlua.wrap(registerMob) },
         .{ .name = "override_mob", .function = zlua.wrap(overrideMob) },
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
+        .{ .name = "on_decorate", .function = zlua.wrap(onDecorate) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(registrar);
@@ -240,6 +241,15 @@ fn registerMob(lua: *Lua) i32 {
     }
     _ = lua.pushString(definition.key);
     return 1;
+}
+
+fn onDecorate(lua: *Lua) i32 {
+    const registrar = context(lua);
+    lua.checkType(1, .function);
+    lua.pushValue(1);
+    const ref = lua.ref(zlua.registry_index);
+    registrar.hooks.addDecorator(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
+    return 0;
 }
 
 fn overrideMob(lua: *Lua) i32 {
@@ -1283,4 +1293,45 @@ test "an overridden mob leaves what the mod adds after its own drops" {
         try std.testing.expectEqual(@as(?u8, 3), feathers);
     }
     try std.testing.expect(saw_leather);
+}
+
+fn decorateOnce(gpa: std.mem.Allocator, harness: *Harness, seed: i64) !struct { world.Block, u4 } {
+    var world_map: world.World = .init(gpa);
+    defer world_map.deinit();
+    _ = try world_map.createChunk(2, 3);
+    try Hooks.decorate(&world_map, .overworld, seed, 2, 3);
+    _ = harness;
+    return .{ world_map.getBlock(.init(32, 70, 48)), world_map.getBlockMetadata(.init(32, 70, 48)) };
+}
+
+test "a mod decorates each chunk from a random of its own, the same every time" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.on_decorate(function(chunk_x, chunk_z, dimension)
+        \\  assert(dimension == "overworld")
+        \\  rosebed.world.set_block(chunk_x * 16, 70, chunk_z * 16, "log", rosebed.random(3))
+        \\end)
+    );
+    try std.testing.expectEqual(@as(usize, 1), harness.hooks.decorators.items.len);
+
+    const first = try decorateOnce(gpa, &harness, 1234);
+    const again = try decorateOnce(gpa, &harness, 1234);
+    try std.testing.expectEqual(world.Block.log, first[0]);
+    try std.testing.expectEqual(first, again);
+}
+
+test "decorating is only offered while mods load" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.registrar.open = false;
+
+    try harness.expectFailure("rosebed.on_decorate(function() end)", "registration is closed once every mod has loaded");
 }
