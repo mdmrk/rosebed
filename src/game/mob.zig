@@ -7,7 +7,10 @@ pub const Metadata = net.packet.Metadata;
 const world = @import("world");
 
 const Animal = @import("entity/Animal.zig");
+const Monster = @import("entity/Monster.zig");
+const physics = @import("physics.zig");
 const Player = @import("Player.zig");
+const spawner = @import("spawner.zig");
 
 pub const Drops = struct {
     count: u8,
@@ -32,6 +35,28 @@ pub const Tick = struct {
 
 pub const Model = enum { pig, cow, sheep, chicken, creeper };
 
+pub const Spawns = struct {
+    category: spawner.Category,
+    weight: i32,
+    max_per_chunk: u32 = spawner.max_per_chunk,
+};
+
+pub fn spawnCheckFor(category: spawner.Category) *const fn (*const Animal, *const world.World, i64, *world.JavaRandom) bool {
+    return switch (category) {
+        .creature => canSpawnHereBase,
+        .monster => canSpawnInTheDark,
+        .water_creature => canSpawnUnobstructed,
+    };
+}
+
+fn canSpawnInTheDark(animal: *const Animal, world_map: *const world.World, _: i64, rand: *world.JavaRandom) bool {
+    return Monster.canSpawnHere(animal.*, world_map, rand);
+}
+
+fn canSpawnUnobstructed(animal: *const Animal, world_map: *const world.World, _: i64, _: *world.JavaRandom) bool {
+    return !physics.isBoxObstructed(world_map, animal.base.boundingBox());
+}
+
 pub const Type = struct {
     name: []const u8,
     wire_id: ?u8 = null,
@@ -49,6 +74,7 @@ pub const Type = struct {
     onDeath: *const fn (*Animal, Tick) anyerror!void = ignore,
     watch: *const fn (*const Animal, *Watched) void = watchNothing,
     adopt: *const fn (*Animal, Metadata) void = adoptNothing,
+    spawns: ?Spawns = null,
 };
 
 fn ignore(_: *Animal, _: Tick) anyerror!void {}

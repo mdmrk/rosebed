@@ -14,6 +14,7 @@ pub const capacity: usize = 16;
 pub const Def = struct {
     key: []const u8 = "",
     model: Mob.Model = .pig,
+    spawns: ?Mob.Spawns = null,
     width: f64 = default_width,
     height: f64 = default_height,
     health: i32 = Animal.default_max_health,
@@ -59,6 +60,8 @@ pub fn claim(def: Def, refs: Refs) !Mob.Id {
     return Mob.register(.{
         .name = def.key,
         .monster = def.monster,
+        .spawns = def.spawns,
+        .canSpawnHere = if (def.spawns) |spawns| Mob.spawnCheckFor(spawns.category) else Mob.spawnCheckFor(.creature),
         .spawn = entry.spawn,
         .tick = tick,
         .takeDrops = takeDrops,

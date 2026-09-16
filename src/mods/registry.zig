@@ -187,6 +187,12 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             extras.texture = texturePath(lua, registrar, -1, "texture");
             return;
         }
+        if (comptime Extras(Def) == MobExtras) {
+            if (std.mem.eql(u8, name, "spawns")) {
+                definition.spawns = readSpawns(lua);
+                return;
+            }
+        }
     }
     inline for (@typeInfo(@TypeOf(extras.refs)).@"struct".fields) |field| {
         if (std.mem.eql(u8, field.name, name)) {
@@ -226,6 +232,30 @@ fn registerMob(lua: *Lua) i32 {
     }
     _ = lua.pushString(definition.key);
     return 1;
+}
+
+fn readSpawns(lua: *Lua) game.mob.Spawns {
+    if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'spawns' names a 'category' and a 'weight'", .{});
+    const table = lua.getTop();
+
+    if (lua.getField(table, "category") != .string) lua.raiseErrorStr("'category' is 'creature', 'monster' or 'water_creature'", .{});
+    const name = lua.toString(-1) catch unreachable;
+    const category = std.meta.stringToEnum(game.spawner.Category, name) orelse
+        lua.raiseErrorStr("nothing spawns as a '%s'", .{name.ptr});
+    lua.pop(1);
+
+    var spawns: game.mob.Spawns = .{ .category = category, .weight = spawnsNumber(lua, table, i32, "weight", 0) };
+    if (spawns.weight <= 0) lua.raiseErrorStr("'weight' is how often a mob is picked, so it must be positive", .{});
+    spawns.max_per_chunk = spawnsNumber(lua, table, u32, "max_per_chunk", game.spawner.max_per_chunk);
+    if (spawns.max_per_chunk == 0) lua.raiseErrorStr("'max_per_chunk' must be at least one", .{});
+    return spawns;
+}
+
+fn spawnsNumber(lua: *Lua, table: i32, comptime T: type, name: [:0]const u8, fallback: T) T {
+    defer lua.pop(1);
+    if (lua.getField(table, name) == .nil) return fallback;
+    const value = lua.toInteger(-1) catch lua.raiseErrorStr("'%s' must be a whole number", .{name.ptr});
+    return std.math.cast(T, value) orelse lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
 }
 
 const max_grid = game.crafting.workbench_grid_size;
@@ -907,4 +937,65 @@ test "a mob is out of reach outside its own callback" {
 
     try harness.expectFailure("rosebed.mob.health()", "a mob is only reached from its own callback");
     try harness.expectFailure("rosebed.mob.position()", "a mob is only reached from its own callback");
+}
+
+test "a mob names where it spawns, and is checked by the rule of that category" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  spawns = { category = "creature", weight = 8 },
+        \\}
+        \\rosebed.register_mob {
+        \\  key = "horror",
+        \\  monster = true,
+        \\  spawns = { category = "monster", weight = 3, max_per_chunk = 1 },
+        \\}
+        \\rosebed.register_mob { key = "drifter" }
+    );
+
+    const bumbler = game.mob.get(game.mob.find("quartz:bumbler").?);
+    const spawns = bumbler.spawns.?;
+    try std.testing.expectEqual(game.spawner.Category.creature, spawns.category);
+    try std.testing.expectEqual(@as(i32, 8), spawns.weight);
+    try std.testing.expectEqual(game.spawner.max_per_chunk, spawns.max_per_chunk);
+    try std.testing.expectEqual(game.mob.spawnCheckFor(.creature), bumbler.canSpawnHere);
+
+    const horror = game.mob.get(game.mob.find("quartz:horror").?);
+    try std.testing.expectEqual(game.spawner.Category.monster, horror.spawns.?.category);
+    try std.testing.expectEqual(@as(u32, 1), horror.spawns.?.max_per_chunk);
+    try std.testing.expectEqual(game.mob.spawnCheckFor(.monster), horror.canSpawnHere);
+
+    // A mob that says nothing about spawning never joins a roll.
+    try std.testing.expect(game.mob.get(game.mob.find("quartz:drifter").?).spawns == null);
+}
+
+test "a spawn rule has to say where and how often" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"bumbler\", spawns = { weight = 4 } }",
+        "'category' is 'creature', 'monster' or 'water_creature'",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"bumbler\", spawns = { category = \"boss\", weight = 4 } }",
+        "nothing spawns as a 'boss'",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"bumbler\", spawns = { category = \"creature\" } }",
+        "so it must be positive",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"bumbler\", spawns = { category = \"creature\", weight = 4, max_per_chunk = 0 } }",
+        "'max_per_chunk' must be at least one",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = \"bumbler\", spawns = \"creature\" }",
+        "'spawns' names a 'category' and a 'weight'",
+    );
 }
