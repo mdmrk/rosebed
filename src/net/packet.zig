@@ -68,6 +68,7 @@ pub const rosebed_client_seed: i64 = 0x726f7365626564;
 pub const ModList = struct {
     mods: []const Mod = &.{},
     keys: []const Key = &.{},
+    mobs: []const Key = &.{},
 
     pub const Mod = struct { id: []const u8, version: []const u8 };
     pub const Key = struct { key: []const u8, numeric: i16 };
@@ -79,8 +80,8 @@ pub const ModList = struct {
         return null;
     }
 
-    fn findKey(self: ModList, key: []const u8) ?Key {
-        for (self.keys) |entry| {
+    fn findIn(list: []const Key, key: []const u8) ?Key {
+        for (list) |entry| {
             if (std.mem.eql(u8, entry.key, key)) return entry;
         }
         return null;
@@ -100,8 +101,17 @@ pub const ModList = struct {
         const ids_differ = "Mod content ids differ from the server";
         if (ours.keys.len != theirs.keys.len) return ids_differ;
         for (theirs.keys) |entry| {
-            const mine = ours.findKey(entry.key) orelse return ids_differ;
+            const mine = findIn(ours.keys, entry.key) orelse return ids_differ;
             if (mine.numeric != entry.numeric) return ids_differ;
+        }
+
+        // A mob is spawned by its entity id, so the two sides have to have handed the
+        // same byte to the same mob or a client would build the wrong one.
+        const mobs_differ = "Mod mob ids differ from the server";
+        if (ours.mobs.len != theirs.mobs.len) return mobs_differ;
+        for (theirs.mobs) |entry| {
+            const mine = findIn(ours.mobs, entry.key) orelse return mobs_differ;
+            if (mine.numeric != entry.numeric) return mobs_differ;
         }
         return null;
     }
@@ -566,8 +576,30 @@ fn freeModList(gpa: std.mem.Allocator, list: ModList) void {
         gpa.free(mod.version);
     }
     gpa.free(list.mods);
-    for (list.keys) |entry| gpa.free(entry.key);
-    gpa.free(list.keys);
+    freeModKeys(gpa, list.keys);
+    freeModKeys(gpa, list.mobs);
+}
+
+fn freeModKeys(gpa: std.mem.Allocator, keys: []const ModList.Key) void {
+    for (keys) |entry| gpa.free(entry.key);
+    gpa.free(keys);
+}
+
+fn readModKeys(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError![]const ModList.Key {
+    const count = try r.takeInt(i16, .big);
+    if (count < 0) return error.NegativeLength;
+    const keys = try gpa.alloc(ModList.Key, @intCast(count));
+    var filled: usize = 0;
+    errdefer {
+        for (keys[0..filled]) |entry| gpa.free(entry.key);
+        gpa.free(keys);
+    }
+    while (filled < keys.len) : (filled += 1) {
+        const key = try readString(gpa, r, max_mod_text);
+        errdefer gpa.free(key);
+        keys[filled] = .{ .key = key, .numeric = try r.takeInt(i16, .big) };
+    }
+    return keys;
 }
 
 fn readModList(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModList {
@@ -588,21 +620,10 @@ fn readModList(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModList {
         mods[mods_read] = .{ .id = id, .version = try readString(gpa, r, max_mod_text) };
     }
 
-    const key_count = try r.takeInt(i16, .big);
-    if (key_count < 0) return error.NegativeLength;
-    const keys = try gpa.alloc(ModList.Key, @intCast(key_count));
-    var keys_read: usize = 0;
-    errdefer {
-        for (keys[0..keys_read]) |entry| gpa.free(entry.key);
-        gpa.free(keys);
-    }
-    while (keys_read < keys.len) : (keys_read += 1) {
-        const key = try readString(gpa, r, max_mod_text);
-        errdefer gpa.free(key);
-        keys[keys_read] = .{ .key = key, .numeric = try r.takeInt(i16, .big) };
-    }
+    const keys = try readModKeys(gpa, r);
+    errdefer freeModKeys(gpa, keys);
 
-    return .{ .mods = mods, .keys = keys };
+    return .{ .mods = mods, .keys = keys, .mobs = try readModKeys(gpa, r) };
 }
 
 fn writeModList(w: *std.Io.Writer, list: ModList) WriteError!void {
@@ -611,8 +632,13 @@ fn writeModList(w: *std.Io.Writer, list: ModList) WriteError!void {
         try writeString(w, mod.id, max_mod_text);
         try writeString(w, mod.version, max_mod_text);
     }
-    try w.writeInt(i16, std.math.cast(i16, list.keys.len) orelse return error.ListTooLong, .big);
-    for (list.keys) |entry| {
+    try writeModKeys(w, list.keys);
+    try writeModKeys(w, list.mobs);
+}
+
+fn writeModKeys(w: *std.Io.Writer, keys: []const ModList.Key) WriteError!void {
+    try w.writeInt(i16, std.math.cast(i16, keys.len) orelse return error.ListTooLong, .big);
+    for (keys) |entry| {
         try writeString(w, entry.key, max_mod_text);
         try w.writeInt(i16, entry.numeric, .big);
     }
@@ -2046,8 +2072,9 @@ test "the mod list, which vanilla never sends, keeps vanilla's string and short 
     const list: Packet = .{ .mod_list = .{
         .mods = &.{.{ .id = "a", .version = "1" }},
         .keys = &.{.{ .key = "a:b", .numeric = 97 }},
+        .mobs = &.{.{ .key = "a:c", .numeric = 96 }},
     } };
-    const expected = try fromHex(gpa, "fa00010001006100010031000100030061003a00620061");
+    const expected = try fromHex(gpa, "fa00010001006100010031000100030061003a00620061000100030061003a00630060");
     defer gpa.free(expected);
 
     const encoded = try encodeAlloc(gpa, list);
@@ -2060,9 +2087,29 @@ test "the mod list, which vanilla never sends, keeps vanilla's string and short 
     try std.testing.expectEqualStrings("1", decoded.mod_list.mods[0].version);
     try std.testing.expectEqualStrings("a:b", decoded.mod_list.keys[0].key);
     try std.testing.expectEqual(@as(i16, 97), decoded.mod_list.keys[0].numeric);
+    try std.testing.expectEqualStrings("a:c", decoded.mod_list.mobs[0].key);
+    try std.testing.expectEqual(@as(i16, 96), decoded.mod_list.mobs[0].numeric);
 
     try std.testing.expectError(error.WrongDirection, decode(gpa, encoded, true));
     try std.testing.expectError(error.EndOfStream, decode(gpa, encoded[0 .. encoded.len - 3], false));
+}
+
+test "two mod lists differ when a mob was given a different byte on each side" {
+    var buffer: [max_kick_reason]u8 = undefined;
+    const mods = [_]ModList.Mod{.{ .id = "rosebug", .version = "1" }};
+
+    const ours: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 96 }} };
+    const same: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 96 }} };
+    try std.testing.expect(ModList.difference(ours, same, &buffer) == null);
+
+    const shifted: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 97 }} };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, shifted, &buffer).?);
+
+    const renamed: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:weevil", .numeric = 96 }} };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, renamed, &buffer).?);
+
+    const none: ModList = .{ .mods = &mods };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, none, &buffer).?);
 }
 
 test "two mod lists name their first difference from the client's side" {

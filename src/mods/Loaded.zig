@@ -106,7 +106,15 @@ fn describe(arena: std.mem.Allocator, mods: []const discovery.Mod) !net.packet.M
         if (item.def().key.len == 0 or item.isVanilla()) continue;
         try keys.append(arena, .{ .key = item.def().key, .numeric = @intCast(raw) });
     }
-    return .{ .mods = entries, .keys = keys.items };
+    var mob_keys: std.ArrayList(net.packet.ModList.Key) = .empty;
+    var type_id: game.mob.Id = 0;
+    while (type_id < game.mob.registered()) : (type_id += 1) {
+        const wire = game.mob.get(type_id).wire_id orelse continue;
+        if (wire < game.mob.first_mod_wire_id) continue;
+        try mob_keys.append(arena, .{ .key = game.mob.get(type_id).name, .numeric = wire });
+    }
+
+    return .{ .mods = entries, .keys = keys.items, .mobs = mob_keys.items };
 }
 
 pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {

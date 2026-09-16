@@ -2951,3 +2951,79 @@ test "a jockey riding its spider is attached to it on the wire" {
     try std.testing.expectEqual(@as(usize, 1), loosed.items.len);
     try std.testing.expectEqual(@as(i32, -1), loosed.items[0].attach_entity.vehicle_id);
 }
+
+test "a mob from a mod is spawned to the client by the byte it was given" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const bumbler = game.mob.register(.{
+        .name = "rosebug:bumbler",
+        .wire_id = game.mob.first_mod_wire_id,
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, bumbler, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqual(game.mob.first_mod_wire_id, replies.items[0].mob_spawn.kind);
+}
+
+test "a mob with no byte of its own is still kept off the wire" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const hidden = game.mob.register(.{
+        .name = "rosebug:hidden",
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, hidden, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    const quiet = try session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
+}

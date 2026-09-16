@@ -59,6 +59,7 @@ pub fn claim(def: Def, refs: Refs) !Mob.Id {
 
     return Mob.register(.{
         .name = def.key,
+        .wire_id = Mob.first_mod_wire_id + @as(u8, @intCast(count - 1)),
         .monster = def.monster,
         .spawns = def.spawns,
         .canSpawnHere = if (def.spawns) |spawns| Mob.spawnCheckFor(spawns.category) else Mob.spawnCheckFor(.creature),

@@ -792,7 +792,7 @@ test "a mob registered from lua lands after the vanilla types, built to its spec
     try std.testing.expectEqual(type_id, harness.registrar.mob_skins.items[0].type_id);
     try std.testing.expectEqual(game.mob.Model.cow, harness.registrar.mob_skins.items[0].model);
     try std.testing.expectEqualStrings("bumbler.png", harness.registrar.mob_skins.items[0].file);
-    try std.testing.expectEqual(@as(?u8, null), game.mob.get(type_id).wire_id);
+    try std.testing.expectEqual(game.mob.first_mod_wire_id, game.mob.get(type_id).wire_id.?);
 
     var rand: world.JavaRandom = .init(3);
     const animal = try game.mob.get(type_id).spawn(std.testing.allocator, math.Vec3.init(1, 2, 3), &rand);

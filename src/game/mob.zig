@@ -119,6 +119,10 @@ fn canSpawnHereBase(animal: *const Animal, world_map: *const world.World, _: i64
 pub const Id = u16;
 pub const capacity: usize = 64;
 
+// Vanilla's mob entity ids stop at the wolf's 95, and Beta 1.7.3 never grew another,
+// so a registered type is given a byte past them and no vanilla client is ever sent one.
+pub const first_mod_wire_id: u8 = 96;
+
 const vanilla = [_]Type{
     @import("entity/Pig.zig").mob_type,
     @import("entity/Sheep.zig").mob_type,
@@ -286,4 +290,11 @@ test "a registered type lands after the vanilla ones and answers to its name" {
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
     try std.testing.expectEqual(@as(Id, 15), registered());
+}
+
+test "no vanilla mob claims a byte a registered type would be given" {
+    for (0..registered()) |type_id| {
+        const wire = get(@intCast(type_id)).wire_id orelse continue;
+        try std.testing.expect(wire < first_mod_wire_id);
+    }
 }
