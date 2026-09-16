@@ -49,6 +49,7 @@ pub const Hit = union(enum) {
     entry: usize,
     open_folder,
     open_mods_folder,
+    refresh,
     done,
 };
 
@@ -85,13 +86,14 @@ pub fn scrollbarAt(side: Side, mouse_x: f32, mouse_y: f32, res: gui.Scaled, coun
     return list.scrollbarIn(columnOf(res, side), mouse_x, mouse_y, res, count);
 }
 
-fn buttons(res: gui.Scaled) [3]struct { button: button.Button, hit: Hit } {
+fn buttons(res: gui.Scaled) [4]struct { button: button.Button, hit: Hit } {
     const cx = @floor(res.width / 2.0);
     const y = res.height - 48;
     return .{
-        .{ .button = .{ .x = cx - 154, .y = y, .w = 100, .label = "Open pack folder", .enabled = !wasm and !android }, .hit = .open_folder },
-        .{ .button = .{ .x = cx - 50, .y = y, .w = 100, .label = "Open mods folder", .enabled = !wasm and !android }, .hit = .open_mods_folder },
-        .{ .button = .{ .x = cx + 54, .y = y, .w = 100, .label = "Done", .enabled = true }, .hit = .done },
+        .{ .button = .{ .x = cx - 154, .y = y, .w = 74, .label = "Pack folder", .enabled = !wasm and !android }, .hit = .open_folder },
+        .{ .button = .{ .x = cx - 76, .y = y, .w = 74, .label = "Mods folder", .enabled = !wasm and !android }, .hit = .open_mods_folder },
+        .{ .button = .{ .x = cx + 2, .y = y, .w = 74, .label = "Refresh", .enabled = true }, .hit = .refresh },
+        .{ .button = .{ .x = cx + 80, .y = y, .w = 74, .label = "Done", .enabled = true }, .hit = .done },
     };
 }
 
@@ -278,7 +280,7 @@ test "clicking to the side of the list misses every row" {
     try std.testing.expectEqual(@as(?Hit, null), hitAt(outside, rowClickY(res, 0), res, 3, 0));
 }
 
-test "the three buttons sit side by side under the lists" {
+test "the buttons sit side by side under the lists" {
     const res = gui.scaledResolution(640, 480, 1000);
     const row = buttons(res);
     for (row[0 .. row.len - 1], row[1..]) |left, right| {
@@ -287,7 +289,7 @@ test "the three buttons sit side by side under the lists" {
     }
     try std.testing.expect(row[0].button.y >= listBottom(res));
     try std.testing.expect(row[0].button.x >= 0);
-    try std.testing.expect(row[2].button.x + row[2].button.w <= res.width);
+    try std.testing.expect(row[row.len - 1].button.x + row[row.len - 1].button.w <= res.width);
 
     for (row) |entry| {
         if (!entry.button.enabled) continue;

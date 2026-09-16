@@ -1967,12 +1967,21 @@ fn texturePacksClick(app_state: *AppState) !void {
         .entry => |index| try selectTexturePack(app_state, index),
         .open_folder => openGameFolder(app_state, render.texture_pack.folder_name),
         .open_mods_folder => openGameFolder(app_state, Mods.folder_name),
+        .refresh => try reloadModsAndPacks(app_state),
         .done => {
             freeTexturePacks(app_state);
             app_state.screen = .title;
             try updateMouseMode(app_state);
         },
     }
+}
+
+fn reloadModsAndPacks(app_state: *AppState) !void {
+    freeModSkins(app_state);
+    if (app_state.loaded_mods) |*loaded| loaded.deinit(app_state.gpa);
+    app_state.loaded_mods = loadMods(app_state.gpa, app_state.io, app_state.base_dir);
+    try refreshTextures(app_state);
+    try openTexturePacks(app_state);
 }
 
 fn openGameFolder(app_state: *AppState, folder_name: []const u8) void {

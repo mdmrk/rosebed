@@ -57,10 +57,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registry.install(vm.lua, registrar);
     hooks.install(vm.lua);
 
-    errdefer world.Block.resetRegistry();
-    errdefer world.Item.resetRegistry();
-    errdefer game.mob.reset();
-    errdefer mobs.reset();
+    errdefer resetRegistries();
     var shared: std.ArrayList(discovery.Mod) = .empty;
     for (mods) |mod| {
         var dir = try mods_dir.openDir(io, mod.folder, .{});
@@ -161,6 +158,15 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);
+    resetRegistries();
+}
+
+fn resetRegistries() void {
+    world.Block.resetRegistry();
+    world.Item.resetRegistry();
+    game.crafting.resetRegistry();
+    game.mob.reset();
+    mobs.reset();
 }
 
 fn writeMod(io: std.Io, dir: std.Io.Dir, folder: []const u8, manifest: []const u8, common: ?[]const u8) !void {
@@ -293,6 +299,33 @@ test "registration closes once loading has finished" {
     defer loaded.deinit(gpa);
 
     try std.testing.expectError(error.ScriptFailed, loaded.vm.exec("=late", "rosebed.register_block { key = 'late' }"));
+}
+
+test "unloading hands the registries back to vanilla so the same mods load again" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try writeMod(io, tmp.dir, "copper",
+        \\{ "id": "copper", "version": "1.0.0" }
+    , "rosebed.register_item { key = 'ingot' }\nrosebed.register_recipe { any = { 'coal' }, result = 'copper:ingot' }");
+
+    var grid: [4]?game.Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .item = .coal }, .count = 1 };
+
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    var first = try load(gpa, io, tmp.dir, &report.writer);
+    try std.testing.expect(game.crafting.findMatch(&grid, game.crafting.player_grid_size) != null);
+    first.deinit(gpa);
+
+    try std.testing.expect(world.Item.fromKey("copper:ingot") == null);
+    try std.testing.expect(game.crafting.findMatch(&grid, game.crafting.player_grid_size) == null);
+
+    var second = try load(gpa, io, tmp.dir, &report.writer);
+    defer second.deinit(gpa);
+    try std.testing.expect(world.Item.fromKey("copper:ingot") != null);
 }
 
 test "a failing mod is reported by file and line and leaves the registry untouched" {
@@ -512,6 +545,8 @@ test "a failing callback is contained and unloaded mods stop answering" {
     try std.testing.expectEqual(trap, world_map.getBlock(pos));
     try std.testing.expect(try switch_block.def().on_activated.?(&world_map, pos, switch_block));
 
+    const kept_callback = switch_block.def().on_activated.?;
     loaded.deinit(std.testing.allocator);
-    try std.testing.expect(!try switch_block.def().on_activated.?(&world_map, pos, switch_block));
+    try std.testing.expect(switch_block.def().on_activated == null);
+    try std.testing.expect(!try kept_callback(&world_map, pos, switch_block));
 }
