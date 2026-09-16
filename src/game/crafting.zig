@@ -445,8 +445,34 @@ fn matchesShapeless(grid: []const ?Inventory.ItemStack, recipe: ShapelessRecipe)
     return matched == wanted;
 }
 
-pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemStack {
-    for (recipes) |recipe| {
+pub const registered_capacity = 256;
+
+var registered_shaped: [registered_capacity]Recipe = undefined;
+var registered_shaped_count: usize = 0;
+var registered_shapeless: [registered_capacity]ShapelessRecipe = undefined;
+var registered_shapeless_count: usize = 0;
+
+pub const RegisterError = error{RecipesFull};
+
+pub fn register(recipe: Recipe) RegisterError!void {
+    if (registered_shaped_count == registered_capacity) return error.RecipesFull;
+    registered_shaped[registered_shaped_count] = recipe;
+    registered_shaped_count += 1;
+}
+
+pub fn registerShapeless(recipe: ShapelessRecipe) RegisterError!void {
+    if (registered_shapeless_count == registered_capacity) return error.RecipesFull;
+    registered_shapeless[registered_shapeless_count] = recipe;
+    registered_shapeless_count += 1;
+}
+
+pub fn resetRegistry() void {
+    registered_shaped_count = 0;
+    registered_shapeless_count = 0;
+}
+
+fn matchIn(list: []const Recipe, grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemStack {
+    for (list) |recipe| {
         if (recipe.width > size or recipe.height > size) continue;
         for (0..size + 1 - recipe.height) |offset_y| {
             for (0..size + 1 - recipe.width) |offset_x| {
@@ -458,8 +484,11 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
             }
         }
     }
+    return null;
+}
 
-    for (shapeless_recipes) |recipe| {
+fn matchShapelessIn(list: []const ShapelessRecipe, grid: []const ?Inventory.ItemStack) ?Inventory.ItemStack {
+    for (list) |recipe| {
         if (matchesShapeless(grid, recipe)) {
             return .{ .id = recipe.output_id, .count = recipe.output_count, .meta = recipe.output_meta };
         }
@@ -467,11 +496,24 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
     return null;
 }
 
+pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemStack {
+    if (matchIn(&recipes, grid, size)) |made| return made;
+    if (matchShapelessIn(&shapeless_recipes, grid)) |made| return made;
+    if (matchIn(registered_shaped[0..registered_shaped_count], grid, size)) |made| return made;
+    return matchShapelessIn(registered_shapeless[0..registered_shapeless_count], grid);
+}
+
 pub fn isCraftable(id: world.Id) bool {
     for (recipes) |recipe| {
         if (recipe.output_id.eql(id)) return true;
     }
     for (shapeless_recipes) |recipe| {
+        if (recipe.output_id.eql(id)) return true;
+    }
+    for (registered_shaped[0..registered_shaped_count]) |recipe| {
+        if (recipe.output_id.eql(id)) return true;
+    }
+    for (registered_shapeless[0..registered_shapeless_count]) |recipe| {
         if (recipe.output_id.eql(id)) return true;
     }
     return false;
@@ -484,6 +526,62 @@ pub fn consume(grid: []?Inventory.ItemStack) void {
             if (stack.count == 0) slot.* = null;
         }
     }
+}
+
+test "a registered recipe is found after every vanilla one" {
+    defer resetRegistry();
+
+    const gem: world.Id = .{ .item = .diamond };
+    var pattern: [max_pattern]?Ingredient = @splat(null);
+    pattern[0] = .{ .id = .{ .block = .gravel } };
+    pattern[1] = .{ .id = .{ .block = .gravel } };
+    try register(.{ .width = 2, .height = 1, .pattern = pattern, .output_id = gem, .output_count = 3 });
+
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[2] = .{ .id = .{ .block = .gravel }, .count = 1 };
+    grid[3] = .{ .id = .{ .block = .gravel }, .count = 1 };
+
+    const made = findMatch(&grid, player_grid_size).?;
+    try std.testing.expectEqual(gem, made.id);
+    try std.testing.expectEqual(@as(u8, 3), made.count);
+    try std.testing.expect(isCraftable(gem));
+}
+
+test "a registered recipe cannot shadow the vanilla one it collides with" {
+    defer resetRegistry();
+
+    var pattern: [max_pattern]?Ingredient = @splat(null);
+    pattern[0] = .{ .id = .{ .block = .log } };
+    try register(.{ .width = 1, .height = 1, .pattern = pattern, .output_id = .{ .item = .diamond }, .output_count = 64 });
+
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[0] = .{ .id = .{ .block = .log }, .count = 1 };
+
+    const made = findMatch(&grid, player_grid_size).?;
+    try std.testing.expectEqual(world.Id{ .block = .planks }, made.id);
+    try std.testing.expectEqual(@as(u8, 4), made.count);
+}
+
+test "a shapeless recipe can be registered too, and the table has a limit" {
+    defer resetRegistry();
+
+    var ingredients: [max_shapeless]?Ingredient = @splat(null);
+    ingredients[0] = .{ .id = .{ .block = .dirt } };
+    ingredients[1] = .{ .id = .{ .block = .sand } };
+    try registerShapeless(.{ .ingredients = ingredients, .output_id = .{ .block = .gravel }, .output_count = 1 });
+
+    var grid: [4]?Inventory.ItemStack = @splat(null);
+    grid[1] = .{ .id = .{ .block = .sand }, .count = 1 };
+    grid[2] = .{ .id = .{ .block = .dirt }, .count = 1 };
+    try std.testing.expectEqual(world.Id{ .block = .gravel }, findMatch(&grid, player_grid_size).?.id);
+
+    for (0..registered_capacity + 1) |_| {
+        register(.{ .width = 1, .height = 1, .pattern = @splat(null), .output_id = .{ .block = .stone }, .output_count = 1 }) catch |err| {
+            try std.testing.expectEqual(error.RecipesFull, err);
+            return;
+        };
+    }
+    try std.testing.expect(false);
 }
 
 test "log crafts into planks in any grid cell" {
