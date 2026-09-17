@@ -271,6 +271,8 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "set_block", .function = zlua.wrap(setBlock) },
         .{ .name = "set_meta", .function = zlua.wrap(setMeta) },
         .{ .name = "schedule_tick", .function = zlua.wrap(scheduleTick) },
+        .{ .name = "biome", .function = zlua.wrap(biomeName) },
+        .{ .name = "height", .function = zlua.wrap(height) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -344,6 +346,20 @@ fn scheduleTick(lua: *Lua) i32 {
     const delay = std.math.cast(u32, lua.checkInteger(4)) orelse lua.argError(4, "delay must be a whole number of ticks");
     world_map.scheduleBlockUpdate(pos, world_map.getBlock(pos), delay) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
+}
+
+fn biomeName(lua: *Lua) i32 {
+    const world_map = currentWorld(lua);
+    const x = coordinate(lua, 1);
+    const z = coordinate(lua, 2);
+    _ = lua.pushString(if (world_map.has_sky) @tagName(world_map.biomeAt(x, z)) else "nether");
+    return 1;
+}
+
+fn height(lua: *Lua) i32 {
+    const world_map = currentWorld(lua);
+    lua.pushInteger(world.decorate.heightValueAt(world_map, coordinate(lua, 1), coordinate(lua, 2)));
+    return 1;
 }
 
 fn hooks(lua: *Lua) *Hooks {
@@ -444,6 +460,32 @@ test "a script can schedule a block's next tick" {
     harness.world_map.time += 2;
     try harness.world_map.tickUpdates();
     try std.testing.expectEqual(@as(usize, 1), ticks_seen);
+}
+
+test "a script asks which biome a column is in and where its ground is" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.current_world = &harness.world_map;
+
+    const chunk = harness.world_map.getChunk(0, 0).?;
+    chunk.setClimate(4, 4, 0.99, 0.1);
+    chunk.setClimate(5, 4, 0.05, 0.5);
+    harness.world_map.setBlock(.init(4, 60, 4), .sand);
+    harness.world_map.setBlock(.init(4, 61, 4), .sand);
+    harness.world_map.setBlock(.init(5, 70, 4), .leaves);
+
+    try harness.vm.exec("=test",
+        \\local w = rosebed.world
+        \\assert(w.biome(4, 4) == "desert")
+        \\assert(w.biome(5, 4) == "tundra")
+        \\assert(w.height(4, 4) == 62)
+        \\assert(w.height(5, 4) == 71)
+        \\assert(w.height(6, 4) == 0)
+    );
+
+    harness.world_map.has_sky = false;
+    try harness.vm.exec("=test", "assert(rosebed.world.biome(4, 4) == 'nether')");
 }
 
 test "the world is out of reach outside a callback" {
