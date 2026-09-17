@@ -273,6 +273,9 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "schedule_tick", .function = zlua.wrap(scheduleTick) },
         .{ .name = "biome", .function = zlua.wrap(biomeName) },
         .{ .name = "height", .function = zlua.wrap(height) },
+        .{ .name = "get_chest_item", .function = zlua.wrap(getChestItem) },
+        .{ .name = "set_chest_item", .function = zlua.wrap(setChestItem) },
+        .{ .name = "set_spawner", .function = zlua.wrap(setSpawner) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -360,6 +363,67 @@ fn height(lua: *Lua) i32 {
     const world_map = currentWorld(lua);
     lua.pushInteger(world.decorate.heightValueAt(world_map, coordinate(lua, 1), coordinate(lua, 2)));
     return 1;
+}
+
+fn chestArgument(lua: *Lua, world_map: *world.World, pos: world.BlockPos) *world.chest.Chest {
+    if (world_map.getBlock(pos) != .chest) lua.raiseErrorStr("there is no chest at %d %d %d", .{ pos.x, pos.y, pos.z });
+    return world_map.addChest(pos) catch lua.raiseErrorStr("out of memory", .{});
+}
+
+fn chestSlot(lua: *Lua, arg: i32) usize {
+    const slot = lua.checkInteger(arg);
+    if (slot < 1 or slot > world.chest.slot_count) lua.argError(arg, "a chest slot is 1 to 27");
+    return @intCast(slot - 1);
+}
+
+fn getChestItem(lua: *Lua) i32 {
+    const world_map = currentWorld(lua);
+    const pos = position(lua, 1);
+    const stack = chestArgument(lua, world_map, pos).items[chestSlot(lua, 4)] orelse {
+        lua.pushNil();
+        return 1;
+    };
+    _ = lua.pushString(switch (stack.id) {
+        .block => |id| id.def().key,
+        .item => |id| id.def().key,
+    });
+    lua.pushInteger(stack.count);
+    lua.pushInteger(stack.meta);
+    return 3;
+}
+
+fn setChestItem(lua: *Lua) i32 {
+    const world_map = currentWorld(lua);
+    const pos = position(lua, 1);
+    const target = chestArgument(lua, world_map, pos).slot(chestSlot(lua, 4));
+    if (lua.isNoneOrNil(5)) {
+        target.* = null;
+        return 0;
+    }
+    const key = lua.checkString(5);
+    const id: world.Id = if (world.Block.fromKey(key)) |block|
+        .{ .block = block }
+    else if (world.Item.fromKey(key)) |item|
+        .{ .item = item }
+    else
+        lua.raiseErrorStr("no block or item is registered as '%s'", .{key.ptr});
+    const count = std.math.cast(u8, lua.optInteger(6) orelse 1) orelse lua.argError(6, "a count is 1 to 64");
+    if (count == 0 or count > world.chest.stack_limit) lua.argError(6, "a count is 1 to 64");
+    const meta = std.math.cast(u16, lua.optInteger(7) orelse 0) orelse lua.argError(7, "meta is 0 to 65535");
+    target.* = .{ .id = id, .count = count, .meta = meta };
+    return 0;
+}
+
+fn setSpawner(lua: *Lua) i32 {
+    const world_map = currentWorld(lua);
+    const pos = position(lua, 1);
+    if (world_map.getBlock(pos) != .mob_spawner) lua.raiseErrorStr("there is no mob spawner at %d %d %d", .{ pos.x, pos.y, pos.z });
+    const name = lua.checkString(4);
+    if (game.mob.find(name) == null) lua.raiseErrorStr("no mob is registered as '%s'", .{name.ptr});
+    if (name.len > world.mob_spawner.max_mob_name) lua.argError(4, "the mob's name is too long for a spawner");
+    const spawner = world_map.addMobSpawner(pos) catch lua.raiseErrorStr("out of memory", .{});
+    spawner.setMobName(name);
+    return 0;
 }
 
 fn hooks(lua: *Lua) *Hooks {
@@ -486,6 +550,50 @@ test "a script asks which biome a column is in and where its ground is" {
 
     harness.world_map.has_sky = false;
     try harness.vm.exec("=test", "assert(rosebed.world.biome(4, 4) == 'nether')");
+}
+
+test "a script fills a chest and names a spawner's mob" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.current_world = &harness.world_map;
+
+    try harness.vm.exec("=test",
+        \\local w = rosebed.world
+        \\w.set_block(4, 10, 4, "chest")
+        \\assert(w.get_chest_item(4, 10, 4, 1) == nil)
+        \\w.set_chest_item(4, 10, 4, 1, "ingot_iron", 5)
+        \\w.set_chest_item(4, 10, 4, 27, "dye", 1, 3)
+        \\w.set_chest_item(4, 10, 4, 2, "cobblestone", 64)
+        \\w.set_chest_item(4, 10, 4, 2, nil)
+        \\local key, count, meta = w.get_chest_item(4, 10, 4, 27)
+        \\assert(key == "dye" and count == 1 and meta == 3)
+        \\w.set_block(6, 10, 4, "mob_spawner")
+        \\w.set_spawner(6, 10, 4, "Skeleton")
+    );
+
+    const box = harness.world_map.chestAt(.init(4, 10, 4)).?;
+    try std.testing.expectEqual(world.Item.ingot_iron, box.items[0].?.id.item);
+    try std.testing.expectEqual(@as(u8, 5), box.items[0].?.count);
+    try std.testing.expectEqual(@as(?world.Stack, null), box.items[1]);
+    try std.testing.expectEqual(@as(u16, 3), box.items[26].?.meta);
+    try std.testing.expectEqualStrings("Skeleton", harness.world_map.mobSpawnerAt(.init(6, 10, 4)).?.mobName());
+}
+
+test "chests and spawners refuse what they cannot hold" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.current_world = &harness.world_map;
+    harness.world_map.setBlock(.init(4, 10, 4), .chest);
+    harness.world_map.setBlock(.init(6, 10, 4), .mob_spawner);
+
+    try harness.expectFailure("rosebed.world.set_chest_item(5, 10, 4, 1, 'stick')", "there is no chest at 5 10 4");
+    try harness.expectFailure("rosebed.world.set_chest_item(4, 10, 4, 28, 'stick')", "a chest slot is 1 to 27)");
+    try harness.expectFailure("rosebed.world.set_chest_item(4, 10, 4, 1, 'stick', 65)", "a count is 1 to 64)");
+    try harness.expectFailure("rosebed.world.set_chest_item(4, 10, 4, 1, 'granite')", "no block or item is registered as 'granite'");
+    try harness.expectFailure("rosebed.world.set_spawner(4, 10, 4, 'Pig')", "there is no mob spawner at 4 10 4");
+    try harness.expectFailure("rosebed.world.set_spawner(6, 10, 4, 'Dragon')", "no mob is registered as 'Dragon'");
 }
 
 test "the world is out of reach outside a callback" {
