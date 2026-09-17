@@ -24,6 +24,7 @@ pub const Def = struct {
 
 var defs: [capacity - vanilla_count]Def = undefined;
 var registered: usize = 0;
+var split_parents: Set = .initEmpty();
 
 pub const Biome = enum(u8) {
     tundra,
@@ -127,11 +128,13 @@ pub fn register(entry: Def) RegisterError!Biome {
     if (taken + entry.share > 1.0 + 1e-9) return error.NoShareLeft;
     defs[registered] = entry;
     registered += 1;
+    split_parents.set(@intFromEnum(entry.parent));
     return @enumFromInt(vanilla_count + registered - 1);
 }
 
 pub fn resetRegistry() void {
     registered = 0;
+    split_parents = .initEmpty();
 }
 
 const selector_salt: i64 = 0x62696f6d6573;
@@ -164,12 +167,7 @@ fn selector(seed: i64, x: i32, z: i32) f64 {
 }
 
 pub fn resolve(parent: Biome, seed: i64, x: i32, z: i32) Biome {
-    if (registered == 0) return parent;
-    var split = false;
-    for (defs[0..registered]) |entry| {
-        if (entry.parent == parent) split = true;
-    }
-    if (!split) return parent;
+    if (!split_parents.isSet(@intFromEnum(parent))) return parent;
 
     const pick = selector(seed, x, z);
     var reached: f64 = 0;

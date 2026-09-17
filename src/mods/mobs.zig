@@ -56,7 +56,6 @@ var count: usize = 0;
 const Body = struct {
     animal: Animal,
     slot: u16,
-    pending: ?world.Stack = null,
 };
 
 pub fn claim(def: Def, refs: Refs) !Mob.Id {
@@ -163,10 +162,7 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
         }.call,
         .takeDrops = &struct {
             fn call(animal: *Animal) ?Mob.Drops {
-                if (overrides[type_id].inner_take_drops.?(animal)) |drops| return drops;
-                const stack = animal.owed_drop orelse return null;
-                animal.owed_drop = null;
-                return .{ .count = stack.count, .stack = .{ .id = stack.id, .count = 1, .meta = stack.meta } };
+                return overrides[type_id].inner_take_drops.?(animal) orelse takeDrops(animal);
             }
         }.call,
         .onDeath = &struct {
@@ -250,7 +246,7 @@ fn rollDrop(animal: *Animal, rand: *world.JavaRandom) void {
     const body: *Body = @fieldParentPtr("animal", animal);
     const ref = slots[body.slot].refs.drop orelse return;
     const hooks = Hooks.active orelse return;
-    body.pending = hooks.rollDrop(ref, null, rand);
+    animal.owed_drop = hooks.rollDrop(ref, null, rand);
 }
 
 fn tick(
@@ -271,9 +267,8 @@ fn afterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
 }
 
 fn takeDrops(animal: *Animal) ?Mob.Drops {
-    const body: *Body = @fieldParentPtr("animal", animal);
-    const stack = body.pending orelse return null;
-    body.pending = null;
+    const stack = animal.owed_drop orelse return null;
+    animal.owed_drop = null;
     return .{ .count = stack.count, .stack = .{ .id = stack.id, .count = 1, .meta = stack.meta } };
 }
 

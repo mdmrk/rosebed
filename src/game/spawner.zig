@@ -195,10 +195,9 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
         .water_creature => @intCast(entities.countOf(mob.squid)),
     };
 
-    var type_id: mob.Id = 0;
-    while (type_id < mob.registered()) : (type_id += 1) {
-        const spawns = mob.get(type_id).spawns orelse continue;
-        if (spawns.category == category) total += @intCast(entities.countOf(type_id));
+    for (entities.mobs.items) |entry| {
+        const spawns = mob.get(entry.type_id).spawns orelse continue;
+        if (spawns.category == category) total += 1;
     }
     return total;
 }

@@ -260,6 +260,7 @@ fn planFor(self: *Hooks, gpa: std.mem.Allocator, generator: *world.Generator, in
     plan.* = .init(gpa, index, spec.*, seed, cell_x, cell_z, instance);
     errdefer plan.deinit();
     try self.runPlace(plan, spec, generator, instance);
+    try plan.seal();
 
     if (self.plans[self.next_plan]) |evicted| {
         evicted.deinit();

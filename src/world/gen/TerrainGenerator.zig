@@ -298,7 +298,9 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
 
     for (0..16) |z| {
         for (0..16) |x| {
-            const surface_biome = biome.resolve(climate_sample.biomeAt(x, z), self.world_seed, chunk.x * 16 + @as(i32, @intCast(x)), chunk.z * 16 + @as(i32, @intCast(z)));
+            const parent = climate_sample.biomeAt(x, z);
+            const column = chunk.getBiome(@intCast(x), @intCast(z));
+            const surface_biome = if (column.vanilla() == parent) column else biome.resolve(parent, self.world_seed, chunk.x * 16 + @as(i32, @intCast(x)), chunk.z * 16 + @as(i32, @intCast(z)));
             const noise_index = x * 16 + z;
             const sandy = sand_field[noise_index] + rand.nextDouble() * 0.2 > 0.0;
             const gravelly = gravel_field[noise_index] + rand.nextDouble() * 0.2 > 3.0;

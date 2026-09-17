@@ -54,6 +54,11 @@ pub const Placed = struct {
     meta: ?u4 = null,
 };
 
+pub const Placement = struct {
+    pos: world.BlockPos,
+    placed: Placed,
+};
+
 pub const ChestItem = struct {
     pos: world.BlockPos,
     slot: usize,
@@ -77,6 +82,7 @@ pub const Plan = struct {
     max_x: i32,
     max_z: i32,
     blocks: std.AutoHashMapUnmanaged(world.BlockPos, Placed) = .{},
+    placements: []Placement = &.{},
     chest_items: std.ArrayList(ChestItem) = .empty,
     spawners: std.ArrayList(SpawnerMob) = .empty,
 
@@ -96,6 +102,7 @@ pub const Plan = struct {
 
     pub fn deinit(self: *Plan) void {
         self.blocks.deinit(self.gpa);
+        self.gpa.free(self.placements);
         self.chest_items.deinit(self.gpa);
         self.spawners.deinit(self.gpa);
     }
@@ -124,6 +131,36 @@ pub const Plan = struct {
         entry.value_ptr.meta = meta;
     }
 
+    pub fn seal(self: *Plan) !void {
+        const placements = try self.gpa.alloc(Placement, self.blocks.count());
+        var blocks = self.blocks.iterator();
+        for (placements) |*placement| {
+            const entry = blocks.next().?;
+            placement.* = .{ .pos = entry.key_ptr.*, .placed = entry.value_ptr.* };
+        }
+        std.mem.sortUnstable(Placement, placements, {}, squareBefore);
+        self.blocks.clearAndFree(self.gpa);
+        self.placements = placements;
+    }
+
+    fn square(pos: world.BlockPos) [2]i32 {
+        return .{ @divFloor(pos.x - 8, width), @divFloor(pos.z - 8, width) };
+    }
+
+    fn squareBefore(_: void, a: Placement, b: Placement) bool {
+        const first = square(a.pos);
+        const second = square(b.pos);
+        return first[0] < second[0] or (first[0] == second[0] and first[1] < second[1]);
+    }
+
+    fn squareOrder(chunk: [2]i32, placement: Placement) std.math.Order {
+        const at = square(placement.pos);
+        return switch (std.math.order(chunk[0], at[0])) {
+            .eq => std.math.order(chunk[1], at[1]),
+            else => |order| order,
+        };
+    }
+
     pub fn chestItem(self: Plan, pos: world.BlockPos, slot: usize) ?world.Stack {
         var index = self.chest_items.items.len;
         while (index > 0) {
@@ -143,12 +180,10 @@ pub const Plan = struct {
             }
         }.at;
 
-        var blocks = self.blocks.iterator();
-        while (blocks.next()) |entry| {
-            const pos = entry.key_ptr.*;
-            if (!inSquare(pos, square_x, square_z)) continue;
-            if (entry.value_ptr.block) |block| world_map.setBlock(pos, block);
-            if (entry.value_ptr.meta) |meta| world_map.setBlockMetadata(pos, meta);
+        const first, const last = std.sort.equalRange(Placement, self.placements, [2]i32{ chunk_x, chunk_z }, squareOrder);
+        for (self.placements[first..last]) |placement| {
+            if (placement.placed.block) |block| world_map.setBlock(placement.pos, block);
+            if (placement.placed.meta) |meta| world_map.setBlockMetadata(placement.pos, meta);
         }
         for (self.chest_items.items) |item| {
             if (!inSquare(item.pos, square_x, square_z) or world_map.getBlock(item.pos) != .chest) continue;
