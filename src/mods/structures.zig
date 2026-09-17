@@ -15,7 +15,7 @@ pub const Structure = struct {
     chance: f64,
     radius: i32,
     dimension: world.Dimension,
-    biomes: ?std.EnumSet(world.biome.Biome) = null,
+    biomes: ?world.biome.Set = null,
     warned: bool = false,
 };
 

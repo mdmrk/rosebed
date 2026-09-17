@@ -58,6 +58,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "on_generate", .function = zlua.wrap(onGenerate) },
         .{ .name = "noise", .function = zlua.wrap(createNoise) },
         .{ .name = "register_structure", .function = zlua.wrap(registerStructure) },
+        .{ .name = "register_biome", .function = zlua.wrap(registerBiome) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(registrar);
@@ -266,6 +267,74 @@ fn onGenerate(lua: *Lua) i32 {
     return 0;
 }
 
+fn registerBiome(lua: *Lua) i32 {
+    const registrar = context(lua);
+    lua.checkType(1, .table);
+    const key = namespacedKey(lua, registrar);
+
+    if (lua.getField(1, "parent") != .string) lua.raiseErrorStr("'parent' names the vanilla biome to take ground from", .{});
+    const parent_name = lua.toString(-1) catch unreachable;
+    const parent = std.meta.stringToEnum(world.biome.Biome, parent_name) orelse
+        lua.raiseErrorStr("there is no vanilla biome called '%s'", .{parent_name.ptr});
+    lua.pop(1);
+
+    if (lua.getField(1, "share") != .number) lua.raiseErrorStr("'share' is the part of its parent it takes, above 0 and at most 1", .{});
+    const share = lua.toNumber(-1) catch unreachable;
+    if (!(share > 0 and share <= 1)) lua.raiseErrorStr("'share' is the part of its parent it takes, above 0 and at most 1", .{});
+    lua.pop(1);
+
+    const entry: world.biome.Def = .{
+        .key = key,
+        .parent = parent,
+        .share = share,
+        .top = biomeBlock(lua, "top", parent.topBlock()),
+        .filler = biomeBlock(lua, "filler", parent.fillerBlock()),
+        .snows = biomeFlag(lua, "snows", parent.snows()),
+        .rains = biomeFlag(lua, "rains", parent.rains()),
+        .trees = biomeCount(lua, "trees", -64),
+        .grass = biomeCount(lua, "grass", 0),
+        .flowers = biomeCount(lua, "flowers", 0),
+    };
+
+    _ = world.biome.register(entry) catch |err| switch (err) {
+        error.DuplicateKey => raise(lua, error.DuplicateKey, key),
+        error.RegistryFull => raise(lua, error.RegistryFull, key),
+        error.NoShareLeft => lua.raiseErrorStr("'%s' has no share left to give", .{parent_name.ptr}),
+    };
+    _ = lua.pushString(key);
+    return 1;
+}
+
+fn biomeBlock(lua: *Lua, name: [:0]const u8, fallback: world.Block) world.Block {
+    defer lua.pop(1);
+    return switch (lua.getField(1, name)) {
+        .nil => fallback,
+        .string => world.Block.fromKey(lua.toString(-1) catch unreachable) orelse
+            lua.raiseErrorStr("'%s' must be a registered block", .{name.ptr}),
+        else => lua.raiseErrorStr("'%s' must be a registered block", .{name.ptr}),
+    };
+}
+
+fn biomeFlag(lua: *Lua, name: [:0]const u8, fallback: bool) bool {
+    defer lua.pop(1);
+    return switch (lua.getField(1, name)) {
+        .nil => fallback,
+        .boolean => lua.toBoolean(-1),
+        else => lua.raiseErrorStr("'%s' must be true or false", .{name.ptr}),
+    };
+}
+
+fn biomeCount(lua: *Lua, name: [:0]const u8, lowest: i32) ?i32 {
+    if (lua.getField(1, name) == .nil) {
+        lua.pop(1);
+        return null;
+    }
+    lua.pop(1);
+    const count = spawnsNumber(lua, 1, i32, name, 0);
+    if (count < lowest or count > 64) lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
+    return count;
+}
+
 fn registerStructure(lua: *Lua) i32 {
     const registrar = context(lua);
     lua.checkType(1, .table);
@@ -394,15 +463,15 @@ fn readSpawns(lua: *Lua) game.mob.Spawns {
     return spawns;
 }
 
-fn readBiomes(lua: *Lua) std.EnumSet(world.biome.Biome) {
+fn readBiomes(lua: *Lua) world.biome.Set {
     const list = lua.getTop();
-    var biomes: std.EnumSet(world.biome.Biome) = .initEmpty();
+    var biomes: world.biome.Set = .initEmpty();
     var index: i64 = 1;
     while (lua.getIndex(list, index) != .nil) : (index += 1) {
         if (lua.typeOf(-1) != .string) lua.raiseErrorStr("'biomes' is a list of biome names", .{});
         const name = lua.toString(-1) catch unreachable;
-        biomes.insert(std.meta.stringToEnum(world.biome.Biome, name) orelse
-            lua.raiseErrorStr("there is no biome called '%s'", .{name.ptr}));
+        const found = world.biome.Biome.fromName(name) orelse lua.raiseErrorStr("there is no biome called '%s'", .{name.ptr});
+        biomes.set(@intFromEnum(found));
         lua.pop(1);
     }
     lua.pop(1);
@@ -669,6 +738,7 @@ const Harness = struct {
         game.crafting.resetRegistry();
         game.mob.reset();
         mobs.reset();
+        world.biome.resetRegistry();
     }
 
     fn expectFailure(self: *Harness, source: []const u8, message: []const u8) !void {
@@ -1322,8 +1392,8 @@ test "a spawn rule can keep a mob to some biomes, or to the nether" {
     const bumbler = game.mob.get(game.mob.find("quartz:bumbler").?).spawns.?;
     try std.testing.expectEqual(world.Dimension.overworld, bumbler.dimension);
     try std.testing.expectEqual(@as(usize, 2), bumbler.biomes.?.count());
-    try std.testing.expect(bumbler.biomes.?.contains(.forest));
-    try std.testing.expect(bumbler.biomes.?.contains(.taiga));
+    try std.testing.expect(bumbler.biomes.?.isSet(@intFromEnum(world.biome.Biome.forest)));
+    try std.testing.expect(bumbler.biomes.?.isSet(@intFromEnum(world.biome.Biome.taiga)));
 
     const imp = game.mob.get(game.mob.find("quartz:imp").?).spawns.?;
     try std.testing.expectEqual(world.Dimension.nether, imp.dimension);
@@ -1583,6 +1653,72 @@ test "a structure comes out the same whatever order its chunks are decorated in"
     }
     lua.pop(1);
     try std.testing.expect(checked > 40);
+}
+
+test "a mod biome takes its share of its parent, with its own surface, and spawn rules can name it" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+
+    try harness.vm.exec("=quartz",
+        \\assert(rosebed.register_biome {
+        \\  key = "grove", parent = "forest", share = 1,
+        \\  top = "obsidian", filler = "gravel", snows = true, trees = -64, flowers = 0,
+        \\} == "quartz:grove")
+        \\rosebed.register_mob {
+        \\  key = "moth",
+        \\  spawns = { category = "creature", weight = 3, biomes = { "quartz:grove" } },
+        \\}
+    );
+    const grove = world.biome.Biome.fromName("quartz:grove").?;
+    try std.testing.expect(grove.snows());
+    const moth = game.mob.get(game.mob.find("quartz:moth").?).spawns.?;
+    try std.testing.expect(moth.biomes.?.isSet(@intFromEnum(grove)));
+    try std.testing.expect(!moth.biomes.?.isSet(@intFromEnum(world.biome.Biome.forest)));
+
+    var generator = try world.TerrainGenerator.init(gpa, 31337);
+    defer generator.deinit(gpa);
+
+    var grove_columns: usize = 0;
+    var obsidian_tops: usize = 0;
+    var grass_tops: usize = 0;
+    var chunk_x: i32 = 0;
+    while (chunk_x < 24) : (chunk_x += 1) {
+        var chunk = world.Chunk.init(chunk_x * 4, 0);
+        generator.generateShape(&chunk);
+        for (0..world.Chunk.width) |x| {
+            for (0..world.Chunk.width) |z| {
+                const column = chunk.getBiome(@intCast(x), @intCast(z));
+                try std.testing.expect(column != .forest);
+                if (column != grove) continue;
+                grove_columns += 1;
+                var y: u32 = world.Chunk.height - 1;
+                while (y > 0 and chunk.getBlock(@intCast(x), y, @intCast(z)) == .air) y -= 1;
+                switch (chunk.getBlock(@intCast(x), y, @intCast(z))) {
+                    .obsidian => obsidian_tops += 1,
+                    .grass => grass_tops += 1,
+                    else => {},
+                }
+            }
+        }
+    }
+    try std.testing.expect(grove_columns > 0);
+    try std.testing.expect(obsidian_tops > 0);
+    try std.testing.expectEqual(@as(usize, 0), grass_tops);
+}
+
+test "a mod biome's parent, share and blocks are checked as it registers" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_biome { key = 'grove', parent = 'jungle', share = 0.5 }", "there is no vanilla biome called 'jungle'");
+    try harness.expectFailure("rosebed.register_biome { key = 'grove', parent = 'forest', share = 0 }", "'share' is the part of its parent it takes, above 0 and at most 1");
+    try harness.expectFailure("rosebed.register_biome { key = 'grove', parent = 'forest', share = 0.5, top = 'granite' }", "'top' must be a registered block");
+    try harness.vm.exec("=quartz", "rosebed.register_biome { key = 'grove', parent = 'forest', share = 0.6 }");
+    try harness.expectFailure("rosebed.register_biome { key = 'glade', parent = 'forest', share = 0.5 }", "'forest' has no share left to give");
+    try harness.expectFailure("rosebed.register_biome { key = 'grove', parent = 'plains', share = 0.1 }", "'quartz:grove' is already registered");
 }
 
 test "a structure's spacing, chance, radius and biomes are checked as it registers" {

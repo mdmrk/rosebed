@@ -280,7 +280,7 @@ fn runPlace(self: *Hooks, plan: *structures.Plan, spec: *structures.Structure, g
     const dimension = generator.dimension();
     if (spec.biomes) |allowed| {
         const chunk, const x, const z = try terrain.column(instance.origin_x, instance.origin_z);
-        if (!allowed.contains(world.biome.classify(chunk.getTemperature(x, z), chunk.getHumidity(x, z)))) return;
+        if (!allowed.isSet(@intFromEnum(chunk.getBiome(x, z)))) return;
     }
 
     var rand = instance.rand;
@@ -654,15 +654,12 @@ fn biomeName(lua: *Lua) i32 {
             lua.pushNil();
             return 1;
         };
-        const name = if (hooks(lua).current_dimension != .overworld)
-            "nether"
-        else
-            @tagName(world.biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z)));
+        const name = if (hooks(lua).current_dimension != .overworld) "nether" else chunk.getBiome(local_x, local_z).name();
         _ = lua.pushString(name);
         return 1;
     }
     const world_map = currentWorld(lua);
-    _ = lua.pushString(if (world_map.has_sky) @tagName(world_map.biomeAt(x, z)) else "nether");
+    _ = lua.pushString(if (world_map.has_sky) world_map.biomeAt(x, z).name() else "nether");
     return 1;
 }
 

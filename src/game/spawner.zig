@@ -136,7 +136,7 @@ const nether_monsters = [_]Horror{
 };
 
 pub fn creatureList(in_biome: world.biome.Biome) []const Creature {
-    return switch (in_biome) {
+    return switch (in_biome.vanilla()) {
         .forest, .taiga => &wooded_creatures,
         else => &base_creatures,
     };
@@ -246,7 +246,7 @@ fn weighChoices(
         if (spawns.biomes) |allowed| {
             const here = biome orelse world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width);
             biome = here;
-            if (!allowed.contains(here)) continue;
+            if (!allowed.isSet(@intFromEnum(here))) continue;
         }
         buffer[count] = .{ .weight = spawns.weight, .chosen = .{ .modded = type_id } };
         count += 1;
@@ -1506,10 +1506,12 @@ test "a registered mob is only weighed in the biomes it names" {
     defer w.deinit();
 
     const here = w.biomeAt(3 * world.Chunk.width, 0);
-    var elsewhere = std.EnumSet(world.biome.Biome).initFull();
-    elsewhere.remove(here);
+    var local: world.biome.Set = .initEmpty();
+    local.set(@intFromEnum(here));
+    var elsewhere: world.biome.Set = .initFull();
+    elsewhere.unset(@intFromEnum(here));
 
-    _ = registerTestMob("rosebug:local", .{ .category = .creature, .weight = 5, .biomes = .initOne(here) });
+    _ = registerTestMob("rosebug:local", .{ .category = .creature, .weight = 5, .biomes = local });
     _ = registerTestMob("rosebug:stranger", .{ .category = .creature, .weight = 7, .biomes = elsewhere });
 
     var buffer: [max_choices]Choice = undefined;

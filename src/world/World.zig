@@ -378,6 +378,7 @@ fn loadChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !?*Ch
             chunk.setClimate(@intCast(x), @intCast(z), @floatCast(climate.temperature[i]), @floatCast(climate.humidity[i]));
         }
     }
+    if (self.has_sky) chunk.resolveBiomes(generator.worldSeed());
 
     if (stored.populated) try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
     return chunk;
@@ -596,9 +597,7 @@ pub fn getBlock(self: *const World, pos: BlockPos) Block {
 
 pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
     const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return .plains;
-    const local_x: u32 = @intCast(floorMod(x, Chunk.width));
-    const local_z: u32 = @intCast(floorMod(z, Chunk.width));
-    return biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z));
+    return chunk.getBiome(@intCast(floorMod(x, Chunk.width)), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn setBlock(self: *World, pos: BlockPos, id: Block) void {

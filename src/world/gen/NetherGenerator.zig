@@ -67,6 +67,10 @@ pub fn deinit(self: NetherGenerator, gpa: std.mem.Allocator) void {
     self.depth_noise.deinit(gpa);
 }
 
+pub fn worldSeed(self: NetherGenerator) i64 {
+    return self.world_seed;
+}
+
 pub fn sampleClimate(_: NetherGenerator, _: i32, _: i32) Climate.Sample {
     return .{
         .temperature = @splat(temperature),

@@ -170,6 +170,7 @@ fn resetRegistries() void {
     game.crafting.resetRegistry();
     game.mob.reset();
     mobs.reset();
+    world.biome.resetRegistry();
 }
 
 fn writeMod(io: std.Io, dir: std.Io.Dir, folder: []const u8, manifest: []const u8, common: ?[]const u8) !void {

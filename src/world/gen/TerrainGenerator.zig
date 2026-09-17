@@ -71,6 +71,10 @@ pub fn deinit(self: TerrainGenerator, gpa: std.mem.Allocator) void {
     self.climate.deinit(gpa);
 }
 
+pub fn worldSeed(self: TerrainGenerator) i64 {
+    return self.world_seed;
+}
+
 pub fn sampleClimate(self: TerrainGenerator, x: i32, z: i32) Climate.Sample {
     return self.climate.sample(x, z);
 }
@@ -171,6 +175,7 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
             chunk.setClimate(@intCast(x), @intCast(z), @floatCast(climate_sample.temperature[i]), @floatCast(climate_sample.humidity[i]));
         }
     }
+    chunk.resolveBiomes(self.world_seed);
 
     var field: density.Field = undefined;
     self.computeDensityField(&field, chunk_x * density.cells_xz, chunk_z * density.cells_xz, &climate_sample);
@@ -183,7 +188,7 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
 }
 
 pub fn decorateChunk(self: TerrainGenerator, world_map: *World, chunk_x: i32, chunk_z: i32) !void {
-    const surface_biome = self.climate.biomeAt(chunk_x * 16 + 16, chunk_z * 16 + 16);
+    const surface_biome = biome.resolve(self.climate.biomeAt(chunk_x * 16 + 16, chunk_z * 16 + 16), self.world_seed, chunk_x * 16 + 16, chunk_z * 16 + 16);
 
     var decorate_rand = JavaRandom.init(self.world_seed);
     const mult_x = @divTrunc(decorate_rand.nextLong(), 2) *% 2 +% 1;
@@ -293,7 +298,7 @@ fn dressSurface(self: TerrainGenerator, chunk: *Chunk, climate_sample: *const Cl
 
     for (0..16) |z| {
         for (0..16) |x| {
-            const surface_biome = climate_sample.biomeAt(x, z);
+            const surface_biome = biome.resolve(climate_sample.biomeAt(x, z), self.world_seed, chunk.x * 16 + @as(i32, @intCast(x)), chunk.z * 16 + @as(i32, @intCast(z)));
             const noise_index = x * 16 + z;
             const sandy = sand_field[noise_index] + rand.nextDouble() * 0.2 > 0.0;
             const gravelly = gravel_field[noise_index] + rand.nextDouble() * 0.2 > 3.0;
