@@ -12,8 +12,13 @@ lua: ?*Lua = null,
 current_world: ?*world.World = null,
 current_rand: ?*world.JavaRandom = null,
 current_mob: ?*game.Animal = null,
+current_chunk: ?*world.Chunk = null,
+current_dimension: world.Dimension = .overworld,
+current_seed: ?i64 = null,
 decorating: bool = false,
 decorators: std.ArrayList(Decorator) = .empty,
+shapers: std.ArrayList(Decorator) = .empty,
+noises: std.ArrayList(Noise) = .empty,
 block_refs: [256]BlockRefs = @splat(.{}),
 item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
@@ -24,6 +29,22 @@ pub const Decorator = struct {
     salt: i64,
     warned: bool = false,
 };
+
+pub const Noise = struct {
+    mod_salt: i64,
+    index: i64,
+    scale: f64,
+    octaves: []world.PerlinNoise,
+    seeded_for: ?i64 = null,
+};
+
+pub const max_octaves = 16;
+const shape_salt: i64 = 0x73686170696e67;
+const noise_salt: i64 = @bitCast(@as(u64, 0x9e3779b97f4a7c15));
+
+fn modSalt(mod_id: []const u8) i64 {
+    return @bitCast(std.hash.Fnv1a_64.hash(mod_id));
+}
 
 pub const ItemRefs = struct {
     on_use: ?i32 = null,
@@ -151,45 +172,114 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
 }
 
 pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {
-    try self.decorators.append(arena, .{ .ref = ref, .salt = @bitCast(std.hash.Fnv1a_64.hash(mod_id)) });
+    try self.decorators.append(arena, .{ .ref = ref, .salt = modSalt(mod_id) });
+}
+
+pub fn addShaper(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {
+    try self.shapers.append(arena, .{ .ref = ref, .salt = modSalt(mod_id) ^ shape_salt });
+}
+
+pub fn addNoise(self: *Hooks, arena: std.mem.Allocator, mod_id: []const u8, octaves: usize, scale: f64) !usize {
+    const mod_salt = modSalt(mod_id);
+    var index: i64 = 1;
+    for (self.noises.items) |entry| {
+        if (entry.mod_salt == mod_salt) index += 1;
+    }
+    try self.noises.append(arena, .{
+        .mod_salt = mod_salt,
+        .index = index,
+        .scale = scale,
+        .octaves = try arena.alloc(world.PerlinNoise, octaves),
+    });
+    return self.noises.items.len - 1;
 }
 
 pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
     const self = active orelse return;
+    const outer_world = self.current_world;
+    const outer_decorating = self.decorating;
+    self.current_world = world_map;
+    self.decorating = true;
+    defer {
+        self.current_world = outer_world;
+        self.decorating = outer_decorating;
+    }
+    self.runWorldHooks(self.decorators.items, dimension, seed, chunk_x, chunk_z);
+}
+
+pub fn shape(chunk: *world.Chunk, dimension: world.Dimension, seed: i64) void {
+    const self = active orelse return;
+    const outer_chunk = self.current_chunk;
+    self.current_chunk = chunk;
+    defer self.current_chunk = outer_chunk;
+    self.runWorldHooks(self.shapers.items, dimension, seed, chunk.x, chunk.z);
+}
+
+fn runWorldHooks(self: *Hooks, list: []Decorator, dimension: world.Dimension, seed: i64, chunk_x: i32, chunk_z: i32) void {
     const lua = self.lua orelse return;
-    if (self.decorators.items.len == 0) return;
+    if (list.len == 0) return;
 
     var seeder = world.JavaRandom.init(seed);
     const mult_x = @divTrunc(seeder.nextLong(), 2) *% 2 +% 1;
     const mult_z = @divTrunc(seeder.nextLong(), 2) *% 2 +% 1;
     const chunk_seed = (@as(i64, chunk_x) *% mult_x +% @as(i64, chunk_z) *% mult_z) ^ seed;
 
-    const outer_world = self.current_world;
     const outer_rand = self.current_rand;
-    const outer_decorating = self.decorating;
-    self.current_world = world_map;
-    self.decorating = true;
+    const outer_seed = self.current_seed;
+    const outer_dimension = self.current_dimension;
+    self.current_seed = seed;
+    self.current_dimension = dimension;
     defer {
-        self.current_world = outer_world;
         self.current_rand = outer_rand;
-        self.decorating = outer_decorating;
+        self.current_seed = outer_seed;
+        self.current_dimension = outer_dimension;
     }
 
-    for (self.decorators.items) |*decorator| {
-        var rand = world.JavaRandom.init(chunk_seed ^ decorator.salt);
+    for (list) |*hook| {
+        var rand = world.JavaRandom.init(chunk_seed ^ hook.salt);
         self.current_rand = &rand;
-        _ = lua.getIndexRaw(zlua.registry_index, decorator.ref);
+        _ = lua.getIndexRaw(zlua.registry_index, hook.ref);
         lua.pushInteger(chunk_x);
         lua.pushInteger(chunk_z);
         _ = lua.pushString(@tagName(dimension));
         lua.protectedCall(.{ .args = 3, .results = 0 }) catch {
-            if (!decorator.warned) {
+            if (!hook.warned) {
                 std.log.warn("a mod's world generation failed: {s}", .{lua.toString(-1) catch "(no message)"});
-                decorator.warned = true;
+                hook.warned = true;
             }
             lua.pop(1);
         };
     }
+}
+
+pub fn sampleNoise(lua: *Lua) i32 {
+    const self = hooks(lua);
+    const seed = self.current_seed orelse lua.raiseErrorStr("noise is only sampled while the world generates", .{});
+    const index: usize = @intCast(lua.toInteger(Lua.upvalueIndex(2)) catch unreachable);
+    const entry = &self.noises.items[index];
+    if (entry.seeded_for != seed) {
+        var rand = world.JavaRandom.init(seed ^ entry.mod_salt ^ (entry.index *% noise_salt));
+        for (entry.octaves) |*octave| octave.* = .init(&rand);
+        entry.seeded_for = seed;
+    }
+
+    const flat = lua.isNoneOrNil(3);
+    const x = lua.checkNumber(1);
+    const y = if (flat) 0 else lua.checkNumber(2);
+    const z = if (flat) lua.checkNumber(2) else lua.checkNumber(3);
+
+    var total: f64 = 0;
+    var weight: f64 = 0;
+    var amplitude: f64 = 1;
+    var frequency = entry.scale;
+    for (entry.octaves) |octave| {
+        total += octave.noise(x * frequency, y * frequency, z * frequency) * amplitude;
+        weight += amplitude;
+        amplitude /= 2;
+        frequency *= 2;
+    }
+    lua.pushNumber(total / weight);
+    return 1;
 }
 
 fn mobPosition(lua: *Lua) i32 {
@@ -303,43 +393,81 @@ pub fn install(self: *Hooks, lua: *Lua) void {
     lua.pop(1);
 }
 
+fn shapedCell(chunk: *world.Chunk, pos: world.BlockPos) ?[3]u32 {
+    if (pos.y < 0 or pos.y >= world.Chunk.height) return null;
+    const local_x = pos.x -% chunk.x *% world.Chunk.width;
+    const local_z = pos.z -% chunk.z *% world.Chunk.width;
+    if (local_x < 0 or local_x >= world.Chunk.width or local_z < 0 or local_z >= world.Chunk.width) return null;
+    return .{ @intCast(local_x), @intCast(pos.y), @intCast(local_z) };
+}
+
 fn getBlock(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
-    const key = world_map.getBlock(position(lua, 1)).def().key;
+    const pos = position(lua, 1);
+    const block = if (hooks(lua).current_chunk) |chunk| blk: {
+        const cell = shapedCell(chunk, pos) orelse {
+            lua.pushNil();
+            return 1;
+        };
+        break :blk chunk.getBlock(cell[0], cell[1], cell[2]);
+    } else currentWorld(lua).getBlock(pos);
+    const key = block.def().key;
     if (key.len == 0) lua.pushNil() else _ = lua.pushString(key);
     return 1;
 }
 
 fn getMeta(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
-    lua.pushInteger(world_map.getBlockMetadata(position(lua, 1)));
+    const pos = position(lua, 1);
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, pos) orelse {
+            lua.pushNil();
+            return 1;
+        };
+        lua.pushInteger(chunk.getBlockMetadata(cell[0], cell[1], cell[2]));
+        return 1;
+    }
+    lua.pushInteger(currentWorld(lua).getBlockMetadata(pos));
     return 1;
 }
 
 fn setBlock(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
     const pos = position(lua, 1);
     const block = blockArgument(lua, 4);
-    if (hooks(lua).decorating) {
-        world_map.setBlock(pos, block);
-        if (lua.typeOf(5) != .none and lua.typeOf(5) != .nil) world_map.setBlockMetadata(pos, metadata(lua, 5));
+    const has_meta = lua.typeOf(5) != .none and lua.typeOf(5) != .nil;
+    if (hooks(lua).current_chunk) |chunk| {
+        const meta = if (has_meta) metadata(lua, 5) else null;
+        const cell = shapedCell(chunk, pos) orelse return 0;
+        chunk.setBlock(cell[0], cell[1], cell[2], block);
+        if (meta) |value| chunk.setBlockMetadata(cell[0], cell[1], cell[2], value);
         return 0;
     }
-    const changed = switch (lua.typeOf(5)) {
-        .none, .nil => world_map.setBlockWithNotify(pos, block),
-        else => world_map.setBlockAndMetadataWithNotify(pos, block, metadata(lua, 5)),
-    };
+    const world_map = currentWorld(lua);
+    if (hooks(lua).decorating) {
+        world_map.setBlock(pos, block);
+        if (has_meta) world_map.setBlockMetadata(pos, metadata(lua, 5));
+        return 0;
+    }
+    const changed = if (has_meta)
+        world_map.setBlockAndMetadataWithNotify(pos, block, metadata(lua, 5))
+    else
+        world_map.setBlockWithNotify(pos, block);
     changed catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }
 
 fn setMeta(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
-    if (hooks(lua).decorating) {
-        world_map.setBlockMetadata(position(lua, 1), metadata(lua, 4));
+    const pos = position(lua, 1);
+    const meta = metadata(lua, 4);
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, pos) orelse return 0;
+        chunk.setBlockMetadata(cell[0], cell[1], cell[2], meta);
         return 0;
     }
-    world_map.setBlockMetadataWithNotify(position(lua, 1), metadata(lua, 4)) catch lua.raiseErrorStr("out of memory", .{});
+    const world_map = currentWorld(lua);
+    if (hooks(lua).decorating) {
+        world_map.setBlockMetadata(pos, meta);
+        return 0;
+    }
+    world_map.setBlockMetadataWithNotify(pos, meta) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }
 
@@ -352,16 +480,40 @@ fn scheduleTick(lua: *Lua) i32 {
 }
 
 fn biomeName(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
+    const self = hooks(lua);
     const x = coordinate(lua, 1);
     const z = coordinate(lua, 2);
+    if (self.current_chunk) |chunk| {
+        const cell = shapedCell(chunk, .init(x, 0, z)) orelse {
+            lua.pushNil();
+            return 1;
+        };
+        if (self.current_dimension != .overworld) {
+            _ = lua.pushString("nether");
+            return 1;
+        }
+        _ = lua.pushString(@tagName(world.biome.classify(chunk.getTemperature(cell[0], cell[2]), chunk.getHumidity(cell[0], cell[2]))));
+        return 1;
+    }
+    const world_map = currentWorld(lua);
     _ = lua.pushString(if (world_map.has_sky) @tagName(world_map.biomeAt(x, z)) else "nether");
     return 1;
 }
 
 fn height(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
-    lua.pushInteger(world.decorate.heightValueAt(world_map, coordinate(lua, 1), coordinate(lua, 2)));
+    const x = coordinate(lua, 1);
+    const z = coordinate(lua, 2);
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, .init(x, 0, z)) orelse {
+            lua.pushNil();
+            return 1;
+        };
+        var y: u32 = world.Chunk.height - 1;
+        while (y > 0 and world.light.opacity(chunk.getBlock(cell[0], y - 1, cell[2])) == 0) y -= 1;
+        lua.pushInteger(y);
+        return 1;
+    }
+    lua.pushInteger(world.decorate.heightValueAt(currentWorld(lua), x, z));
     return 1;
 }
 
@@ -431,7 +583,9 @@ fn hooks(lua: *Lua) *Hooks {
 }
 
 fn currentWorld(lua: *Lua) *world.World {
-    return hooks(lua).current_world orelse lua.raiseErrorStr("the world can only be reached from a callback", .{});
+    const self = hooks(lua);
+    if (self.current_chunk != null) lua.raiseErrorStr("only the blocks of the chunk being shaped can be reached here", .{});
+    return self.current_world orelse lua.raiseErrorStr("the world can only be reached from a callback", .{});
 }
 
 fn position(lua: *Lua, first: i32) world.BlockPos {
@@ -594,6 +748,27 @@ test "chests and spawners refuse what they cannot hold" {
     try harness.expectFailure("rosebed.world.set_chest_item(4, 10, 4, 1, 'granite')", "no block or item is registered as 'granite'");
     try harness.expectFailure("rosebed.world.set_spawner(4, 10, 4, 'Pig')", "there is no mob spawner at 4 10 4");
     try harness.expectFailure("rosebed.world.set_spawner(6, 10, 4, 'Dragon')", "no mob is registered as 'Dragon'");
+}
+
+test "while a chunk is shaped only that chunk's blocks answer" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    var chunk = world.Chunk.init(0, 0);
+    harness.hooks.current_chunk = &chunk;
+
+    try harness.vm.exec("=test",
+        \\rosebed.world.set_block(3, 10, 4, "log", 2)
+        \\rosebed.world.set_block(3, 10, 4, "log")
+        \\assert(rosebed.world.get_meta(3, 10, 4) == 2)
+        \\rosebed.world.set_meta(3, 10, 4, 1)
+        \\rosebed.world.set_block(16, 10, 4, "stone")
+        \\assert(rosebed.world.get_block(16, 10, 4) == nil)
+        \\assert(rosebed.world.get_meta(-1, 10, 4) == nil)
+    );
+    try std.testing.expectEqual(world.Block.log, chunk.getBlock(3, 10, 4));
+    try std.testing.expectEqual(@as(u4, 1), chunk.getBlockMetadata(3, 10, 4));
+    try harness.expectFailure("rosebed.world.schedule_tick(3, 10, 4, 1)", "only the blocks of the chunk being shaped can be reached here");
 }
 
 test "the world is out of reach outside a callback" {

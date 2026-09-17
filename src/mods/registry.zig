@@ -53,6 +53,8 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "override_mob", .function = zlua.wrap(overrideMob) },
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
         .{ .name = "on_decorate", .function = zlua.wrap(onDecorate) },
+        .{ .name = "on_generate", .function = zlua.wrap(onGenerate) },
+        .{ .name = "noise", .function = zlua.wrap(createNoise) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(registrar);
@@ -250,6 +252,36 @@ fn onDecorate(lua: *Lua) i32 {
     const ref = lua.ref(zlua.registry_index);
     registrar.hooks.addDecorator(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
+}
+
+fn onGenerate(lua: *Lua) i32 {
+    const registrar = context(lua);
+    lua.checkType(1, .function);
+    lua.pushValue(1);
+    const ref = lua.ref(zlua.registry_index);
+    registrar.hooks.addShaper(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
+    return 0;
+}
+
+fn createNoise(lua: *Lua) i32 {
+    const registrar = context(lua);
+    var octaves: usize = 1;
+    var scale: f64 = 1;
+    if (!lua.isNoneOrNil(1)) {
+        lua.checkType(1, .table);
+        octaves = spawnsNumber(lua, 1, usize, "octaves", 1);
+        if (octaves < 1 or octaves > Hooks.max_octaves) lua.raiseErrorStr("'octaves' is 1 to 16", .{});
+        if (lua.getField(1, "scale") != .nil) {
+            scale = lua.toNumber(-1) catch lua.raiseErrorStr("'scale' must be a number", .{});
+            if (!(scale > 0)) lua.raiseErrorStr("'scale' must be above zero", .{});
+        }
+        lua.pop(1);
+    }
+    const index = registrar.hooks.addNoise(registrar.arena, registrar.mod_id, octaves, scale) catch lua.raiseErrorStr("out of memory", .{});
+    lua.pushLightUserdata(registrar.hooks);
+    lua.pushInteger(@intCast(index));
+    lua.pushClosure(zlua.wrap(Hooks.sampleNoise), 2);
+    return 1;
 }
 
 fn overrideMob(lua: *Lua) i32 {
@@ -1344,6 +1376,84 @@ test "decorating is only offered while mods load" {
     harness.registrar.open = false;
 
     try harness.expectFailure("rosebed.on_decorate(function() end)", "registration is closed once every mod has loaded");
+}
+
+test "a mod shapes the whole chunk being generated before caves, and nothing beside it" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    var generator = try world.TerrainGenerator.init(gpa, 42);
+    defer generator.deinit(gpa);
+    var vanilla = world.Chunk.init(1, 2);
+    generator.generateShape(&vanilla);
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.on_generate(function(chunk_x, chunk_z, dimension)
+        \\  assert(dimension == "overworld")
+        \\  local x, z = chunk_x * 16, chunk_z * 16
+        \\  assert(rosebed.world.get_block(x - 1, 60, z) == nil)
+        \\  assert(rosebed.world.height(x + 16, z) == nil)
+        \\  assert(type(rosebed.world.biome(x, z)) == "string")
+        \\  rosebed.world.set_block(x - 1, 120, z, "stone")
+        \\  for dx = 0, 15 do
+        \\    for dz = 0, 15 do rosebed.world.set_block(x + dx, 120, z + dz, "stone") end
+        \\  end
+        \\  assert(rosebed.world.height(x + 3, z + 5) == 121)
+        \\end)
+    );
+    world.generator.after_shape = Hooks.shape;
+    defer world.generator.after_shape = null;
+
+    var shaped = world.Chunk.init(1, 2);
+    generator.generateShape(&shaped);
+    try std.testing.expectEqual(world.Block.stone, shaped.getBlock(0, 120, 0));
+    try std.testing.expectEqual(world.Block.stone, shaped.getBlock(15, 120, 15));
+
+    for (0..world.Chunk.width) |x| {
+        for (0..world.Chunk.width) |z| {
+            for (0..world.Chunk.height) |y| {
+                if (y == 120) continue;
+                try std.testing.expectEqual(vanilla.getBlock(@intCast(x), @intCast(y), @intCast(z)), shaped.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+            }
+        }
+    }
+}
+
+test "noise follows the world seed, differs between noises, and is only sampled while a world generates" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\hills = rosebed.noise { octaves = 4, scale = 0.05 }
+        \\flat = rosebed.noise()
+        \\rosebed.on_generate(function(chunk_x, chunk_z)
+        \\  seen = { hills(chunk_x * 16 + 3, chunk_z * 16 + 7), flat(chunk_x * 16 + 3, chunk_z * 16 + 7), hills(3.5, 64, 7.5) }
+        \\end)
+    );
+    var chunk = world.Chunk.init(0, 0);
+    Hooks.shape(&chunk, .overworld, 1);
+    try harness.vm.exec("=quartz", "first = seen");
+    Hooks.shape(&chunk, .overworld, 1);
+    try harness.vm.exec("=quartz",
+        \\assert(seen[1] == first[1] and seen[3] == first[3])
+        \\assert(first[1] ~= first[2])
+        \\for _, value in ipairs(first) do assert(value >= -1 and value <= 1) end
+    );
+    Hooks.shape(&chunk, .overworld, 2);
+    try harness.vm.exec("=quartz", "assert(seen[1] ~= first[1])");
+
+    try harness.expectFailure("hills(0, 0)", "noise is only sampled while the world generates");
+    try harness.expectFailure("rosebed.noise { octaves = 0 }", "'octaves' is 1 to 16");
+    try harness.expectFailure("rosebed.noise { scale = -1 }", "'scale' must be above zero");
 }
 
 test "a recipe can ask for one damage value of an ingredient" {

@@ -50,6 +50,7 @@ pub const Dimension = enum(i8) {
     }
 };
 
+pub var after_shape: ?*const fn (*Chunk, Dimension, i64) void = null;
 pub var after_decorate: ?*const fn (*World, Dimension, i64, i32, i32) std.mem.Allocator.Error!void = null;
 
 pub const Generator = union(Dimension) {

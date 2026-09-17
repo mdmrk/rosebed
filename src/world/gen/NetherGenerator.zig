@@ -9,6 +9,7 @@ const caves = @import("caves.zig");
 const Climate = @import("Climate.zig");
 const decorate = @import("decorate.zig");
 const density = @import("density.zig");
+const generator = @import("generator.zig");
 const density_x = density.size_x;
 const density_y = density.size_y;
 const density_z = density.size_z;
@@ -148,6 +149,7 @@ pub fn generateShape(self: *NetherGenerator, chunk: *Chunk) void {
     density.fill(chunk, &field, Picker{});
 
     self.dressSurface(chunk);
+    if (generator.after_shape) |hook| hook(chunk, .nether, self.world_seed);
     caves.carve(.nether, chunk, chunk.x, chunk.z, self.world_seed);
 }
 

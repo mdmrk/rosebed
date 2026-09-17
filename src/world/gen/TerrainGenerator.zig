@@ -14,6 +14,7 @@ const density_y = density.size_y;
 const density_z = density.size_z;
 const densityIndex = density.index;
 const dungeons = @import("dungeons.zig");
+const generator = @import("generator.zig");
 const lakes = @import("lakes.zig");
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
@@ -177,6 +178,7 @@ pub fn generateShape(self: TerrainGenerator, chunk: *Chunk) void {
     density.fill(chunk, &field, Picker{ .climate = &climate_sample });
 
     self.dressSurface(chunk, &climate_sample);
+    if (generator.after_shape) |hook| hook(chunk, .overworld, self.world_seed);
     caves.carve(.overworld, chunk, chunk_x, chunk_z, self.world_seed);
 }
 
