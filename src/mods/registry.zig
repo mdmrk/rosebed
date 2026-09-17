@@ -9,6 +9,7 @@ const Lua = zlua.Lua;
 const Hooks = @import("Hooks.zig");
 const Manifest = @import("Manifest.zig");
 const mobs = @import("mobs.zig");
+const structures = @import("structures.zig");
 
 pub const Registrar = struct {
     arena: std.mem.Allocator,
@@ -19,6 +20,7 @@ pub const Registrar = struct {
     block_textures: std.ArrayList(BlockTexture) = .empty,
     item_textures: std.ArrayList(ItemTexture) = .empty,
     mob_skins: std.ArrayList(MobSkin) = .empty,
+    structure_keys: std.ArrayList([]const u8) = .empty,
 };
 
 pub const MobSkin = struct {
@@ -55,6 +57,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "on_decorate", .function = zlua.wrap(onDecorate) },
         .{ .name = "on_generate", .function = zlua.wrap(onGenerate) },
         .{ .name = "noise", .function = zlua.wrap(createNoise) },
+        .{ .name = "register_structure", .function = zlua.wrap(registerStructure) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(registrar);
@@ -261,6 +264,59 @@ fn onGenerate(lua: *Lua) i32 {
     const ref = lua.ref(zlua.registry_index);
     registrar.hooks.addShaper(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
+}
+
+fn registerStructure(lua: *Lua) i32 {
+    const registrar = context(lua);
+    lua.checkType(1, .table);
+    const key = namespacedKey(lua, registrar);
+    for (registrar.structure_keys.items) |taken| {
+        if (std.mem.eql(u8, taken, key)) raise(lua, error.DuplicateKey, key);
+    }
+
+    if (lua.getField(1, "place") != .function) lua.raiseErrorStr("'place' must be a function", .{});
+    const ref = lua.ref(zlua.registry_index);
+
+    var spec: structures.Structure = .{
+        .ref = ref,
+        .salt = @bitCast(std.hash.Fnv1a_64.hash(key)),
+        .spacing = spawnsNumber(lua, 1, i32, "spacing", 16),
+        .chance = 1,
+        .radius = spawnsNumber(lua, 1, i32, "radius", 1),
+        .dimension = .overworld,
+    };
+    if (spec.spacing < 1 or spec.spacing > structures.max_spacing) lua.raiseErrorStr("'spacing' is 1 to 4096 chunks", .{});
+    if (spec.radius < 0 or spec.radius > structures.max_radius) lua.raiseErrorStr("'radius' is 0 to 8 chunks", .{});
+
+    if (lua.getField(1, "chance") != .nil) {
+        spec.chance = lua.toNumber(-1) catch lua.raiseErrorStr("'chance' must be a number", .{});
+        if (!(spec.chance > 0 and spec.chance <= 1)) lua.raiseErrorStr("'chance' is above 0 and at most 1", .{});
+    }
+    lua.pop(1);
+
+    switch (lua.getField(1, "dimension")) {
+        .nil => {},
+        .string => {
+            const dimension = lua.toString(-1) catch unreachable;
+            spec.dimension = std.meta.stringToEnum(world.Dimension, dimension) orelse
+                lua.raiseErrorStr("there is no dimension called '%s'", .{dimension.ptr});
+        },
+        else => lua.raiseErrorStr("'dimension' is 'overworld' or 'nether'", .{}),
+    }
+    lua.pop(1);
+
+    switch (lua.getField(1, "biomes")) {
+        .nil => {},
+        .table => spec.biomes = readBiomes(lua),
+        else => lua.raiseErrorStr("'biomes' is a list of biome names", .{}),
+    }
+    lua.pop(1);
+    if (spec.biomes != null and spec.dimension == .nether) lua.raiseErrorStr("the nether has no biomes to choose from", .{});
+
+    registrar.structure_keys.append(registrar.arena, key) catch raise(lua, error.OutOfMemory, key);
+    registrar.hooks.addStructure(registrar.arena, spec) catch raise(lua, error.OutOfMemory, key);
+    _ = lua.pushString(key);
+    return 1;
 }
 
 fn createNoise(lua: *Lua) i32 {
@@ -1340,8 +1396,10 @@ test "an overridden mob leaves what the mod adds after its own drops" {
 fn decorateOnce(gpa: std.mem.Allocator, harness: *Harness, seed: i64) !struct { world.Block, u4 } {
     var world_map: world.World = .init(gpa);
     defer world_map.deinit();
+    var generator = try world.Generator.init(gpa, .overworld, seed);
+    defer generator.deinit(gpa);
     _ = try world_map.createChunk(2, 3);
-    try Hooks.decorate(&world_map, .overworld, seed, 2, 3);
+    try Hooks.decorate(&world_map, &generator, 2, 3);
     _ = harness;
     return .{ world_map.getBlock(.init(32, 70, 48)), world_map.getBlockMetadata(.init(32, 70, 48)) };
 }
@@ -1422,6 +1480,123 @@ test "a mod shapes the whole chunk being generated before caves, and nothing bes
             }
         }
     }
+}
+
+const structure_wall =
+    \\rosebed.register_structure {
+    \\  key = "wall",
+    \\  spacing = 3,
+    \\  radius = 1,
+    \\  place = function(x, z, dimension)
+    \\    assert(dimension == "overworld")
+    \\    local ground = rosebed.world.height(x, z)
+    \\    for dx = -20, 20 do
+    \\      rosebed.world.set_block(x + dx, ground + 40, z, "brick")
+    \\    end
+    \\    rosebed.world.set_block(x, ground + 41, z, "chest")
+    \\    rosebed.world.set_chest_item(x, ground + 41, z, 1, "diamond", rosebed.random(3) + 1)
+    \\    rosebed.world.set_block(x + 1, ground + 41, z, "mob_spawner")
+    \\    rosebed.world.set_spawner(x + 1, ground + 41, z, "Spider")
+    \\    rosebed.world.set_block(x + 200, ground, z, "brick")
+    \\    assert(rosebed.world.get_block(x + 200, ground, z) == nil)
+    \\    local id = x .. "," .. z
+    \\    placed[id] = (placed[id] or 0) + 1
+    \\    if placed[id] == 1 then origins[#origins + 1] = { x, ground + 40, z } end
+    \\  end,
+    \\}
+;
+
+fn decorateArea(world_map: *world.World, generator: *world.Generator, reversed: bool) !void {
+    var step: i32 = 0;
+    while (step < 6) : (step += 1) {
+        const chunk_x = if (reversed) 5 - step else step;
+        var row: i32 = 0;
+        while (row < 6) : (row += 1) {
+            const chunk_z = if (reversed) row else 5 - row;
+            try world_map.ensureDecorated(generator, chunk_x, chunk_z);
+        }
+    }
+}
+
+test "a structure comes out the same whatever order its chunks are decorated in" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer harness.hooks.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+    world.generator.after_decorate = Hooks.decorate;
+    defer world.generator.after_decorate = null;
+
+    try harness.vm.exec("=quartz", structure_wall);
+    try harness.vm.exec("=quartz", "placed, origins = {}, {}");
+
+    var generator = try world.Generator.init(gpa, .overworld, 2024);
+    defer generator.deinit(gpa);
+
+    var forward: world.World = .init(gpa);
+    defer forward.deinit();
+    try decorateArea(&forward, &generator, false);
+    harness.hooks.deinit();
+
+    var backward: world.World = .init(gpa);
+    defer backward.deinit();
+    try decorateArea(&backward, &generator, true);
+
+    try harness.vm.exec("=quartz",
+        \\for _, count in pairs(placed) do assert(count == 2) end
+        \\assert(#origins > 0)
+    );
+
+    const lua = harness.vm.lua;
+    _ = lua.getGlobal("origins");
+    const origin_count: i64 = @intCast(lua.lenRaw(-1));
+    var checked: usize = 0;
+    var index: i64 = 1;
+    while (index <= origin_count) : (index += 1) {
+        _ = lua.getIndex(-1, index);
+        var corner: [3]i32 = undefined;
+        for (&corner, 1..) |*value, field| {
+            _ = lua.getIndex(-1, @intCast(field));
+            value.* = @intCast(try lua.toInteger(-1));
+            lua.pop(1);
+        }
+        lua.pop(1);
+
+        var dx: i32 = -20;
+        while (dx <= 20) : (dx += 1) {
+            const pos: world.BlockPos = .init(corner[0] + dx, corner[1], corner[2]);
+            if (pos.x < 8 or pos.x >= 104 or pos.z < 8 or pos.z >= 104) continue;
+            try std.testing.expectEqual(world.Block.brick, forward.getBlock(pos));
+            try std.testing.expectEqual(world.Block.brick, backward.getBlock(pos));
+            checked += 1;
+        }
+
+        const chest_pos: world.BlockPos = .init(corner[0], corner[1] + 1, corner[2]);
+        if (chest_pos.x < 8 or chest_pos.x >= 103 or chest_pos.z < 8 or chest_pos.z >= 104) continue;
+        const kept = forward.chestAt(chest_pos).?.items[0].?;
+        try std.testing.expectEqual(world.Item.diamond, kept.id.item);
+        try std.testing.expectEqual(kept.count, backward.chestAt(chest_pos).?.items[0].?.count);
+        try std.testing.expectEqualStrings("Spider", backward.mobSpawnerAt(.init(chest_pos.x + 1, chest_pos.y, chest_pos.z)).?.mobName());
+    }
+    lua.pop(1);
+    try std.testing.expect(checked > 40);
+}
+
+test "a structure's spacing, chance, radius and biomes are checked as it registers" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_structure { key = 'hut' }", "'place' must be a function");
+    try harness.expectFailure("rosebed.register_structure { key = 'hut', place = print, spacing = 0 }", "'spacing' is 1 to 4096 chunks");
+    try harness.expectFailure("rosebed.register_structure { key = 'hut', place = print, radius = 9 }", "'radius' is 0 to 8 chunks");
+    try harness.expectFailure("rosebed.register_structure { key = 'hut', place = print, chance = 0 }", "'chance' is above 0 and at most 1");
+    try harness.expectFailure("rosebed.register_structure { key = 'hut', place = print, dimension = 'nether', biomes = { 'forest' } }", "the nether has no biomes to choose from");
+    try harness.vm.exec("=quartz", "assert(rosebed.register_structure { key = 'hut', place = print } == 'quartz:hut')");
+    try harness.expectFailure("rosebed.register_structure { key = 'hut', place = print }", "'quartz:hut' is already registered");
 }
 
 test "noise follows the world seed, differs between noises, and is only sampled while a world generates" {

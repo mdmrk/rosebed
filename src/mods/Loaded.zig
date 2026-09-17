@@ -81,7 +81,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registrar.open = false;
     const list = try describe(allocator, shared.items);
     Hooks.active = hooks;
-    if (hooks.decorators.items.len > 0) world.generator.after_decorate = Hooks.decorate;
+    if (hooks.decorators.items.len > 0 or hooks.structure_specs.items.len > 0) world.generator.after_decorate = Hooks.decorate;
     if (hooks.shapers.items.len > 0) world.generator.after_shape = Hooks.shape;
     const hud = try allocator.create(Hud);
     hud.* = .{};
@@ -157,6 +157,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
         world.generator.after_decorate = null;
         world.generator.after_shape = null;
     }
+    self.hooks.deinit();
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);

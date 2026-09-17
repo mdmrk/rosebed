@@ -6,6 +6,8 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const structures = @import("structures.zig");
+
 const Hooks = @This();
 
 lua: ?*Lua = null,
@@ -15,10 +17,15 @@ current_mob: ?*game.Animal = null,
 current_chunk: ?*world.Chunk = null,
 current_dimension: world.Dimension = .overworld,
 current_seed: ?i64 = null,
+current_plan: ?*structures.Plan = null,
+current_terrain: ?*structures.Terrain = null,
 decorating: bool = false,
 decorators: std.ArrayList(Decorator) = .empty,
 shapers: std.ArrayList(Decorator) = .empty,
 noises: std.ArrayList(Noise) = .empty,
+structure_specs: std.ArrayList(structures.Structure) = .empty,
+plans: [structures.cache_size]?*structures.Plan = @splat(null),
+next_plan: usize = 0,
 block_refs: [256]BlockRefs = @splat(.{}),
 item_refs: [world.item.def_capacity]ItemRefs = @splat(.{}),
 
@@ -194,7 +201,20 @@ pub fn addNoise(self: *Hooks, arena: std.mem.Allocator, mod_id: []const u8, octa
     return self.noises.items.len - 1;
 }
 
-pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
+pub fn deinit(self: *Hooks) void {
+    for (&self.plans) |*slot| {
+        const plan = slot.* orelse continue;
+        plan.deinit();
+        plan.gpa.destroy(plan);
+        slot.* = null;
+    }
+}
+
+pub fn addStructure(self: *Hooks, arena: std.mem.Allocator, spec: structures.Structure) !void {
+    try self.structure_specs.append(arena, spec);
+}
+
+pub fn decorate(world_map: *world.World, generator: *world.Generator, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
     const self = active orelse return;
     const outer_world = self.current_world;
     const outer_decorating = self.decorating;
@@ -204,7 +224,96 @@ pub fn decorate(world_map: *world.World, dimension: world.Dimension, seed: i64, 
         self.current_world = outer_world;
         self.decorating = outer_decorating;
     }
-    self.runWorldHooks(self.decorators.items, dimension, seed, chunk_x, chunk_z);
+    try self.placeStructures(world_map, generator, chunk_x, chunk_z);
+    self.runWorldHooks(self.decorators.items, generator.dimension(), generator.worldSeed(), chunk_x, chunk_z);
+}
+
+fn placeStructures(self: *Hooks, world_map: *world.World, generator: *world.Generator, chunk_x: i32, chunk_z: i32) std.mem.Allocator.Error!void {
+    const seed = generator.worldSeed();
+    for (self.structure_specs.items, 0..) |spec, index| {
+        if (spec.dimension != generator.dimension()) continue;
+        const cells_x = structures.cellRange(spec, chunk_x);
+        const cells_z = structures.cellRange(spec, chunk_z);
+        var cell_x = cells_x[0];
+        while (cell_x <= cells_x[1]) : (cell_x += 1) {
+            var cell_z = cells_z[0];
+            while (cell_z <= cells_z[1]) : (cell_z += 1) {
+                const instance = structures.instanceIn(spec, seed, cell_x, cell_z) orelse continue;
+                if (!structures.reaches(spec, instance, chunk_x, chunk_z)) continue;
+                const plan = try self.planFor(world_map.allocator, generator, index, cell_x, cell_z, instance);
+                try plan.apply(world_map, chunk_x, chunk_z);
+            }
+        }
+    }
+}
+
+fn planFor(self: *Hooks, gpa: std.mem.Allocator, generator: *world.Generator, index: usize, cell_x: i32, cell_z: i32, instance: structures.Instance) std.mem.Allocator.Error!*structures.Plan {
+    const seed = generator.worldSeed();
+    for (self.plans) |slot| {
+        const cached = slot orelse continue;
+        if (cached.structure == index and cached.seed == seed and cached.cell_x == cell_x and cached.cell_z == cell_z) return cached;
+    }
+
+    const plan = try gpa.create(structures.Plan);
+    errdefer gpa.destroy(plan);
+    const spec = &self.structure_specs.items[index];
+    plan.* = .init(gpa, index, spec.*, seed, cell_x, cell_z, instance);
+    errdefer plan.deinit();
+    try self.runPlace(plan, spec, generator, instance);
+
+    if (self.plans[self.next_plan]) |evicted| {
+        evicted.deinit();
+        evicted.gpa.destroy(evicted);
+    }
+    self.plans[self.next_plan] = plan;
+    self.next_plan = (self.next_plan + 1) % structures.cache_size;
+    return plan;
+}
+
+fn runPlace(self: *Hooks, plan: *structures.Plan, spec: *structures.Structure, generator: *world.Generator, instance: structures.Instance) std.mem.Allocator.Error!void {
+    const lua = self.lua orelse return;
+    const saved_generator = generator.*;
+    defer generator.* = saved_generator;
+    var terrain: structures.Terrain = .{ .gpa = plan.gpa, .generator = generator };
+    defer terrain.deinit();
+
+    const dimension = generator.dimension();
+    if (spec.biomes) |allowed| {
+        const chunk, const x, const z = try terrain.column(instance.origin_x, instance.origin_z);
+        if (!allowed.contains(world.biome.classify(chunk.getTemperature(x, z), chunk.getHumidity(x, z)))) return;
+    }
+
+    var rand = instance.rand;
+    const outer_plan = self.current_plan;
+    const outer_terrain = self.current_terrain;
+    const outer_rand = self.current_rand;
+    const outer_seed = self.current_seed;
+    const outer_dimension = self.current_dimension;
+    self.current_plan = plan;
+    self.current_terrain = &terrain;
+    self.current_rand = &rand;
+    self.current_seed = generator.worldSeed();
+    self.current_dimension = dimension;
+    defer {
+        self.current_plan = outer_plan;
+        self.current_terrain = outer_terrain;
+        self.current_rand = outer_rand;
+        self.current_seed = outer_seed;
+        self.current_dimension = outer_dimension;
+    }
+
+    _ = lua.getIndexRaw(zlua.registry_index, spec.ref);
+    lua.pushInteger(instance.origin_x);
+    lua.pushInteger(instance.origin_z);
+    _ = lua.pushString(@tagName(dimension));
+    lua.protectedCall(.{ .args = 3, .results = 0 }) catch {
+        if (!spec.warned) {
+            std.log.warn("a mod's structure failed: {s}", .{lua.toString(-1) catch "(no message)"});
+            spec.warned = true;
+        }
+        lua.pop(1);
+        plan.clear();
+    };
 }
 
 pub fn shape(chunk: *world.Chunk, dimension: world.Dimension, seed: i64) void {
@@ -401,53 +510,87 @@ fn shapedCell(chunk: *world.Chunk, pos: world.BlockPos) ?[3]u32 {
     return .{ @intCast(local_x), @intCast(pos.y), @intCast(local_z) };
 }
 
+fn planning(lua: *Lua) ?*structures.Plan {
+    const self = hooks(lua);
+    if (self.current_chunk != null) return null;
+    return self.current_plan;
+}
+
+fn plannedColumn(lua: *Lua, plan: *structures.Plan, x: i32, z: i32) ?struct { *world.Chunk, u32, u32 } {
+    if (!plan.contains(.init(x, 0, z))) return null;
+    return hooks(lua).current_terrain.?.column(x, z) catch lua.raiseErrorStr("out of memory", .{});
+}
+
+fn readBlock(lua: *Lua, pos: world.BlockPos) ?world.Block {
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, pos) orelse return null;
+        return chunk.getBlock(cell[0], cell[1], cell[2]);
+    }
+    if (planning(lua)) |plan| {
+        if (!plan.contains(pos)) return null;
+        if (plan.blocks.get(pos)) |placed| {
+            if (placed.block) |block| return block;
+        }
+        const chunk, const x, const z = plannedColumn(lua, plan, pos.x, pos.z).?;
+        return chunk.getBlock(x, @intCast(pos.y), z);
+    }
+    return currentWorld(lua).getBlock(pos);
+}
+
+fn readMeta(lua: *Lua, pos: world.BlockPos) ?u4 {
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, pos) orelse return null;
+        return chunk.getBlockMetadata(cell[0], cell[1], cell[2]);
+    }
+    if (planning(lua)) |plan| {
+        if (!plan.contains(pos)) return null;
+        if (plan.blocks.get(pos)) |placed| {
+            if (placed.meta) |meta| return meta;
+        }
+        const chunk, const x, const z = plannedColumn(lua, plan, pos.x, pos.z).?;
+        return chunk.getBlockMetadata(x, @intCast(pos.y), z);
+    }
+    return currentWorld(lua).getBlockMetadata(pos);
+}
+
 fn getBlock(lua: *Lua) i32 {
-    const pos = position(lua, 1);
-    const block = if (hooks(lua).current_chunk) |chunk| blk: {
-        const cell = shapedCell(chunk, pos) orelse {
-            lua.pushNil();
-            return 1;
-        };
-        break :blk chunk.getBlock(cell[0], cell[1], cell[2]);
-    } else currentWorld(lua).getBlock(pos);
+    const block = readBlock(lua, position(lua, 1)) orelse {
+        lua.pushNil();
+        return 1;
+    };
     const key = block.def().key;
     if (key.len == 0) lua.pushNil() else _ = lua.pushString(key);
     return 1;
 }
 
 fn getMeta(lua: *Lua) i32 {
-    const pos = position(lua, 1);
-    if (hooks(lua).current_chunk) |chunk| {
-        const cell = shapedCell(chunk, pos) orelse {
-            lua.pushNil();
-            return 1;
-        };
-        lua.pushInteger(chunk.getBlockMetadata(cell[0], cell[1], cell[2]));
-        return 1;
-    }
-    lua.pushInteger(currentWorld(lua).getBlockMetadata(pos));
+    if (readMeta(lua, position(lua, 1))) |meta| lua.pushInteger(meta) else lua.pushNil();
     return 1;
 }
 
 fn setBlock(lua: *Lua) i32 {
     const pos = position(lua, 1);
     const block = blockArgument(lua, 4);
-    const has_meta = lua.typeOf(5) != .none and lua.typeOf(5) != .nil;
+    const meta: ?u4 = if (lua.isNoneOrNil(5)) null else metadata(lua, 5);
     if (hooks(lua).current_chunk) |chunk| {
-        const meta = if (has_meta) metadata(lua, 5) else null;
         const cell = shapedCell(chunk, pos) orelse return 0;
         chunk.setBlock(cell[0], cell[1], cell[2], block);
         if (meta) |value| chunk.setBlockMetadata(cell[0], cell[1], cell[2], value);
         return 0;
     }
+    if (planning(lua)) |plan| {
+        if (!plan.contains(pos)) return 0;
+        plan.setBlock(pos, block, meta) catch lua.raiseErrorStr("out of memory", .{});
+        return 0;
+    }
     const world_map = currentWorld(lua);
     if (hooks(lua).decorating) {
         world_map.setBlock(pos, block);
-        if (has_meta) world_map.setBlockMetadata(pos, metadata(lua, 5));
+        if (meta) |value| world_map.setBlockMetadata(pos, value);
         return 0;
     }
-    const changed = if (has_meta)
-        world_map.setBlockAndMetadataWithNotify(pos, block, metadata(lua, 5))
+    const changed = if (meta) |value|
+        world_map.setBlockAndMetadataWithNotify(pos, block, value)
     else
         world_map.setBlockWithNotify(pos, block);
     changed catch lua.raiseErrorStr("out of memory", .{});
@@ -460,6 +603,11 @@ fn setMeta(lua: *Lua) i32 {
     if (hooks(lua).current_chunk) |chunk| {
         const cell = shapedCell(chunk, pos) orelse return 0;
         chunk.setBlockMetadata(cell[0], cell[1], cell[2], meta);
+        return 0;
+    }
+    if (planning(lua)) |plan| {
+        if (!plan.contains(pos)) return 0;
+        plan.setMeta(pos, meta) catch lua.raiseErrorStr("out of memory", .{});
         return 0;
     }
     const world_map = currentWorld(lua);
@@ -479,20 +627,38 @@ fn scheduleTick(lua: *Lua) i32 {
     return 0;
 }
 
+fn columnHeight(chunk: *const world.Chunk, x: u32, z: u32) u32 {
+    var y: u32 = world.Chunk.height - 1;
+    while (y > 0 and world.light.opacity(chunk.getBlock(x, y - 1, z)) == 0) y -= 1;
+    return y;
+}
+
+fn generatedColumn(lua: *Lua, x: i32, z: i32) ?struct { *world.Chunk, u32, u32 } {
+    if (hooks(lua).current_chunk) |chunk| {
+        const cell = shapedCell(chunk, .init(x, 0, z)) orelse return null;
+        return .{ chunk, cell[0], cell[2] };
+    }
+    const plan = planning(lua).?;
+    return plannedColumn(lua, plan, x, z);
+}
+
+fn generating(lua: *Lua) bool {
+    return hooks(lua).current_chunk != null or planning(lua) != null;
+}
+
 fn biomeName(lua: *Lua) i32 {
-    const self = hooks(lua);
     const x = coordinate(lua, 1);
     const z = coordinate(lua, 2);
-    if (self.current_chunk) |chunk| {
-        const cell = shapedCell(chunk, .init(x, 0, z)) orelse {
+    if (generating(lua)) {
+        const chunk, const local_x, const local_z = generatedColumn(lua, x, z) orelse {
             lua.pushNil();
             return 1;
         };
-        if (self.current_dimension != .overworld) {
-            _ = lua.pushString("nether");
-            return 1;
-        }
-        _ = lua.pushString(@tagName(world.biome.classify(chunk.getTemperature(cell[0], cell[2]), chunk.getHumidity(cell[0], cell[2]))));
+        const name = if (hooks(lua).current_dimension != .overworld)
+            "nether"
+        else
+            @tagName(world.biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z)));
+        _ = lua.pushString(name);
         return 1;
     }
     const world_map = currentWorld(lua);
@@ -503,23 +669,20 @@ fn biomeName(lua: *Lua) i32 {
 fn height(lua: *Lua) i32 {
     const x = coordinate(lua, 1);
     const z = coordinate(lua, 2);
-    if (hooks(lua).current_chunk) |chunk| {
-        const cell = shapedCell(chunk, .init(x, 0, z)) orelse {
+    if (generating(lua)) {
+        const chunk, const local_x, const local_z = generatedColumn(lua, x, z) orelse {
             lua.pushNil();
             return 1;
         };
-        var y: u32 = world.Chunk.height - 1;
-        while (y > 0 and world.light.opacity(chunk.getBlock(cell[0], y - 1, cell[2])) == 0) y -= 1;
-        lua.pushInteger(y);
+        lua.pushInteger(columnHeight(chunk, local_x, local_z));
         return 1;
     }
     lua.pushInteger(world.decorate.heightValueAt(currentWorld(lua), x, z));
     return 1;
 }
 
-fn chestArgument(lua: *Lua, world_map: *world.World, pos: world.BlockPos) *world.chest.Chest {
-    if (world_map.getBlock(pos) != .chest) lua.raiseErrorStr("there is no chest at %d %d %d", .{ pos.x, pos.y, pos.z });
-    return world_map.addChest(pos) catch lua.raiseErrorStr("out of memory", .{});
+fn requireBlock(lua: *Lua, pos: world.BlockPos, block: world.Block, comptime message: [:0]const u8) void {
+    if (readBlock(lua, pos) != block) lua.raiseErrorStr(message, .{ pos.x, pos.y, pos.z });
 }
 
 fn chestSlot(lua: *Lua, arg: i32) usize {
@@ -529,9 +692,14 @@ fn chestSlot(lua: *Lua, arg: i32) usize {
 }
 
 fn getChestItem(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
     const pos = position(lua, 1);
-    const stack = chestArgument(lua, world_map, pos).items[chestSlot(lua, 4)] orelse {
+    const slot = chestSlot(lua, 4);
+    requireBlock(lua, pos, .chest, "there is no chest at %d %d %d");
+    const found = if (planning(lua)) |plan|
+        plan.chestItem(pos, slot)
+    else
+        (currentWorld(lua).addChest(pos) catch lua.raiseErrorStr("out of memory", .{})).items[slot];
+    const stack = found orelse {
         lua.pushNil();
         return 1;
     };
@@ -545,35 +713,43 @@ fn getChestItem(lua: *Lua) i32 {
 }
 
 fn setChestItem(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
     const pos = position(lua, 1);
-    const target = chestArgument(lua, world_map, pos).slot(chestSlot(lua, 4));
-    if (lua.isNoneOrNil(5)) {
-        target.* = null;
+    const slot = chestSlot(lua, 4);
+    requireBlock(lua, pos, .chest, "there is no chest at %d %d %d");
+    const stack: ?world.Stack = if (lua.isNoneOrNil(5)) null else blk: {
+        const key = lua.checkString(5);
+        const id: world.Id = if (world.Block.fromKey(key)) |block|
+            .{ .block = block }
+        else if (world.Item.fromKey(key)) |item|
+            .{ .item = item }
+        else
+            lua.raiseErrorStr("no block or item is registered as '%s'", .{key.ptr});
+        const count = std.math.cast(u8, lua.optInteger(6) orelse 1) orelse lua.argError(6, "a count is 1 to 64");
+        if (count == 0 or count > world.chest.stack_limit) lua.argError(6, "a count is 1 to 64");
+        const meta = std.math.cast(u16, lua.optInteger(7) orelse 0) orelse lua.argError(7, "meta is 0 to 65535");
+        break :blk .{ .id = id, .count = count, .meta = meta };
+    };
+    if (planning(lua)) |plan| {
+        plan.chest_items.append(plan.gpa, .{ .pos = pos, .slot = slot, .stack = stack }) catch lua.raiseErrorStr("out of memory", .{});
         return 0;
     }
-    const key = lua.checkString(5);
-    const id: world.Id = if (world.Block.fromKey(key)) |block|
-        .{ .block = block }
-    else if (world.Item.fromKey(key)) |item|
-        .{ .item = item }
-    else
-        lua.raiseErrorStr("no block or item is registered as '%s'", .{key.ptr});
-    const count = std.math.cast(u8, lua.optInteger(6) orelse 1) orelse lua.argError(6, "a count is 1 to 64");
-    if (count == 0 or count > world.chest.stack_limit) lua.argError(6, "a count is 1 to 64");
-    const meta = std.math.cast(u16, lua.optInteger(7) orelse 0) orelse lua.argError(7, "meta is 0 to 65535");
-    target.* = .{ .id = id, .count = count, .meta = meta };
+    (currentWorld(lua).addChest(pos) catch lua.raiseErrorStr("out of memory", .{})).slot(slot).* = stack;
     return 0;
 }
 
 fn setSpawner(lua: *Lua) i32 {
-    const world_map = currentWorld(lua);
     const pos = position(lua, 1);
-    if (world_map.getBlock(pos) != .mob_spawner) lua.raiseErrorStr("there is no mob spawner at %d %d %d", .{ pos.x, pos.y, pos.z });
+    requireBlock(lua, pos, .mob_spawner, "there is no mob spawner at %d %d %d");
     const name = lua.checkString(4);
     if (game.mob.find(name) == null) lua.raiseErrorStr("no mob is registered as '%s'", .{name.ptr});
     if (name.len > world.mob_spawner.max_mob_name) lua.argError(4, "the mob's name is too long for a spawner");
-    const spawner = world_map.addMobSpawner(pos) catch lua.raiseErrorStr("out of memory", .{});
+    if (planning(lua)) |plan| {
+        var entry: structures.SpawnerMob = .{ .pos = pos, .name = undefined, .len = @intCast(name.len) };
+        @memcpy(entry.name[0..name.len], name);
+        plan.spawners.append(plan.gpa, entry) catch lua.raiseErrorStr("out of memory", .{});
+        return 0;
+    }
+    const spawner = currentWorld(lua).addMobSpawner(pos) catch lua.raiseErrorStr("out of memory", .{});
     spawner.setMobName(name);
     return 0;
 }
@@ -585,6 +761,7 @@ fn hooks(lua: *Lua) *Hooks {
 fn currentWorld(lua: *Lua) *world.World {
     const self = hooks(lua);
     if (self.current_chunk != null) lua.raiseErrorStr("only the blocks of the chunk being shaped can be reached here", .{});
+    if (self.current_plan != null) lua.raiseErrorStr("a structure only reaches blocks, chests and spawners within its radius", .{});
     return self.current_world orelse lua.raiseErrorStr("the world can only be reached from a callback", .{});
 }
 
