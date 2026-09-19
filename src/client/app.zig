@@ -631,6 +631,7 @@ fn drawModHud(app_state: *AppState, ui: render.gui.Ui) !void {
 const ModSkin = struct {
     type_id: game.mob.Id,
     model: game.mob.Model,
+    wing_beat: f32,
     atlas: render.Atlas,
 };
 
@@ -642,12 +643,24 @@ fn loadModSkins(app_state: *AppState, mods_dir: std.Io.Dir, requests: []const Mo
     defer skins.deinit(app_state.gpa);
     for (requests) |request| {
         const atlas = modSkin(app_state, mods_dir, arena, request) orelse continue;
-        skins.append(app_state.gpa, .{ .type_id = request.type_id, .model = request.model, .atlas = atlas }) catch {
+        skins.append(app_state.gpa, .{
+            .type_id = request.type_id,
+            .model = request.model,
+            .wing_beat = request.wing_beat,
+            .atlas = atlas,
+        }) catch {
             atlas.deinit();
             break;
         };
     }
     app_state.mob_skins = skins.toOwnedSlice(app_state.gpa) catch &.{};
+}
+
+fn skinFor(skins: []const ModSkin, type_id: game.mob.Id) ?usize {
+    for (skins, 0..) |skin, slot| {
+        if (skin.type_id == type_id) return slot;
+    }
+    return null;
 }
 
 fn freeModSkins(app_state: *AppState) void {
@@ -4045,11 +4058,19 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     const mod_mob_meshes = try app_state.frame.alloc(render.MeshBuilder, app_state.mob_skins.len);
     for (mod_mob_meshes) |*mesh| mesh.* = .{ .origin = camera_eye };
     defer for (mod_mob_meshes) |*mesh| mesh.deinit(app_state.frame);
-    for (mod_mob_meshes, app_state.mob_skins) |*mesh, skin| {
-        const model = render.entity_render.modModel(skin.model);
+    if (app_state.mob_skins.len > 0) {
         for (app_state.level.entities.mobs.items) |entry| {
-            if (entry.type_id != skin.type_id) continue;
-            try render.entity_render.appendAnimal(mesh, app_state.frame, &app_state.level.world_map, entry.animal.*, partial, model, .{});
+            const slot = skinFor(app_state.mob_skins, entry.type_id) orelse continue;
+            const skin = app_state.mob_skins[slot];
+            try render.entity_render.appendModAnimal(
+                &mod_mob_meshes[slot],
+                app_state.frame,
+                &app_state.level.world_map,
+                entry.animal.*,
+                partial,
+                render.entity_render.modModel(skin.model),
+                skin.wing_beat,
+            );
         }
     }
 

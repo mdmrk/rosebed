@@ -7,6 +7,7 @@ pub const Metadata = net.packet.Metadata;
 const world = @import("world");
 
 const Animal = @import("entity/Animal.zig");
+const mob_model = @import("mob_model.zig");
 const Monster = @import("entity/Monster.zig");
 const physics = @import("physics.zig");
 const Player = @import("Player.zig");
@@ -33,7 +34,12 @@ pub const Tick = struct {
     }
 };
 
-pub const Model = enum { pig, cow, sheep, chicken, creeper };
+pub const Model = union(enum) {
+    builtin: Builtin,
+    custom: mob_model.Model,
+
+    pub const Builtin = enum { pig, cow, sheep, chicken, creeper };
+};
 
 pub const Spawns = struct {
     category: spawner.Category,

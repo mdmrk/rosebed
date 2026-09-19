@@ -217,13 +217,16 @@ pub const item_shadow_size: f32 = 0.15;
 pub const item_shadow_opacity: f32 = 12.0 / 16.0;
 pub const shadow_opacity: f32 = 1.0;
 
-pub fn modModel(kind: game.mob.Model) mob_model.Model {
-    return switch (kind) {
-        .pig => mob_model.pig,
-        .cow => mob_model.cow,
-        .sheep => mob_model.sheep,
-        .chicken => mob_model.chicken,
-        .creeper => mob_model.creeper,
+pub fn modModel(model: game.mob.Model) mob_model.Model {
+    return switch (model) {
+        .custom => |custom| custom,
+        .builtin => |kind| switch (kind) {
+            .pig => mob_model.pig,
+            .cow => mob_model.cow,
+            .sheep => mob_model.sheep,
+            .chicken => mob_model.chicken,
+            .creeper => mob_model.creeper,
+        },
     };
 }
 
@@ -1035,6 +1038,28 @@ pub fn appendAnimal(
         }
         try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose, .{ .material = material });
     }
+}
+
+pub const wing_beat_reach: f32 = 0.5;
+
+pub fn beatenWing(rate: f32, animal: game.Animal, partial_ticks: f32) f32 {
+    if (rate == 0) return 0;
+    const age = @as(f32, @floatFromInt(animal.entity_age)) + partial_ticks;
+    return (math.util.sin(age * rate) + 1.0) * wing_beat_reach;
+}
+
+pub fn appendModAnimal(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    animal: game.Animal,
+    partial_ticks: f32,
+    model: mob_model.Model,
+    wing_beat: f32,
+) !void {
+    return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, model, .{
+        .wing_flap = beatenWing(wing_beat, animal, partial_ticks),
+    });
 }
 
 fn hurtTinted(color: [4]u8, brightness: f32) [4]u8 {
@@ -3978,9 +4003,70 @@ test "a ghast's tentacles sway with its age while its body holds still" {
     try std.testing.expect(moved);
 }
 
+const beater_parts = [_]mob_model.Part{
+    .{ .box = .{ .origin = .{ -3, -5, -4 }, .size = .{ 6, 5, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -8, 0 } },
+    .{ .box = .{ .origin = .{ 0, 0, -3 }, .size = .{ 1, 4, 6 }, .tex_u = 24, .tex_v = 0 }, .pivot = .{ -4, -11, 0 }, .role = .wing_right },
+};
+
+const beater: mob_model.Model = .{ .parts = &beater_parts, .head_index = 0, .texture_width = 64, .texture_height = 32 };
+
+test "a mod's wing sweeps while its body holds still, and holds still without a beat" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var animal: game.Animal = .spawn(.init(0, 64, 0), .{ .width = 0.4, .height = 0.5 });
+
+    var early: MeshBuilder = .{};
+    defer early.deinit(gpa);
+    var late: MeshBuilder = .{};
+    defer late.deinit(gpa);
+    var never: MeshBuilder = .{};
+    defer never.deinit(gpa);
+
+    try appendModAnimal(&early, gpa, &world_map, animal, 0, beater, 0.8);
+    try appendModAnimal(&never, gpa, &world_map, animal, 0, beater, 0);
+    animal.entity_age = 2;
+    try appendModAnimal(&late, gpa, &world_map, animal, 0, beater, 0.8);
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendModAnimal(&still, gpa, &world_map, animal, 0, beater, 0);
+
+    for (partVertices(early, 0), partVertices(late, 0)) |before, after| {
+        try std.testing.expectApproxEqAbs(before.y, after.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(before.x, after.x, 1.0e-6);
+    }
+    var swept = false;
+    for (partVertices(early, 1), partVertices(late, 1)) |before, after| {
+        if (@abs(before.y - after.y) > 1.0e-3) swept = true;
+    }
+    try std.testing.expect(swept);
+
+    for (partVertices(never, 1), partVertices(still, 1)) |before, after| {
+        try std.testing.expectEqual(before.y, after.y);
+        try std.testing.expectEqual(before.x, after.x);
+    }
+}
+
+test "a wing only beats for a mob that asked for a beat" {
+    var animal: game.Animal = .spawn(.init(0, 0, 0), .{ .width = 0.4, .height = 0.5 });
+    var swept: f32 = 0;
+    for (0..40) |tick| {
+        animal.entity_age = @intCast(tick);
+        try std.testing.expectEqual(@as(f32, 0), beatenWing(0, animal, 0));
+        const flap = beatenWing(0.8, animal, 0);
+        try std.testing.expect(flap >= 0 and flap <= wing_beat_reach * 2);
+        swept = @max(swept, flap);
+    }
+    try std.testing.expect(swept > wing_beat_reach);
+
+    animal.entity_age = 3;
+    try std.testing.expect(beatenWing(0.8, animal, 0) != beatenWing(0.8, animal, 0.5));
+}
+
 test "every model a mod can wear animates from the roles of its parts" {
-    for (std.enums.values(game.mob.Model)) |kind| {
-        const model = modModel(kind);
+    for (std.enums.values(game.mob.Model.Builtin)) |kind| {
+        const model = modModel(.{ .builtin = kind });
         var head = false;
         var stride = false;
         for (model.parts) |part| switch (part.role) {

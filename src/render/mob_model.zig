@@ -1,30 +1,15 @@
 const std = @import("std");
 
+const game = @import("game");
 const math = @import("math");
 const world = @import("world");
 
 const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
 
-pub const Box = struct {
-    origin: [3]f32,
-    size: [3]f32,
-    tex_u: f32,
-    tex_v: f32,
-    inflate: f32 = 0,
-    mirror: bool = false,
-};
-
-pub const Role = enum { still, head, leg_ahead, leg_behind, wing_right, wing_left };
-
-pub const Part = struct {
-    box: Box,
-    pivot: [3]f32,
-    rotate_x: f32 = 0,
-    rotate_y: f32 = 0,
-    rotate_z: f32 = 0,
-    role: Role = .still,
-};
+pub const Box = game.mob_model.Box;
+pub const Role = game.mob_model.Role;
+pub const Part = game.mob_model.Part;
 
 pub const Pose = struct {
     position: [3]f32,
@@ -36,12 +21,7 @@ pub const Pose = struct {
     scale: [3]f32 = .{ 1, 1, 1 },
 };
 
-pub const Model = struct {
-    parts: []const Part,
-    head_index: usize,
-    texture_width: f32,
-    texture_height: f32,
-};
+pub const Model = game.mob_model.Model;
 
 const pig_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -12, -6 }, .role = .head },

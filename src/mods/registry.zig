@@ -26,6 +26,7 @@ pub const Registrar = struct {
 pub const MobSkin = struct {
     type_id: game.mob.Id,
     model: game.mob.Model,
+    wing_beat: f32,
     folder: []const u8,
     file: []const u8,
 };
@@ -207,6 +208,10 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
                 definition.spawns = readSpawns(lua);
                 return;
             }
+            if (std.mem.eql(u8, name, "model")) {
+                definition.model = readModel(lua, registrar);
+                return;
+            }
         }
     }
     inline for (@typeInfo(@TypeOf(extras.refs)).@"struct".fields) |field| {
@@ -236,11 +241,13 @@ fn registerMob(lua: *Lua) i32 {
     readFields(mobs.Def, &definition, &extras, lua, registrar, 1, .skip_key);
     if (!(definition.width > 0) or !(definition.height > 0)) lua.raiseErrorStr("'%s' needs a positive width and height", .{definition.key.ptr});
     if (definition.health <= 0) lua.raiseErrorStr("'%s' needs at least one heart's worth of health", .{definition.key.ptr});
+    if (definition.wing_beat < 0) lua.raiseErrorStr("'wing_beat' is how fast a wing beats, so it cannot be negative", .{});
     const type_id = mobs.claim(definition, extras.refs) catch |err| raise(lua, err, definition.key);
     if (extras.texture) |file| {
         registrar.mob_skins.append(registrar.arena, .{
             .type_id = type_id,
             .model = definition.model,
+            .wing_beat = definition.wing_beat,
             .folder = registrar.mod_folder,
             .file = file,
         }) catch raise(lua, error.OutOfMemory, definition.key);
@@ -461,6 +468,132 @@ fn readSpawns(lua: *Lua) game.mob.Spawns {
         lua.raiseErrorStr("the nether has no biomes to choose from", .{});
     }
     return spawns;
+}
+
+pub const max_model_parts = 32;
+
+fn readModel(lua: *Lua, registrar: *Registrar) game.mob.Model {
+    switch (lua.typeOf(-1)) {
+        .string => {
+            const tag = lua.toString(-1) catch unreachable;
+            const builtin = std.meta.stringToEnum(game.mob.Model.Builtin, tag) orelse
+                lua.raiseErrorStr("'%s' is not a model a mod can borrow", .{tag.ptr});
+            return .{ .builtin = builtin };
+        },
+        .table => {},
+        else => lua.raiseErrorStr("'model' names a vanilla model or lays one out in a table", .{}),
+    }
+
+    const table = lua.getTop();
+    const texture_width = modelSize(lua, table, "texture_width", 64);
+    const texture_height = modelSize(lua, table, "texture_height", 32);
+
+    if (lua.getField(table, "parts") != .table) lua.raiseErrorStr("a model is built from a list of 'parts'", .{});
+    const list = lua.getTop();
+    var parts: std.ArrayList(game.mob_model.Part) = .empty;
+    var head_index: ?usize = null;
+    var index: i64 = 1;
+    while (lua.getIndex(list, index) != .nil) : (index += 1) {
+        if (parts.items.len == max_model_parts) lua.raiseErrorStr("a model is built from at most 32 parts", .{});
+        if (lua.typeOf(-1) != .table) lua.raiseErrorStr("every part of a model is a table", .{});
+        const part = readPart(lua);
+        if (part.role == .head and head_index == null) head_index = parts.items.len;
+        parts.append(registrar.arena, part) catch raise(lua, error.OutOfMemory, "model");
+        lua.pop(1);
+    }
+    lua.pop(2);
+    if (parts.items.len == 0) lua.raiseErrorStr("a model is built from at least one part", .{});
+
+    return .{ .custom = .{
+        .parts = parts.items,
+        .head_index = head_index orelse 0,
+        .texture_width = texture_width,
+        .texture_height = texture_height,
+    } };
+}
+
+fn readPart(lua: *Lua) game.mob_model.Part {
+    const table = lua.getTop();
+    const box = modelVector(lua, table, "box", 6, null);
+    const uv = modelVector(lua, table, "uv", 2, .{ 0, 0 });
+    for (box[3..]) |side| {
+        if (!(side > 0)) lua.raiseErrorStr("a part's width, height and depth are above zero", .{});
+    }
+    return .{
+        .box = .{
+            .origin = box[0..3].*,
+            .size = box[3..6].*,
+            .tex_u = uv[0],
+            .tex_v = uv[1],
+            .inflate = modelNumber(lua, table, "inflate", 0),
+            .mirror = modelFlag(lua, table, "mirror"),
+        },
+        .pivot = modelVector(lua, table, "pivot", 3, .{ 0, 0, 0 }),
+        .rotate_x = modelNumber(lua, table, "rotate_x", 0),
+        .rotate_y = modelNumber(lua, table, "rotate_y", 0),
+        .rotate_z = modelNumber(lua, table, "rotate_z", 0),
+        .role = modelRole(lua, table),
+    };
+}
+
+fn modelVector(lua: *Lua, table: i32, name: [:0]const u8, comptime count: usize, fallback: ?[count]f32) [count]f32 {
+    if (lua.getField(table, name) == .nil) {
+        lua.pop(1);
+        return fallback orelse lua.raiseErrorStr("a part of a model needs its '%s'", .{name.ptr});
+    }
+    if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'%s' is a list of numbers", .{name.ptr});
+    const list = lua.getTop();
+    var out: [count]f32 = undefined;
+    for (&out, 0..) |*value, slot| {
+        if (lua.getIndex(list, @as(i64, @intCast(slot + 1))) != .number) {
+            lua.raiseErrorStr("'%s' is a list of %d numbers", .{ name.ptr, @as(i32, @intCast(count)) });
+        }
+        value.* = @floatCast(lua.toNumber(-1) catch unreachable);
+        if (!std.math.isFinite(value.*)) lua.raiseErrorStr("'%s' holds a number that is not finite", .{name.ptr});
+        lua.pop(1);
+    }
+    if (lua.getIndex(list, @as(i64, count + 1)) != .nil) {
+        lua.raiseErrorStr("'%s' is a list of %d numbers", .{ name.ptr, @as(i32, @intCast(count)) });
+    }
+    lua.pop(2);
+    return out;
+}
+
+fn modelNumber(lua: *Lua, table: i32, name: [:0]const u8, fallback: f32) f32 {
+    defer lua.pop(1);
+    if (lua.getField(table, name) == .nil) return fallback;
+    if (lua.typeOf(-1) != .number) lua.raiseErrorStr("'%s' must be a number", .{name.ptr});
+    const value: f32 = @floatCast(lua.toNumber(-1) catch unreachable);
+    if (!std.math.isFinite(value)) lua.raiseErrorStr("'%s' must be a finite number", .{name.ptr});
+    return value;
+}
+
+fn modelSize(lua: *Lua, table: i32, name: [:0]const u8, fallback: f32) f32 {
+    const value = modelNumber(lua, table, name, fallback);
+    if (!(value > 0)) lua.raiseErrorStr("'%s' is above zero", .{name.ptr});
+    return value;
+}
+
+fn modelFlag(lua: *Lua, table: i32, name: [:0]const u8) bool {
+    defer lua.pop(1);
+    return switch (lua.getField(table, name)) {
+        .nil => false,
+        .boolean => lua.toBoolean(-1),
+        else => lua.raiseErrorStr("'%s' must be true or false", .{name.ptr}),
+    };
+}
+
+fn modelRole(lua: *Lua, table: i32) game.mob_model.Role {
+    defer lua.pop(1);
+    return switch (lua.getField(table, "role")) {
+        .nil => .still,
+        .string => blk: {
+            const tag = lua.toString(-1) catch unreachable;
+            break :blk std.meta.stringToEnum(game.mob_model.Role, tag) orelse
+                lua.raiseErrorStr("'%s' is not a part a model animates", .{tag.ptr});
+        },
+        else => lua.raiseErrorStr("'role' names how a part moves", .{}),
+    };
 }
 
 fn readBiomes(lua: *Lua) world.biome.Set {
@@ -885,6 +1018,145 @@ test "a block names the textures its faces are painted with" {
     try std.testing.expect(textures[2].faces.get(.up) == null);
 }
 
+test "a mod lays out a model of its own, and its parts keep the order they were given" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  texture = "bumbler.png",
+        \\  model = {
+        \\    texture_width = 32,
+        \\    texture_height = 16,
+        \\    parts = {
+        \\      { box = { -2, -6, -3, 4, 4, 6 }, uv = { 0, 0 }, pivot = { 0, -9, -4 }, role = "head" },
+        \\      { box = { -3, -5, -4, 6, 5, 8 }, uv = { 0, 10 }, pivot = { 0, -8, 0 }, rotate_x = 0.25 },
+        \\      { box = { 0, 0, -3, 1, 4, 6 }, uv = { 24, 0 }, pivot = { -4, -11, 0 }, role = "wing_right", mirror = true },
+        \\      { box = { -1, 0, -3, 1, 4, 6 }, uv = { 24, 0 }, pivot = { 4, -11, 0 }, role = "wing_left", inflate = 0.5 },
+        \\    },
+        \\  },
+        \\}
+    );
+
+    const model = harness.registrar.mob_skins.items[0].model.custom;
+    try std.testing.expectEqual(@as(f32, 32), model.texture_width);
+    try std.testing.expectEqual(@as(f32, 16), model.texture_height);
+    try std.testing.expectEqual(@as(usize, 4), model.parts.len);
+    try std.testing.expectEqual(@as(usize, 0), model.head_index);
+
+    const head = model.parts[0];
+    try std.testing.expectEqual([3]f32{ -2, -6, -3 }, head.box.origin);
+    try std.testing.expectEqual([3]f32{ 4, 4, 6 }, head.box.size);
+    try std.testing.expectEqual([3]f32{ 0, -9, -4 }, head.pivot);
+    try std.testing.expectEqual(game.mob_model.Role.head, head.role);
+
+    try std.testing.expectEqual(game.mob_model.Role.still, model.parts[1].role);
+    try std.testing.expectEqual(@as(f32, 0.25), model.parts[1].rotate_x);
+    try std.testing.expectEqual([3]f32{ 0, -8, 0 }, model.parts[1].pivot);
+
+    try std.testing.expect(model.parts[2].box.mirror);
+    try std.testing.expectEqual(game.mob_model.Role.wing_right, model.parts[2].role);
+    try std.testing.expectEqual(@as(f32, 0.5), model.parts[3].box.inflate);
+    try std.testing.expectEqual(@as(f32, 24), model.parts[3].box.tex_u);
+}
+
+test "a model says how fast its wings beat, and refuses to beat backwards" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob { key = "bumbler", texture = "bumbler.png", model = "chicken", wing_beat = 0.8 }
+        \\rosebed.register_mob { key = "plodder", texture = "plodder.png", model = "cow" }
+    );
+    try std.testing.expectEqual(@as(f32, 0.8), harness.registrar.mob_skins.items[0].wing_beat);
+    try std.testing.expectEqual(@as(f32, 0), harness.registrar.mob_skins.items[1].wing_beat);
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'other', wing_beat = -1 }",
+        "'wing_beat' is how fast a wing beats, so it cannot be negative",
+    );
+}
+
+test "a model with no head still points its head index at a part it has" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_mob { key = "blob", texture = "blob.png", model = { parts = { { box = { 0, 0, 0, 8, 8, 8 } } } } }
+    );
+    const model = harness.registrar.mob_skins.items[0].model.custom;
+    try std.testing.expectEqual(@as(usize, 1), model.parts.len);
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, model.parts[0].pivot);
+    try std.testing.expectEqual(game.mob_model.Role.still, model.parts[0].role);
+    try std.testing.expect(model.head_index < model.parts.len);
+    try std.testing.expectEqual(@as(f32, 64), model.texture_width);
+    try std.testing.expectEqual(@as(f32, 32), model.texture_height);
+}
+
+test "a mob still borrows a vanilla model by name" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz", "rosebed.register_mob { key = 'bumbler', texture = 'b.png', model = 'chicken' }");
+    try std.testing.expectEqual(game.mob.Model.Builtin.chicken, harness.registrar.mob_skins.items[0].model.builtin);
+    try harness.expectFailure("rosebed.register_mob { key = 'other', model = 'wolf' }", "'wolf' is not a model a mod can borrow");
+    try harness.expectFailure("rosebed.register_mob { key = 'other', model = 5 }", "'model' names a vanilla model or lays one out in a table");
+}
+
+test "a model a mod cannot draw is refused as it registers" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure("rosebed.register_mob { key = 'a', model = {} }", "a model is built from a list of 'parts'");
+    try harness.expectFailure("rosebed.register_mob { key = 'b', model = { parts = {} } }", "a model is built from at least one part");
+    try harness.expectFailure("rosebed.register_mob { key = 'c', model = { parts = { 5 } } }", "every part of a model is a table");
+    try harness.expectFailure("rosebed.register_mob { key = 'd', model = { parts = { {} } } }", "a part of a model needs its 'box'");
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'e', model = { parts = { { box = { 0, 0, 0, 1, 1 } } } } }",
+        "'box' is a list of 6 numbers",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'f', model = { parts = { { box = { 0, 0, 0, 1, 1, 1, 1 } } } } }",
+        "'box' is a list of 6 numbers",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'g', model = { parts = { { box = { 0, 0, 0, 0, 1, 1 } } } } }",
+        "a part's width, height and depth are above zero",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'h', model = { parts = { { box = { 0, 0, 0, 1, 1, 1 }, role = 'tail' } } } }",
+        "'tail' is not a part a model animates",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'i', model = { texture_width = 0, parts = { { box = { 0, 0, 0, 1, 1, 1 } } } } }",
+        "'texture_width' is above zero",
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'j', model = { parts = { { box = { 0, 0, 0, 1, 1, 1 }, pivot = { 0, 0, 0 / 0 } } } } }",
+        "'pivot' holds a number that is not finite",
+    );
+}
+
+test "a model is refused once it asks for more parts than the renderer takes" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\parts = {}
+        \\for i = 1, 33 do parts[i] = { box = { 0, 0, 0, 1, 1, 1 } } end
+    );
+    try harness.expectFailure(
+        "rosebed.register_mob { key = 'many', model = { parts = parts } }",
+        "a model is built from at most 32 parts",
+    );
+}
+
 test "a mod lays out a recipe on the grid or gathers it in any order" {
     var harness: Harness = undefined;
     try harness.init();
@@ -1036,7 +1308,7 @@ test "a mob registered from lua lands after the vanilla types, built to its spec
     try std.testing.expect(game.mob.get(type_id).monster);
     try std.testing.expectEqual(@as(usize, 1), harness.registrar.mob_skins.items.len);
     try std.testing.expectEqual(type_id, harness.registrar.mob_skins.items[0].type_id);
-    try std.testing.expectEqual(game.mob.Model.cow, harness.registrar.mob_skins.items[0].model);
+    try std.testing.expectEqual(game.mob.Model.Builtin.cow, harness.registrar.mob_skins.items[0].model.builtin);
     try std.testing.expectEqualStrings("bumbler.png", harness.registrar.mob_skins.items[0].file);
     try std.testing.expectEqual(game.mob.first_mod_wire_id, game.mob.get(type_id).wire_id.?);
 

@@ -226,6 +226,7 @@ rosebed.register_mob {
     health = 4,
     speed = 0.9,
     movement = "flying",
+    wing_beat = 0.9,
     takes_fall_damage = false,
     drop = function()
         return mod .. "pollen", 1 + rosebed.random(2)

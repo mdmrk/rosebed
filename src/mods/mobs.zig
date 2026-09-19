@@ -13,12 +13,13 @@ pub const capacity: usize = 16;
 
 pub const Def = struct {
     key: []const u8 = "",
-    model: Mob.Model = .pig,
+    model: Mob.Model = .{ .builtin = .pig },
     spawns: ?Mob.Spawns = null,
     width: f64 = default_width,
     height: f64 = default_height,
     health: i32 = Animal.default_max_health,
     speed: f32 = Animal.default_move_speed,
+    wing_beat: f32 = 0,
     step_height: f64 = Animal.default_step_height,
     movement: Animal.Movement = .walking,
     monster: bool = false,
