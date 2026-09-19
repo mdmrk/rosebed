@@ -553,8 +553,9 @@ pub fn appendPlayer(
     player: game.Player,
     holding_item: bool,
     partial_ticks: f32,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, mob_model.biped, &all_biped_parts_shown);
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, mob_model.biped, &all_biped_parts_shown, override);
 }
 
 pub fn appendPlayerArmor(
@@ -565,8 +566,9 @@ pub fn appendPlayerArmor(
     holding_item: bool,
     partial_ticks: f32,
     layer: mob_model.ArmorLayer,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible);
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible, override);
 }
 
 fn bipedParts(
@@ -638,11 +640,13 @@ pub fn appendPlayerHeadBlock(
     holding_item: bool,
     partial_ticks: f32,
     id: world.Block,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    const parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
+    var parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
+    var pose = bipedPose(mesh, world_map, player, partial_ticks);
+    overridePose(&parts, &pose, override);
     const head = parts[mob_model.biped.head_index];
-    const pose = bipedPose(mesh, world_map, player, partial_ticks);
 
     try held_item.appendBlock(mesh, gpa, id, .{
         .orient = headBlockOrient(head, pose),
@@ -657,6 +661,24 @@ pub fn appendPlayerHeadBlock(
     }
 }
 
+fn overridePose(
+    parts: *[mob_model.biped_part_count]mob_model.Part,
+    pose: *mob_model.Pose,
+    override: ?game.mob_model.BipedOverride,
+) void {
+    const turned = override orelse return;
+    pose.pitch += turned.pitch;
+    pose.roll += turned.roll;
+    pose.spin += turned.spin;
+    pose.lift += turned.lift;
+    for (parts, turned.limbs) |*part, angles| {
+        const turn = angles orelse continue;
+        part.rotate_x = turn[0];
+        part.rotate_y = turn[1];
+        part.rotate_z = turn[2];
+    }
+}
+
 fn appendBiped(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -666,9 +688,11 @@ fn appendBiped(
     partial_ticks: f32,
     model: mob_model.Model,
     shown: []const bool,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    const parts = bipedParts(model, player, holding_item, partial_ticks);
-    const pose = bipedPose(mesh, world_map, player, partial_ticks);
+    var parts = bipedParts(model, player, holding_item, partial_ticks);
+    var pose = bipedPose(mesh, world_map, player, partial_ticks);
+    overridePose(&parts, &pose, override);
     const material = item_lighting.material(brightnessOf(world_map, player.base), untinted);
 
     for (parts, shown) |part, visible| {
@@ -3821,7 +3845,7 @@ pub fn appendFishLine(
 fn sleepingHeadOffset(world_map: *const world.World, gpa: std.mem.Allocator, player: game.Player) ![3]f32 {
     var mesh: MeshBuilder = .{ .origin = player.base.renderPosition(0.0) };
     defer mesh.deinit(gpa);
-    try appendPlayer(&mesh, gpa, world_map, player, false, 0.0);
+    try appendPlayer(&mesh, gpa, world_map, player, false, 0.0, null);
 
     var far: [3]f32 = .{ 0, 0, 0 };
     var reach: f32 = -1.0;
@@ -3895,7 +3919,7 @@ test "a pumpkin worn on the head is a cube over the face, carved side forward" {
 
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try appendPlayerHeadBlock(&mesh, gpa, &world_map, player, false, 0, .pumpkin);
+    try appendPlayerHeadBlock(&mesh, gpa, &world_map, player, false, 0, .pumpkin, null);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
 
@@ -4062,6 +4086,44 @@ test "a wing only beats for a mob that asked for a beat" {
 
     animal.entity_age = 3;
     try std.testing.expect(beatenWing(0.8, animal, 0) != beatenWing(0.8, animal, 0.5));
+}
+
+test "a pose a mod asked for lays the player over and turns only the limbs it named" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const player: game.Player = .spawn(.init(8, 64, 8));
+
+    var upright: MeshBuilder = .{};
+    defer upright.deinit(gpa);
+    var same: MeshBuilder = .{};
+    defer same.deinit(gpa);
+    var flat: MeshBuilder = .{};
+    defer flat.deinit(gpa);
+
+    try appendPlayer(&upright, gpa, &world_map, player, false, 0, null);
+    try appendPlayer(&same, gpa, &world_map, player, false, 0, .{});
+    for (upright.vertices.items, same.vertices.items) |before, after| {
+        try std.testing.expectEqual(before.y, after.y);
+        try std.testing.expectEqual(before.z, after.z);
+    }
+
+    var turned: game.mob_model.BipedOverride = .{ .pitch = std.math.pi * 0.5 };
+    turned.limbs[@intFromEnum(game.mob_model.Limb.right_arm)] = .{ 0, 0, -1.4 };
+    try appendPlayer(&flat, gpa, &world_map, player, false, 0, turned);
+
+    var moved = false;
+    for (upright.vertices.items, flat.vertices.items) |before, after| {
+        if (@abs(before.z - after.z) > 1.0e-3) moved = true;
+    }
+    try std.testing.expect(moved);
+
+    const head = mob_model.biped.head_index;
+    var lowered = false;
+    for (partVertices(upright, head), partVertices(flat, head)) |before, after| {
+        if (after.y < before.y - 0.2) lowered = true;
+    }
+    try std.testing.expect(lowered);
 }
 
 test "every model a mod can wear animates from the roles of its parts" {

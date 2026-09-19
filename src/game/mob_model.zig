@@ -24,3 +24,13 @@ pub const Model = struct {
     texture_width: f32,
     texture_height: f32,
 };
+
+pub const Limb = enum { body, right_leg, left_leg, right_arm, left_arm, head };
+
+pub const BipedOverride = struct {
+    pitch: f32 = 0,
+    roll: f32 = 0,
+    spin: f32 = 0,
+    lift: f32 = 0,
+    limbs: [@typeInfo(Limb).@"enum".fields.len]?[3]f32 = @splat(null),
+};

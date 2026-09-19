@@ -4369,6 +4369,7 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
             peer.player,
             false,
             partial,
+            null,
         );
         if (wornBlock(peer.player)) |id| {
             try render.entity_render.appendPlayerHeadBlock(
@@ -4379,6 +4380,7 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
                 false,
                 partial,
                 id,
+                null,
             );
         }
     }
@@ -4389,13 +4391,20 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     drawEntityMesh(&heads);
 }
 
+fn modPose(app_state: *AppState) ?game.mob_model.BipedOverride {
+    const loaded = app_state.loaded_mods orelse return null;
+    return loaded.player.pose;
+}
+
 fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     const player = app_state.player;
     const holding_item = player.inventory.selectedStack() != null;
 
+    const pose = modPose(app_state);
+
     var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
-    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial);
+    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, pose);
     app_state.textures.char.bind();
     drawEntityMesh(&mesh);
 
@@ -4407,7 +4416,7 @@ fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
 
         var armor_mesh: render.MeshBuilder = .{ .origin = origin };
         defer armor_mesh.deinit(app_state.frame);
-        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer);
+        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer, pose);
         app_state.textures.armor(piece.material, layer.second_texture).bind();
         drawEntityMesh(&armor_mesh);
     }
@@ -4417,7 +4426,7 @@ fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     if (wornBlock(player)) |id| {
         var head_mesh: render.MeshBuilder = .{ .origin = origin };
         defer head_mesh.deinit(app_state.frame);
-        try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id);
+        try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id, pose);
         drawEntityMesh(&head_mesh);
     }
 }

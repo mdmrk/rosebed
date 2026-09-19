@@ -10,6 +10,7 @@ const Player = @This();
 lua: ?*Lua = null,
 on_tick: ?i32 = null,
 current: ?*game.Player = null,
+pose: ?game.mob_model.BipedOverride = null,
 
 pub var active: ?*Player = null;
 
@@ -31,6 +32,7 @@ pub fn install(self: *Player, lua: *Lua) void {
         .{ .name = "set_motion", .function = zlua.wrap(setMotion) },
         .{ .name = "set_fall_distance", .function = zlua.wrap(setFallDistance) },
         .{ .name = "damage_equipped", .function = zlua.wrap(damageEquipped) },
+        .{ .name = "set_pose", .function = zlua.wrap(setPose) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -183,6 +185,64 @@ fn damageEquipped(lua: *Lua) i32 {
     }
     lua.pushBoolean(false);
     return 1;
+}
+
+fn setPose(lua: *Lua) i32 {
+    const self = api(lua);
+    if (lua.isNoneOrNil(1)) {
+        self.pose = null;
+        return 0;
+    }
+    lua.checkType(1, .table);
+
+    var turned: game.mob_model.BipedOverride = .{
+        .pitch = poseAngle(lua, "pitch"),
+        .roll = poseAngle(lua, "roll"),
+        .spin = poseAngle(lua, "spin"),
+        .lift = poseAngle(lua, "lift"),
+    };
+
+    if (lua.getField(1, "limbs") != .nil) {
+        if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'limbs' turns each limb it names", .{});
+        const limbs = lua.getTop();
+        lua.pushNil();
+        while (lua.next(limbs)) {
+            if (lua.typeOf(-2) != .string) lua.raiseErrorStr("a limb is named", .{});
+            const name = lua.toString(-2) catch unreachable;
+            const limb = std.meta.stringToEnum(game.mob_model.Limb, name) orelse
+                lua.raiseErrorStr("'%s' is not a limb the player has", .{name.ptr});
+            turned.limbs[@intFromEnum(limb)] = limbAngles(lua, name);
+            lua.pop(1);
+        }
+    }
+    lua.pop(1);
+
+    self.pose = turned;
+    return 0;
+}
+
+fn poseAngle(lua: *Lua, name: [:0]const u8) f32 {
+    defer lua.pop(1);
+    if (lua.getField(1, name) == .nil) return 0;
+    if (lua.typeOf(-1) != .number) lua.raiseErrorStr("'%s' must be a number", .{name.ptr});
+    const value: f32 = @floatCast(lua.toNumber(-1) catch unreachable);
+    if (!std.math.isFinite(value)) lua.raiseErrorStr("'%s' must be a finite number", .{name.ptr});
+    return value;
+}
+
+fn limbAngles(lua: *Lua, name: [:0]const u8) [3]f32 {
+    if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'%s' turns by a list of three angles", .{name.ptr});
+    const list = lua.getTop();
+    var out: [3]f32 = @splat(0);
+    for (&out, 0..) |*angle, slot| {
+        if (lua.getIndex(list, @as(i64, @intCast(slot + 1))) != .number) {
+            lua.raiseErrorStr("'%s' turns by a list of three angles", .{name.ptr});
+        }
+        angle.* = @floatCast(lua.toNumber(-1) catch unreachable);
+        if (!std.math.isFinite(angle.*)) lua.raiseErrorStr("'%s' turns by a finite angle", .{name.ptr});
+        lua.pop(1);
+    }
+    return out;
 }
 
 fn finite(lua: *Lua, arg: i32) f64 {
@@ -343,4 +403,81 @@ test "a hook reads what the player wears and wears it out" {
     try std.testing.expectEqual(zlua.LuaType.nil, harness.vm.lua.getGlobal("boots"));
     harness.vm.lua.pop(1);
     try std.testing.expectEqual(@as(u16, 4), harness.player.inventory.armorSlot(.chestplate).*.?.meta);
+}
+
+test "a hook lays the player flat and folds the limbs it names" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.player.on_tick(function()
+        \\  rosebed.player.set_pose {
+        \\    pitch = 1.5,
+        \\    lift = 0.25,
+        \\    limbs = {
+        \\      right_arm = { -0.2, 0, -1.4 },
+        \\      left_arm = { -0.2, 0, 1.4 },
+        \\      right_leg = { 0.1, 0, 0 },
+        \\      left_leg = { 0.1, 0, 0 },
+        \\    },
+        \\  }
+        \\  return false
+        \\end)
+    );
+    harness.tick(false);
+
+    const pose = harness.api.pose.?;
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), pose.pitch, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), pose.lift, 1.0e-6);
+    try std.testing.expectEqual(@as(f32, 0), pose.roll);
+
+    const limbs = game.mob_model.Limb;
+    try std.testing.expectEqual([3]f32{ -0.2, 0, -1.4 }, pose.limbs[@intFromEnum(limbs.right_arm)].?);
+    try std.testing.expectEqual([3]f32{ -0.2, 0, 1.4 }, pose.limbs[@intFromEnum(limbs.left_arm)].?);
+    try std.testing.expectEqual([3]f32{ 0.1, 0, 0 }, pose.limbs[@intFromEnum(limbs.right_leg)].?);
+    try std.testing.expectEqual([3]f32{ 0.1, 0, 0 }, pose.limbs[@intFromEnum(limbs.left_leg)].?);
+    try std.testing.expect(pose.limbs[@intFromEnum(limbs.head)] == null);
+    try std.testing.expect(pose.limbs[@intFromEnum(limbs.body)] == null);
+}
+
+test "a pose is dropped once the mod stops asking for one" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\standing = false
+        \\rosebed.player.on_tick(function()
+        \\  if standing then rosebed.player.set_pose() else rosebed.player.set_pose { roll = 0.5 } end
+        \\  return false
+        \\end)
+    );
+    harness.tick(false);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), harness.api.pose.?.roll, 1.0e-6);
+
+    try harness.vm.exec("=test", "standing = true");
+    harness.tick(false);
+    try std.testing.expect(harness.api.pose == null);
+}
+
+test "a pose that names something the player has not got is refused" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\failure = nil
+        \\rosebed.player.on_tick(function()
+        \\  local ok, message = pcall(function() rosebed.player.set_pose { limbs = { tail = { 0, 0, 0 } } } end)
+        \\  failure = message
+        \\  return false
+        \\end)
+    );
+    harness.tick(false);
+
+    try std.testing.expectEqual(zlua.LuaType.string, harness.vm.lua.getGlobal("failure"));
+    try std.testing.expect(std.mem.endsWith(u8, try harness.vm.lua.toString(-1), "'tail' is not a limb the player has"));
+    harness.vm.lua.pop(1);
+    try std.testing.expect(harness.api.on_tick != null);
 }

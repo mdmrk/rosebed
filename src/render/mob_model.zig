@@ -1164,3 +1164,14 @@ test "the ghast's nine tentacles hang from a three by three grid under its body,
         try std.testing.expectEqual([3]f32{ 2, want[2], 2 }, part.box.size);
     }
 }
+
+test "the limbs a mod can turn line up with the parts the biped is built from" {
+    const Limb = game.mob_model.Limb;
+    try std.testing.expectEqual(biped_part_count, @typeInfo(Limb).@"enum".fields.len);
+    try std.testing.expectEqual(body_index, @intFromEnum(Limb.body));
+    try std.testing.expectEqual(right_leg_index, @intFromEnum(Limb.right_leg));
+    try std.testing.expectEqual(left_leg_index, @intFromEnum(Limb.left_leg));
+    try std.testing.expectEqual(right_arm_index, @intFromEnum(Limb.right_arm));
+    try std.testing.expectEqual(left_arm_index, @intFromEnum(Limb.left_arm));
+    try std.testing.expectEqual(biped.head_index, @intFromEnum(Limb.head));
+}
