@@ -9,6 +9,7 @@ const Hooks = @import("Hooks.zig");
 const Hud = @import("Hud.zig");
 const Input = @import("Input.zig");
 const load_order = @import("load_order.zig");
+const ModPlayer = @import("Player.zig");
 const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
 const Vm = @import("Vm.zig");
@@ -20,6 +21,7 @@ vm: Vm,
 hooks: *Hooks,
 hud: *Hud,
 input: *Input,
+player: *ModPlayer,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -84,6 +86,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     hud.* = .{};
     const input = try allocator.create(Input);
     input.* = .{};
+    const player = try allocator.create(ModPlayer);
+    player.* = .{};
 
     Hooks.active = hooks;
     if (hooks.decorators.items.len > 0 or hooks.structure_specs.items.len > 0) world.generator.after_decorate = Hooks.decorate;
@@ -95,6 +99,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         .hooks = hooks,
         .hud = hud,
         .input = input,
+        .player = player,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
@@ -106,6 +111,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
 pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report: *std.Io.Writer) !void {
     self.hud.install(self.vm.lua);
     self.input.install(self.vm.lua);
+    self.player.install(self.vm.lua);
+    game.Player.steer = ModPlayer.steer;
     const allocator = self.arena.allocator();
     for (self.mods) |mod| {
         var dir = try mods_dir.openDir(io, mod.folder, .{});
@@ -157,6 +164,10 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
         Hooks.active = null;
         world.generator.after_decorate = null;
         world.generator.after_shape = null;
+    }
+    if (ModPlayer.active == self.player) {
+        ModPlayer.active = null;
+        game.Player.steer = null;
     }
     self.hooks.deinit();
     self.vm.deinit();

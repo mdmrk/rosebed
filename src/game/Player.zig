@@ -206,6 +206,8 @@ pub fn tickRidden(self: *Player, world_map: *const world.World, strafe: f32, for
     if (self.health <= 0) self.death_time += 1;
 }
 
+pub var steer: ?*const fn (*Player, *const world.World, bool, bool) bool = null;
+
 pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {
     self.base.beginTick();
     self.jumped = false;
@@ -277,6 +279,8 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         if (sneak and self.base.motion.y < 0) self.base.motion.y = 0;
     }
 
+    const claimed = if (steer) |hook| hook(self, world_map, jump, sneak) else false;
+
     const before_y = self.base.position.y;
     const moved = self.base.move(world_map);
     self.updateFallState(world_map, moved.dy);
@@ -302,7 +306,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         if (blocked_horizontally and self.base.isOffsetPositionInLiquid(world_map, self.base.motion.x, step_up, self.base.motion.z)) {
             self.base.motion.y = liquid_climb_out;
         }
-    } else {
+    } else if (!claimed) {
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;
         self.base.motion.x *= @as(f64, friction);

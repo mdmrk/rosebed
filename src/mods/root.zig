@@ -9,11 +9,13 @@ pub const Loaded = @import("Loaded.zig");
 pub const Hooks = @import("Hooks.zig");
 pub const Hud = @import("Hud.zig");
 pub const Input = @import("Input.zig");
+pub const Player = @import("Player.zig");
 
 test {
     _ = Hooks;
     _ = Hud;
     _ = Input;
+    _ = Player;
     _ = Loaded;
     _ = mobs;
     _ = registry;
