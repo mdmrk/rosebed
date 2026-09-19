@@ -203,6 +203,12 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
                 return;
             }
         }
+        if (comptime Extras(Def) == ItemExtras) {
+            if (std.mem.eql(u8, name, "armor")) {
+                definition.armor = readArmor(lua);
+                return;
+            }
+        }
         if (comptime Extras(Def) == MobExtras) {
             if (std.mem.eql(u8, name, "spawns")) {
                 definition.spawns = readSpawns(lua);
@@ -430,6 +436,25 @@ fn overrideMob(lua: *Lua) i32 {
     }
     mobs.override(type_id, patch, extras.refs);
     return 0;
+}
+
+const armor_slots = "'slot' is 'helmet', 'chestplate', 'leggings' or 'boots'";
+const armor_materials = "'material' is the vanilla armour a piece wears like";
+
+fn readArmor(lua: *Lua) world.item.Armor {
+    if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'armor' names the 'slot' it is worn in and the 'material' it wears like", .{});
+    const table = lua.getTop();
+    return .{
+        .slot = armorTag(lua, table, world.item.ArmorSlot, "slot", armor_slots),
+        .material = armorTag(lua, table, world.item.ArmorMaterial, "material", armor_materials),
+    };
+}
+
+fn armorTag(lua: *Lua, table: i32, comptime T: type, name: [:0]const u8, comptime message: [:0]const u8) T {
+    defer lua.pop(1);
+    if (lua.getField(table, name) != .string) lua.raiseErrorStr(message, .{});
+    const tag = lua.toString(-1) catch unreachable;
+    return std.meta.stringToEnum(T, tag) orelse lua.raiseErrorStr(message, .{});
 }
 
 fn readSpawns(lua: *Lua) game.mob.Spawns {
@@ -1155,6 +1180,55 @@ test "a model is refused once it asks for more parts than the renderer takes" {
         "rosebed.register_mob { key = 'many', model = { parts = parts } }",
         "a model is built from at most 32 parts",
     );
+}
+
+test "a mod registers armour that the inventory wears, counts and wears out" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_item {
+        \\  key = "elytra",
+        \\  name = "Elytra",
+        \\  max_stack_size = 1,
+        \\  armor = { slot = "chestplate", material = "leather" },
+        \\}
+    );
+
+    const elytra = world.Item.fromKey("quartz:elytra").?;
+    const worn = elytra.armor().?;
+    try std.testing.expectEqual(world.item.ArmorSlot.chestplate, worn.slot);
+    try std.testing.expectEqual(world.item.ArmorMaterial.leather, worn.material);
+
+    var inventory: game.Inventory = .{};
+    const stack: game.Inventory.ItemStack = .{ .id = .{ .item = elytra }, .count = 1 };
+    try std.testing.expect(game.Inventory.fitsArmorSlot(stack, .chestplate));
+    try std.testing.expect(!game.Inventory.fitsArmorSlot(stack, .boots));
+
+    inventory.armorSlot(.chestplate).* = stack;
+    try std.testing.expect(inventory.totalArmorValue() > 0);
+    inventory.damageArmor(1);
+    try std.testing.expectEqual(@as(u16, 1), inventory.armorSlot(.chestplate).*.?.meta);
+}
+
+test "armour has to name a slot it is worn in and a material it wears like" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure(
+        "rosebed.register_item { key = 'a', armor = 'chestplate' }",
+        "'armor' names the 'slot' it is worn in and the 'material' it wears like",
+    );
+    try harness.expectFailure("rosebed.register_item { key = 'b', armor = { material = 'iron' } }", armor_slots);
+    try harness.expectFailure("rosebed.register_item { key = 'c', armor = { slot = 'wings', material = 'iron' } }", armor_slots);
+    try harness.expectFailure("rosebed.register_item { key = 'd', armor = { slot = 'boots' } }", armor_materials);
+    try harness.expectFailure(
+        "rosebed.register_item { key = 'e', armor = { slot = 'boots', material = 'obsidian' } }",
+        armor_materials,
+    );
+    try harness.expectFailure("rosebed.register_block { key = 'f', armor = { slot = 'boots' } }", "unknown field 'armor'");
 }
 
 test "a mod lays out a recipe on the grid or gathers it in any order" {
