@@ -80,13 +80,14 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     }
     registrar.open = false;
     const list = try describe(allocator, shared.items);
-    Hooks.active = hooks;
-    if (hooks.decorators.items.len > 0 or hooks.structure_specs.items.len > 0) world.generator.after_decorate = Hooks.decorate;
-    if (hooks.shapers.items.len > 0) world.generator.after_shape = Hooks.shape;
     const hud = try allocator.create(Hud);
     hud.* = .{};
     const input = try allocator.create(Input);
     input.* = .{};
+
+    Hooks.active = hooks;
+    if (hooks.decorators.items.len > 0 or hooks.structure_specs.items.len > 0) world.generator.after_decorate = Hooks.decorate;
+    if (hooks.shapers.items.len > 0) world.generator.after_shape = Hooks.shape;
 
     return .{
         .arena = arena,

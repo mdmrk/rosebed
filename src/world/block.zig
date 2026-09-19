@@ -701,7 +701,7 @@ pub const Block = enum(u8) {
     pub fn claim(definition: Def) error{ DuplicateKey, RegistryFull }!Block {
         std.debug.assert(definition.key.len != 0);
         if (fromKey(definition.key) != null) return error.DuplicateKey;
-        for (defs, 0..) |entry, id| {
+        for (&defs, 0..) |*entry, id| {
             if (entry.key.len != 0) continue;
             const block: Block = @enumFromInt(id);
             block.register(definition);
@@ -720,7 +720,7 @@ pub const Block = enum(u8) {
 
     pub fn fromKey(key: []const u8) ?Block {
         if (key.len == 0) return null;
-        for (defs, 0..) |entry, id| {
+        for (&defs, 0..) |*entry, id| {
             if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(id);
         }
         return null;

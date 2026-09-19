@@ -57,7 +57,7 @@ pub const Biome = enum(u8) {
 
     pub fn fromName(text: []const u8) ?Biome {
         if (std.meta.stringToEnum(Biome, text)) |found| return found;
-        for (defs[0..registered], 0..) |entry, slot| {
+        for (defs[0..registered], 0..) |*entry, slot| {
             if (std.mem.eql(u8, entry.key, text)) return @enumFromInt(vanilla_count + slot);
         }
         return null;
@@ -122,7 +122,7 @@ pub fn register(entry: Def) RegisterError!Biome {
     if (Biome.fromName(entry.key) != null) return error.DuplicateKey;
     if (registered == defs.len) return error.RegistryFull;
     var taken: f64 = 0;
-    for (defs[0..registered]) |other| {
+    for (defs[0..registered]) |*other| {
         if (other.parent == entry.parent) taken += other.share;
     }
     if (taken + entry.share > 1.0 + 1e-9) return error.NoShareLeft;
@@ -171,7 +171,7 @@ pub fn resolve(parent: Biome, seed: i64, x: i32, z: i32) Biome {
 
     const pick = selector(seed, x, z);
     var reached: f64 = 0;
-    for (defs[0..registered], 0..) |entry, slot| {
+    for (defs[0..registered], 0..) |*entry, slot| {
         if (entry.parent != parent) continue;
         reached += entry.share;
         if (pick < reached) return @enumFromInt(vanilla_count + slot);

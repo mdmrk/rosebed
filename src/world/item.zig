@@ -386,7 +386,7 @@ pub const Item = enum(u16) {
     pub fn claim(definition: Def) error{ DuplicateKey, RegistryFull }!Item {
         std.debug.assert(definition.key.len != 0);
         if (fromKey(definition.key) != null) return error.DuplicateKey;
-        for (defs, 0..) |entry, offset| {
+        for (&defs, 0..) |*entry, offset| {
             if (entry.key.len != 0) continue;
             const item: Item = @enumFromInt(first_item_id + offset);
             item.register(definition);
@@ -407,7 +407,7 @@ pub const Item = enum(u16) {
 
     pub fn fromKey(key: []const u8) ?Item {
         if (key.len == 0) return null;
-        for (defs, 0..) |entry, offset| {
+        for (&defs, 0..) |*entry, offset| {
             if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(first_item_id + offset);
         }
         return null;

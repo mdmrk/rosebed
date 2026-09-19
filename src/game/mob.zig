@@ -103,7 +103,7 @@ pub fn adopt(type_id: Id, animal: *Animal, metadata: Metadata) void {
 }
 
 pub fn byWireId(id: u8) ?Id {
-    for (types[0..count], 0..) |entry, type_id| {
+    for (types[0..count], 0..) |*entry, type_id| {
         const wire = entry.wire_id orelse continue;
         if (wire == id) return @intCast(type_id);
     }
@@ -186,7 +186,7 @@ pub fn replace(id: Id, entry: Type) void {
 }
 
 pub fn find(name: []const u8) ?Id {
-    for (types[0..count], 0..) |entry, id| {
+    for (types[0..count], 0..) |*entry, id| {
         if (std.mem.eql(u8, entry.name, name)) return @intCast(id);
     }
     return null;
