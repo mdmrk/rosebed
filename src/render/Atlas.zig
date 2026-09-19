@@ -82,6 +82,19 @@ pub fn writeTile(self: Atlas, index: u8, rgba: []const u8) void {
     );
 }
 
+pub fn writeTilePng(self: Atlas, index: u8, png: []const u8, desaturate: bool) !void {
+    const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(png), true);
+    defer surface.deinit();
+
+    const converted = try surface.convertFormat(.array_rgba_32);
+    defer converted.deinit();
+
+    if (converted.getWidth() != tile_pixels or converted.getHeight() != tile_pixels) return error.NotATile;
+    const pixels = converted.getPixels() orelse return error.SurfaceNotAccessible;
+    anaglyph.pixels(desaturate, pixels);
+    self.writeTile(index, pixels[0..tile_bytes]);
+}
+
 fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int, desaturate: bool) !Atlas {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();

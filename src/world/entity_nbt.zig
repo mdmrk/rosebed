@@ -215,6 +215,18 @@ fn storeLiving(gpa: std.mem.Allocator, compound: *nbt.Compound, id: []const u8, 
     try put(gpa, compound, "AttackTime", .{ .short = 0 });
 }
 
+pub fn storeMob(gpa: std.mem.Allocator, id: []const u8, living: Living) !nbt.Tag {
+    var compound: nbt.Compound = .{};
+    errdefer {
+        var owned: nbt.Tag = .{ .compound = compound };
+        nbt.deinit(gpa, &owned);
+    }
+
+    try storeLiving(gpa, &compound, id, living);
+
+    return .{ .compound = compound };
+}
+
 pub fn storePig(gpa: std.mem.Allocator, pig: Pig) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -860,6 +872,11 @@ fn loadLiving(compound: nbt.Compound) ?Living {
     living.death_time = shortField(compound, "DeathTime", 0);
 
     return living;
+}
+
+pub fn loadMob(compound: nbt.Compound, id: []const u8) ?Living {
+    if (!hasId(compound, id)) return null;
+    return loadLiving(compound);
 }
 
 pub fn loadPig(compound: nbt.Compound) ?Pig {

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const core = @import("core");
 const game = @import("game");
+const mods = @import("mods");
 const net = @import("net");
 const world = @import("world");
 const BlockPos = world.BlockPos;
@@ -150,6 +151,7 @@ const Server = struct {
     running: std.atomic.Value(bool) = .init(true),
     tick_count: u64 = 0,
     ticks_since_save: u64 = 0,
+    mods: net.packet.ModList = .{},
 
     fn lock(self: *Server) void {
         self.mutex.lockUncancelable(self.io);
@@ -449,6 +451,7 @@ fn writeLoop(server: *Server, connection: *Connection) void {
         if (!open or !server.running.load(.acquire)) break;
         std.Io.sleep(server.io, .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
     }
+    connection.stream.shutdown(server.io, .send) catch {};
 
     server.lock();
     connection.open = false;
@@ -463,7 +466,7 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
             stream.close(server.io);
             continue;
         };
-        connection.* = .{ .stream = stream };
+        connection.* = .{ .stream = stream, .session = .{ .mods = server.mods } };
 
         server.adopt(connection) catch {
             connection.deinit(server.gpa);
@@ -639,7 +642,7 @@ fn tick(server: *Server) !void {
             queueOutbox(server, connection) catch {};
             connection.open = false;
             connection.session.leave(server.gpa, server.levelFor(connection));
-            connection.stream.shutdown(server.io, .both) catch {};
+            connection.stream.shutdown(server.io, .recv) catch {};
             try server.retired.append(server.gpa, connection);
             _ = server.connections.orderedRemove(index);
             continue;
@@ -732,12 +735,28 @@ fn sendThroughPortal(server: *Server, connection: *Connection) !void {
     );
 }
 
+fn loadMods(gpa: std.mem.Allocator, io: std.Io) !mods.Loaded {
+    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, mods.Loaded.folder_name, .{ .open_options = .{ .iterate = true } });
+    defer dir.close(io);
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    const loaded = mods.Loaded.load(gpa, io, dir, &report.writer) catch |err| {
+        std.log.err("could not load mods: {s}", .{report.written()});
+        return err;
+    };
+    if (loaded.mods.len > 0) std.log.info("loaded {d} mods", .{loaded.mods.len});
+    return loaded;
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const options = try parseArgs(args);
+
+    var loaded_mods = try loadMods(gpa, io);
+    defer loaded_mods.deinit(gpa);
 
     var saves_dir = try world.save.openSavesDir(io, .cwd());
     defer saves_dir.close(io);
@@ -758,6 +777,7 @@ pub fn main(init: std.process.Init) !void {
     var server: Server = .{
         .gpa = gpa,
         .io = io,
+        .mods = loaded_mods.list,
         .dims = .{
             .{
                 .dimension = .overworld,

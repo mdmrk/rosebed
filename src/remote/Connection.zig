@@ -78,6 +78,8 @@ carried: ?world.Stack = null,
 opened: ?Opened = null,
 aiming_at: [3]i32 = .{ 0, 0, 0 },
 aiming_cart: game.Entity.Id = game.Entity.no_id,
+mods: net.packet.ModList = .{},
+mods_checked: bool = false,
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
     self.peers.deinit(gpa);
@@ -135,14 +137,26 @@ pub fn handle(
                 try self.send(gpa, .{ .login = .{
                     .protocol_version = net.packet.protocol_version,
                     .username = username,
-                    .map_seed = 0,
+                    .map_seed = net.packet.rosebed_client_seed,
                     .dimension = 0,
                 } });
             },
             else => self.fail(gpa, "Server spoke out of turn", false),
         },
         .awaiting_login => switch (message) {
+            .mod_list => |theirs| {
+                var buffer: [net.packet.max_kick_reason]u8 = undefined;
+                if (net.packet.ModList.difference(self.mods, theirs, &buffer)) |reason| {
+                    self.fail(gpa, try gpa.dupe(u8, reason), true);
+                    return;
+                }
+                self.mods_checked = true;
+            },
             .login => |body| {
+                if (!self.mods_checked and self.mods.mods.len > 0) {
+                    self.fail(gpa, "The server does not run rosebed mods", false);
+                    return;
+                }
                 self.entity_id = @bitCast(body.protocol_version);
                 self.map_seed = body.map_seed;
                 self.dimension = @enumFromInt(body.dimension);
@@ -1339,6 +1353,90 @@ test "the login reply carries the entity id and seed the server chose" {
     try std.testing.expectEqual(State.playing, connection.state);
     try std.testing.expectEqual(@as(game.Entity.Id, 77), connection.entity_id);
     try std.testing.expectEqual(@as(i64, -4242), connection.map_seed);
+}
+
+test "the login marks the client as rosebed with a seed vanilla servers ignore" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .greeting;
+
+    try connection.handle(gpa, &level, testing_username, .{ .handshake = .{ .username = "-" } });
+
+    var sent: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &sent);
+    try drain(gpa, &connection, &sent);
+    try std.testing.expectEqual(net.packet.rosebed_client_seed, sent.items[0].login.map_seed);
+}
+
+const testing_mods: net.packet.ModList = .{
+    .mods = &.{.{ .id = "quartz", .version = "1.0.0" }},
+    .keys = &.{.{ .key = "quartz:marble", .numeric = 97 }},
+};
+
+fn joinWith(gpa: std.mem.Allocator, level: *game.Level, connection: *Connection, server_mods: ?net.packet.ModList) !void {
+    connection.state = .awaiting_login;
+    if (server_mods) |list| try connection.handle(gpa, level, testing_username, .{ .mod_list = list });
+    try connection.handle(gpa, level, testing_username, .{ .login = .{
+        .protocol_version = 5,
+        .username = "",
+        .map_seed = 1,
+        .dimension = 0,
+    } });
+}
+
+test "a server with the same mods and ids lets the client join" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, testing_mods);
+    try std.testing.expectEqual(State.playing, connection.state);
+    try std.testing.expect(connection.disconnect == null);
+}
+
+test "a server with different mods is left with the first difference as the reason" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, .{ .mods = &.{.{ .id = "quartz", .version = "2.0.0" }}, .keys = testing_mods.keys });
+    try std.testing.expectEqual(State.closed, connection.state);
+    try std.testing.expectEqualStrings("The server has quartz 2.0.0, you have 1.0.0", connection.disconnect.?.reason);
+}
+
+test "a client with mods leaves a server that never names its mods" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, null);
+    try std.testing.expectEqual(State.closed, connection.state);
+    try std.testing.expectEqualStrings("The server does not run rosebed mods", connection.disconnect.?.reason);
+}
+
+test "a client without mods still joins a vanilla server" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, null);
+    try std.testing.expectEqual(State.playing, connection.state);
 }
 
 test "a kick at any point closes the connection and keeps the reason" {

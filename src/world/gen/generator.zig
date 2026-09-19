@@ -50,6 +50,9 @@ pub const Dimension = enum(i8) {
     }
 };
 
+pub var after_shape: ?*const fn (*Chunk, Dimension, i64) void = null;
+pub var after_decorate: ?*const fn (*World, *Generator, i32, i32) std.mem.Allocator.Error!void = null;
+
 pub const Generator = union(Dimension) {
     overworld: TerrainGenerator,
     nether: NetherGenerator,
@@ -91,6 +94,7 @@ pub const Generator = union(Dimension) {
             .overworld => |gen| try gen.decorateChunk(world_map, chunk_x, chunk_z),
             .nether => |*gen| try gen.decorateChunk(world_map, chunk_x, chunk_z),
         }
+        if (after_decorate) |hook| try hook(world_map, self, chunk_x, chunk_z);
     }
 
     pub fn sampleClimate(self: *const Generator, x: i32, z: i32) Climate.Sample {

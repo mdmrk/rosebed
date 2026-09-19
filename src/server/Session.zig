@@ -49,6 +49,7 @@ dimension: world.Dimension = .overworld,
 raining: bool = false,
 emptied_on_death: bool = false,
 kicked: bool = false,
+mods: net.packet.ModList = .{},
 
 pub const max_chat_in: usize = 100;
 pub const track_range: f64 = 160.0;
@@ -870,7 +871,7 @@ pub fn handle(
             else => try self.kick(gpa, "Protocol error"),
         },
         .awaiting_login => switch (message) {
-            .login => |body| try self.acceptLogin(gpa, level, body.protocol_version, body.username),
+            .login => |body| try self.acceptLogin(gpa, level, body.protocol_version, body.username, body.map_seed),
             else => try self.kick(gpa, "Protocol error"),
         },
         .playing => try self.handlePlaying(gpa, level, message),
@@ -883,9 +884,15 @@ fn acceptLogin(
     level: *game.Level,
     protocol: i32,
     username: []const u8,
+    map_seed: i64,
 ) !void {
     if (protocol != net.packet.protocol_version) {
         return self.kick(gpa, if (protocol > net.packet.protocol_version) "Outdated server!" else "Outdated client!");
+    }
+    if (map_seed == net.packet.rosebed_client_seed) {
+        try self.send(gpa, .{ .mod_list = self.mods });
+    } else if (self.mods.mods.len > 0) {
+        return self.kick(gpa, "This server needs rosebed and its mods");
     }
 
     self.name.set(username);
@@ -2376,6 +2383,85 @@ test "a login carries the entity id the level handed the player" {
     try std.testing.expect(announced != game.Entity.no_id);
 }
 
+fn rosebedLogin(gpa: std.mem.Allocator, level: *game.Level, session: *Session) !void {
+    try session.handle(gpa, level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = net.packet.rosebed_client_seed,
+        .dimension = 0,
+    } });
+}
+
+test "a rosebed client is told the server's mods before it joins" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{ .mods = .{
+        .mods = &.{.{ .id = "quartz", .version = "1.0.0" }},
+        .keys = &.{.{ .key = "quartz:marble", .numeric = 97 }},
+    } };
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try rosebedLogin(gpa, &level, &session);
+    try std.testing.expectEqual(State.playing, session.state);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(net.packet.Id.handshake, replies.items[0].id());
+    try std.testing.expectEqual(net.packet.Id.mod_list, replies.items[1].id());
+    try std.testing.expectEqual(net.packet.Id.login, replies.items[2].id());
+    const list = replies.items[1].mod_list;
+    try std.testing.expectEqualStrings("quartz", list.mods[0].id);
+    try std.testing.expectEqualStrings("quartz:marble", list.keys[0].key);
+    try std.testing.expectEqual(@as(i16, 97), list.keys[0].numeric);
+}
+
+test "a server without mods still answers a rosebed client with an empty list" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try rosebedLogin(gpa, &level, &session);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 0), replies.items[1].mod_list.mods.len);
+    try std.testing.expectEqual(net.packet.Id.login, replies.items[2].id());
+}
+
+test "a vanilla client is turned away from a server that has mods" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{ .mods = .{ .mods = &.{.{ .id = "quartz", .version = "1.0.0" }} } };
+    defer session.deinit(gpa);
+
+    try login(gpa, &level, &session);
+    try std.testing.expectEqual(State.closed, session.state);
+    try std.testing.expectEqual(@as(usize, 0), level.occupants.items.len);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqualStrings("This server needs rosebed and its mods", replies.items[1].kick_disconnect.reason);
+}
+
 test "an outdated protocol is kicked with the message vanilla uses" {
     const gpa = std.testing.allocator;
     var level = try testLevel(gpa);
@@ -2864,4 +2950,80 @@ test "a jockey riding its spider is attached to it on the wire" {
 
     try std.testing.expectEqual(@as(usize, 1), loosed.items.len);
     try std.testing.expectEqual(@as(i32, -1), loosed.items[0].attach_entity.vehicle_id);
+}
+
+test "a mob from a mod is spawned to the client by the byte it was given" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const bumbler = game.mob.register(.{
+        .name = "rosebug:bumbler",
+        .wire_id = game.mob.first_mod_wire_id,
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, bumbler, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqual(game.mob.first_mod_wire_id, replies.items[0].mob_spawn.kind);
+}
+
+test "a mob with no byte of its own is still kept off the wire" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const hidden = game.mob.register(.{
+        .name = "rosebug:hidden",
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, hidden, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    const quiet = try session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
 }

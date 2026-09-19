@@ -7,7 +7,10 @@ pub const Metadata = net.packet.Metadata;
 const world = @import("world");
 
 const Animal = @import("entity/Animal.zig");
+const Monster = @import("entity/Monster.zig");
+const physics = @import("physics.zig");
 const Player = @import("Player.zig");
+const spawner = @import("spawner.zig");
 
 pub const Drops = struct {
     count: u8,
@@ -30,6 +33,32 @@ pub const Tick = struct {
     }
 };
 
+pub const Model = enum { pig, cow, sheep, chicken, creeper };
+
+pub const Spawns = struct {
+    category: spawner.Category,
+    weight: i32,
+    max_per_chunk: u32 = spawner.max_per_chunk,
+    dimension: world.Dimension = .overworld,
+    biomes: ?world.biome.Set = null,
+};
+
+pub fn spawnCheckFor(category: spawner.Category) *const fn (*const Animal, *const world.World, i64, *world.JavaRandom) bool {
+    return switch (category) {
+        .creature => canSpawnHereBase,
+        .monster => canSpawnInTheDark,
+        .water_creature => canSpawnUnobstructed,
+    };
+}
+
+fn canSpawnInTheDark(animal: *const Animal, world_map: *const world.World, _: i64, rand: *world.JavaRandom) bool {
+    return Monster.canSpawnHere(animal.*, world_map, rand);
+}
+
+fn canSpawnUnobstructed(animal: *const Animal, world_map: *const world.World, _: i64, _: *world.JavaRandom) bool {
+    return !physics.isBoxObstructed(world_map, animal.base.boundingBox());
+}
+
 pub const Type = struct {
     name: []const u8,
     wire_id: ?u8 = null,
@@ -47,6 +76,7 @@ pub const Type = struct {
     onDeath: *const fn (*Animal, Tick) anyerror!void = ignore,
     watch: *const fn (*const Animal, *Watched) void = watchNothing,
     adopt: *const fn (*Animal, Metadata) void = adoptNothing,
+    spawns: ?Spawns = null,
 };
 
 fn ignore(_: *Animal, _: Tick) anyerror!void {}
@@ -73,7 +103,7 @@ pub fn adopt(type_id: Id, animal: *Animal, metadata: Metadata) void {
 }
 
 pub fn byWireId(id: u8) ?Id {
-    for (types[0..count], 0..) |entry, type_id| {
+    for (types[0..count], 0..) |*entry, type_id| {
         const wire = entry.wire_id orelse continue;
         if (wire == id) return @intCast(type_id);
     }
@@ -90,6 +120,8 @@ fn canSpawnHereBase(animal: *const Animal, world_map: *const world.World, _: i64
 
 pub const Id = u16;
 pub const capacity: usize = 64;
+
+pub const first_mod_wire_id: u8 = 96;
 
 const vanilla = [_]Type{
     @import("entity/Pig.zig").mob_type,
@@ -148,8 +180,13 @@ pub fn register(entry: Type) Id {
     return @intCast(count - 1);
 }
 
+pub fn replace(id: Id, entry: Type) void {
+    std.debug.assert(id < count);
+    types[id] = entry;
+}
+
 pub fn find(name: []const u8) ?Id {
-    for (types[0..count], 0..) |entry, id| {
+    for (types[0..count], 0..) |*entry, id| {
         if (std.mem.eql(u8, entry.name, name)) return @intCast(id);
     }
     return null;
@@ -258,4 +295,11 @@ test "a registered type lands after the vanilla ones and answers to its name" {
     try std.testing.expectEqual(custom, find("Rosebug").?);
     try std.testing.expectEqualStrings("Rosebug", get(custom).name);
     try std.testing.expectEqual(@as(Id, 15), registered());
+}
+
+test "no vanilla mob claims a byte a registered type would be given" {
+    for (0..registered()) |type_id| {
+        const wire = get(@intCast(type_id)).wire_id orelse continue;
+        try std.testing.expect(wire < first_mod_wire_id);
+    }
 }

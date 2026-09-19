@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Block = @import("block.zig").Block;
+const biome = @import("gen/biome.zig");
 const NibbleArray = @import("NibbleArray.zig");
 
 pub const width = 16;
@@ -17,6 +18,7 @@ block_light: NibbleArray = .{},
 height_map: [width * width]u8 = [_]u8{0} ** (width * width),
 temperature: [width * width]f32 = [_]f32{0.5} ** (width * width),
 humidity: [width * width]f32 = [_]f32{0.5} ** (width * width),
+biomes: [width * width]biome.Biome = @splat(biome.classify(0.5, 0.5)),
 modified: bool = false,
 stored_entities: bool = false,
 
@@ -88,6 +90,20 @@ pub fn getHumidity(self: *const Chunk, x: u32, z: u32) f32 {
 pub fn setClimate(self: *Chunk, x: u32, z: u32, temperature: f32, humidity: f32) void {
     self.temperature[heightMapIndex(x, z)] = temperature;
     self.humidity[heightMapIndex(x, z)] = humidity;
+    self.biomes[heightMapIndex(x, z)] = biome.classify(temperature, humidity);
+}
+
+pub fn getBiome(self: *const Chunk, x: u32, z: u32) biome.Biome {
+    return self.biomes[heightMapIndex(x, z)];
+}
+
+pub fn resolveBiomes(self: *Chunk, seed: i64) void {
+    for (0..width) |x| {
+        for (0..width) |z| {
+            const index = heightMapIndex(@intCast(x), @intCast(z));
+            self.biomes[index] = biome.resolve(self.biomes[index], seed, self.x * width + @as(i32, @intCast(x)), self.z * width + @as(i32, @intCast(z)));
+        }
+    }
 }
 
 test "block id round-trips through the packed index" {
