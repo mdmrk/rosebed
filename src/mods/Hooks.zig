@@ -605,6 +605,8 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "get_chest_item", .function = zlua.wrap(getChestItem) },
         .{ .name = "set_chest_item", .function = zlua.wrap(setChestItem) },
         .{ .name = "set_spawner", .function = zlua.wrap(setSpawner) },
+        .{ .name = "get_state", .function = zlua.wrap(getState) },
+        .{ .name = "set_state", .function = zlua.wrap(setState) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -878,6 +880,75 @@ fn setSpawner(lua: *Lua) i32 {
     }
     const spawner = currentWorld(lua).addMobSpawner(pos) catch lua.raiseErrorStr("out of memory", .{});
     spawner.setMobName(name);
+    return 0;
+}
+
+fn pushState(lua: *Lua, state: world.nbt.Compound) void {
+    lua.newTable();
+    for (state.keys(), state.values()) |key, value| {
+        _ = lua.pushString(key);
+        switch (value) {
+            .byte => |number| lua.pushBoolean(number != 0),
+            .short => |number| lua.pushNumber(@floatFromInt(number)),
+            .int => |number| lua.pushNumber(@floatFromInt(number)),
+            .long => |number| lua.pushNumber(@floatFromInt(number)),
+            .float => |number| lua.pushNumber(number),
+            .double => |number| lua.pushNumber(number),
+            .string => |text| _ = lua.pushString(text),
+            else => {
+                lua.pop(1);
+                continue;
+            },
+        }
+        lua.setTableRaw(-3);
+    }
+}
+
+fn readState(lua: *Lua, arg: i32, gpa: std.mem.Allocator) world.nbt.Compound {
+    var state: world.nbt.Compound = .{};
+    errdefer {
+        var owned: world.nbt.Tag = .{ .compound = state };
+        world.nbt.deinit(gpa, &owned);
+    }
+
+    lua.pushNil();
+    while (lua.next(arg)) {
+        if (lua.typeOf(-2) != .string) lua.argError(arg, "a state is keyed by strings");
+        const key = lua.toString(-2) catch unreachable;
+        const value: world.nbt.Tag = switch (lua.typeOf(-1)) {
+            .boolean => .{ .byte = if (lua.toBoolean(-1)) 1 else 0 },
+            .number => .{ .double = lua.toNumber(-1) catch unreachable },
+            .string => .{ .string = gpa.dupe(u8, lua.toString(-1) catch unreachable) catch
+                lua.raiseErrorStr("out of memory", .{}) },
+            else => lua.argError(arg, "a state holds numbers, strings and booleans"),
+        };
+        world.nbt.putDuped(gpa, &state, key, value) catch lua.raiseErrorStr("out of memory", .{});
+        lua.pop(1);
+    }
+    return state;
+}
+
+fn getState(lua: *Lua) i32 {
+    const pos = position(lua, 1);
+    const state = currentWorld(lua).blockStateAt(pos) orelse {
+        lua.pushNil();
+        return 1;
+    };
+    pushState(lua, state.*);
+    return 1;
+}
+
+fn setState(lua: *Lua) i32 {
+    const pos = position(lua, 1);
+    const world_map = currentWorld(lua);
+    if (lua.isNoneOrNil(4)) {
+        _ = world_map.removeBlockState(pos);
+        return 0;
+    }
+    lua.checkType(4, .table);
+
+    const state = readState(lua, 4, world_map.allocator);
+    world_map.putBlockState(pos, state) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }
 
@@ -1229,6 +1300,40 @@ test "a mod hears a block placed and reaches the world it landed in" {
     try std.testing.expectEqual(@as(i64, 2), harness.vm.lua.toInteger(-1) catch unreachable);
     harness.vm.lua.pop(1);
     try std.testing.expectEqual(world.Block.gravel, level.world_map.getBlock(.init(3, 7, 4)));
+}
+
+test "a mod keeps its own state on a block and reads it back" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.current_world = &harness.world_map;
+
+    try harness.vm.exec("=test",
+        \\local w = rosebed.world
+        \\assert(w.get_state(4, 10, 4) == nil)
+        \\w.set_state(4, 10, 4, { charge = 2.5, owner = "Steve", lit = true })
+        \\local held = w.get_state(4, 10, 4)
+        \\assert(held.charge == 2.5, "charge")
+        \\assert(held.owner == "Steve", "owner")
+        \\assert(held.lit == true, "lit")
+        \\w.set_state(4, 10, 4, { charge = 3 })
+        \\held = w.get_state(4, 10, 4)
+        \\assert(held.charge == 3 and held.owner == nil, "replaced")
+        \\w.set_state(4, 10, 4, nil)
+        \\assert(w.get_state(4, 10, 4) == nil, "cleared")
+    );
+}
+
+test "a state only holds what NBT can carry" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.current_world = &harness.world_map;
+
+    try harness.expectFailure(
+        \\rosebed.world.set_state(4, 10, 4, { nested = {} })
+    , "a state holds numbers, strings and booleans)");
+    try std.testing.expect(harness.world_map.blockStateAt(.init(4, 10, 4)) == null);
 }
 
 test "an event handler that fails is switched off and stops being called" {
