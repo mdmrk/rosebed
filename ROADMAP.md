@@ -85,8 +85,10 @@ networking comes first, before the effects that need it.
    player events: `Player.damageFrom` only holds a `*const World`, and making
    it mutable would ripple through `Player.tick` and every caller, so those
    two hand the numbers over as arguments instead.
-   Still missing: `on_block_broken` and `on_block_placed`, held back by the
-   two-paths risk below.
+   `on_block_broken(key, x, y, z, meta)` fires from
+   `interact.breakBlockAt`, the single path both sides now take.
+   Still missing: `on_block_placed`, which needs the same unification doing to
+   the place path.
 3. **Effects.** `play_sound`, `particle` (13 vanilla kinds), `explode`, and
    spawning entities at runtime. Needs 1 to work on a server.
 4. **Commands.** `register_command`, through `game/commands.zig`.
@@ -108,10 +110,18 @@ queues and the dispatch are covered; those few lines of wiring are not.
 
 ### Known risks
 
-- **Breaking and placing a block take two paths**, the client in single player
-  and `Session` in multiplayer. Either they get unified first or the event
-  fires in different places depending on the mode. Unifying touches vanilla
-  code, so it needs parity tests.
+- ~~**Breaking a block takes two paths.**~~ Unified into
+  `interact.breakBlockAt`. Reading the reference first turned this from a
+  refactor into a bug fix: `ItemInWorldManager.func_325_c` and
+  `PlayerControllerSP.sendBlockRemoved` both drop only when
+  `canHarvestBlock`, and both spill containers through
+  `onBlockDestroyedByPlayer`. The server did neither, so it dropped
+  cobblestone from a bare-fisted punch on stone and lost what a furnace or a
+  dispenser held. A server test had the wrong behaviour written into it.
+- **Placing a block still takes two paths**, the client in single player and
+  `Session` in multiplayer. Same treatment needed before `on_block_placed`.
+- Breaking a chest drops nothing, on either side. That one predates the
+  unification and is still open.
 - Mods run before the world loads, so registration order decides ids. The block
   palette in the save covers a shuffle, but two mods claiming the same key
   still collide at load.
