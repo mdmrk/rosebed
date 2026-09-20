@@ -67,10 +67,14 @@ networking comes first, before the effects that need it.
 
 ### Order
 
-1. **Mod networking.** A rosebed-only packet both ways carrying
-   `(channel, payload)`, following the packet 250 `mod_list` pattern.
-   `rosebed.net.send(channel, text)` and `rosebed.net.on(channel, f)`.
-   Unblocks 3, 6 and any synced state.
+1. ~~**Mod networking.**~~ Done. Packet 251 `mod_message` carries
+   `(channel, payload)` both ways, up to a 64 byte channel and 32 KB of
+   arbitrary bytes. `rosebed.net.send(channel, text)` and
+   `rosebed.net.on(channel, function(payload, from) end)`, installed for both
+   `common.lua` and `client.lua`. `from` is the sender's name on the server
+   and nil on the client. In single player there is no link, so a send loops
+   straight back into the same VM on the next tick: a mod behaves the same
+   in both modes without knowing which one it is in.
 2. **Events.** One registration function per event, in the style of
    `on_decorate` and `player.on_tick`, not a generic bus. `on_world_tick`,
    `on_chunk_load`, `on_block_broken`, `on_block_placed` (cancellable),
@@ -88,6 +92,11 @@ networking comes first, before the effects that need it.
 
 Steps 1 to 4 leave the API close to Fabric. Steps 5 and 6 are the expensive
 ones.
+
+The glue between the mod VM and each end has no automated test: the server
+peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
+`Connection.mod_inbox` and fills the outbox in `tickRemote`. The packet, the
+queues and the dispatch are covered; those few lines of wiring are not.
 
 ### Known risks
 
