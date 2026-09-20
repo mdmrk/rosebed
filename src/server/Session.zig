@@ -2074,20 +2074,8 @@ fn placeBlock(
         .init(x, hit_y, z),
         @enumFromInt(face),
     );
-    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
     if (!withinReach(player, target.pos)) return;
-    if (!level.world_map.getBlock(target.pos).isReplaceable()) return;
-    if (!world.block_update.canPlaceOnSide(&level.world_map, target.pos, placed, target.face)) return;
-    if (placed == .chest and !level.world_map.canPlaceChestAt(target.pos)) return;
-
-    const meta = world.block_update.placementMetadata(
-        &level.world_map,
-        target.pos,
-        placed,
-        target.face,
-        stack.blockMeta(),
-    );
-    try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
+    if (!try game.interact.placeBlockAt(level, player, placed, stack.blockMeta(), target)) return;
     self.consumeHeld();
 }
 
@@ -2784,6 +2772,50 @@ test "a place puts the held block against the face the client clicked" {
 
     try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expect(holder.inventory.slots[holder.inventory.selected] == null);
+}
+
+test "a chest placed on the server gets its block entity and a furnace faces the placer" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    const holder = session.player.?;
+    holder.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    holder.yaw = 0;
+    holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .chest }, .count = 1 };
+
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = @intFromEnum(world.Block.chest), .count = 1, .damage = 0 },
+    } });
+
+    try std.testing.expectEqual(world.Block.chest, level.world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expect(level.world_map.chestAt(.init(8, 64, 8)) != null);
+
+    holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .furnace }, .count = 1 };
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 9,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = @intFromEnum(world.Block.furnace), .count = 1, .damage = 0 },
+    } });
+
+    try std.testing.expectEqual(world.Block.furnace, level.world_map.getBlock(.init(9, 64, 8)));
+    try std.testing.expect(level.world_map.furnaceAt(.init(9, 64, 8)) != null);
+    try std.testing.expectEqual(
+        world.block.furnaceFacingFromYaw(0),
+        level.world_map.getBlockMetadata(.init(9, 64, 8)),
+    );
 }
 
 test "an empty hand and an item that is not a block place nothing" {

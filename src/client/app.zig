@@ -2983,49 +2983,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     }
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
-    const px = target.pos.x;
-    const py = target.pos.y;
-    const pz = target.pos.z;
-    if (py < 0 or py >= world.Chunk.height) return false;
-    if (!app_state.level.world_map.getBlock(.init(px, py, pz)).isReplaceable()) return false;
-    if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, .init(px, py, pz), placed, target.face)) return false;
-    if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(.init(px, py, pz))) return false;
-    const meta = world.block_update.placementMetadata(&app_state.level.world_map, .init(px, py, pz), placed, target.face, stack.blockMeta());
-    try app_state.level.world_map.setBlockAndMetadataWithNotify(.init(px, py, pz), placed, meta);
-    const step_sound = placed.stepSound();
-    app_state.level.world_map.playSoundEffect(
-        BlockPos.init(px, py, pz).center(),
-        step_sound.walk(),
-        (step_sound.volume() + 1.0) / 2.0,
-        step_sound.pitch() * 0.8,
-    );
-    if (placed == .furnace) {
-        const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-        _ = try app_state.level.world_map.addFurnace(.init(px, py, pz));
-    }
-    if (placed == .chest) _ = try app_state.level.world_map.addChest(.init(px, py, pz));
-    if (placed == .dispenser) {
-        const facing = world.block.dispenserFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-        _ = try app_state.level.world_map.addDispenser(.init(px, py, pz));
-    }
-    if (placed.isStairs()) {
-        const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-    }
-    if (placed == .pumpkin or placed == .jack_o_lantern) {
-        const facing = world.block.pumpkinFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-    }
-    try world.redstone.onBlockPlaced(
-        &app_state.level.world_map,
-        .init(px, py, pz),
-        placed,
-        app_state.player.base.position,
-        app_state.player.yaw,
-    );
-    _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, .init(px, py, pz));
+    if (!try game.interact.placeBlockAt(&app_state.level, &app_state.player, placed, stack.blockMeta(), target)) return false;
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);

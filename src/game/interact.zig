@@ -161,6 +161,66 @@ pub fn breakBlockAt(
     return broken;
 }
 
+pub fn placeBlockAt(
+    level: *Level,
+    player: *const Player,
+    placed: world.Block,
+    stack_meta: u4,
+    target: world.block_update.Placement,
+) !bool {
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return false;
+    if (!level.world_map.getBlock(target.pos).isReplaceable()) return false;
+    if (!world.block_update.canPlaceOnSide(&level.world_map, target.pos, placed, target.face)) return false;
+    if (placed == .chest and !level.world_map.canPlaceChestAt(target.pos)) return false;
+
+    const meta = world.block_update.placementMetadata(
+        &level.world_map,
+        target.pos,
+        placed,
+        target.face,
+        stack_meta,
+    );
+    try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
+
+    const step_sound = placed.stepSound();
+    level.world_map.playSoundEffect(
+        target.pos.center(),
+        step_sound.walk(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
+
+    if (placed == .furnace) {
+        const facing = world.block.furnaceFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+        _ = try level.world_map.addFurnace(target.pos);
+    }
+    if (placed == .chest) _ = try level.world_map.addChest(target.pos);
+    if (placed == .dispenser) {
+        const facing = world.block.dispenserFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+        _ = try level.world_map.addDispenser(target.pos);
+    }
+    if (placed.isStairs()) {
+        const facing = world.block.stairsFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+    }
+    if (placed == .pumpkin or placed == .jack_o_lantern) {
+        const facing = world.block.pumpkinFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+    }
+    try world.redstone.onBlockPlaced(
+        &level.world_map,
+        target.pos,
+        placed,
+        player.base.position,
+        player.yaw,
+    );
+
+    _ = try world.block_update.mergeSlabBelow(&level.world_map, target.pos);
+    return true;
+}
+
 fn spillContainers(gpa: std.mem.Allocator, level: *Level, pos: BlockPos) !void {
     if (level.world_map.removeFurnace(pos)) |taken| {
         var removed = taken;
@@ -659,6 +719,47 @@ test "breaking a block reports it once, after the world already lost it" {
     try std.testing.expectEqual(pos, broken_last.pos);
     try std.testing.expect(broken.harvested);
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(pos));
+}
+
+fn floorLevel(gpa: std.mem.Allocator, at: BlockPos) !Level {
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    errdefer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+    try level.world_map.setBlockWithNotify(at, .stone);
+    return level;
+}
+
+test "a placed furnace is given its block entity and the facing the placer had" {
+    const gpa = std.testing.allocator;
+    const floor: BlockPos = .init(2, 64, 2);
+    var level = try floorLevel(gpa, floor);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    player.yaw = 0;
+
+    const target = world.block_update.placementTarget(&level.world_map, floor, .up);
+    try std.testing.expect(try placeBlockAt(&level, &player, .furnace, 0, target));
+
+    try std.testing.expectEqual(world.Block.furnace, level.world_map.getBlock(.init(2, 65, 2)));
+    try std.testing.expect(level.world_map.furnaceAt(.init(2, 65, 2)) != null);
+    try std.testing.expectEqual(
+        world.block.furnaceFacingFromYaw(0),
+        level.world_map.getBlockMetadata(.init(2, 65, 2)),
+    );
+}
+
+test "a block with nothing to stand on is not placed" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    const target = world.block_update.placementTarget(&level.world_map, .init(2, 64, 2), .up);
+    try std.testing.expect(!try placeBlockAt(&level, &player, .torch, 0, target));
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(2, 65, 2)));
 }
 
 test "breaking air reports nothing and changes nothing" {
