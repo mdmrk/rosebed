@@ -15,6 +15,7 @@ A from-scratch reimplementation of Minecraft Beta 1.7.3 in Zig, using SDL3 and O
   - [Web](#web)
   - [Android](#android)
   - [iOS](#ios)
+- [Roadmap](ROADMAP.md)
 - [License](#license)
 
 ## Not in b1.7.3
@@ -26,6 +27,7 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 - [x] **Fullscreen in Video Settings** - Vanilla has F11 and no setting.
 - [x] **On-screen touch controls** - Only on Android and iOS, where there is no keyboard or mouse to bind.
 - [x] **Auto-jump** - Android and iOS only, on by default, toggled in Options.
+- [x] **Mods** - Lua mods in `mods/`, loaded on both the client and the server. Blocks, items, armour, recipes, mobs with their own models, worldgen and player movement. See the [roadmap](ROADMAP.md#mod-api).
 
 ## Play
 
