@@ -63,6 +63,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "on_player_death", .function = zlua.wrap(eventFn(.player_death)) },
         .{ .name = "on_mob_death", .function = zlua.wrap(eventFn(.mob_death)) },
         .{ .name = "on_block_broken", .function = zlua.wrap(eventFn(.block_broken)) },
+        .{ .name = "on_block_placed", .function = zlua.wrap(eventFn(.block_placed)) },
         .{ .name = "noise", .function = zlua.wrap(createNoise) },
         .{ .name = "register_structure", .function = zlua.wrap(registerStructure) },
         .{ .name = "register_biome", .function = zlua.wrap(registerBiome) },

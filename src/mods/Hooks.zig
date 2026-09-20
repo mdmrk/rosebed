@@ -26,6 +26,7 @@ player_hurt_ref: ?i32 = null,
 player_death_ref: ?i32 = null,
 mob_death_ref: ?i32 = null,
 block_broken_ref: ?i32 = null,
+block_placed_ref: ?i32 = null,
 decorators: std.ArrayList(Decorator) = .empty,
 shapers: std.ArrayList(Decorator) = .empty,
 noises: std.ArrayList(Noise) = .empty,
@@ -184,7 +185,7 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
     };
 }
 
-pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death, block_broken };
+pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death, block_broken, block_placed };
 
 pub fn listenerFor(self: *Hooks, event: Event) *?i32 {
     return self.refFor(event);
@@ -198,6 +199,7 @@ fn refFor(self: *Hooks, event: Event) *?i32 {
         .player_death => &self.player_death_ref,
         .mob_death => &self.mob_death_ref,
         .block_broken => &self.block_broken_ref,
+        .block_placed => &self.block_placed_ref,
     };
 }
 
@@ -283,8 +285,16 @@ pub fn mobDied(type_id: game.mob.Id, animal: *game.Animal, world_map: *world.Wor
 }
 
 pub fn blockBroken(level: *game.Level, pos: world.BlockPos, block: world.Block, meta: u4) void {
+    reportBlock(.block_broken, level, pos, block, meta);
+}
+
+pub fn blockPlaced(level: *game.Level, pos: world.BlockPos, block: world.Block, meta: u4) void {
+    reportBlock(.block_placed, level, pos, block, meta);
+}
+
+fn reportBlock(event: Event, level: *game.Level, pos: world.BlockPos, block: world.Block, meta: u4) void {
     const self = active orelse return;
-    const lua = self.begin(.block_broken) orelse return;
+    const lua = self.begin(event) orelse return;
     const outer = self.current_world;
     self.current_world = &level.world_map;
     defer self.current_world = outer;
@@ -294,7 +304,7 @@ pub fn blockBroken(level: *game.Level, pos: world.BlockPos, block: world.Block, 
     lua.pushInteger(pos.y);
     lua.pushInteger(pos.z);
     lua.pushInteger(meta);
-    _ = self.settle(.block_broken, lua, 5, 0);
+    _ = self.settle(event, lua, 5, 0);
 }
 
 pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {
@@ -1189,6 +1199,36 @@ test "a mod hears which mob died and reaches the world where it fell" {
     try std.testing.expectEqualStrings("Pig", try harness.vm.lua.toString(-1));
     harness.vm.lua.pop(1);
     try std.testing.expectEqual(world.Block.gravel, harness.world_map.getBlock(.init(3, 6, 4)));
+}
+
+test "a mod hears a block placed and reaches the world it landed in" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.block_placed,
+        \\what = nil
+        \\function handler(key, x, y, z, meta)
+        \\  what = key
+        \\  facing = meta
+        \\  rosebed.world.set_block(x, y + 1, z, "gravel")
+        \\end
+    );
+
+    var level = game.Level.init(std.testing.allocator, try world.Generator.init(std.testing.allocator, .overworld, 7));
+    defer level.deinit(std.testing.allocator);
+    _ = try level.world_map.createChunk(0, 0);
+    Hooks.blockPlaced(&level, .init(3, 6, 4), .furnace, 2);
+
+    try std.testing.expectEqual(zlua.LuaType.string, try harness.global("what"));
+    try std.testing.expectEqualStrings("furnace", try harness.vm.lua.toString(-1));
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(zlua.LuaType.number, try harness.global("facing"));
+    try std.testing.expectEqual(@as(i64, 2), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(world.Block.gravel, level.world_map.getBlock(.init(3, 7, 4)));
 }
 
 test "an event handler that fails is switched off and stops being called" {

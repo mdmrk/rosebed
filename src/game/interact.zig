@@ -161,6 +161,8 @@ pub fn breakBlockAt(
     return broken;
 }
 
+pub var on_block_placed: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
+
 pub fn placeBlockAt(
     level: *Level,
     player: *const Player,
@@ -217,7 +219,10 @@ pub fn placeBlockAt(
         player.yaw,
     );
 
+    const settled = level.world_map.getBlockMetadata(target.pos);
     _ = try world.block_update.mergeSlabBelow(&level.world_map, target.pos);
+
+    if (on_block_placed) |hook| hook(level, target.pos, placed, settled);
     return true;
 }
 
@@ -721,6 +726,14 @@ test "breaking a block reports it once, after the world already lost it" {
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(pos));
 }
 
+var placed_seen: usize = 0;
+var placed_last: struct { pos: BlockPos, block: world.Block, meta: u4 } = undefined;
+
+fn recordPlaced(_: *Level, pos: BlockPos, block: world.Block, meta: u4) void {
+    placed_seen += 1;
+    placed_last = .{ .pos = pos, .block = block, .meta = meta };
+}
+
 fn floorLevel(gpa: std.mem.Allocator, at: BlockPos) !Level {
     var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
     errdefer level.deinit(gpa);
@@ -760,6 +773,28 @@ test "a block with nothing to stand on is not placed" {
     try std.testing.expect(!try placeBlockAt(&level, &player, .torch, 0, target));
 
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(2, 65, 2)));
+}
+
+test "placing a block reports the metadata it settled on" {
+    const gpa = std.testing.allocator;
+    const floor: BlockPos = .init(2, 64, 2);
+    var level = try floorLevel(gpa, floor);
+    defer level.deinit(gpa);
+
+    placed_seen = 0;
+    on_block_placed = recordPlaced;
+    defer on_block_placed = null;
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    player.yaw = 0;
+
+    const target = world.block_update.placementTarget(&level.world_map, floor, .up);
+    try std.testing.expect(try placeBlockAt(&level, &player, .furnace, 0, target));
+
+    try std.testing.expectEqual(@as(usize, 1), placed_seen);
+    try std.testing.expectEqual(world.Block.furnace, placed_last.block);
+    try std.testing.expectEqual(BlockPos.init(2, 65, 2), placed_last.pos);
+    try std.testing.expectEqual(world.block.furnaceFacingFromYaw(0), placed_last.meta);
 }
 
 test "breaking air reports nothing and changes nothing" {
