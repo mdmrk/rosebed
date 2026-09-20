@@ -11,6 +11,9 @@ lua: ?*Lua = null,
 on_tick: ?i32 = null,
 current: ?*game.Player = null,
 pose: ?game.mob_model.BipedOverride = null,
+on_peer_pose: ?i32 = null,
+peer_pose: ?game.mob_model.BipedOverride = null,
+posing_peer: bool = false,
 
 pub var active: ?*Player = null;
 
@@ -33,6 +36,7 @@ pub fn install(self: *Player, lua: *Lua) void {
         .{ .name = "set_fall_distance", .function = zlua.wrap(setFallDistance) },
         .{ .name = "damage_equipped", .function = zlua.wrap(damageEquipped) },
         .{ .name = "set_pose", .function = zlua.wrap(setPose) },
+        .{ .name = "on_peer_pose", .function = zlua.wrap(onPeerPose) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -73,6 +77,39 @@ fn api(lua: *Lua) *Player {
 
 fn steered(lua: *Lua) *game.Player {
     return api(lua).current orelse lua.raiseErrorStr("the player is only reached from rosebed.player.on_tick", .{});
+}
+
+pub fn peerPose(self: *Player, peer: *game.Player) ?game.mob_model.BipedOverride {
+    const lua = self.lua orelse return null;
+    const ref = self.on_peer_pose orelse return null;
+
+    const outer_current = self.current;
+    const outer_posing = self.posing_peer;
+    self.current = peer;
+    self.posing_peer = true;
+    self.peer_pose = null;
+    defer {
+        self.current = outer_current;
+        self.posing_peer = outer_posing;
+    }
+
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    lua.protectedCall(.{ .args = 0, .results = 0 }) catch {
+        std.log.warn("a mod peer pose failed and is switched off: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+        self.on_peer_pose = null;
+        return null;
+    };
+    return self.peer_pose;
+}
+
+fn onPeerPose(lua: *Lua) i32 {
+    const self = api(lua);
+    lua.checkType(1, .function);
+    if (self.on_peer_pose) |old| lua.unref(zlua.registry_index, old);
+    lua.pushValue(1);
+    self.on_peer_pose = lua.ref(zlua.registry_index);
+    return 0;
 }
 
 fn onTick(lua: *Lua) i32 {
@@ -187,10 +224,14 @@ fn damageEquipped(lua: *Lua) i32 {
     return 1;
 }
 
+fn posedBy(self: *Player) *?game.mob_model.BipedOverride {
+    return if (self.posing_peer) &self.peer_pose else &self.pose;
+}
+
 fn setPose(lua: *Lua) i32 {
     const self = api(lua);
     if (lua.isNoneOrNil(1)) {
-        self.pose = null;
+        posedBy(self).* = null;
         return 0;
     }
     lua.checkType(1, .table);
@@ -217,7 +258,7 @@ fn setPose(lua: *Lua) i32 {
     }
     lua.pop(1);
 
-    self.pose = turned;
+    posedBy(self).* = turned;
     return 0;
 }
 
@@ -480,4 +521,68 @@ test "a pose that names something the player has not got is refused" {
     try std.testing.expect(std.mem.endsWith(u8, try harness.vm.lua.toString(-1), "'tail' is not a limb the player has"));
     harness.vm.lua.pop(1);
     try std.testing.expect(harness.api.on_tick != null);
+}
+
+test "a mod poses each peer from the state that already crossed the wire" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.player.on_peer_pose(function()
+        \\  if rosebed.player.equipped("chestplate") ~= "chestplate_iron" then return end
+        \\  local _, y = rosebed.player.position()
+        \\  rosebed.player.set_pose { pitch = 1.5, roll = y / 100 }
+        \\end)
+    );
+
+    var bare: game.Player = .spawn(.init(1, 70, 1));
+    try std.testing.expect(harness.api.peerPose(&bare) == null);
+
+    var flier: game.Player = .spawn(.init(2, 90, 2));
+    flier.inventory.armorSlot(.chestplate).* = .{ .id = .{ .item = .chestplate_iron }, .count = 1 };
+    const pose = harness.api.peerPose(&flier).?;
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), pose.pitch, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), pose.roll, 1.0e-6);
+
+    try std.testing.expect(harness.api.pose == null);
+    try std.testing.expect(harness.api.current == null);
+}
+
+test "posing a peer never disturbs the pose the local player is holding" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.player.on_tick(function()
+        \\  rosebed.player.set_pose { roll = 0.25 }
+        \\  return false
+        \\end)
+        \\rosebed.player.on_peer_pose(function()
+        \\  rosebed.player.set_pose { roll = 0.75 }
+        \\end)
+    );
+    harness.tick(false);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), harness.api.pose.?.roll, 1.0e-6);
+
+    var peer: game.Player = .spawn(.init(0, 64, 0));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), harness.api.peerPose(&peer).?.roll, 1.0e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), harness.api.pose.?.roll, 1.0e-6);
+}
+
+test "a peer pose that asks for nothing leaves that peer standing" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    var peer: game.Player = .spawn(.init(0, 64, 0));
+    try std.testing.expect(harness.api.peerPose(&peer) == null);
+
+    try harness.vm.exec("=test", "rosebed.player.on_peer_pose(function() end)");
+    try std.testing.expect(harness.api.peerPose(&peer) == null);
+
+    try harness.vm.exec("=test", "rosebed.player.on_peer_pose(function() error('boom') end)");
+    try std.testing.expect(harness.api.peerPose(&peer) == null);
+    try std.testing.expect(harness.api.on_peer_pose == null);
 }

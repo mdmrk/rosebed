@@ -4361,6 +4361,8 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     var heads: render.MeshBuilder = .{ .origin = origin };
     defer heads.deinit(app_state.frame);
 
+    const posed = if (app_state.loaded_mods) |*loaded| loaded.player else null;
+
     for (link.connection.peers.items) |*peer| {
         try render.entity_render.appendPlayer(
             &mesh,
@@ -4369,7 +4371,7 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
             peer.player,
             false,
             partial,
-            null,
+            if (posed) |api| api.peerPose(&peer.player) else null,
         );
         if (wornBlock(peer.player)) |id| {
             try render.entity_render.appendPlayerHeadBlock(
