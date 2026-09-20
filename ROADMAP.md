@@ -19,6 +19,11 @@ the whole game, minus the paths where a Lua call per item would cost frames.
 - [x] **Mobs** - `register_mob`, `override_mob`. Size, health, speed, step
       height, movement, the flags, and a spawn rule (category, weight, cap per
       chunk, dimension, biomes). Hooks: `drop`, `on_tick`.
+- [x] **Mob AI** - `path_weight` decides how inviting a block is to path
+      over, `think` replaces the wander, `after_move` runs once the mob has
+      been moved. `rosebed.mob.steer`, `jump`, `look` and `wander` drive it;
+      `wander` hands the tick back to the AI the mob would have run, which for
+      an overridden vanilla mob is that mob's own.
 - [x] **Mob models** - a vanilla shape by name, or parts laid out in Lua with
       `box`, `uv`, `pivot`, rotations, `inflate` and `mirror`. `role` drives the
       animation: the head follows the look, legs stride, wings beat.
@@ -139,12 +144,21 @@ thing a b1.7.3 server could make a client hear.
    itself, with its own widgets and its own slot kinds: that needs a way to
    describe a layout from Lua and to draw it, and nothing in the mod API asks
    for it yet.
-7. **Mob AI.** Next up. Expose the three seams `Animal` already has: `path_weight`,
-   `action_state`, `after_move`. Until then a mod mob wanders like a vanilla
-   animal and runs its `on_tick` afterwards.
+7. ~~**Mob AI.**~~ Done. The three seams `Animal` already had are open to
+   both `register_mob` and `override_mob`. A mod mob no longer has to wander
+   like a vanilla animal: its `think` runs in place of `updateActionState`,
+   and `rosebed.mob.wander()` inside it gives the tick back when the mod has
+   nothing to say. Pathfinding itself stays in Zig; a mod steers, it does not
+   plot a route.
 
-Steps 1 to 6 are done and leave the API close to Fabric. Step 7 is what is
-left, and it is the cheapest of them.
+Every step is done. The API is Fabric-shaped: a mod can add blocks, items,
+recipes, mobs with their own models and their own minds, biomes, structures
+and worldgen, put state and a container on a block, add commands, draw on the
+HUD, read input, make sound, spawn particles and entities, and reach the
+other end of a multiplayer link.
+
+What is still missing is listed under Known risks, and the one deliberate
+absence is a screen a mod lays out itself.
 
 The glue between the mod VM and each end has no automated test: the server
 peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
