@@ -2563,6 +2563,7 @@ pub fn tickMobs(
                 }
             }
             try kind.onDeath(entry.animal, context);
+            if (on_mob_death) |hook| hook(entry.type_id, entry.animal, context.world_map);
             _ = self.mobs.orderedRemove(index);
             kind.destroy(entry.animal, gpa);
             continue;
@@ -2570,6 +2571,8 @@ pub fn tickMobs(
         index += 1;
     }
 }
+
+pub var on_mob_death: ?*const fn (mob.Id, *Animal, *world.World) void = null;
 
 pub fn spawnSlimeLandingParticles(
     self: *Entities,

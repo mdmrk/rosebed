@@ -390,11 +390,14 @@ fn advanceTime(self: *Level) !void {
     }
 }
 
+pub var on_tick: ?*const fn (*Level) void = null;
+
 pub fn tick(self: *Level, gpa: std.mem.Allocator, scratch: std.mem.Allocator) !void {
     if (self.occupants.items.len == 0) return;
     const rand = &self.world_map.rand;
     self.tick_count += 1;
     self.refreshViews();
+    if (on_tick) |hook| hook(self);
 
     try self.tickBoats(gpa, rand);
     try self.tickMinecarts(gpa, rand);

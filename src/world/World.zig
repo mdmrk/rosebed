@@ -334,14 +334,20 @@ pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
     return chunk;
 }
 
+pub var on_chunk_load: ?*const fn (*World, i32, i32, bool) void = null;
+
 pub fn getOrGenerateChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !*Chunk {
     if (self.getChunk(chunk_x, chunk_z)) |existing| return existing;
 
-    if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| return loaded;
+    if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| {
+        if (on_chunk_load) |hook| hook(self, chunk_x, chunk_z, false);
+        return loaded;
+    }
 
     const chunk = try self.createChunk(chunk_x, chunk_z);
     generator.generateShape(chunk);
     light.generateSkylightMap(chunk);
+    if (on_chunk_load) |hook| hook(self, chunk_x, chunk_z, true);
     return chunk;
 }
 

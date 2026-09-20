@@ -97,6 +97,11 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     Hooks.active = hooks;
     if (hooks.decorators.items.len > 0 or hooks.structure_specs.items.len > 0) world.generator.after_decorate = Hooks.decorate;
     if (hooks.shapers.items.len > 0) world.generator.after_shape = Hooks.shape;
+    if (hooks.listenerFor(.world_tick).* != null) game.Level.on_tick = Hooks.worldTicked;
+    if (hooks.listenerFor(.chunk_load).* != null) world.World.on_chunk_load = Hooks.chunkLoaded;
+    if (hooks.listenerFor(.player_hurt).* != null) game.Player.on_hurt = Hooks.playerHurt;
+    if (hooks.listenerFor(.player_death).* != null) game.Player.on_death = Hooks.playerDied;
+    if (hooks.listenerFor(.mob_death).* != null) game.Entities.on_mob_death = Hooks.mobDied;
 
     return .{
         .arena = arena,
@@ -170,6 +175,11 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
         Hooks.active = null;
         world.generator.after_decorate = null;
         world.generator.after_shape = null;
+        game.Level.on_tick = null;
+        world.World.on_chunk_load = null;
+        game.Player.on_hurt = null;
+        game.Player.on_death = null;
+        game.Entities.on_mob_death = null;
     }
     if (ModPlayer.active == self.player) {
         ModPlayer.active = null;
@@ -572,4 +582,50 @@ test "a failing callback is contained and unloaded mods stop answering" {
     loaded.deinit(std.testing.allocator);
     try std.testing.expect(switch_block.def().on_activated == null);
     try std.testing.expect(!try kept_callback(&world_map, pos, switch_block));
+}
+
+test "an event a mod listens for is the only one wired into the engine" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try writeMod(io, tmp.dir, "quartz",
+        \\{ "id": "quartz", "version": "1.0.0" }
+    ,
+        \\rosebed.on_world_tick(function() end)
+        \\rosebed.on_mob_death(function() end)
+    );
+
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    var loaded = try load(std.testing.allocator, io, tmp.dir, &report.writer);
+
+    try std.testing.expect(game.Level.on_tick != null);
+    try std.testing.expect(game.Entities.on_mob_death != null);
+    try std.testing.expect(world.World.on_chunk_load == null);
+    try std.testing.expect(game.Player.on_hurt == null);
+    try std.testing.expect(game.Player.on_death == null);
+
+    loaded.deinit(std.testing.allocator);
+    try std.testing.expect(game.Level.on_tick == null);
+    try std.testing.expect(game.Entities.on_mob_death == null);
+}
+
+test "a world with no mods leaves every engine hook alone" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var report: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer report.deinit();
+    var loaded = try load(std.testing.allocator, io, tmp.dir, &report.writer);
+    defer loaded.deinit(std.testing.allocator);
+
+    try std.testing.expect(game.Level.on_tick == null);
+    try std.testing.expect(world.World.on_chunk_load == null);
+    try std.testing.expect(game.Player.on_hurt == null);
+    try std.testing.expect(game.Player.on_death == null);
+    try std.testing.expect(game.Entities.on_mob_death == null);
+    try std.testing.expect(world.generator.after_shape == null);
+    try std.testing.expect(world.generator.after_decorate == null);
 }

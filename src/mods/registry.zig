@@ -57,6 +57,11 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
         .{ .name = "on_decorate", .function = zlua.wrap(onDecorate) },
         .{ .name = "on_generate", .function = zlua.wrap(onGenerate) },
+        .{ .name = "on_world_tick", .function = zlua.wrap(eventFn(.world_tick)) },
+        .{ .name = "on_chunk_load", .function = zlua.wrap(eventFn(.chunk_load)) },
+        .{ .name = "on_player_hurt", .function = zlua.wrap(eventFn(.player_hurt)) },
+        .{ .name = "on_player_death", .function = zlua.wrap(eventFn(.player_death)) },
+        .{ .name = "on_mob_death", .function = zlua.wrap(eventFn(.mob_death)) },
         .{ .name = "noise", .function = zlua.wrap(createNoise) },
         .{ .name = "register_structure", .function = zlua.wrap(registerStructure) },
         .{ .name = "register_biome", .function = zlua.wrap(registerBiome) },
@@ -269,6 +274,20 @@ fn onDecorate(lua: *Lua) i32 {
     const ref = lua.ref(zlua.registry_index);
     registrar.hooks.addDecorator(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
+}
+
+fn eventFn(comptime event: Hooks.Event) fn (*Lua) i32 {
+    return struct {
+        fn call(lua: *Lua) i32 {
+            const registrar = context(lua);
+            lua.checkType(1, .function);
+            lua.pushValue(1);
+            const slot = registrar.hooks.listenerFor(event);
+            if (slot.*) |old| lua.unref(zlua.registry_index, old);
+            slot.* = lua.ref(zlua.registry_index);
+            return 0;
+        }
+    }.call;
 }
 
 fn onGenerate(lua: *Lua) i32 {

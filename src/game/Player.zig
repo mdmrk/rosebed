@@ -501,9 +501,18 @@ pub fn hurtByHostile(self: *Player, world_map: *const world.World, amount: i32, 
     self.damageFrom(world_map, world_map.difficulty.scaleHostileDamage(amount), source);
 }
 
+pub var on_hurt: ?*const fn (*Player, i32) bool = null;
+pub var on_death: ?*const fn (*Player) void = null;
+
 fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
     if (world_map.remote) return;
     if (self.health <= 0 or amount == 0) return;
+    if (on_hurt) |hook| {
+        if (hook(self, amount)) return;
+    }
+    defer if (self.health <= 0) {
+        if (on_death) |hook| hook(self);
+    };
     if (self.sleeping) self.wake_pending = true;
     self.damage_taken += amount;
 

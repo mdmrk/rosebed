@@ -20,6 +20,11 @@ current_seed: ?i64 = null,
 current_plan: ?*structures.Plan = null,
 current_terrain: ?*structures.Terrain = null,
 decorating: bool = false,
+world_tick_ref: ?i32 = null,
+chunk_load_ref: ?i32 = null,
+player_hurt_ref: ?i32 = null,
+player_death_ref: ?i32 = null,
+mob_death_ref: ?i32 = null,
 decorators: std.ArrayList(Decorator) = .empty,
 shapers: std.ArrayList(Decorator) = .empty,
 noises: std.ArrayList(Noise) = .empty,
@@ -176,6 +181,103 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
         std.log.warn("a mod mob failed: {s}", .{lua.toString(-1) catch "(no message)"});
         lua.pop(1);
     };
+}
+
+pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death };
+
+pub fn listenerFor(self: *Hooks, event: Event) *?i32 {
+    return self.refFor(event);
+}
+
+fn refFor(self: *Hooks, event: Event) *?i32 {
+    return switch (event) {
+        .world_tick => &self.world_tick_ref,
+        .chunk_load => &self.chunk_load_ref,
+        .player_hurt => &self.player_hurt_ref,
+        .player_death => &self.player_death_ref,
+        .mob_death => &self.mob_death_ref,
+    };
+}
+
+fn begin(self: *Hooks, event: Event) ?*Lua {
+    const lua = self.lua orelse return null;
+    const ref = self.refFor(event).* orelse return null;
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    return lua;
+}
+
+fn settle(self: *Hooks, event: Event, lua: *Lua, args: i32, results: i32) bool {
+    lua.protectedCall(.{ .args = args, .results = results }) catch {
+        std.log.warn("a mod event failed and is switched off: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+        self.refFor(event).* = null;
+        return false;
+    };
+    if (results == 0) return false;
+    const answered = lua.toBoolean(-1);
+    lua.pop(1);
+    return answered;
+}
+
+pub fn worldTicked(level: *game.Level) void {
+    const self = active orelse return;
+    const lua = self.begin(.world_tick) orelse return;
+    const outer = self.current_world;
+    self.current_world = &level.world_map;
+    defer self.current_world = outer;
+    _ = lua.pushString(@tagName(level.generator.dimension()));
+    lua.pushInteger(@bitCast(level.tick_count));
+    _ = self.settle(.world_tick, lua, 2, 0);
+}
+
+pub fn chunkLoaded(world_map: *world.World, chunk_x: i32, chunk_z: i32, fresh: bool) void {
+    const self = active orelse return;
+    const lua = self.begin(.chunk_load) orelse return;
+    const outer = self.current_world;
+    self.current_world = world_map;
+    defer self.current_world = outer;
+    lua.pushInteger(chunk_x);
+    lua.pushInteger(chunk_z);
+    lua.pushBoolean(fresh);
+    _ = self.settle(.chunk_load, lua, 3, 0);
+}
+
+fn pushPlace(lua: *Lua, at: math.Vec3) void {
+    lua.pushNumber(at.x);
+    lua.pushNumber(at.y);
+    lua.pushNumber(at.z);
+}
+
+pub fn playerHurt(player: *game.Player, amount: i32) bool {
+    const self = active orelse return false;
+    const lua = self.begin(.player_hurt) orelse return false;
+    lua.pushInteger(amount);
+    lua.pushInteger(player.health);
+    pushPlace(lua, player.base.position);
+    return self.settle(.player_hurt, lua, 5, 1);
+}
+
+pub fn playerDied(player: *game.Player) void {
+    const self = active orelse return;
+    const lua = self.begin(.player_death) orelse return;
+    pushPlace(lua, player.base.position);
+    _ = self.settle(.player_death, lua, 3, 0);
+}
+
+pub fn mobDied(type_id: game.mob.Id, animal: *game.Animal, world_map: *world.World) void {
+    const self = active orelse return;
+    const lua = self.begin(.mob_death) orelse return;
+    const outer = self.current_world;
+    const outer_mob = self.current_mob;
+    self.current_world = world_map;
+    self.current_mob = animal;
+    defer {
+        self.current_world = outer;
+        self.current_mob = outer_mob;
+    }
+    _ = lua.pushString(game.mob.get(type_id).name);
+    pushPlace(lua, animal.base.position);
+    _ = self.settle(.mob_death, lua, 4, 0);
 }
 
 pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {
@@ -808,6 +910,16 @@ const Harness = struct {
         try std.testing.expectError(error.ScriptFailed, self.vm.exec("=test", source));
         try std.testing.expect(std.mem.endsWith(u8, self.vm.errorMessage(), message));
     }
+
+    fn listen(self: *Harness, event: Event, source: [:0]const u8) !void {
+        try self.vm.exec("=test", source);
+        _ = self.vm.lua.getGlobal("handler");
+        self.hooks.listenerFor(event).* = self.vm.lua.ref(zlua.registry_index);
+    }
+
+    fn global(self: *Harness, name: [:0]const u8) !zlua.LuaType {
+        return self.vm.lua.getGlobal(name);
+    }
 };
 
 test "a script reads and writes blocks in the world it is given" {
@@ -964,4 +1076,131 @@ test "bad arguments are reported" {
     try harness.expectFailure("rosebed.world.set_meta(0, 10, 0, 16)", "metadata must be 0 to 15)");
     try harness.expectFailure("rosebed.world.get_block(0, 1e12, 0)", "coordinate out of range)");
     try harness.expectFailure("rosebed.world.schedule_tick(0, 10, 0, -1)", "delay must be a whole number of ticks)");
+}
+
+
+test "a mod hears a chunk arrive and can tell a fresh one from a reloaded one" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.chunk_load,
+        \\seen = ""
+        \\function handler(x, z, fresh)
+        \\  seen = seen .. x .. "," .. z .. (fresh and "!" or "?") .. ";"
+        \\  rosebed.world.set_block(x * 16, 5, z * 16, "stone")
+        \\end
+    );
+
+    Hooks.chunkLoaded(&harness.world_map, 0, 0, true);
+    Hooks.chunkLoaded(&harness.world_map, 1, -1, false);
+
+    try std.testing.expectEqual(zlua.LuaType.string, try harness.global("seen"));
+    try std.testing.expectEqualStrings("0,0!;1,-1?;", try harness.vm.lua.toString(-1));
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(world.Block.stone, harness.world_map.getBlock(.init(0, 5, 0)));
+}
+
+test "a mod can swallow the damage a player was about to take" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.player_hurt,
+        \\taken = 0
+        \\height = 0
+        \\function handler(amount, health, x, y, z)
+        \\  taken = taken + amount
+        \\  height = y
+        \\  return amount < 3
+        \\end
+    );
+
+    var player: game.Player = .spawn(.init(2, 70, 3));
+    try std.testing.expect(Hooks.playerHurt(&player, 1));
+    try std.testing.expect(!Hooks.playerHurt(&player, 5));
+
+    try std.testing.expectEqual(zlua.LuaType.number, try harness.global("taken"));
+    try std.testing.expectEqual(@as(i64, 6), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(zlua.LuaType.number, try harness.global("height"));
+    try std.testing.expectEqual(@as(f64, 70), harness.vm.lua.toNumber(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "a mod hears a player die where it died" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.player_death, "fell = nil function handler(x, y, z) fell = y end");
+    var player: game.Player = .spawn(.init(0, 12, 0));
+    Hooks.playerDied(&player);
+
+    try std.testing.expectEqual(zlua.LuaType.number, try harness.global("fell"));
+    try std.testing.expectEqual(@as(f64, 12), harness.vm.lua.toNumber(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "a mod hears which mob died and reaches the world where it fell" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.mob_death,
+        \\who = nil
+        \\function handler(key, x, y, z)
+        \\  who = key
+        \\  rosebed.world.set_block(math.floor(x), math.floor(y), math.floor(z), "gravel")
+        \\end
+    );
+
+    var rand: world.JavaRandom = .init(1);
+    const animal = try game.mob.get(game.mob.pig).spawn(std.testing.allocator, .init(3, 6, 4), &rand);
+    defer game.mob.get(game.mob.pig).destroy(animal, std.testing.allocator);
+    Hooks.mobDied(game.mob.pig, animal, &harness.world_map);
+
+    try std.testing.expectEqual(zlua.LuaType.string, try harness.global("who"));
+    try std.testing.expectEqualStrings("Pig", try harness.vm.lua.toString(-1));
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(world.Block.gravel, harness.world_map.getBlock(.init(3, 6, 4)));
+}
+
+test "an event handler that fails is switched off and stops being called" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    try harness.listen(.chunk_load, "count = 0 function handler() count = count + 1 error('boom') end");
+    Hooks.chunkLoaded(&harness.world_map, 0, 0, true);
+    Hooks.chunkLoaded(&harness.world_map, 0, 0, true);
+
+    try std.testing.expect(harness.hooks.listenerFor(.chunk_load).* == null);
+    try std.testing.expectEqual(zlua.LuaType.number, try harness.global("count"));
+    try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "with nothing listening an event costs nothing and changes nothing" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    defer Hooks.active = null;
+    Hooks.active = &harness.hooks;
+
+    var player: game.Player = .spawn(.init(0, 64, 0));
+    try std.testing.expect(!Hooks.playerHurt(&player, 5));
+    Hooks.playerDied(&player);
+    Hooks.chunkLoaded(&harness.world_map, 0, 0, true);
+    try std.testing.expectEqual(world.Block.air, harness.world_map.getBlock(.init(0, 5, 0)));
 }
