@@ -25,6 +25,10 @@ pub const Effect = union(enum) {
         size: f32,
         flaming: bool,
     },
+    spawn: struct {
+        type_id: game.mob.Id,
+        at: math.Vec3,
+    },
 };
 
 gpa: std.mem.Allocator,
@@ -38,6 +42,7 @@ pub fn install(self: *Effects, lua: *Lua) void {
         .{ .name = "play_sound", .function = zlua.wrap(playSound) },
         .{ .name = "particle", .function = zlua.wrap(particle) },
         .{ .name = "explode", .function = zlua.wrap(explode) },
+        .{ .name = "spawn", .function = zlua.wrap(spawn) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -57,7 +62,7 @@ pub fn deinit(self: *Effects) void {
 fn free(self: *Effects, effect: Effect) void {
     switch (effect) {
         .sound => |body| self.gpa.free(body.key),
-        .particle, .explode => {},
+        .particle, .explode, .spawn => {},
     }
 }
 
@@ -140,6 +145,18 @@ fn explode(lua: *Lua) i32 {
     return 0;
 }
 
+fn spawn(lua: *Lua) i32 {
+    const self = context(lua);
+    const type_id = game.mob.find(lua.checkString(1)) orelse lua.argError(1, "no mob is named that");
+    const at = place(lua, 2);
+
+    self.outgoing.append(self.gpa, .{ .spawn = .{
+        .type_id = type_id,
+        .at = at,
+    } }) catch lua.raiseErrorStr("out of memory", .{});
+    return 0;
+}
+
 const Vm = @import("Vm.zig");
 
 const Harness = struct {
@@ -218,6 +235,27 @@ test "an explosion is queued with the size and the fire the mod asked for" {
         \\rosebed.explode(0, 0, 0, 0)
     ));
     try std.testing.expect(std.mem.indexOf(u8, harness.vm.errorMessage(), "an explosion needs a size") != null);
+}
+
+test "a mob is queued by the name it is registered under" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.spawn("Pig", 8.5, 64, -3.5)
+    );
+
+    const queued = harness.api.take();
+    defer harness.api.release(queued);
+    try std.testing.expectEqual(@as(usize, 1), queued.len);
+    try std.testing.expectEqual(game.mob.pig, queued[0].spawn.type_id);
+    try std.testing.expectEqual(@as(f64, -3.5), queued[0].spawn.at.z);
+
+    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=test",
+        \\rosebed.spawn("Wyvern", 0, 0, 0)
+    ));
+    try std.testing.expect(std.mem.indexOf(u8, harness.vm.errorMessage(), "no mob is named that") != null);
 }
 
 test "a sound or a particle nothing is named after is refused as it is asked for" {

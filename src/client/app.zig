@@ -3209,6 +3209,15 @@ fn playModEffects(app_state: *AppState) !void {
             );
             try applyBlockChanges(app_state);
         },
+        .spawn => |body| {
+            if (app_state.link != null) continue;
+            _ = try app_state.level.entities.spawnMob(
+                app_state.gpa,
+                body.type_id,
+                body.at,
+                &app_state.level.world_map.rand,
+            );
+        },
     };
 }
 

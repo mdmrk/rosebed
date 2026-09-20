@@ -556,6 +556,12 @@ fn flushModEffects(server: *Server, dim: *Dim) !void {
             body.flaming,
             &dim.level.world_map.rand,
         ),
+        .spawn => |body| _ = try dim.level.entities.spawnMob(
+            server.gpa,
+            body.type_id,
+            body.at,
+            &dim.level.world_map.rand,
+        ),
     };
 }
 
