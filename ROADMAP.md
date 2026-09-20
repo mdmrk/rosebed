@@ -27,6 +27,10 @@ the whole game, minus the paths where a Lua call per item would cost frames.
       mobs), `register_biome` (takes a share of a vanilla parent).
 - [x] **World access** - blocks, metadata, scheduled ticks, biome, ground
       height, chest slots, spawner mobs.
+- [x] **Containers** - `container = { rows, title }` on a registered block.
+      Right-clicking it opens a chest screen onto one to six rows of its own
+      slots, kept per position and saved with the chunk; breaking the block
+      spills them. Works in single player and on a server.
 - [x] **Block state** - `get_state` and `set_state` keep a table of numbers,
       strings and booleans on any position. It is written into the chunk's
       `TileEntities` list as `RosebedState` and read back out of it, so it
@@ -52,7 +56,7 @@ the whole game, minus the paths where a Lua call per item would cost frames.
       and stack keys in the save, so a world survives an id shuffle.
 
 Ceilings: 22 biomes, 16 mob types (wire ids 96 to 111), 32 commands,
-32 parts per model,
+6 container rows, 32 parts per model,
 block ids from 97, item ids from 360, 256 shaped and 256 shapeless recipes.
 Block and item textures must be exactly 16 by 16 and claim a free cell of the
 256 by 256 vanilla atlas. Mob skins are their own atlas and any size.
@@ -126,13 +130,21 @@ thing a b1.7.3 server could make a client hear.
    that the state map does not already give it. If a mod ever needs to tick
    its own block entity or open a screen onto it, that is the moment to
    revisit, and step 6 is where it would land.
-6. **Screens and containers.** Next up. Needs 1 and 5.
-7. **Mob AI.** Expose the three seams `Animal` already has: `path_weight`,
+6. ~~**Screens and containers.**~~ Containers are done. A block that declares
+   `container` opens the chest screen the cargo minecart already draws, which
+   takes a row count now instead of assuming three. On a server it rides
+   packet 100 as a chest of that many slots, titled from the block; since that
+   packet carries no position, the client tells a mod container from a chest
+   by the block it aimed at. What is **not** done is a screen a mod lays out
+   itself, with its own widgets and its own slot kinds: that needs a way to
+   describe a layout from Lua and to draw it, and nothing in the mod API asks
+   for it yet.
+7. **Mob AI.** Next up. Expose the three seams `Animal` already has: `path_weight`,
    `action_state`, `after_move`. Until then a mod mob wanders like a vanilla
    animal and runs its `on_tick` afterwards.
 
-Steps 1 to 5 are done and leave the API close to Fabric. Step 6 is the
-expensive one left.
+Steps 1 to 6 are done and leave the API close to Fabric. Step 7 is what is
+left, and it is the cheapest of them.
 
 The glue between the mod VM and each end has no automated test: the server
 peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
