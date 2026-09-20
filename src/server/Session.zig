@@ -1709,39 +1709,10 @@ fn digBlock(
         .pos = .init(x, height, z),
         .data = @bitCast(@as(u32, @intFromEnum(broken)) | @as(u32, meta) << 8),
     };
-    const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
-    try level.world_map.setBlockWithNotify(.init(x, height, z), .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, .init(x, height, z));
-    _ = level.world_map.removeSign(.init(x, height, z));
-    _ = level.world_map.removeNote(.init(x, height, z));
-    const held = player.inventory.selectedStack();
-    const harvested = broken.harvestableWith(held);
-    if (harvested) {
-        try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
-    }
-    if (lit_tnt) return;
 
-    const drop = if (harvested)
-        broken.harvestDrop(meta, held, &level.world_map.rand)
-    else
-        broken.drop(meta, &level.world_map.rand);
-    if (drop) |dropped| {
-        try level.dropStackAt(gpa, .init(x, height, z), .{
-            .id = dropped.id,
-            .count = dropped.count,
-            .meta = dropped.meta,
-        });
-    }
-    if (harvested) {
-        var extra: [3]world.block.Stack = undefined;
-        for (broken.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
-            try level.dropStackAt(gpa, .init(x, height, z), .{
-                .id = dropped.id,
-                .count = dropped.count,
-                .meta = dropped.meta,
-            });
-        }
-    }
+    const held = player.inventory.selectedStack();
+    const mined = try game.interact.breakBlockAt(gpa, level, held, .init(x, height, z)) orelse return;
+    if (mined.harvested) try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
 }
 
 fn holdingFlintAndSteel(player: *const game.Player) bool {
@@ -2631,7 +2602,23 @@ fn stoneFloorLevel(gpa: std.mem.Allocator) !game.Level {
     return level;
 }
 
-test "a finished dig takes the block out of the world and leaves its drop" {
+fn digStoneFloor(gpa: std.mem.Allocator, level: *game.Level, session: *Session, tool: ?world.Item) !void {
+    try joinedSession(gpa, level, session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    if (tool) |held| {
+        const inventory = &session.player.?.inventory;
+        inventory.slots[inventory.selected] = .{ .id = .{ .item = held }, .count = 1 };
+    }
+    try session.handle(gpa, level, .{ .block_dig = .{
+        .status = .finished,
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+    } });
+}
+
+test "a finished dig takes the block out of the world and leaves what the tool earns" {
     const gpa = std.testing.allocator;
     var level = try stoneFloorLevel(gpa);
     defer level.deinit(gpa);
@@ -2640,21 +2627,26 @@ test "a finished dig takes the block out of the world and leaves its drop" {
     var session: Session = .{};
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
-    try joinedSession(gpa, &level, &session);
-
-    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-
-    try session.handle(gpa, &level, .{ .block_dig = .{
-        .status = .finished,
-        .x = 8,
-        .y = 63,
-        .z = 8,
-        .face = 1,
-    } });
+    try digStoneFloor(gpa, &level, &session, .pickaxe_stone);
 
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 63, 8)));
     try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
     try std.testing.expectEqual(world.Id{ .block = .cobblestone }, level.entities.items.items[0].stack.id);
+}
+
+test "stone dug with a bare fist is gone and leaves nothing, the way b1.7.3 has it" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try digStoneFloor(gpa, &level, &session, null);
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 63, 8)));
+    try std.testing.expectEqual(@as(usize, 0), level.entities.items.items.len);
 }
 
 test "punching tnt with flint and steel lights it instead of dropping it" {
@@ -3026,4 +3018,38 @@ test "a mob with no byte of its own is still kept off the wire" {
     const quiet = try session.takeOutbox(gpa);
     defer gpa.free(quiet);
     try std.testing.expectEqual(@as(usize, 0), quiet.len);
+}
+
+test "breaking a furnace on the server spills what it held, the way the client already did" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    try level.world_map.setBlockWithNotify(.init(8, 64, 8), .furnace);
+    const furnace = try level.world_map.addFurnace(.init(8, 64, 8));
+    furnace.slot(0).* = .{ .id = .{ .item = .coal }, .count = 5 };
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 65, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .block_dig = .{
+        .status = .finished,
+        .x = 8,
+        .y = 64,
+        .z = 8,
+        .face = 1,
+    } });
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expect(level.world_map.removeFurnace(.init(8, 64, 8)) == null);
+
+    var coal: usize = 0;
+    for (level.entities.items.items) |dropped| {
+        if (dropped.stack.id.eql(.{ .item = .coal })) coal += dropped.stack.count;
+    }
+    try std.testing.expectEqual(@as(usize, 5), coal);
 }

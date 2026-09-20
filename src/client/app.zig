@@ -1033,71 +1033,24 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
         return;
     }
 
-    const meta = app_state.level.world_map.getBlockMetadata(pos);
-    const held = app_state.player.inventory.selectedStack();
-    const harvested = block_id.harvestableWith(held);
-    const lit_tnt = block_id == .tnt and world.tnt.isLit(meta);
-    try app_state.level.world_map.setBlockWithNotify(pos, .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, pos);
-    try spillFurnace(app_state, pos);
-    try spillDispenser(app_state, pos);
-    try ejectBrokenJukebox(app_state, pos);
+    try closeBrokenContainer(app_state, pos);
     try closeBrokenChest(app_state, pos);
-    _ = app_state.level.world_map.removeSign(pos);
-    _ = app_state.level.world_map.removeNote(pos);
+
+    const held = app_state.player.inventory.selectedStack();
+    const broken = try game.interact.breakBlockAt(app_state.gpa, &app_state.level, held, pos) orelse return;
+
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
-
-    if (harvested) {
-        try app_state.stats.mine(app_state.gpa, block_id);
-        const dropped = if (lit_tnt) null else block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
-        if (dropped) |d| {
-            try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
-        }
-        if (!lit_tnt) {
-            var extra: [3]world.block.Stack = undefined;
-            for (block_id.bonusDrops(meta, &app_state.level.world_map.rand, &extra)) |d| {
-                try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
-            }
-        }
-    }
+    if (broken.harvested) try app_state.stats.mine(app_state.gpa, block_id);
 }
 
-fn spillFurnace(app_state: *AppState, pos: BlockPos) !void {
-    var removed = app_state.level.world_map.removeFurnace(pos) orelse return;
-
+fn closeBrokenContainer(app_state: *AppState, pos: BlockPos) !void {
     if (app_state.furnace_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
+        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
     }
-
-    for (0..world.furnace.slot_count) |index| {
-        const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, pos, stack);
-    }
-}
-
-fn spillDispenser(app_state: *AppState, pos: BlockPos) !void {
-    var removed = app_state.level.world_map.removeDispenser(pos) orelse return;
-
     if (app_state.dispenser_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
+        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
     }
-
-    for (0..world.dispenser.slot_count) |index| {
-        const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, pos, stack);
-    }
-}
-
-fn ejectBrokenJukebox(app_state: *AppState, pos: BlockPos) !void {
-    const removed = app_state.level.world_map.removeJukebox(pos) orelse return;
-    const record = removed.record orelse return;
-    try app_state.level.entities.ejectRecord(
-        app_state.gpa,
-        pos,
-        .{ .id = .{ .item = record }, .count = 1 },
-        &app_state.level.world_map.rand,
-    );
 }
 
 fn closeBrokenChest(app_state: *AppState, pos: BlockPos) !void {

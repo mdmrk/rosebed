@@ -115,6 +115,71 @@ pub const Context = struct {
     }
 };
 
+pub const Broken = struct {
+    block: world.Block,
+    meta: u4,
+    harvested: bool,
+    lit_tnt: bool,
+};
+
+pub fn breakBlockAt(
+    gpa: std.mem.Allocator,
+    level: *Level,
+    held: ?Inventory.ItemStack,
+    pos: BlockPos,
+) !?Broken {
+    const block = level.world_map.getBlock(pos);
+    if (block == .air) return null;
+
+    const meta = level.world_map.getBlockMetadata(pos);
+    const broken: Broken = .{
+        .block = block,
+        .meta = meta,
+        .harvested = block.harvestableWith(held),
+        .lit_tnt = block == .tnt and world.tnt.isLit(meta),
+    };
+
+    try level.world_map.setBlockWithNotify(pos, .air);
+    if (broken.lit_tnt) try world.tnt.primeByPlayer(&level.world_map, pos);
+    try spillContainers(gpa, level, pos);
+    _ = level.world_map.removeSign(pos);
+    _ = level.world_map.removeNote(pos);
+
+    if (broken.harvested and !broken.lit_tnt) {
+        if (block.harvestDrop(meta, held, &level.world_map.rand)) |dropped| {
+            try level.dropStackAt(gpa, pos, .{ .id = dropped.id, .count = dropped.count, .meta = dropped.meta });
+        }
+        var extra: [3]world.block.Stack = undefined;
+        for (block.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
+            try level.dropStackAt(gpa, pos, .{ .id = dropped.id, .count = dropped.count, .meta = dropped.meta });
+        }
+    }
+
+    return broken;
+}
+
+fn spillContainers(gpa: std.mem.Allocator, level: *Level, pos: BlockPos) !void {
+    if (level.world_map.removeFurnace(pos)) |taken| {
+        var removed = taken;
+        for (0..world.furnace.slot_count) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
+    if (level.world_map.removeDispenser(pos)) |taken| {
+        var removed = taken;
+        for (0..world.dispenser.slot_count) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
+    if (level.world_map.removeJukebox(pos)) |removed| {
+        if (removed.record) |record| {
+            try level.entities.ejectRecord(gpa, pos, .{ .id = .{ .item = record }, .count = 1 }, &level.world_map.rand);
+        }
+    }
+}
+
 pub fn ejectJukeboxRecord(ctx: Context, pos: BlockPos) !bool {
     if (ctx.level.world_map.getBlockMetadata(pos) == 0) return false;
 
@@ -559,3 +624,4 @@ test "a boat aimed at open water lands on the surface, not the seabed" {
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), boat.base.position.x, 1.0e-9);
     try std.testing.expect(player.inventory.slots[player.inventory.selected] == null);
 }
+
