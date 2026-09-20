@@ -10,6 +10,7 @@ const Hud = @import("Hud.zig");
 const Input = @import("Input.zig");
 const load_order = @import("load_order.zig");
 const ModPlayer = @import("Player.zig");
+const Net = @import("Net.zig");
 const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
 const Vm = @import("Vm.zig");
@@ -22,6 +23,7 @@ hooks: *Hooks,
 hud: *Hud,
 input: *Input,
 player: *ModPlayer,
+net_api: *Net,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -52,12 +54,15 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
 
     const hooks = try allocator.create(Hooks);
     hooks.* = .{};
+    const net_api = try allocator.create(Net);
+    net_api.* = .{ .gpa = gpa };
     const registrar = try allocator.create(registry.Registrar);
     registrar.* = .{ .arena = allocator, .hooks = hooks };
     var vm: Vm = try .init(gpa);
     errdefer vm.deinit();
     registry.install(vm.lua, registrar);
     hooks.install(vm.lua);
+    net_api.install(vm.lua);
 
     errdefer resetRegistries();
     var shared: std.ArrayList(discovery.Mod) = .empty;
@@ -100,6 +105,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         .hud = hud,
         .input = input,
         .player = player,
+        .net_api = net_api,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
@@ -170,6 +176,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
         game.Player.steer = null;
     }
     self.hooks.deinit();
+    self.net_api.deinit();
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);

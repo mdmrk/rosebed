@@ -7,12 +7,14 @@ pub const registry = @import("registry.zig");
 pub const structures = @import("structures.zig");
 pub const Loaded = @import("Loaded.zig");
 pub const Hooks = @import("Hooks.zig");
+pub const Net = @import("Net.zig");
 pub const Hud = @import("Hud.zig");
 pub const Input = @import("Input.zig");
 pub const Player = @import("Player.zig");
 
 test {
     _ = Hooks;
+    _ = Net;
     _ = Hud;
     _ = Input;
     _ = Player;

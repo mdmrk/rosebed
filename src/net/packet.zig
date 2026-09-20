@@ -60,10 +60,18 @@ pub const Id = enum(u8) {
     map_data = 131,
     statistic = 200,
     mod_list = 250,
+    mod_message = 251,
     kick_disconnect = 255,
 };
 
 pub const rosebed_client_seed: i64 = 0x726f7365626564;
+pub const max_mod_channel = 64;
+pub const max_mod_payload = 32 * 1024;
+
+pub const ModMessage = struct {
+    channel: []const u8,
+    payload: []const u8,
+};
 
 pub const ModList = struct {
     mods: []const Mod = &.{},
@@ -166,6 +174,7 @@ pub fn direction(id: Id) Direction {
         .pre_chunk => .{ .to_client = true, .to_server = false },
         .map_chunk => .{ .to_client = true, .to_server = false },
         .mod_list => .{ .to_client = true, .to_server = false },
+        .mod_message => .{ .to_client = true, .to_server = true },
         .multi_block_change => .{ .to_client = true, .to_server = false },
         .block_change => .{ .to_client = true, .to_server = false },
         .play_note_block => .{ .to_client = true, .to_server = false },
@@ -522,6 +531,7 @@ pub const Packet = union(Id) {
     map_data: struct { kind: i16, map_id: i16, data: []const u8 },
     statistic: struct { stat_id: i32, amount: i8 },
     mod_list: ModList,
+    mod_message: ModMessage,
     kick_disconnect: struct { reason: []const u8 },
 
     pub fn id(self: Packet) Id {
@@ -544,6 +554,10 @@ pub const Packet = union(Id) {
             .entity_metadata => |body| freeMetadata(gpa, body.metadata),
             .kick_disconnect => |body| gpa.free(body.reason),
             .mod_list => |body| freeModList(gpa, body),
+            .mod_message => |body| {
+                gpa.free(body.channel);
+                gpa.free(body.payload);
+            },
             .map_chunk => |body| gpa.free(body.compressed),
             .multi_block_change => |body| {
                 gpa.free(body.coordinates);
@@ -622,6 +636,27 @@ fn readModList(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModList {
     errdefer freeModKeys(gpa, keys);
 
     return .{ .mods = mods, .keys = keys, .mobs = try readModKeys(gpa, r) };
+}
+
+fn readModMessage(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModMessage {
+    const channel = try readString(gpa, r, max_mod_channel);
+    errdefer gpa.free(channel);
+
+    const length = try r.takeInt(i32, .big);
+    if (length < 0) return error.NegativeLength;
+    if (length > max_mod_payload) return error.StringTooLong;
+    const payload = try gpa.alloc(u8, @intCast(length));
+    errdefer gpa.free(payload);
+    try r.readSliceAll(payload);
+
+    return .{ .channel = channel, .payload = payload };
+}
+
+fn writeModMessage(w: *std.Io.Writer, body: ModMessage) WriteError!void {
+    try writeString(w, body.channel, max_mod_channel);
+    if (body.payload.len > max_mod_payload) return error.ListTooLong;
+    try w.writeInt(i32, @intCast(body.payload.len), .big);
+    try w.writeAll(body.payload);
 }
 
 fn writeModList(w: *std.Io.Writer, list: ModList) WriteError!void {
@@ -1218,6 +1253,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .amount = try r.takeInt(i8, .big),
         } },
         .mod_list => return .{ .mod_list = try readModList(gpa, r) },
+        .mod_message => return .{ .mod_message = try readModMessage(gpa, r) },
         .kick_disconnect => return .{ .kick_disconnect = .{ .reason = try readString(gpa, r, max_kick_reason) } },
     }
 }
@@ -1533,6 +1569,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i8, body.amount, .big);
         },
         .mod_list => |body| try writeModList(w, body),
+        .mod_message => |body| try writeModMessage(w, body),
         .kick_disconnect => |body| try writeString(w, body.reason, max_kick_reason),
     }
 }
@@ -1987,7 +2024,7 @@ test "every packet the protocol defines has a byte vector taken from vanilla" {
     }
 
     inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
-        if (comptime std.mem.eql(u8, field.name, "mod_list")) continue;
+        if (comptime std.mem.eql(u8, field.name, "mod_list") or std.mem.eql(u8, field.name, "mod_message")) continue;
         if (!seen[index]) {
             std.debug.print("no golden vector for {s}\n", .{field.name});
             return error.TestExpectedEqual;
@@ -2054,6 +2091,7 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .map_data, .to_client = true, .to_server = false },
         .{ .id = .statistic, .to_client = true, .to_server = false },
         .{ .id = .mod_list, .to_client = true, .to_server = false },
+        .{ .id = .mod_message, .to_client = true, .to_server = true },
         .{ .id = .kick_disconnect, .to_client = true, .to_server = true },
     };
 
@@ -2090,6 +2128,39 @@ test "the mod list, which vanilla never sends, keeps vanilla's string and short 
 
     try std.testing.expectError(error.WrongDirection, decode(gpa, encoded, true));
     try std.testing.expectError(error.EndOfStream, decode(gpa, encoded[0 .. encoded.len - 3], false));
+}
+
+test "a mod message carries its channel and its bytes in both directions" {
+    const gpa = std.testing.allocator;
+    const sent: Packet = .{ .mod_message = .{ .channel = "hive", .payload = &.{ 0, 1, 0xff, 'x' } } };
+
+    const encoded = try encodeAlloc(gpa, sent);
+    defer gpa.free(encoded);
+
+    for ([_]bool{ true, false }) |to_server| {
+        const decoded = try decode(gpa, encoded, to_server);
+        defer decoded.deinit(gpa);
+        try std.testing.expectEqualStrings("hive", decoded.mod_message.channel);
+        try std.testing.expectEqualSlices(u8, &.{ 0, 1, 0xff, 'x' }, decoded.mod_message.payload);
+    }
+
+    try std.testing.expectError(error.EndOfStream, decode(gpa, encoded[0 .. encoded.len - 1], false));
+}
+
+test "a mod message is refused once it outgrows what the protocol carries" {
+    const gpa = std.testing.allocator;
+    const payload = try gpa.alloc(u8, max_mod_payload + 1);
+    defer gpa.free(payload);
+    @memset(payload, 'x');
+
+    try std.testing.expectError(error.ListTooLong, encodeAlloc(gpa, .{
+        .mod_message = .{ .channel = "hive", .payload = payload },
+    }));
+
+    var long_channel: [max_mod_channel + 1]u8 = @splat('c');
+    try std.testing.expectError(error.StringTooLong, encodeAlloc(gpa, .{
+        .mod_message = .{ .channel = &long_channel, .payload = "" },
+    }));
 }
 
 test "two mod lists differ when a mob was given a different byte on each side" {

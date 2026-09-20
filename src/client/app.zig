@@ -3240,9 +3240,34 @@ fn tickRemote(app_state: *AppState, link: *Link) !void {
     try link.connection.reportSneak(app_state.gpa, app_state.player.base.sneaking);
     try link.connection.reportHeldSlot(app_state.gpa, app_state.player.inventory.selected);
     if (link.connection.placed) try link.connection.reportPosition(app_state.gpa, &app_state.player);
+    try pumpModMessages(app_state, link);
     try link.flush();
 
     if (!link.isOpen()) try leaveServer(app_state);
+}
+
+fn pumpModMessages(app_state: *AppState, link: *Link) !void {
+    const loaded = app_state.loaded_mods orelse return;
+
+    const inbox = link.connection.takeModInbox(app_state.gpa);
+    defer remote.Connection.freeModInbox(app_state.gpa, inbox);
+    for (inbox) |message| loaded.net_api.deliver(message.channel, message.payload, null);
+
+    const outbox = loaded.net_api.take();
+    defer loaded.net_api.release(outbox);
+    for (outbox) |message| {
+        try link.connection.send(app_state.gpa, .{ .mod_message = .{
+            .channel = message.channel,
+            .payload = message.payload,
+        } });
+    }
+}
+
+fn loopbackModMessages(app_state: *AppState) void {
+    const loaded = app_state.loaded_mods orelse return;
+    const outbox = loaded.net_api.take();
+    defer loaded.net_api.release(outbox);
+    for (outbox) |message| loaded.net_api.deliver(message.channel, message.payload, null);
 }
 
 fn leaveServer(app_state: *AppState) !void {
@@ -3388,6 +3413,7 @@ fn tick(app_state: *AppState) !void {
                 return;
             },
         }
+        loopbackModMessages(app_state);
     }
 
     app_state.cloud_offset += 1;

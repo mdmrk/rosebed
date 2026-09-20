@@ -80,8 +80,22 @@ aiming_at: [3]i32 = .{ 0, 0, 0 },
 aiming_cart: game.Entity.Id = game.Entity.no_id,
 mods: net.packet.ModList = .{},
 mods_checked: bool = false,
+mod_inbox: std.ArrayList(net.packet.ModMessage) = .empty,
+
+pub fn takeModInbox(self: *Connection, gpa: std.mem.Allocator) []net.packet.ModMessage {
+    return self.mod_inbox.toOwnedSlice(gpa) catch &.{};
+}
+
+pub fn freeModInbox(gpa: std.mem.Allocator, messages: []net.packet.ModMessage) void {
+    for (messages) |message| {
+        gpa.free(message.channel);
+        gpa.free(message.payload);
+    }
+    gpa.free(messages);
+}
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
+    freeModInbox(gpa, self.takeModInbox(gpa));
     self.peers.deinit(gpa);
     self.chat.deinit(gpa);
     self.awarded.deinit(gpa);
@@ -176,6 +190,10 @@ fn handlePlaying(
 ) !void {
     switch (message) {
         .keep_alive => {},
+        .mod_message => |body| try self.mod_inbox.append(gpa, .{
+            .channel = try gpa.dupe(u8, body.channel),
+            .payload = try gpa.dupe(u8, body.payload),
+        }),
         .spawn_position => |body| self.spawn = .{ body.x, body.y, body.z },
         .update_time => |body| level.world_map.time = body.time,
         .update_health => |body| {

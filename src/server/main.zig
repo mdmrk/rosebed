@@ -488,9 +488,34 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
 fn drainPending(server: *Server, connection: *Connection) !void {
     for (connection.pending.items) |message| {
         defer message.deinit(server.gpa);
+        if (message == .mod_message) {
+            if (connection.session.state == .playing) {
+                if (mods.Net.active) |api| {
+                    api.deliver(message.mod_message.channel, message.mod_message.payload, connection.session.name.text());
+                }
+            }
+            continue;
+        }
         try connection.session.handle(server.gpa, server.levelFor(connection), message);
     }
     connection.pending.clearRetainingCapacity();
+}
+
+fn flushModMessages(server: *Server) void {
+    const api = mods.Net.active orelse return;
+    const messages = api.take();
+    defer api.release(messages);
+    if (messages.len == 0) return;
+
+    for (server.connections.items) |connection| {
+        if (connection.session.state != .playing) continue;
+        for (messages) |message| {
+            connection.session.send(server.gpa, .{ .mod_message = .{
+                .channel = message.channel,
+                .payload = message.payload,
+            } }) catch {};
+        }
+    }
 }
 
 fn queueOutbox(server: *Server, connection: *Connection) !void {
@@ -654,6 +679,7 @@ fn tick(server: *Server) !void {
     defer arena.deinit();
     for (&server.dims) |*dim| try dim.level.tick(server.gpa, arena.allocator());
     for (&server.dims) |*dim| try flushBlockChanges(dim);
+    flushModMessages(server);
 
     for (server.connections.items) |connection| {
         const travelling = connection.session.tickPlayer(server.gpa, server.levelFor(connection)) catch false;
