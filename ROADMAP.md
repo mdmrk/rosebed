@@ -75,7 +75,7 @@ networking comes first, before the effects that need it.
    and nil on the client. In single player there is no link, so a send loops
    straight back into the same VM on the next tick: a mod behaves the same
    in both modes without knowing which one it is in.
-2. **Events.** Mostly done. `on_world_tick(dimension, count)`,
+2. ~~**Events.**~~ Done. `on_world_tick(dimension, count)`,
    `on_chunk_load(x, z, fresh)`, `on_player_hurt(amount, health, x, y, z)`
    (return true to swallow the damage), `on_player_death(x, y, z)` and
    `on_mob_death(key, x, y, z)`. A handler that throws is switched off rather
@@ -86,11 +86,12 @@ networking comes first, before the effects that need it.
    it mutable would ripple through `Player.tick` and every caller, so those
    two hand the numbers over as arguments instead.
    `on_block_broken(key, x, y, z, meta)` fires from
-   `interact.breakBlockAt`, the single path both sides now take.
-   Still missing: `on_block_placed`, which needs the same unification doing to
-   the place path.
+   `interact.breakBlockAt` and `on_block_placed(key, x, y, z, meta)` from
+   `interact.placeBlockAt`, the single paths both sides now take. The
+   metadata reported is the one that settled, after the facing a furnace,
+   dispenser, pumpkin, stairs or repeater takes from the placer's yaw.
 3. **Effects.** `play_sound`, `particle` (13 vanilla kinds), `explode`, and
-   spawning entities at runtime. Needs 1 to work on a server.
+   spawning entities at runtime. Needs 1 to work on a server. Next up.
 4. **Commands.** `register_command`, through `game/commands.zig`.
 5. **Block entities.** A registry for per-block state with NBT save and load.
    `World.zig:190` holds fixed hash maps today with no registration seam. This
@@ -118,8 +119,16 @@ queues and the dispatch are covered; those few lines of wiring are not.
   `onBlockDestroyedByPlayer`. The server did neither, so it dropped
   cobblestone from a bare-fisted punch on stone and lost what a furnace or a
   dispenser held. A server test had the wrong behaviour written into it.
-- **Placing a block still takes two paths**, the client in single player and
-  `Session` in multiplayer. Same treatment needed before `on_block_placed`.
+- ~~**Placing a block takes two paths.**~~ Unified into
+  `interact.placeBlockAt`. Same shape of bug as the break path: the server
+  wrote the block and stopped there, so a chest, furnace or dispenser placed
+  on a dedicated server got no block entity at all, nothing took its facing
+  from the placer's yaw, a repeater never got its metadata or its scheduled
+  tick, and two slabs never merged. Vanilla runs both ends through
+  `ItemBlock.onItemUse`; rosebed now does the same.
+- Neither path does vanilla's `checkIfAABBIsClear` from
+  `World.canBlockBePlacedAt`, so a block can be placed inside a standing
+  entity. That predates the unification and is still open.
 - Breaking a chest drops nothing, on either side. That one predates the
   unification and is still open.
 - Mods run before the world loads, so registration order decides ids. The block
