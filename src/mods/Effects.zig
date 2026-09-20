@@ -6,6 +6,8 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Effects = @This();
 
 pub const Effect = union(enum) {
@@ -156,8 +158,6 @@ fn spawn(lua: *Lua) i32 {
     } }) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }
-
-const Vm = @import("Vm.zig");
 
 const Harness = struct {
     vm: Vm,

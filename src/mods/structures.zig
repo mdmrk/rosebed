@@ -1,12 +1,11 @@
 const std = @import("std");
 
 const world = @import("world");
+const width = world.Chunk.width;
 
 pub const max_radius = 8;
 pub const max_spacing = 4096;
 pub const cache_size = 32;
-
-const width = world.Chunk.width;
 
 pub const Structure = struct {
     ref: i32,

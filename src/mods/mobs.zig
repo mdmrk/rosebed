@@ -1,13 +1,12 @@
 const std = @import("std");
 
 const game = @import("game");
+const Animal = game.Animal;
+const Mob = game.mob;
 const math = @import("math");
 const world = @import("world");
 
 const Hooks = @import("Hooks.zig");
-
-const Animal = game.Animal;
-const Mob = game.mob;
 
 pub const capacity: usize = 16;
 

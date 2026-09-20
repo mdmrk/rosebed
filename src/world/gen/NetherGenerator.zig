@@ -9,11 +9,11 @@ const caves = @import("caves.zig");
 const Climate = @import("Climate.zig");
 const decorate = @import("decorate.zig");
 const density = @import("density.zig");
-const generator = @import("generator.zig");
 const density_x = density.size_x;
 const density_y = density.size_y;
 const density_z = density.size_z;
 const densityIndex = density.index;
+const generator = @import("generator.zig");
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
 

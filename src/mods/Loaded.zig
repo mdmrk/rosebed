@@ -4,16 +4,16 @@ const game = @import("game");
 const net = @import("net");
 const world = @import("world");
 
-const discovery = @import("discovery.zig");
 const Commands = @import("Commands.zig");
+const discovery = @import("discovery.zig");
 const Effects = @import("Effects.zig");
 const Hooks = @import("Hooks.zig");
 const Hud = @import("Hud.zig");
 const Input = @import("Input.zig");
 const load_order = @import("load_order.zig");
+const mobs = @import("mobs.zig");
 const ModPlayer = @import("Player.zig");
 const Net = @import("Net.zig");
-const mobs = @import("mobs.zig");
 const registry = @import("registry.zig");
 const Vm = @import("Vm.zig");
 

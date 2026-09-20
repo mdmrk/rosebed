@@ -3,6 +3,8 @@ const std = @import("std");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Input = @This();
 
 lua: ?*Lua = null,
@@ -41,8 +43,6 @@ fn onKey(lua: *Lua) i32 {
     self.on_key = lua.ref(zlua.registry_index);
     return 0;
 }
-
-const Vm = @import("Vm.zig");
 
 test "a mod hears each key by name, pressed and let go" {
     var vm: Vm = try .init(std.testing.allocator);

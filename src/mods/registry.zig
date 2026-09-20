@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const game = @import("game");
+const max_grid = game.crafting.workbench_grid_size;
 const math = @import("math");
 const world = @import("world");
 const zlua = @import("zlua");
@@ -10,6 +11,7 @@ const Hooks = @import("Hooks.zig");
 const Manifest = @import("Manifest.zig");
 const mobs = @import("mobs.zig");
 const structures = @import("structures.zig");
+const Vm = @import("Vm.zig");
 
 pub const Registrar = struct {
     arena: std.mem.Allocator,
@@ -693,8 +695,6 @@ fn spawnsNumber(lua: *Lua, table: i32, comptime T: type, name: [:0]const u8, fal
     return std.math.cast(T, value) orelse lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
 }
 
-const max_grid = game.crafting.workbench_grid_size;
-
 fn registerRecipe(lua: *Lua) i32 {
     _ = context(lua);
     lua.checkType(1, .table);
@@ -920,8 +920,6 @@ fn readValue(comptime T: type, lua: *Lua, registrar: *Registrar, name: [:0]const
         else => comptime unreachable,
     }
 }
-
-const Vm = @import("Vm.zig");
 
 const Harness = struct {
     arena: std.heap.ArenaAllocator,

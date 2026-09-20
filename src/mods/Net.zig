@@ -4,6 +4,8 @@ const net = @import("net");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Net = @This();
 
 pub const Message = struct {
@@ -121,8 +123,6 @@ fn on(lua: *Lua) i32 {
     entry.value_ptr.* = ref;
     return 0;
 }
-
-const Vm = @import("Vm.zig");
 
 const Harness = struct {
     vm: Vm,

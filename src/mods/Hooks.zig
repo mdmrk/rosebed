@@ -7,6 +7,7 @@ const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
 const structures = @import("structures.zig");
+const Vm = @import("Vm.zig");
 
 const Hooks = @This();
 
@@ -1062,8 +1063,6 @@ fn blockArgument(lua: *Lua, arg: i32) world.Block {
     return world.Block.fromKey(key) orelse lua.raiseErrorStr("no block is registered as '%s'", .{key.ptr});
 }
 
-const Vm = @import("Vm.zig");
-
 const Harness = struct {
     vm: Vm,
     hooks: Hooks,
@@ -1257,7 +1256,6 @@ test "bad arguments are reported" {
     try harness.expectFailure("rosebed.world.get_block(0, 1e12, 0)", "coordinate out of range)");
     try harness.expectFailure("rosebed.world.schedule_tick(0, 10, 0, -1)", "delay must be a whole number of ticks)");
 }
-
 
 test "a mod hears a chunk arrive and can tell a fresh one from a reloaded one" {
     var harness: Harness = undefined;

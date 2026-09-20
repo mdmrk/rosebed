@@ -1,15 +1,15 @@
 const std = @import("std");
 
 const game = @import("game");
+pub const Box = game.mob_model.Box;
+pub const Role = game.mob_model.Role;
+pub const Part = game.mob_model.Part;
+pub const Model = game.mob_model.Model;
 const math = @import("math");
 const world = @import("world");
 
 const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
-
-pub const Box = game.mob_model.Box;
-pub const Role = game.mob_model.Role;
-pub const Part = game.mob_model.Part;
 
 pub const Pose = struct {
     position: [3]f32,
@@ -20,8 +20,6 @@ pub const Pose = struct {
     lift: f32 = 0,
     scale: [3]f32 = .{ 1, 1, 1 },
 };
-
-pub const Model = game.mob_model.Model;
 
 const pig_parts = [6]Part{
     .{ .box = .{ .origin = .{ -4, -4, -8 }, .size = .{ 8, 8, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -12, -6 }, .role = .head },

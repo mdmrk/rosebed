@@ -3,6 +3,8 @@ const std = @import("std");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Hud = @This();
 
 lua: ?*Lua = null,
@@ -108,8 +110,6 @@ fn color(lua: *Lua, arg: i32) [4]u8 {
     const argb = if (value & 0xFC000000 == 0) value | 0xFF000000 else value;
     return .{ @truncate(argb >> 16), @truncate(argb >> 8), @truncate(argb), @truncate(argb >> 24) };
 }
-
-const Vm = @import("Vm.zig");
 
 test "a mod draws on the hud from its on_draw, in the order it asked" {
     var vm: Vm = try .init(std.testing.allocator);

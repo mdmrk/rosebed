@@ -5,6 +5,8 @@ const net = @import("net");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Commands = @This();
 
 arena: std.mem.Allocator,
@@ -100,8 +102,6 @@ fn registerCommand(lua: *Lua) i32 {
 fn own(self: *Commands, lua: *Lua, text: []const u8) []const u8 {
     return self.arena.dupe(u8, text) catch lua.raiseErrorStr("out of memory", .{});
 }
-
-const Vm = @import("Vm.zig");
 
 const Harness = struct {
     arena: std.heap.ArenaAllocator,

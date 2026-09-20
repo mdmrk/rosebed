@@ -5,6 +5,8 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const Vm = @import("Vm.zig");
+
 const Player = @This();
 
 lua: ?*Lua = null,
@@ -291,8 +293,6 @@ fn finite(lua: *Lua, arg: i32) f64 {
     if (!std.math.isFinite(value)) lua.argError(arg, "must be a finite number");
     return value;
 }
-
-const Vm = @import("Vm.zig");
 
 const Harness = struct {
     vm: Vm,
