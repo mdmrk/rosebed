@@ -9,6 +9,7 @@ pub const Loaded = @import("Loaded.zig");
 pub const Hooks = @import("Hooks.zig");
 pub const Net = @import("Net.zig");
 pub const Effects = @import("Effects.zig");
+pub const Commands = @import("Commands.zig");
 pub const Hud = @import("Hud.zig");
 pub const Input = @import("Input.zig");
 pub const Player = @import("Player.zig");
@@ -17,6 +18,7 @@ test {
     _ = Hooks;
     _ = Net;
     _ = Effects;
+    _ = Commands;
     _ = Hud;
     _ = Input;
     _ = Player;

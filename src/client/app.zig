@@ -1565,8 +1565,25 @@ fn lookedAtPosition(app_state: *AppState) math.Vec3 {
 fn runCommand(app_state: *AppState, line: []const u8) !void {
     switch (game.commands.parse(line)) {
         .nothing => {},
-        .help => for (game.commands.help_lines) |help_line| {
-            app_state.chat.addMessage(app_state.font, help_line);
+        .help => {
+            for (game.commands.help_lines) |help_line| {
+                app_state.chat.addMessage(app_state.font, help_line);
+            }
+            var buffer: [net.packet.max_chat]u8 = undefined;
+            for (game.commands.registered()) |entry| {
+                app_state.chat.addMessage(app_state.font, game.commands.helpLine(&buffer, entry));
+            }
+        },
+        .custom => |found| {
+            const loaded = app_state.loaded_mods orelse return;
+            if (app_state.link) |link| {
+                if (!game.commands.registered()[found.index].local) {
+                    return link.connection.say(app_state.gpa, line);
+                }
+            }
+            if (loaded.commands.run(found.index, found.args, null)) |said| {
+                app_state.chat.addMessage(app_state.font, said);
+            }
         },
         .freecam => {
             if (app_state.freecam.active) {

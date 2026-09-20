@@ -3,6 +3,7 @@ const std = @import("std");
 const chunk_payload = @import("world").chunk_payload;
 const game = @import("game");
 const math = @import("math");
+const ModCommands = @import("mods").Commands;
 const net = @import("net");
 const world = @import("world");
 const BlockPos = world.BlockPos;
@@ -1216,6 +1217,11 @@ fn handleChat(self: *Session, gpa: std.mem.Allocator, level: *game.Level, messag
 
 fn runCommand(self: *Session, gpa: std.mem.Allocator, level: *game.Level, line: []const u8) !void {
     switch (game.commands.parse(line)) {
+        .custom => |found| {
+            const api = ModCommands.active orelse return;
+            const said = api.run(found.index, found.args, self.name.text()) orelse return;
+            try self.sendChat(gpa, said);
+        },
         .weather => |asked| {
             if (!self.dimension.hasSky()) return self.sendChat(gpa, game.commands.no_sky_line);
 

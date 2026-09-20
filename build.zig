@@ -128,7 +128,7 @@ const Project = struct {
         modules.mods = project.source("src/mods/root.zig", &.{ .zlua, .math, .world, .net, .game });
         modules.remote = project.source("src/remote/root.zig", &.{ .math, .world, .game, .net, .assets });
         modules.render = project.source("src/render/root.zig", &.{ .gl, .sdl3, .math, .world, .game, .assets });
-        modules.server = project.source("src/server/root.zig", &.{ .math, .world, .game, .net, .remote });
+        modules.server = project.source("src/server/root.zig", &.{ .math, .world, .game, .net, .remote, .mods });
         return project;
     }
 

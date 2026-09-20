@@ -5,6 +5,7 @@ const net = @import("net");
 const world = @import("world");
 
 const discovery = @import("discovery.zig");
+const Commands = @import("Commands.zig");
 const Effects = @import("Effects.zig");
 const Hooks = @import("Hooks.zig");
 const Hud = @import("Hud.zig");
@@ -26,6 +27,7 @@ input: *Input,
 player: *ModPlayer,
 net_api: *Net,
 effects: *Effects,
+commands: *Commands,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -60,6 +62,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     net_api.* = .{ .gpa = gpa };
     const effects = try allocator.create(Effects);
     effects.* = .{ .gpa = gpa };
+    const commands = try allocator.create(Commands);
+    commands.* = .{ .arena = allocator };
     const registrar = try allocator.create(registry.Registrar);
     registrar.* = .{ .arena = allocator, .hooks = hooks };
     var vm: Vm = try .init(gpa);
@@ -68,6 +72,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     hooks.install(vm.lua);
     net_api.install(vm.lua);
     effects.install(vm.lua);
+    commands.install(vm.lua);
 
     errdefer resetRegistries();
     var shared: std.ArrayList(discovery.Mod) = .empty;
@@ -119,6 +124,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         .player = player,
         .net_api = net_api,
         .effects = effects,
+        .commands = commands,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
@@ -128,6 +134,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
 }
 
 pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report: *std.Io.Writer) !void {
+    self.commands.on_client = true;
     self.hud.install(self.vm.lua);
     self.input.install(self.vm.lua);
     self.player.install(self.vm.lua);
@@ -198,6 +205,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
     self.hooks.deinit();
     self.net_api.deinit();
     self.effects.deinit();
+    self.commands.deinit();
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);
@@ -205,6 +213,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
 }
 
 fn resetRegistries() void {
+    game.commands.resetRegistry();
     world.Block.resetRegistry();
     world.Item.resetRegistry();
     game.crafting.resetRegistry();

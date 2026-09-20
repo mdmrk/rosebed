@@ -7,6 +7,7 @@ const mob = @import("mob.zig");
 
 pub const max_count: u8 = 64;
 pub const max_fill_volume: u32 = 32768;
+pub const mod_capacity: usize = 32;
 
 pub const Verb = enum {
     help,
@@ -147,6 +148,41 @@ pub const Weather = struct {
     pub const Sky = enum { clear, rain, thunder };
 };
 
+pub const Custom = struct {
+    name: []const u8,
+    usage: []const u8 = "",
+    description: []const u8 = "",
+    local: bool = false,
+};
+
+var customs: [mod_capacity]Custom = undefined;
+var custom_count: usize = 0;
+
+pub fn register(entry: Custom) error{ RegistryFull, DuplicateKey }!usize {
+    if (custom_count == mod_capacity) return error.RegistryFull;
+    if (verbFromWord(entry.name) != null) return error.DuplicateKey;
+    if (find(entry.name) != null) return error.DuplicateKey;
+
+    customs[custom_count] = entry;
+    custom_count += 1;
+    return custom_count - 1;
+}
+
+pub fn registered() []const Custom {
+    return customs[0..custom_count];
+}
+
+pub fn find(name: []const u8) ?usize {
+    for (customs[0..custom_count], 0..) |entry, index| {
+        if (std.mem.eql(u8, entry.name, name)) return index;
+    }
+    return null;
+}
+
+pub fn resetRegistry() void {
+    custom_count = 0;
+}
+
 pub const Result = union(enum) {
     nothing,
     help,
@@ -171,6 +207,7 @@ pub const Result = union(enum) {
     unparsed_item: []const u8,
     unknown_method: []const u8,
     unknown: []const u8,
+    custom: struct { index: usize, args: []const u8 },
 };
 
 const help_indent = "   ";
@@ -178,6 +215,26 @@ const help_gap = 2;
 
 fn signature(comptime verb: Verb) []const u8 {
     return if (verb.usage().len == 0) @tagName(verb) else @tagName(verb) ++ " " ++ verb.usage();
+}
+
+pub const help_width: usize = blk: {
+    var widest: usize = 0;
+    for (std.enums.values(Verb)) |verb| widest = @max(widest, signature(verb).len);
+    break :blk widest;
+};
+
+const help_padding = " " ** 64;
+
+pub fn helpLine(buffer: []u8, entry: Custom) []const u8 {
+    const used = entry.name.len + if (entry.usage.len == 0) 0 else entry.usage.len + 1;
+    const gap = (if (used < help_width) help_width - used else 0) + help_gap;
+    return std.fmt.bufPrint(buffer, help_indent ++ "{s}{s}{s}{s}{s}", .{
+        entry.name,
+        if (entry.usage.len == 0) "" else " ",
+        entry.usage,
+        help_padding[0..@min(help_padding.len, gap)],
+        entry.description,
+    }) catch entry.name;
 }
 
 pub const help_lines: []const []const u8 = blk: {
@@ -295,7 +352,10 @@ pub fn parse(line: []const u8) Result {
     var words = std.mem.tokenizeScalar(u8, line[1..], ' ');
     const word = words.next() orelse return .nothing;
 
-    return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
+    return switch (verbFromWord(word) orelse {
+        const index = find(word) orelse return .{ .unknown = word };
+        return .{ .custom = .{ .index = index, .args = words.rest() } };
+    }) {
         .help => .help,
         .achievement => parseAchievement(&words),
         .clear => if (words.next() == null) .clear else .nothing,
@@ -520,6 +580,55 @@ test "spawn names a registered mob by the key it was registered under" {
 test "spawn rejects a mob it cannot build" {
     try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20).missing_mob);
     try std.testing.expectEqual(Result.nothing, parse("/spawn"));
+}
+
+test "a command a mod registered is parsed with the rest of the line as its arguments" {
+    defer resetRegistry();
+
+    const index = try register(.{ .name = "wings", .usage = "<on|off>", .description = "toggles the wings" });
+    try std.testing.expectEqual(@as(usize, 0), index);
+
+    const found = parse("/wings on loud");
+    try std.testing.expectEqual(index, found.custom.index);
+    try std.testing.expectEqualStrings("on loud", found.custom.args);
+    try std.testing.expectEqualStrings("", parse("/wings").custom.args);
+    try std.testing.expectEqualStrings("feathers", parse("/feathers").unknown);
+}
+
+test "a mod cannot take a name a vanilla command or another mod already answers to" {
+    defer resetRegistry();
+
+    _ = try register(.{ .name = "wings" });
+    try std.testing.expectError(error.DuplicateKey, register(.{ .name = "wings" }));
+    try std.testing.expectError(error.DuplicateKey, register(.{ .name = "weather" }));
+    try std.testing.expectEqual(@as(usize, 1), registered().len);
+}
+
+test "the registry holds only as many commands as it has room for" {
+    defer resetRegistry();
+
+    var name: [mod_capacity][8]u8 = undefined;
+    for (0..mod_capacity) |index| {
+        _ = std.fmt.bufPrint(&name[index], "mod{d}", .{index}) catch unreachable;
+        _ = try register(.{ .name = name[index][0 .. 3 + std.fmt.count("{d}", .{index})] });
+    }
+    try std.testing.expectError(error.RegistryFull, register(.{ .name = "onemore" }));
+}
+
+test "a mod command lines up with the vanilla help, with or without a usage" {
+    var buffer: [128]u8 = undefined;
+
+    const with_usage = helpLine(&buffer, .{
+        .name = "wings",
+        .usage = "<on|off>",
+        .description = "toggles the wings",
+    });
+    try std.testing.expect(std.mem.startsWith(u8, with_usage, help_indent ++ "wings <on|off>"));
+    try std.testing.expect(std.mem.endsWith(u8, with_usage, "toggles the wings"));
+    try std.testing.expectEqual(help_indent.len + help_width + help_gap, std.mem.indexOf(u8, with_usage, "toggles").?);
+
+    const bare = helpLine(&buffer, .{ .name = "wings", .description = "toggles the wings" });
+    try std.testing.expectEqual(help_indent.len + help_width + help_gap, std.mem.indexOf(u8, bare, "toggles").?);
 }
 
 test "time adds to or sets the clock" {
