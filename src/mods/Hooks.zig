@@ -25,6 +25,7 @@ chunk_load_ref: ?i32 = null,
 player_hurt_ref: ?i32 = null,
 player_death_ref: ?i32 = null,
 mob_death_ref: ?i32 = null,
+block_broken_ref: ?i32 = null,
 decorators: std.ArrayList(Decorator) = .empty,
 shapers: std.ArrayList(Decorator) = .empty,
 noises: std.ArrayList(Noise) = .empty,
@@ -183,7 +184,7 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
     };
 }
 
-pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death };
+pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death, block_broken };
 
 pub fn listenerFor(self: *Hooks, event: Event) *?i32 {
     return self.refFor(event);
@@ -196,6 +197,7 @@ fn refFor(self: *Hooks, event: Event) *?i32 {
         .player_hurt => &self.player_hurt_ref,
         .player_death => &self.player_death_ref,
         .mob_death => &self.mob_death_ref,
+        .block_broken => &self.block_broken_ref,
     };
 }
 
@@ -278,6 +280,21 @@ pub fn mobDied(type_id: game.mob.Id, animal: *game.Animal, world_map: *world.Wor
     _ = lua.pushString(game.mob.get(type_id).name);
     pushPlace(lua, animal.base.position);
     _ = self.settle(.mob_death, lua, 4, 0);
+}
+
+pub fn blockBroken(level: *game.Level, pos: world.BlockPos, block: world.Block, meta: u4) void {
+    const self = active orelse return;
+    const lua = self.begin(.block_broken) orelse return;
+    const outer = self.current_world;
+    self.current_world = &level.world_map;
+    defer self.current_world = outer;
+    const key = block.def().key;
+    if (key.len == 0) _ = lua.pushString(@tagName(world.Block.air)) else _ = lua.pushString(key);
+    lua.pushInteger(pos.x);
+    lua.pushInteger(pos.y);
+    lua.pushInteger(pos.z);
+    lua.pushInteger(meta);
+    _ = self.settle(.block_broken, lua, 5, 0);
 }
 
 pub fn addDecorator(self: *Hooks, arena: std.mem.Allocator, ref: i32, mod_id: []const u8) !void {

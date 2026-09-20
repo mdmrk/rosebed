@@ -122,6 +122,8 @@ pub const Broken = struct {
     lit_tnt: bool,
 };
 
+pub var on_block_broken: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
+
 pub fn breakBlockAt(
     gpa: std.mem.Allocator,
     level: *Level,
@@ -155,6 +157,7 @@ pub fn breakBlockAt(
         }
     }
 
+    if (on_block_broken) |hook| hook(level, pos, block, meta);
     return broken;
 }
 
@@ -625,3 +628,49 @@ test "a boat aimed at open water lands on the surface, not the seabed" {
     try std.testing.expect(player.inventory.slots[player.inventory.selected] == null);
 }
 
+var broken_seen: usize = 0;
+var broken_last: struct { pos: BlockPos, block: world.Block, meta: u4 } = undefined;
+
+fn recordBroken(_: *Level, pos: BlockPos, block: world.Block, meta: u4) void {
+    broken_seen += 1;
+    broken_last = .{ .pos = pos, .block = block, .meta = meta };
+}
+
+test "breaking a block reports it once, after the world already lost it" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    broken_seen = 0;
+    on_block_broken = recordBroken;
+    defer on_block_broken = null;
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, .stone);
+    level.world_map.setBlockMetadata(pos, 3);
+
+    const held: Inventory.ItemStack = .{ .id = .{ .item = .pickaxe_stone }, .count = 1 };
+    const broken = (try breakBlockAt(gpa, &level, held, pos)).?;
+
+    try std.testing.expectEqual(@as(usize, 1), broken_seen);
+    try std.testing.expectEqual(world.Block.stone, broken_last.block);
+    try std.testing.expectEqual(@as(u4, 3), broken_last.meta);
+    try std.testing.expectEqual(pos, broken_last.pos);
+    try std.testing.expect(broken.harvested);
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(pos));
+}
+
+test "breaking air reports nothing and changes nothing" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    broken_seen = 0;
+    on_block_broken = recordBroken;
+    defer on_block_broken = null;
+
+    try std.testing.expect(try breakBlockAt(gpa, &level, null, .init(2, 100, 2)) == null);
+    try std.testing.expectEqual(@as(usize, 0), broken_seen);
+}

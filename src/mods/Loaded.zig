@@ -102,6 +102,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     if (hooks.listenerFor(.player_hurt).* != null) game.Player.on_hurt = Hooks.playerHurt;
     if (hooks.listenerFor(.player_death).* != null) game.Player.on_death = Hooks.playerDied;
     if (hooks.listenerFor(.mob_death).* != null) game.Entities.on_mob_death = Hooks.mobDied;
+    if (hooks.listenerFor(.block_broken).* != null) game.interact.on_block_broken = Hooks.blockBroken;
 
     return .{
         .arena = arena,
@@ -180,6 +181,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
         game.Player.on_hurt = null;
         game.Player.on_death = null;
         game.Entities.on_mob_death = null;
+        game.interact.on_block_broken = null;
     }
     if (ModPlayer.active == self.player) {
         ModPlayer.active = null;
