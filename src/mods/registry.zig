@@ -1547,6 +1547,70 @@ test "a mob from lua leaves what its drop callback names" {
     try std.testing.expect(kind.takeDrops(animal) == null);
 }
 
+test "a mob steers itself when it thinks, and hands the tick back when it does not" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\thoughts = 0
+        \\moved = 0
+        \\rosebed.register_mob {
+        \\  key = "bumbler",
+        \\  path_weight = function(x, y, z) return y end,
+        \\  think = function(x, y, z)
+        \\    thoughts = thoughts + 1
+        \\    if y > 4 then rosebed.mob.steer(0.5, 0.25, 1) else rosebed.mob.wander() end
+        \\  end,
+        \\  after_move = function() moved = moved + 1 end,
+        \\}
+    );
+    const type_id = game.mob.find("quartz:bumbler").?;
+    const kind = game.mob.get(type_id);
+
+    var world_map = try world.testing.flatWorld(gpa, 4);
+    defer world_map.deinit();
+
+    var rand: world.JavaRandom = .init(5);
+    const animal = try kind.spawn(gpa, math.Vec3.init(8, 6, 8), &rand);
+    defer kind.destroy(animal, gpa);
+
+    try std.testing.expectEqual(@as(f32, 9), animal.path_weight(&world_map, .init(3, 9, 3)));
+
+    try kind.tick(animal, gpa, &world_map, .{}, &rand);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("thoughts"));
+    try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("moved"));
+    try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+    try std.testing.expect(animal.move_forward != 0);
+
+    animal.base.position.y = 2;
+    animal.move_forward = 0;
+    try kind.tick(animal, gpa, &world_map, .{}, &rand);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("thoughts"));
+    try std.testing.expectEqual(@as(i64, 2), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "the wander a mob hands back is only offered inside its own think" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.expectFailure(
+        \\rosebed.mob.wander()
+    , "only a mob's own think callback can hand the tick back");
+}
+
 test "a mob has to be built to a size that can stand somewhere" {
     var harness: Harness = undefined;
     try harness.init();
@@ -1767,6 +1831,39 @@ test "an overridden mob still does what it always did, then what the mod added" 
 
     try std.testing.expect(creeper.pending_blast == null);
     try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("seen"));
+    try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
+    harness.vm.lua.pop(1);
+}
+
+test "an overridden vanilla mob thinks for the mod, and wanders the way it always did" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+    const gpa = std.testing.allocator;
+    harness.hooks.install(harness.vm.lua);
+    Hooks.active = &harness.hooks;
+    defer Hooks.active = null;
+
+    try harness.vm.exec("=quartz",
+        \\thoughts = 0
+        \\rosebed.override_mob("Zombie", {
+        \\  path_weight = function(x, y, z) return -1 end,
+        \\  think = function() thoughts = thoughts + 1 rosebed.mob.wander() end,
+        \\})
+    );
+
+    var world_map = try world.testing.flatWorld(gpa, 4);
+    defer world_map.deinit();
+    var rand: world.JavaRandom = .init(5);
+
+    const kind = game.mob.get(game.mob.zombie);
+    const animal = try kind.spawn(gpa, math.Vec3.init(8, 6, 8), &rand);
+    defer kind.destroy(animal, gpa);
+
+    try std.testing.expectEqual(@as(f32, -1), animal.path_weight(&world_map, .init(3, 5, 3)));
+
+    try kind.tick(animal, gpa, &world_map, .{}, &rand);
+    try std.testing.expectEqual(zlua.LuaType.number, harness.vm.lua.getGlobal("thoughts"));
     try std.testing.expectEqual(@as(i64, 1), harness.vm.lua.toInteger(-1) catch unreachable);
     harness.vm.lua.pop(1);
 }

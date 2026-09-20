@@ -68,14 +68,16 @@ owed_drop: ?world.Stack = null,
 riding: Entity.Id = Entity.no_id,
 on_death: *const fn (*Animal, *world.JavaRandom) void = leaveNothing,
 path_weight: *const fn (*const world.World, BlockPos) f32 = blockPathWeight,
-action_state: *const fn (
+action_state: ActionState = updateActionState,
+after_move: *const fn (*Animal, *const world.World, *world.JavaRandom) void = settleNothing,
+
+pub const ActionState = *const fn (
     *Animal,
     std.mem.Allocator,
     *const world.World,
     Players,
     *world.JavaRandom,
-) anyerror!void = updateActionState,
-after_move: *const fn (*Animal, *const world.World, *world.JavaRandom) void = settleNothing,
+) anyerror!void;
 
 pub const Movement = enum { walking, flying, drifting };
 
@@ -687,7 +689,7 @@ pub fn followPath(self: *Animal, gpa: std.mem.Allocator, rand: *world.JavaRandom
     if (rand.nextFloat() < 0.8 and (self.base.in_water or self.in_lava)) self.is_jumping = true;
 }
 
-fn updateActionState(
+pub fn updateActionState(
     self: *Animal,
     gpa: std.mem.Allocator,
     world_map: *const world.World,

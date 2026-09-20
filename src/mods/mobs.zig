@@ -31,6 +31,9 @@ pub const Def = struct {
 pub const Refs = struct {
     drop: ?i32 = null,
     on_tick: ?i32 = null,
+    path_weight: ?i32 = null,
+    think: ?i32 = null,
+    after_move: ?i32 = null,
 };
 
 pub const Patch = struct {
@@ -41,6 +44,9 @@ pub const Patch = struct {
 pub const PatchRefs = struct {
     on_tick: ?i32 = null,
     drop: ?i32 = null,
+    path_weight: ?i32 = null,
+    think: ?i32 = null,
+    after_move: ?i32 = null,
 };
 
 pub const default_width: f64 = 0.6;
@@ -49,6 +55,7 @@ pub const default_height: f64 = 1.8;
 const Slot = struct {
     def: Def = .{},
     refs: Refs = .{},
+    inner_think: ?Animal.ActionState = null,
 };
 
 var slots: [capacity]Slot = @splat(.{});
@@ -93,6 +100,10 @@ const Override = struct {
     speed: ?f32 = null,
     on_tick: ?i32 = null,
     drop: ?i32 = null,
+    path_weight: ?i32 = null,
+    think: ?i32 = null,
+    after_move: ?i32 = null,
+    inner_think: ?Animal.ActionState = null,
     inner_spawn: ?*const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal = null,
     inner_load: ?*const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal = null,
     inner_after_tick: ?*const fn (*Animal, Mob.Tick) anyerror!void = null,
@@ -108,6 +119,9 @@ pub fn override(type_id: Mob.Id, patch: Patch, refs: PatchRefs) void {
     if (patch.speed) |speed| slot.speed = speed;
     if (refs.on_tick) |ref| slot.on_tick = ref;
     if (refs.drop) |ref| slot.drop = ref;
+    if (refs.path_weight) |ref| slot.path_weight = ref;
+    if (refs.think) |ref| slot.think = ref;
+    if (refs.after_move) |ref| slot.after_move = ref;
 
     var definition = Mob.get(type_id).*;
     if (slot.inner_spawn == null) {
@@ -129,6 +143,9 @@ const Wrapper = struct {
     afterTick: *const fn (*Animal, Mob.Tick) anyerror!void,
     takeDrops: *const fn (*Animal) ?Mob.Drops,
     onDeath: *const fn (*Animal, *world.JavaRandom) void,
+    pathWeight: *const fn (*const world.World, world.BlockPos) f32,
+    think: Animal.ActionState,
+    afterMove: *const fn (*Animal, *const world.World, *world.JavaRandom) void,
 };
 
 const wrappers: [Mob.capacity]Wrapper = blk: {
@@ -175,6 +192,41 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
                 animal.owed_drop = hooks.rollDrop(ref, null, rand);
             }
         }.call,
+        .pathWeight = &struct {
+            fn call(world_map: *const world.World, pos: world.BlockPos) f32 {
+                const ref = overrides[type_id].path_weight orelse return Animal.blockPathWeight(world_map, pos);
+                const hooks = Hooks.active orelse return Animal.blockPathWeight(world_map, pos);
+                return hooks.pathWeight(ref, world_map, pos) orelse Animal.blockPathWeight(world_map, pos);
+            }
+        }.call,
+        .think = &struct {
+            fn call(
+                animal: *Animal,
+                gpa: std.mem.Allocator,
+                world_map: *const world.World,
+                players: Animal.Players,
+                rand: *world.JavaRandom,
+            ) anyerror!void {
+                const slot = overrides[type_id];
+                const ref = slot.think orelse return;
+                const hooks = Hooks.active orelse return;
+                hooks.think(ref, .{
+                    .animal = animal,
+                    .gpa = gpa,
+                    .world_map = world_map,
+                    .players = players,
+                    .rand = rand,
+                    .inner = slot.inner_think orelse Animal.updateActionState,
+                });
+            }
+        }.call,
+        .afterMove = &struct {
+            fn call(animal: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+                const ref = overrides[type_id].after_move orelse return;
+                const hooks = Hooks.active orelse return;
+                hooks.callMob(ref, animal, @constCast(world_map), rand);
+            }
+        }.call,
     };
 }
 
@@ -185,6 +237,13 @@ fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
         overrides[type_id].inner_on_death = animal.on_death;
         animal.on_death = wrappers[type_id].onDeath;
     }
+    if (overrides[type_id].path_weight != null) animal.path_weight = wrappers[type_id].pathWeight;
+    if (overrides[type_id].think != null and animal.action_state != wrappers[type_id].think) {
+        overrides[type_id].inner_think = animal.action_state;
+        animal.action_state = wrappers[type_id].think;
+    }
+    if (overrides[type_id].after_move != null) animal.after_move = wrappers[type_id].afterMove;
+
     const slot = overrides[type_id];
     if (slot.health) |health| {
         animal.max_health = health;
@@ -196,6 +255,7 @@ fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
 const Entry = struct {
     spawn: *const fn (std.mem.Allocator, math.Vec3, *world.JavaRandom) anyerror!*Animal,
     load: *const fn (std.mem.Allocator, world.nbt.Compound) anyerror!?*Animal,
+    pathWeight: *const fn (*const world.World, world.BlockPos) f32,
 };
 
 const entries: [capacity]Entry = blk: {
@@ -206,6 +266,13 @@ const entries: [capacity]Entry = blk: {
 
 fn entryFor(comptime slot: u16) Entry {
     return .{
+        .pathWeight = &struct {
+            fn call(world_map: *const world.World, pos: world.BlockPos) f32 {
+                const ref = slots[slot].refs.path_weight orelse return Animal.blockPathWeight(world_map, pos);
+                const hooks = Hooks.active orelse return Animal.blockPathWeight(world_map, pos);
+                return hooks.pathWeight(ref, world_map, pos) orelse Animal.blockPathWeight(world_map, pos);
+            }
+        }.call,
         .spawn = &struct {
             fn call(gpa: std.mem.Allocator, position: math.Vec3, _: *world.JavaRandom) anyerror!*Animal {
                 return &(try create(gpa, slot, position)).animal;
@@ -240,7 +307,41 @@ fn create(gpa: std.mem.Allocator, slot: u16, position: math.Vec3) !*Body {
         .slot = slot,
     };
     body.animal.on_death = rollDrop;
+    if (slots[slot].refs.path_weight != null) body.animal.path_weight = entries[slot].pathWeight;
+    if (slots[slot].refs.think != null) {
+        slots[slot].inner_think = body.animal.action_state;
+        body.animal.action_state = think;
+    }
+    if (slots[slot].refs.after_move != null) body.animal.after_move = afterMove;
     return body;
+}
+
+fn think(
+    animal: *Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    players: Animal.Players,
+    rand: *world.JavaRandom,
+) anyerror!void {
+    const body: *Body = @fieldParentPtr("animal", animal);
+    const slot = slots[body.slot];
+    const ref = slot.refs.think orelse return;
+    const hooks = Hooks.active orelse return;
+    hooks.think(ref, .{
+        .animal = animal,
+        .gpa = gpa,
+        .world_map = world_map,
+        .players = players,
+        .rand = rand,
+        .inner = slot.inner_think orelse Animal.updateActionState,
+    });
+}
+
+fn afterMove(animal: *Animal, world_map: *const world.World, rand: *world.JavaRandom) void {
+    const body: *Body = @fieldParentPtr("animal", animal);
+    const ref = slots[body.slot].refs.after_move orelse return;
+    const hooks = Hooks.active orelse return;
+    hooks.callMob(ref, animal, @constCast(world_map), rand);
 }
 
 fn rollDrop(animal: *Animal, rand: *world.JavaRandom) void {

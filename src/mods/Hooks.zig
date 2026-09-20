@@ -14,6 +14,7 @@ lua: ?*Lua = null,
 current_world: ?*world.World = null,
 current_rand: ?*world.JavaRandom = null,
 current_mob: ?*game.Animal = null,
+current_wander: ?Wander = null,
 current_chunk: ?*world.Chunk = null,
 current_dimension: world.Dimension = .overworld,
 current_seed: ?i64 = null,
@@ -158,6 +159,49 @@ pub fn rollDrop(self: *Hooks, ref: i32, meta: ?u4, rand: *world.JavaRandom) ?wor
     const count = std.math.cast(u8, lua.toInteger(-2) catch 1) orelse return null;
     if (count == 0) return null;
     return .{ .id = id, .count = count, .meta = std.math.cast(u16, lua.toInteger(-1) catch 0) orelse 0 };
+}
+
+pub const Wander = struct {
+    animal: *game.Animal,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    players: game.Animal.Players,
+    rand: *world.JavaRandom,
+    inner: *const fn (
+        *game.Animal,
+        std.mem.Allocator,
+        *const world.World,
+        game.Animal.Players,
+        *world.JavaRandom,
+    ) anyerror!void,
+};
+
+pub fn pathWeight(self: *Hooks, ref: i32, world_map: *const world.World, pos: world.BlockPos) ?f32 {
+    const lua = self.lua orelse return null;
+
+    const outer = self.current_world;
+    self.current_world = @constCast(world_map);
+    defer self.current_world = outer;
+
+    _ = lua.getIndexRaw(zlua.registry_index, ref);
+    lua.pushInteger(pos.x);
+    lua.pushInteger(pos.y);
+    lua.pushInteger(pos.z);
+    lua.protectedCall(.{ .args = 3, .results = 1 }) catch {
+        std.log.warn("a mod path weight failed: {s}", .{lua.toString(-1) catch "(no message)"});
+        lua.pop(1);
+        return null;
+    };
+    defer lua.pop(1);
+    if (lua.typeOf(-1) != .number) return null;
+    return @floatCast(lua.toNumber(-1) catch return null);
+}
+
+pub fn think(self: *Hooks, ref: i32, wander: Wander) void {
+    const outer = self.current_wander;
+    self.current_wander = wander;
+    defer self.current_wander = outer;
+    self.callMob(ref, wander.animal, @constCast(wander.world_map), wander.rand);
 }
 
 pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.World, rand: *world.JavaRandom) void {
@@ -546,6 +590,40 @@ fn mobHurt(lua: *Lua) i32 {
     return 0;
 }
 
+fn mobSteer(lua: *Lua) i32 {
+    const animal = currentMob(lua);
+    animal.move_forward = @floatCast(lua.checkNumber(1));
+    animal.move_strafing = @floatCast(optionalNumber(lua, 2, 0));
+    animal.random_yaw_velocity = @floatCast(optionalNumber(lua, 3, 0));
+    return 0;
+}
+
+fn mobJump(lua: *Lua) i32 {
+    const animal = currentMob(lua);
+    animal.is_jumping = lua.isNoneOrNil(1) or lua.toBoolean(1);
+    return 0;
+}
+
+fn mobLook(lua: *Lua) i32 {
+    const animal = currentMob(lua);
+    animal.yaw = @floatCast(lua.checkNumber(1));
+    animal.pitch = @floatCast(optionalNumber(lua, 2, animal.pitch));
+    return 0;
+}
+
+fn mobWander(lua: *Lua) i32 {
+    const wander = hooks(lua).current_wander orelse
+        lua.raiseErrorStr("only a mob's own think callback can hand the tick back", .{});
+    wander.inner(wander.animal, wander.gpa, wander.world_map, wander.players, wander.rand) catch
+        lua.raiseErrorStr("the mob could not be steered", .{});
+    return 0;
+}
+
+fn optionalNumber(lua: *Lua, arg: i32, fallback: f64) f64 {
+    if (lua.isNoneOrNil(arg)) return fallback;
+    return lua.checkNumber(arg);
+}
+
 fn currentMob(lua: *Lua) *game.Animal {
     return hooks(lua).current_mob orelse lua.raiseErrorStr("a mob is only reached from its own callback", .{});
 }
@@ -620,6 +698,10 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "position", .function = zlua.wrap(mobPosition) },
         .{ .name = "health", .function = zlua.wrap(mobHealth) },
         .{ .name = "hurt", .function = zlua.wrap(mobHurt) },
+        .{ .name = "steer", .function = zlua.wrap(mobSteer) },
+        .{ .name = "jump", .function = zlua.wrap(mobJump) },
+        .{ .name = "look", .function = zlua.wrap(mobLook) },
+        .{ .name = "wander", .function = zlua.wrap(mobWander) },
     };
     for (mob_functions) |entry| {
         lua.pushLightUserdata(self);
