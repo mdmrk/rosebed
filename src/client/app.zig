@@ -3174,6 +3174,30 @@ fn pumpModMessages(app_state: *AppState, link: *Link) !void {
     }
 }
 
+fn playModEffects(app_state: *AppState) !void {
+    const loaded = app_state.loaded_mods orelse return;
+    const queued = loaded.effects.take();
+    defer loaded.effects.release(queued);
+
+    for (queued) |effect| switch (effect) {
+        .sound => |body| {
+            const sound = world.sound.byKey(body.key) orelse continue;
+            app_state.level.world_map.playSoundEffect(body.at, sound, body.volume, body.pitch);
+        },
+        .particle => |body| {
+            const range = game.Particle.vanilla_range;
+            if (app_state.player.base.position.distanceSquaredTo(body.at) > range * range) continue;
+            try app_state.level.entities.spawnVanillaParticle(
+                app_state.gpa,
+                body.kind,
+                body.at,
+                body.drift,
+                &app_state.level.world_map.rand,
+            );
+        },
+    };
+}
+
 fn loopbackModMessages(app_state: *AppState) void {
     const loaded = app_state.loaded_mods orelse return;
     const outbox = loaded.net_api.take();
@@ -3327,6 +3351,7 @@ fn tick(app_state: *AppState) !void {
         loopbackModMessages(app_state);
     }
 
+    try playModEffects(app_state);
     app_state.cloud_offset += 1;
 
     try app_state.level.entities.tickParticles(app_state.gpa, &app_state.level.world_map, &app_state.level.world_map.rand);

@@ -1,0 +1,193 @@
+const std = @import("std");
+
+const game = @import("game");
+const math = @import("math");
+const world = @import("world");
+const zlua = @import("zlua");
+const Lua = zlua.Lua;
+
+const Effects = @This();
+
+pub const Effect = union(enum) {
+    sound: struct {
+        key: []const u8,
+        at: math.Vec3,
+        volume: f32,
+        pitch: f32,
+    },
+    particle: struct {
+        kind: game.Particle.Vanilla,
+        at: math.Vec3,
+        drift: math.Vec3,
+    },
+};
+
+gpa: std.mem.Allocator,
+outgoing: std.ArrayList(Effect) = .empty,
+
+pub var active: ?*Effects = null;
+
+pub fn install(self: *Effects, lua: *Lua) void {
+    _ = lua.getGlobal("rosebed");
+    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+        .{ .name = "play_sound", .function = zlua.wrap(playSound) },
+        .{ .name = "particle", .function = zlua.wrap(particle) },
+    };
+    for (functions) |entry| {
+        lua.pushLightUserdata(self);
+        lua.pushClosure(entry.function, 1);
+        lua.setField(-2, entry.name);
+    }
+    lua.pop(1);
+    active = self;
+}
+
+pub fn deinit(self: *Effects) void {
+    for (self.outgoing.items) |effect| self.free(effect);
+    self.outgoing.deinit(self.gpa);
+    if (active == self) active = null;
+}
+
+fn free(self: *Effects, effect: Effect) void {
+    switch (effect) {
+        .sound => |body| self.gpa.free(body.key),
+        .particle => {},
+    }
+}
+
+pub fn take(self: *Effects) []Effect {
+    return self.outgoing.toOwnedSlice(self.gpa) catch &.{};
+}
+
+pub fn release(self: *Effects, effects: []Effect) void {
+    for (effects) |effect| self.free(effect);
+    self.gpa.free(effects);
+}
+
+fn context(lua: *Lua) *Effects {
+    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+}
+
+fn place(lua: *Lua, first: i32) math.Vec3 {
+    return .init(lua.checkNumber(first), lua.checkNumber(first + 1), lua.checkNumber(first + 2));
+}
+
+fn optionalNumber(lua: *Lua, arg: i32, fallback: f64) f64 {
+    if (lua.isNoneOrNil(arg)) return fallback;
+    return lua.checkNumber(arg);
+}
+
+fn playSound(lua: *Lua) i32 {
+    const self = context(lua);
+    const key = lua.checkString(1);
+    if (world.sound.byKey(key) == null) lua.argError(1, "no sound is named that");
+
+    const at = place(lua, 2);
+    const volume: f32 = @floatCast(optionalNumber(lua, 5, 1.0));
+    const pitch: f32 = @floatCast(optionalNumber(lua, 6, 1.0));
+
+    const owned = self.gpa.dupe(u8, key) catch lua.raiseErrorStr("out of memory", .{});
+    self.outgoing.append(self.gpa, .{ .sound = .{
+        .key = owned,
+        .at = at,
+        .volume = volume,
+        .pitch = pitch,
+    } }) catch {
+        self.gpa.free(owned);
+        lua.raiseErrorStr("out of memory", .{});
+    };
+    return 0;
+}
+
+fn particle(lua: *Lua) i32 {
+    const self = context(lua);
+    const kind = game.Particle.Vanilla.fromKey(lua.checkString(1)) orelse
+        lua.argError(1, "no particle is named that");
+
+    const at = place(lua, 2);
+    const drift: math.Vec3 = .init(
+        optionalNumber(lua, 5, 0),
+        optionalNumber(lua, 6, 0),
+        optionalNumber(lua, 7, 0),
+    );
+
+    self.outgoing.append(self.gpa, .{ .particle = .{
+        .kind = kind,
+        .at = at,
+        .drift = drift,
+    } }) catch lua.raiseErrorStr("out of memory", .{});
+    return 0;
+}
+
+const Vm = @import("Vm.zig");
+
+const Harness = struct {
+    vm: Vm,
+    api: Effects,
+
+    fn init(self: *Harness) !void {
+        self.vm = try .init(std.testing.allocator);
+        self.vm.lua.newTable();
+        self.vm.lua.setGlobal("rosebed");
+        self.api = .{ .gpa = std.testing.allocator };
+        self.api.install(self.vm.lua);
+    }
+
+    fn deinit(self: *Harness) void {
+        self.api.deinit();
+        self.vm.deinit();
+    }
+};
+
+test "a mod queues the sounds and particles it asks for, in order" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.play_sound("random.explode", 8.5, 64, -3.25, 4, 0.7)
+        \\rosebed.play_sound("random.pop", 1, 2, 3)
+        \\rosebed.particle("heart", 1.5, 2.5, 3.5)
+        \\rosebed.particle("reddust", 0, 0, 0, 1, 0.5, 0.25)
+    );
+
+    const queued = harness.api.take();
+    defer harness.api.release(queued);
+    try std.testing.expectEqual(@as(usize, 4), queued.len);
+
+    try std.testing.expectEqualStrings("random.explode", queued[0].sound.key);
+    try std.testing.expectEqual(@as(f64, 8.5), queued[0].sound.at.x);
+    try std.testing.expectEqual(@as(f32, 4), queued[0].sound.volume);
+    try std.testing.expectEqual(@as(f32, 0.7), queued[0].sound.pitch);
+
+    try std.testing.expectEqualStrings("random.pop", queued[1].sound.key);
+    try std.testing.expectEqual(@as(f32, 1), queued[1].sound.volume);
+    try std.testing.expectEqual(@as(f32, 1), queued[1].sound.pitch);
+
+    try std.testing.expectEqual(game.Particle.Vanilla.heart, queued[2].particle.kind);
+    try std.testing.expectEqual(@as(f64, 2.5), queued[2].particle.at.y);
+    try std.testing.expectEqual(@as(f64, 0), queued[2].particle.drift.x);
+
+    try std.testing.expectEqual(game.Particle.Vanilla.reddust, queued[3].particle.kind);
+    try std.testing.expectEqual(@as(f64, 0.5), queued[3].particle.drift.y);
+
+    try std.testing.expectEqual(@as(usize, 0), harness.api.take().len);
+}
+
+test "a sound or a particle nothing is named after is refused as it is asked for" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=test",
+        \\rosebed.play_sound("random.nothing", 0, 0, 0)
+    ));
+    try std.testing.expect(std.mem.indexOf(u8, harness.vm.errorMessage(), "no sound is named that") != null);
+
+    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=test",
+        \\rosebed.particle("sparkle", 0, 0, 0)
+    ));
+    try std.testing.expect(std.mem.indexOf(u8, harness.vm.errorMessage(), "no particle is named that") != null);
+
+    try std.testing.expectEqual(@as(usize, 0), harness.api.take().len);
+}

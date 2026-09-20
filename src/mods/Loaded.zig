@@ -5,6 +5,7 @@ const net = @import("net");
 const world = @import("world");
 
 const discovery = @import("discovery.zig");
+const Effects = @import("Effects.zig");
 const Hooks = @import("Hooks.zig");
 const Hud = @import("Hud.zig");
 const Input = @import("Input.zig");
@@ -24,6 +25,7 @@ hud: *Hud,
 input: *Input,
 player: *ModPlayer,
 net_api: *Net,
+effects: *Effects,
 mods: []const discovery.Mod,
 block_textures: []const registry.BlockTexture,
 item_textures: []const registry.ItemTexture,
@@ -56,6 +58,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     hooks.* = .{};
     const net_api = try allocator.create(Net);
     net_api.* = .{ .gpa = gpa };
+    const effects = try allocator.create(Effects);
+    effects.* = .{ .gpa = gpa };
     const registrar = try allocator.create(registry.Registrar);
     registrar.* = .{ .arena = allocator, .hooks = hooks };
     var vm: Vm = try .init(gpa);
@@ -63,6 +67,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     registry.install(vm.lua, registrar);
     hooks.install(vm.lua);
     net_api.install(vm.lua);
+    effects.install(vm.lua);
 
     errdefer resetRegistries();
     var shared: std.ArrayList(discovery.Mod) = .empty;
@@ -113,6 +118,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
         .input = input,
         .player = player,
         .net_api = net_api,
+        .effects = effects,
         .mods = mods,
         .block_textures = registrar.block_textures.items,
         .item_textures = registrar.item_textures.items,
@@ -191,6 +197,7 @@ pub fn deinit(self: *Loaded, gpa: std.mem.Allocator) void {
     }
     self.hooks.deinit();
     self.net_api.deinit();
+    self.effects.deinit();
     self.vm.deinit();
     self.arena.deinit();
     gpa.destroy(self.arena);
