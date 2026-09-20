@@ -75,10 +75,18 @@ networking comes first, before the effects that need it.
    and nil on the client. In single player there is no link, so a send loops
    straight back into the same VM on the next tick: a mod behaves the same
    in both modes without knowing which one it is in.
-2. **Events.** One registration function per event, in the style of
-   `on_decorate` and `player.on_tick`, not a generic bus. `on_world_tick`,
-   `on_chunk_load`, `on_block_broken`, `on_block_placed` (cancellable),
-   `on_player_hurt`, `on_player_death`, `on_mob_death`.
+2. **Events.** Mostly done. `on_world_tick(dimension, count)`,
+   `on_chunk_load(x, z, fresh)`, `on_player_hurt(amount, health, x, y, z)`
+   (return true to swallow the damage), `on_player_death(x, y, z)` and
+   `on_mob_death(key, x, y, z)`. A handler that throws is switched off rather
+   than run again, and an engine hook is only installed when a mod actually
+   listens, so an unmodded game pays nothing. `rosebed.world` is reachable
+   from the world, chunk and mob events. It is **not** reachable from the two
+   player events: `Player.damageFrom` only holds a `*const World`, and making
+   it mutable would ripple through `Player.tick` and every caller, so those
+   two hand the numbers over as arguments instead.
+   Still missing: `on_block_broken` and `on_block_placed`, held back by the
+   two-paths risk below.
 3. **Effects.** `play_sound`, `particle` (13 vanilla kinds), `explode`, and
    spawning entities at runtime. Needs 1 to work on a server.
 4. **Commands.** `register_command`, through `game/commands.zig`.
