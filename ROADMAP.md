@@ -32,6 +32,12 @@ the whole game, minus the paths where a Lua call per item would cost frames.
       wear. Returning true claims the tick and replaces the air physics.
 - [x] **Poses** - `set_pose` turns the whole body and any of the six limbs, for
       the local player and, through `on_peer_pose`, for everybody else.
+- [x] **Effects** - `play_sound` (any key in the vanilla sound tree),
+      `particle` (the 13 kinds `RenderGlobal.spawnParticle` accepts and this
+      port has), `explode` and `spawn`. Queued the way `rosebed.net.send` is:
+      the client plays what it drains, the server broadcasts a sound 64 blocks
+      and a particle 16, and detonates or spawns on the level that just
+      ticked.
 - [x] **HUD** - `on_draw` with `text` and `rect`.
 - [x] **Input** - `on_key`.
 - [x] **Multiplayer** - mod list handshake, mod ids on the wire, block palette
@@ -54,16 +60,14 @@ These stay in Zig. A mod shapes them with data, never with a callback.
 - Worldgen inner loops. Hooks stay per chunk, never per block.
 - Entity and world rendering. A mod fills in data, it does not draw.
 
-### The thing that blocks the rest
+### What used to block the rest
 
-There is no sound and no particle on the wire. `World.sound_sink` only exists
-on the client's world, and particles are client entities. In single player that
-does not matter. On a dedicated server blocks tick on the server, so a
-`play_sound` from a block's `on_tick` would be silent for everybody.
-
-The same holds for any mod state a client has to see. So the bottleneck is not
-any one API: it is that `common.lua` has no way to reach clients. That is why
-networking comes first, before the effects that need it.
+Sound and particles had no way onto the wire, so `common.lua` could not reach
+a client at all. Packet 251 carries a mod's own messages, and packets 252 and
+253 carry a sound and a particle. Both are rosebed's, not vanilla's:
+`WorldManager.playSound` and `WorldManager.spawnParticle` are empty on a
+vanilla server, which is why the eight aux effects of packet 61 were the only
+thing a b1.7.3 server could make a client hear.
 
 ### Order
 
@@ -90,9 +94,16 @@ networking comes first, before the effects that need it.
    `interact.placeBlockAt`, the single paths both sides now take. The
    metadata reported is the one that settled, after the facing a furnace,
    dispenser, pumpkin, stairs or repeater takes from the placer's yaw.
-3. **Effects.** `play_sound`, `particle` (13 vanilla kinds), `explode`, and
-   spawning entities at runtime. Needs 1 to work on a server. Next up.
-4. **Commands.** `register_command`, through `game/commands.zig`.
+3. ~~**Effects.**~~ Done. `rosebed.play_sound(key, x, y, z, volume, pitch)`,
+   `rosebed.particle(kind, x, y, z, dx, dy, dz)`,
+   `rosebed.explode(x, y, z, size, flaming)` and
+   `rosebed.spawn(name, x, y, z)`. A key, kind or mob name nothing is
+   registered under is refused where the mod asks for it. The drift is read
+   the way vanilla reads it: a tone for `note`, a colour for `reddust`, and
+   ignored for `lava`, `slime` and `heart`. `explode` and `spawn` only land
+   where the world is authoritative, so calling either from `client.lua`
+   while connected to a server does nothing.
+4. **Commands.** `register_command`, through `game/commands.zig`. Next up.
 5. **Block entities.** A registry for per-block state with NBT save and load.
    `World.zig:190` holds fixed hash maps today with no registration seam. This
    is the largest structural gap.
@@ -106,8 +117,11 @@ ones.
 
 The glue between the mod VM and each end has no automated test: the server
 peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
-`Connection.mod_inbox` and fills the outbox in `tickRemote`. The packet, the
-queues and the dispatch are covered; those few lines of wiring are not.
+`Connection.mod_inbox` and fills the outbox in `tickRemote`, and the same
+holds for `flushModEffects` and `playModEffects`. The packets, the queues and
+the dispatch are covered; those few lines of wiring are not. The client half
+was walked through by hand instead: a probe mod placed a block, exploded it
+and read back air, with a sound, two particles and a mob spawn in between.
 
 ### Known risks
 
@@ -131,6 +145,14 @@ queues and the dispatch are covered; those few lines of wiring are not.
   entity. That predates the unification and is still open.
 - Breaking a chest drops nothing, on either side. That one predates the
   unification and is still open.
+- **A world with nobody in it does not tick.** `Level.tick` returns early when
+  `occupants` is empty, so a dedicated server sitting idle runs no
+  `on_world_tick`, no block ticks and no mod events at all. Vanilla ticks its
+  worlds regardless.
+- A mod effect is drained once per dimension, straight after that dimension's
+  level ticks, which places anything queued from inside a tick correctly. One
+  queued outside a tick, from a `mod_message` handler say, falls to whichever
+  dimension drains first.
 - Mods run before the world loads, so registration order decides ids. The block
   palette in the save covers a shuffle, but two mods claiming the same key
   still collide at load.
