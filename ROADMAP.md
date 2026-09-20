@@ -32,6 +32,10 @@ the whole game, minus the paths where a Lua call per item would cost frames.
       wear. Returning true claims the tick and replaces the air physics.
 - [x] **Poses** - `set_pose` turns the whole body and any of the six limbs, for
       the local player and, through `on_peer_pose`, for everybody else.
+- [x] **Commands** - `register_command(name, { usage, description, run })`.
+      `run(args, who)` gets the words after the verb and the caller's name,
+      and the string it returns is said back to whoever typed it. Listed by
+      `/help` under the vanilla verbs.
 - [x] **Effects** - `play_sound` (any key in the vanilla sound tree),
       `particle` (the 13 kinds `RenderGlobal.spawnParticle` accepts and this
       port has), `explode` and `spawn`. Queued the way `rosebed.net.send` is:
@@ -43,7 +47,8 @@ the whole game, minus the paths where a Lua call per item would cost frames.
 - [x] **Multiplayer** - mod list handshake, mod ids on the wire, block palette
       and stack keys in the save, so a world survives an id shuffle.
 
-Ceilings: 22 biomes, 16 mob types (wire ids 96 to 111), 32 parts per model,
+Ceilings: 22 biomes, 16 mob types (wire ids 96 to 111), 32 commands,
+32 parts per model,
 block ids from 97, item ids from 360, 256 shaped and 256 shapeless recipes.
 Block and item textures must be exactly 16 by 16 and claim a free cell of the
 256 by 256 vanilla atlas. Mob skins are their own atlas and any size.
@@ -103,8 +108,12 @@ thing a b1.7.3 server could make a client hear.
    ignored for `lava`, `slime` and `heart`. `explode` and `spawn` only land
    where the world is authoritative, so calling either from `client.lua`
    while connected to a server does nothing.
-4. **Commands.** `register_command`, through `game/commands.zig`. Next up.
-5. **Block entities.** A registry for per-block state with NBT save and load.
+4. ~~**Commands.**~~ Done. `commands.zig` keeps a runtime registry beside the
+   comptime `Verb` table, and `parse` hands back the rest of the line for a
+   mod to tokenise. A name a vanilla verb or another mod already answers to
+   is refused. One registered in `client.lua` runs on the client; one
+   registered in `common.lua` is forwarded to the server when there is one.
+5. **Block entities.** Next up. A registry for per-block state with NBT save and load.
    `World.zig:190` holds fixed hash maps today with no registration seam. This
    is the largest structural gap.
 6. **Screens and containers.** Needs 1 and 5.
@@ -112,13 +121,14 @@ thing a b1.7.3 server could make a client hear.
    `action_state`, `after_move`. Until then a mod mob wanders like a vanilla
    animal and runs its `on_tick` afterwards.
 
-Steps 1 to 4 leave the API close to Fabric. Steps 5 and 6 are the expensive
-ones.
+Steps 1 to 4 are done and leave the API close to Fabric. Steps 5 and 6 are
+the expensive ones.
 
 The glue between the mod VM and each end has no automated test: the server
 peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
 `Connection.mod_inbox` and fills the outbox in `tickRemote`, and the same
-holds for `flushModEffects` and `playModEffects`. The packets, the queues and
+holds for `flushModEffects`, `playModEffects` and the two `.custom` arms of
+`runCommand`. The packets, the queues and
 the dispatch are covered; those few lines of wiring are not. The client half
 was walked through by hand instead: a probe mod placed a block, exploded it
 and read back air, with a sound, two particles and a mob spawn in between.
