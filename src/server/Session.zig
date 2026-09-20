@@ -1248,6 +1248,7 @@ pub const Open = union(enum) {
     chest: world.World.ChestPair,
     furnace: world.World.BlockPos,
     dispenser: world.World.BlockPos,
+    mod_container: world.World.BlockPos,
     minecart: game.Entity.Id,
 };
 
@@ -1285,6 +1286,11 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
         .dispenser => |at| {
             const trap = level.world_map.dispenserAt(at) orelse return window;
             window.addStore(&trap.items, .chest);
+        },
+        .mod_container => |at| {
+            const spec = level.world_map.getBlock(.init(at.x, at.y, at.z)).def().container orelse return window;
+            const held = level.world_map.containerAt(.init(at.x, at.y, at.z)) orelse return window;
+            window.addStore(held.items[0 .. @as(usize, spec.rows) * 9], .chest);
         },
         .minecart => |id| {
             const cart = level.entities.minecartById(id) orelse return window;
@@ -1775,8 +1781,13 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
         },
         .jukebox, .cake => return true,
         else => {
-            const hook = standing.def().on_activated orelse return false;
-            return hook(&level.world_map, pos, standing);
+            if (standing.def().on_activated) |hook| {
+                if (try hook(&level.world_map, pos, standing)) return true;
+            }
+            const spec = standing.def().container orelse return false;
+            _ = try level.world_map.addContainer(pos);
+            try self.openContainer(gpa, level, .{ .mod_container = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, .chest, spec.title);
+            return true;
         },
     }
 }
@@ -2751,6 +2762,51 @@ test "a block out of arm's reach cannot be dug" {
     } });
 
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 28)));
+}
+
+test "activating a mod's container opens a chest window onto its own slots" {
+    const gpa = std.testing.allocator;
+    defer world.Block.resetRegistry();
+
+    const hive = try world.Block.claim(.{
+        .key = "meadow:hive",
+        .name = "Hive",
+        .container = .{ .rows = 2, .title = "Hive" },
+    });
+
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    const pos: BlockPos = .init(8, 64, 8);
+    try level.world_map.setBlockWithNotify(pos, hive);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .place = .{ .x = 8, .y = 64, .z = 8, .face = 1, .held = null } });
+
+    try std.testing.expect(session.open == .mod_container);
+    try std.testing.expect(level.world_map.containerAt(pos) != null);
+
+    const window = session.currentWindow(&level);
+    try std.testing.expectEqual(@as(usize, 18), window.store_count);
+    try std.testing.expectEqual(@as(usize, 18 + game.Window.player_slot_count), window.count);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    var opened: ?net.packet.Packet = null;
+    for (replies.items) |reply| {
+        if (reply == .open_window) opened = reply;
+    }
+    try std.testing.expectEqual(net.packet.Window.chest, opened.?.open_window.kind);
+    try std.testing.expectEqualStrings("Hive", opened.?.open_window.title);
+    try std.testing.expectEqual(@as(i8, 18), opened.?.open_window.slots);
 }
 
 test "a place puts the held block against the face the client clicked" {
