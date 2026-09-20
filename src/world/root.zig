@@ -5,6 +5,7 @@ pub const Shape = block.Shape;
 pub const Side = block.Side;
 pub const Stack = block.Stack;
 pub const Id = block.Id;
+pub const block_state = @import("block_state.zig");
 pub const block_update = @import("block_update.zig");
 pub const BlockPos = @import("BlockPos.zig");
 pub const chest = @import("chest.zig");
@@ -88,6 +89,7 @@ test {
     _ = piston;
     _ = sign;
     _ = sound;
+    _ = block_state;
     _ = jukebox;
     _ = note;
     _ = Weather;

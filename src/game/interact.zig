@@ -146,6 +146,7 @@ pub fn breakBlockAt(
     try spillContainers(gpa, level, pos);
     _ = level.world_map.removeSign(pos);
     _ = level.world_map.removeNote(pos);
+    _ = level.world_map.removeBlockState(pos);
 
     if (broken.harvested and !broken.lit_tnt) {
         if (block.harvestDrop(meta, held, &level.world_map.rand)) |dropped| {
@@ -795,6 +796,23 @@ test "placing a block reports the metadata it settled on" {
     try std.testing.expectEqual(world.Block.furnace, placed_last.block);
     try std.testing.expectEqual(BlockPos.init(2, 65, 2), placed_last.pos);
     try std.testing.expectEqual(world.block.furnaceFacingFromYaw(0), placed_last.meta);
+}
+
+test "breaking a block takes the state a mod left on it" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, .stone);
+
+    var state: world.nbt.Compound = .{};
+    try world.nbt.putDuped(gpa, &state, "charge", .{ .double = 4 });
+    try level.world_map.putBlockState(pos, state);
+
+    _ = try breakBlockAt(gpa, &level, null, pos);
+    try std.testing.expect(level.world_map.blockStateAt(pos) == null);
 }
 
 test "breaking air reports nothing and changes nothing" {
