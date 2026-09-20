@@ -203,6 +203,10 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             definition.shape = readShape(lua);
             return;
         }
+        if (std.mem.eql(u8, name, "container")) {
+            definition.container = readContainer(lua, registrar);
+            return;
+        }
     } else {
         if (comptime @hasField(Extras(Def), "texture")) {
             if (std.mem.eql(u8, name, "texture")) {
@@ -244,6 +248,30 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
         }
     }
     lua.raiseErrorStr("unknown field '%s'", .{name.ptr});
+}
+
+fn readContainer(lua: *Lua, registrar: *Registrar) world.block.Container {
+    if (lua.typeOf(-1) != .table) lua.raiseErrorStr("'container' is a table of 'rows' and 'title'", .{});
+    const table = lua.getTop();
+
+    var spec: world.block.Container = .{};
+    if (lua.getField(table, "rows") != .nil) {
+        const rows = lua.toInteger(-1) catch lua.raiseErrorStr("'rows' must be a number", .{});
+        if (rows < 1 or rows > world.block_container.max_rows) {
+            lua.raiseErrorStr("a container holds one to six rows", .{});
+        }
+        spec.rows = @intCast(rows);
+    }
+    lua.pop(1);
+
+    if (lua.getField(table, "title") != .nil) {
+        if (lua.typeOf(-1) != .string) lua.raiseErrorStr("'title' must be a string", .{});
+        spec.title = registrar.arena.dupe(u8, lua.toString(-1) catch unreachable) catch
+            lua.raiseErrorStr("out of memory", .{});
+    }
+    lua.pop(1);
+
+    return spec;
 }
 
 fn registerMob(lua: *Lua) i32 {
@@ -1030,6 +1058,45 @@ test "overriding reaches items and blocks another mod registered" {
     );
     try std.testing.expectEqual(@as(f32, 4), world.Block.fromKey("quartz:marble").?.def().hardness);
     try std.testing.expectEqual(@as(u8, 16), world.Item.shears.def().max_stack_size);
+}
+
+test "a block can be given a container of its own, one to six rows deep" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=quartz",
+        \\rosebed.register_block {
+        \\  key = "hive",
+        \\  name = "Hive",
+        \\  container = { rows = 2, title = "Hive" },
+        \\}
+        \\rosebed.register_block { key = "crate", container = {} }
+    );
+
+    const hive = world.Block.fromKey("quartz:hive").?;
+    try std.testing.expectEqual(@as(u8, 2), hive.def().container.?.rows);
+    try std.testing.expectEqualStrings("Hive", hive.def().container.?.title);
+
+    const crate = world.Block.fromKey("quartz:crate").?;
+    try std.testing.expectEqual(@as(u8, 3), crate.def().container.?.rows);
+    try std.testing.expectEqualStrings("", crate.def().container.?.title);
+}
+
+test "a container deeper than the screen can draw is refused" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.expectFailure(
+        \\rosebed.register_block { key = "hive", container = { rows = 7 } }
+    , "a container holds one to six rows");
+    try harness.expectFailure(
+        \\rosebed.register_block { key = "hive", container = { rows = 0 } }
+    , "a container holds one to six rows");
+    try harness.expectFailure(
+        \\rosebed.register_block { key = "hive", container = "big" }
+    , "'container' is a table of 'rows' and 'title'");
 }
 
 test "a block names the textures its faces are painted with" {

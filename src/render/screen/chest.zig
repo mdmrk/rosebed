@@ -143,11 +143,10 @@ pub fn drawCargo(
     ui: gui.Ui,
     inventory: game.Inventory,
     cargo: []const ?world.Stack,
+    rows: u8,
     title: []const u8,
     held: ?game.Inventory.ItemStack,
 ) !void {
-    const rows: u8 = world.chest.rows;
-
     container.begin();
     try drawBackdrop(ui, rows);
 

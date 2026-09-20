@@ -131,6 +131,7 @@ pub const AppState = struct {
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     chest_open: ?world.World.BlockPos = null,
+    mod_container_open: ?world.World.BlockPos = null,
     dispenser_open: ?world.World.BlockPos = null,
     minecart_open: game.Entity.Id = game.Entity.no_id,
     paused: bool = false,
@@ -1045,6 +1046,9 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
 }
 
 fn closeBrokenContainer(app_state: *AppState, pos: BlockPos) !void {
+    if (app_state.mod_container_open) |open| {
+        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
+    }
     if (app_state.furnace_open) |open| {
         if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
     }
@@ -1098,6 +1102,8 @@ fn currentWindow(app_state: *AppState) game.Window {
     } else if (openedChest(app_state)) |open| {
         window.addStore(&open.upper.items, .chest);
         if (open.lower) |lower| window.addStore(&lower.items, .chest);
+    } else if (openedModContainer(app_state)) |open| {
+        window.addStore(open.slots(), .chest);
     } else if (openedDispenser(app_state)) |trap| {
         window.addStore(&trap.items, .chest);
     } else if (openedMinecart(app_state)) |cart| {
@@ -1265,6 +1271,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 fn containerOpen(app_state: *const AppState) bool {
     return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
         app_state.chest_open != null or app_state.dispenser_open != null or
+        app_state.mod_container_open != null or
         app_state.minecart_open != game.Entity.no_id or app_state.sign_edit != null;
 }
 
@@ -1308,6 +1315,7 @@ fn closeContainer(app_state: *AppState) !void {
         app_state.furnace_open = null;
         app_state.chest_open = null;
         app_state.dispenser_open = null;
+        app_state.mod_container_open = null;
         app_state.minecart_open = game.Entity.no_id;
         return updateMouseMode(app_state);
     }
@@ -1317,6 +1325,7 @@ fn closeContainer(app_state: *AppState) !void {
     app_state.furnace_open = null;
     app_state.chest_open = null;
     app_state.dispenser_open = null;
+    app_state.mod_container_open = null;
     app_state.minecart_open = game.Entity.no_id;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
@@ -1355,6 +1364,27 @@ fn openedDispenser(app_state: *AppState) ?*world.dispenser.Dispenser {
     const pos = app_state.dispenser_open orelse return null;
     if (app_state.level.world_map.getBlock(pos) != .dispenser) return null;
     return app_state.level.world_map.dispenserAt(pos);
+}
+
+const OpenModContainer = struct {
+    store: *world.block_container.Store,
+    spec: world.block.Container,
+
+    fn slots(self: OpenModContainer) []?world.Stack {
+        return self.store.items[0 .. @as(usize, self.spec.rows) * 9];
+    }
+};
+
+fn openedModContainer(app_state: *AppState) ?OpenModContainer {
+    const pos = app_state.mod_container_open orelse return null;
+    const spec = app_state.level.world_map.getBlock(pos).def().container orelse return null;
+    return .{ .store = app_state.level.world_map.containerAt(pos) orelse return null, .spec = spec };
+}
+
+fn openModContainer(app_state: *AppState, pos: BlockPos) !void {
+    _ = try app_state.level.world_map.addContainer(pos);
+    app_state.mod_container_open = .{ .x = pos.x, .y = pos.y, .z = pos.z };
+    try updateMouseMode(app_state);
 }
 
 fn openChest(app_state: *AppState, pos: BlockPos) !void {
@@ -2717,6 +2747,10 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                         return true;
                     }
                 }
+                if (id.def().container != null) {
+                    try openModContainer(app_state, hit.pos);
+                    return true;
+                }
             },
         }
     }
@@ -2909,6 +2943,7 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
         app_state.furnace_open = null;
         app_state.chest_open = null;
         app_state.dispenser_open = null;
+        app_state.mod_container_open = null;
         app_state.minecart_open = game.Entity.no_id;
         try updateMouseMode(app_state);
         return;
@@ -2928,12 +2963,16 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
             app_state.dispenser_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
         },
         .chest => {
+            const at: BlockPos = .init(open.at[0], open.at[1], open.at[2]);
             if (open.cart != game.Entity.no_id) {
                 if (app_state.minecart_open == open.cart) return;
                 app_state.minecart_open = open.cart;
+            } else if (app_state.level.world_map.getBlock(at).def().container != null) {
+                if (app_state.mod_container_open != null) return;
+                app_state.mod_container_open = .{ .x = at.x, .y = at.y, .z = at.z };
             } else {
                 if (app_state.chest_open != null) return;
-                app_state.chest_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
+                app_state.chest_open = .{ .x = at.x, .y = at.y, .z = at.z };
             }
         },
         else => return,
@@ -5099,6 +5138,15 @@ pub fn iterate(
         );
     } else if (openedChest(app_state)) |open| {
         try render.screen.chest.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
+    } else if (openedModContainer(app_state)) |open| {
+        try render.screen.chest.drawCargo(
+            ui,
+            app_state.player.inventory,
+            open.slots(),
+            open.spec.rows,
+            open.spec.title,
+            app_state.held_stack,
+        );
     } else if (openedDispenser(app_state)) |open| {
         try render.screen.dispenser.draw(ui, app_state.player.inventory, open, app_state.held_stack);
     } else if (openedMinecart(app_state)) |cart| {
@@ -5106,6 +5154,7 @@ pub fn iterate(
             ui,
             app_state.player.inventory,
             &cart.items,
+            world.chest.rows,
             game.Minecart.inventory_name,
             app_state.held_stack,
         );
