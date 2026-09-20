@@ -229,6 +229,11 @@ pub const StepSound = enum {
     }
 };
 
+pub const Container = struct {
+    rows: u8 = 3,
+    title: []const u8 = "",
+};
+
 pub const Def = struct {
     key: []const u8 = "",
     name: []const u8 = "",
@@ -257,6 +262,7 @@ pub const Def = struct {
     on_random_tick: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
     on_neighbor_change: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
     on_activated: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!bool = null,
+    container: ?Container = null,
 };
 
 const vanilla_keys: [256][]const u8 = keysFromEnum();

@@ -5,6 +5,7 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const block_container = @import("block_container.zig");
 const block_state = @import("block_state.zig");
 const block_update = @import("block_update.zig");
 pub const BlockPos = @import("BlockPos.zig");
@@ -199,6 +200,7 @@ dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
 mob_spawners: std.AutoHashMapUnmanaged(BlockPos, mob_spawner.MobSpawner) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
 block_states: std.AutoHashMapUnmanaged(BlockPos, nbt.Compound) = .{},
+containers: std.AutoHashMapUnmanaged(BlockPos, block_container.Store) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
 jukebox_updates: std.ArrayList(BlockPos) = .empty,
@@ -314,6 +316,7 @@ pub fn deinit(self: *World) void {
         nbt.deinit(self.allocator, &owned);
     }
     self.block_states.deinit(self.allocator);
+    self.containers.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
@@ -815,6 +818,21 @@ pub fn forgetOrphanSpawners(self: *World) !void {
     for (self.spawner_updates.items) |pos| _ = self.mob_spawners.remove(pos);
 }
 
+pub fn containerAt(self: *World, pos: BlockPos) ?*block_container.Store {
+    return self.containers.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
+}
+
+pub fn addContainer(self: *World, pos: BlockPos) !*block_container.Store {
+    const entry = try self.containers.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeContainer(self: *World, pos: BlockPos) ?block_container.Store {
+    const removed = self.containers.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
+    return removed.value;
+}
+
 pub fn blockStateAt(self: *World, pos: BlockPos) ?*nbt.Compound {
     return self.block_states.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
 }
@@ -1208,6 +1226,13 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         try out.append(self.allocator, try mob_spawner.store(self.allocator, pos, entry.value_ptr.*));
     }
 
+    var containers_it = self.containers.iterator();
+    while (containers_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try block_container.store(self.allocator, pos, entry.value_ptr.*));
+    }
+
     var states_it = self.block_states.iterator();
     while (states_it.next()) |entry| {
         const pos = entry.key_ptr.*;
@@ -1219,6 +1244,10 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
     _ = gpa;
     const self: *World = @ptrCast(@alignCast(context));
+    if (block_container.load(compound)) |placed| {
+        (try self.addContainer(placed.pos)).* = placed.state;
+        return;
+    }
     if (try block_state.load(self.allocator, compound)) |placed| {
         try self.putBlockState(placed.pos, placed.state);
         return;

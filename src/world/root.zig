@@ -5,6 +5,7 @@ pub const Shape = block.Shape;
 pub const Side = block.Side;
 pub const Stack = block.Stack;
 pub const Id = block.Id;
+pub const block_container = @import("block_container.zig");
 pub const block_state = @import("block_state.zig");
 pub const block_update = @import("block_update.zig");
 pub const BlockPos = @import("BlockPos.zig");
@@ -90,6 +91,7 @@ test {
     _ = sign;
     _ = sound;
     _ = block_state;
+    _ = block_container;
     _ = jukebox;
     _ = note;
     _ = Weather;

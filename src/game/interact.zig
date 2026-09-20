@@ -242,6 +242,13 @@ fn spillContainers(gpa: std.mem.Allocator, level: *Level, pos: BlockPos) !void {
             try level.dropStackAt(gpa, pos, stack);
         }
     }
+    if (level.world_map.removeContainer(pos)) |taken| {
+        var removed = taken;
+        for (0..world.block_container.max_slots) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
     if (level.world_map.removeJukebox(pos)) |removed| {
         if (removed.record) |record| {
             try level.entities.ejectRecord(gpa, pos, .{ .id = .{ .item = record }, .count = 1 }, &level.world_map.rand);
@@ -813,6 +820,34 @@ test "breaking a block takes the state a mod left on it" {
 
     _ = try breakBlockAt(gpa, &level, null, pos);
     try std.testing.expect(level.world_map.blockStateAt(pos) == null);
+}
+
+test "breaking a mod's container drops what it held" {
+    const gpa = std.testing.allocator;
+    defer world.Block.resetRegistry();
+
+    const hive = try world.Block.claim(.{
+        .key = "meadow:hive",
+        .name = "Hive",
+        .container = .{ .rows = 1, .title = "Hive" },
+    });
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    level.attach();
+    _ = try level.world_map.createChunk(0, 0);
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, hive);
+
+    const held = try level.world_map.addContainer(pos);
+    held.slot(0).* = .{ .id = .{ .item = .diamond }, .count = 3 };
+    held.slot(8).* = .{ .id = .{ .block = .planks }, .count = 12 };
+
+    _ = try breakBlockAt(gpa, &level, null, pos);
+
+    try std.testing.expect(level.world_map.containerAt(pos) == null);
+    try std.testing.expectEqual(@as(usize, 2), level.entities.items.items.len);
 }
 
 test "breaking air reports nothing and changes nothing" {
