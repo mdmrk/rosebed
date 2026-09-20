@@ -20,6 +20,11 @@ pub const Effect = union(enum) {
         at: math.Vec3,
         drift: math.Vec3,
     },
+    explode: struct {
+        at: math.Vec3,
+        size: f32,
+        flaming: bool,
+    },
 };
 
 gpa: std.mem.Allocator,
@@ -32,6 +37,7 @@ pub fn install(self: *Effects, lua: *Lua) void {
     const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
         .{ .name = "play_sound", .function = zlua.wrap(playSound) },
         .{ .name = "particle", .function = zlua.wrap(particle) },
+        .{ .name = "explode", .function = zlua.wrap(explode) },
     };
     for (functions) |entry| {
         lua.pushLightUserdata(self);
@@ -51,7 +57,7 @@ pub fn deinit(self: *Effects) void {
 fn free(self: *Effects, effect: Effect) void {
     switch (effect) {
         .sound => |body| self.gpa.free(body.key),
-        .particle => {},
+        .particle, .explode => {},
     }
 }
 
@@ -119,6 +125,21 @@ fn particle(lua: *Lua) i32 {
     return 0;
 }
 
+fn explode(lua: *Lua) i32 {
+    const self = context(lua);
+    const at = place(lua, 1);
+    const size = lua.checkNumber(4);
+    if (size <= 0) lua.argError(4, "an explosion needs a size");
+    const flaming = !lua.isNoneOrNil(5) and lua.toBoolean(5);
+
+    self.outgoing.append(self.gpa, .{ .explode = .{
+        .at = at,
+        .size = @floatCast(size),
+        .flaming = flaming,
+    } }) catch lua.raiseErrorStr("out of memory", .{});
+    return 0;
+}
+
 const Vm = @import("Vm.zig");
 
 const Harness = struct {
@@ -172,6 +193,31 @@ test "a mod queues the sounds and particles it asks for, in order" {
     try std.testing.expectEqual(@as(f64, 0.5), queued[3].particle.drift.y);
 
     try std.testing.expectEqual(@as(usize, 0), harness.api.take().len);
+}
+
+test "an explosion is queued with the size and the fire the mod asked for" {
+    var harness: Harness = undefined;
+    try harness.init();
+    defer harness.deinit();
+
+    try harness.vm.exec("=test",
+        \\rosebed.explode(8, 64, 8, 4)
+        \\rosebed.explode(0, 0, 0, 1.5, true)
+    );
+
+    const queued = harness.api.take();
+    defer harness.api.release(queued);
+    try std.testing.expectEqual(@as(usize, 2), queued.len);
+    try std.testing.expectEqual(@as(f64, 64), queued[0].explode.at.y);
+    try std.testing.expectEqual(@as(f32, 4), queued[0].explode.size);
+    try std.testing.expect(!queued[0].explode.flaming);
+    try std.testing.expectEqual(@as(f32, 1.5), queued[1].explode.size);
+    try std.testing.expect(queued[1].explode.flaming);
+
+    try std.testing.expectError(error.ScriptFailed, harness.vm.exec("=test",
+        \\rosebed.explode(0, 0, 0, 0)
+    ));
+    try std.testing.expect(std.mem.indexOf(u8, harness.vm.errorMessage(), "an explosion needs a size") != null);
 }
 
 test "a sound or a particle nothing is named after is refused as it is asked for" {

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const core = @import("core");
 const game = @import("game");
+const math = @import("math");
 const mods = @import("mods");
 const net = @import("net");
 const world = @import("world");
@@ -520,47 +521,57 @@ fn flushModMessages(server: *Server) void {
 
 pub const particle_range: f64 = 16.0;
 
-fn flushModEffects(server: *Server) void {
+fn flushModEffects(server: *Server, dim: *Dim) !void {
     const api = mods.Effects.active orelse return;
     const queued = api.take();
     defer api.release(queued);
 
-    for (queued) |effect| {
-        const at = switch (effect) {
-            inline else => |body| body.at,
-        };
-        const range = switch (effect) {
-            .sound => aux_sfx_range,
-            .particle => particle_range,
-        };
-        const message: net.packet.Packet = switch (effect) {
-            .sound => |body| .{ .sound_effect = .{
-                .key = body.key,
-                .x = body.at.x,
-                .y = body.at.y,
-                .z = body.at.z,
-                .volume = body.volume,
-                .pitch = body.pitch,
-            } },
-            .particle => |body| .{ .particle = .{
-                .kind = @intFromEnum(body.kind),
-                .x = body.at.x,
-                .y = body.at.y,
-                .z = body.at.z,
-                .drift = .{
-                    @floatCast(body.drift.x),
-                    @floatCast(body.drift.y),
-                    @floatCast(body.drift.z),
-                },
-            } },
-        };
+    for (queued) |effect| switch (effect) {
+        .sound => |body| broadcastEffect(server, dim, body.at, aux_sfx_range, .{ .sound_effect = .{
+            .key = body.key,
+            .x = body.at.x,
+            .y = body.at.y,
+            .z = body.at.z,
+            .volume = body.volume,
+            .pitch = body.pitch,
+        } }),
+        .particle => |body| broadcastEffect(server, dim, body.at, particle_range, .{ .particle = .{
+            .kind = @intFromEnum(body.kind),
+            .x = body.at.x,
+            .y = body.at.y,
+            .z = body.at.z,
+            .drift = .{
+                @floatCast(body.drift.x),
+                @floatCast(body.drift.y),
+                @floatCast(body.drift.z),
+            },
+        } }),
+        .explode => |body| try game.explosion.detonate(
+            server.gpa,
+            &dim.level.entities,
+            &dim.level.world_map,
+            dim.level.roster.items,
+            body.at,
+            body.size,
+            body.flaming,
+            &dim.level.world_map.rand,
+        ),
+    };
+}
 
-        for (server.connections.items) |connection| {
-            if (connection.session.state != .playing) continue;
-            const player = connection.session.player orelse continue;
-            if (player.base.position.distanceSquaredTo(at) >= range * range) continue;
-            connection.session.send(server.gpa, message) catch {};
-        }
+fn broadcastEffect(
+    server: *Server,
+    dim: *Dim,
+    at: math.Vec3,
+    range: f64,
+    message: net.packet.Packet,
+) void {
+    for (server.connections.items) |connection| {
+        if (connection.session.state != .playing) continue;
+        if (connection.session.dimension != dim.dimension) continue;
+        const player = connection.session.player orelse continue;
+        if (player.base.position.distanceSquaredTo(at) >= range * range) continue;
+        connection.session.send(server.gpa, message) catch {};
     }
 }
 
@@ -723,10 +734,12 @@ fn tick(server: *Server) !void {
 
     var arena: std.heap.ArenaAllocator = .init(server.gpa);
     defer arena.deinit();
-    for (&server.dims) |*dim| try dim.level.tick(server.gpa, arena.allocator());
+    for (&server.dims) |*dim| {
+        try dim.level.tick(server.gpa, arena.allocator());
+        try flushModEffects(server, dim);
+    }
     for (&server.dims) |*dim| try flushBlockChanges(dim);
     flushModMessages(server);
-    flushModEffects(server);
 
     for (server.connections.items) |connection| {
         const travelling = connection.session.tickPlayer(server.gpa, server.levelFor(connection)) catch false;

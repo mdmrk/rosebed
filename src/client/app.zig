@@ -3195,6 +3195,20 @@ fn playModEffects(app_state: *AppState) !void {
                 &app_state.level.world_map.rand,
             );
         },
+        .explode => |body| {
+            if (app_state.link != null) continue;
+            try game.explosion.detonate(
+                app_state.gpa,
+                &app_state.level.entities,
+                &app_state.level.world_map,
+                app_state.level.roster.items,
+                body.at,
+                body.size,
+                body.flaming,
+                &app_state.level.world_map.rand,
+            );
+            try applyBlockChanges(app_state);
+        },
     };
 }
 
