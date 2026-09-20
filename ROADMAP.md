@@ -27,6 +27,10 @@ the whole game, minus the paths where a Lua call per item would cost frames.
       mobs), `register_biome` (takes a share of a vanilla parent).
 - [x] **World access** - blocks, metadata, scheduled ticks, biome, ground
       height, chest slots, spawner mobs.
+- [x] **Block state** - `get_state` and `set_state` keep a table of numbers,
+      strings and booleans on any position. It is written into the chunk's
+      `TileEntities` list as `RosebedState` and read back out of it, so it
+      survives a save, and breaking the block takes it with it.
 - [x] **Player** - `on_tick` reads position, motion, look, ground, fall
       distance, health and equipment, and can set motion, fall distance and
       wear. Returning true claims the tick and replaces the air physics.
@@ -113,16 +117,22 @@ thing a b1.7.3 server could make a client hear.
    mod to tokenise. A name a vanilla verb or another mod already answers to
    is refused. One registered in `client.lua` runs on the client; one
    registered in `common.lua` is forwarded to the server when there is one.
-5. **Block entities.** Next up. A registry for per-block state with NBT save and load.
-   `World.zig:190` holds fixed hash maps today with no registration seam. This
-   is the largest structural gap.
-6. **Screens and containers.** Needs 1 and 5.
+5. ~~**Block entities.**~~ Done, as much as a mod needs. `World.block_states`
+   is one map of position to `nbt.Compound`, saved and loaded through the same
+   `TileEntities` list the vanilla eight use. What is **not** done is folding
+   those eight typed maps (`furnaces`, `chests`, `signs`, `jukeboxes`,
+   `notes`, `dispensers`, `mob_spawners`, `pistons`) into one registry with a
+   vtable. They work, they are exact, and rewriting them buys a mod nothing
+   that the state map does not already give it. If a mod ever needs to tick
+   its own block entity or open a screen onto it, that is the moment to
+   revisit, and step 6 is where it would land.
+6. **Screens and containers.** Next up. Needs 1 and 5.
 7. **Mob AI.** Expose the three seams `Animal` already has: `path_weight`,
    `action_state`, `after_move`. Until then a mod mob wanders like a vanilla
    animal and runs its `on_tick` afterwards.
 
-Steps 1 to 4 are done and leave the API close to Fabric. Steps 5 and 6 are
-the expensive ones.
+Steps 1 to 5 are done and leave the API close to Fabric. Step 6 is the
+expensive one left.
 
 The glue between the mod VM and each end has no automated test: the server
 peels `mod_message` in `drainPending` and flushes in `tick`, the client drains
@@ -163,6 +173,13 @@ and read back air, with a sound, two particles and a mob spawn in between.
   level ticks, which places anything queued from inside a tick correctly. One
   queued outside a tick, from a `mod_message` handler say, falls to whichever
   dimension drains first.
+- **A tile entity outlives the block it belonged to.** Vanilla drops it in
+  `Chunk.setBlockIDWithMetadata` whenever the old block was a `BlockContainer`;
+  rosebed only clears one where a call site remembers to, which is
+  `interact.breakBlockAt`. Replace a furnace by any other route and its
+  contents are still in the map, and still saved. A mod's state has the same
+  hole. Fixing it is the natural first step of folding the eight maps into
+  one registry.
 - Mods run before the world loads, so registration order decides ids. The block
   palette in the save covers a shuffle, but two mods claiming the same key
   still collide at load.
