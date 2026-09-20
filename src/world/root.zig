@@ -54,6 +54,7 @@ pub const redstone = @import("redstone.zig");
 pub const RegionFile = @import("RegionFile.zig");
 pub const save = @import("save.zig");
 pub const sign = @import("sign.zig");
+pub const sound = @import("sound.zig");
 pub const testing = @import("testing.zig");
 pub const tile = @import("tile.zig");
 pub const tnt = @import("tnt.zig");
@@ -86,6 +87,7 @@ test {
     _ = chest;
     _ = piston;
     _ = sign;
+    _ = sound;
     _ = jukebox;
     _ = note;
     _ = Weather;

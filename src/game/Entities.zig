@@ -781,6 +781,17 @@ pub fn puffDispenserSmoke(
     }
 }
 
+pub fn spawnVanillaParticle(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    kind: Particle.Vanilla,
+    at: math.Vec3,
+    drift: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    try self.particles.append(gpa, Particle.spawnVanilla(kind, at, drift, rand));
+}
+
 pub fn ejectRecord(
     self: *Entities,
     gpa: std.mem.Allocator,

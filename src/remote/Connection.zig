@@ -355,6 +355,25 @@ fn handlePlaying(
             const effect = world.World.AuxSfx.fromId(body.effect) orelse return;
             level.world_map.playAuxSfx(effect, .init(body.x, body.y, body.z), body.data);
         },
+        .sound_effect => |body| {
+            const sound = world.sound.byKey(body.key) orelse return;
+            level.world_map.playSoundEffect(
+                math.Vec3.init(body.x, body.y, body.z),
+                sound,
+                body.volume,
+                body.pitch,
+            );
+        },
+        .particle => |body| {
+            const kind = std.enums.fromInt(game.Particle.Vanilla, body.kind) orelse return;
+            try level.entities.spawnVanillaParticle(
+                gpa,
+                kind,
+                math.Vec3.init(body.x, body.y, body.z),
+                math.Vec3.init(body.drift[0], body.drift[1], body.drift[2]),
+                &level.world_map.rand,
+            );
+        },
         .multi_block_change => |body| try self.multiBlockChange(level, body),
         else => {},
     }
@@ -1574,6 +1593,99 @@ test "an aux sound effect from the server is played out on this client" {
     try std.testing.expectEqual(@as(i32, -6), heard.pos.z);
     try std.testing.expectEqual(@as(i32, 0x0301), heard.data);
     try std.testing.expectEqual(@as(usize, 1), heard.count);
+}
+
+const SoundLog = struct {
+    key: []const u8 = "",
+    at: math.Vec3 = .init(0, 0, 0),
+    volume: f32 = 0,
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) void {
+        const self: *SoundLog = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.at = at;
+        self.volume = volume;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: world.BlockPos) void {}
+
+    fn sink(self: *SoundLog) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "a sound and a particle from the server are played out on this client" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: SoundLog = .{};
+    level.world_map.sound_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .sound_effect = .{
+        .key = "random.explode",
+        .x = 5.5,
+        .y = 70.0,
+        .z = -6.5,
+        .volume = 4.0,
+        .pitch = 0.7,
+    } });
+
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings("random.explode", heard.key);
+    try std.testing.expectEqual(@as(f64, 5.5), heard.at.x);
+    try std.testing.expectEqual(@as(f32, 4.0), heard.volume);
+
+    try connection.handle(gpa, &level, testing_username, .{ .particle = .{
+        .kind = @intFromEnum(game.Particle.Vanilla.heart),
+        .x = 1.5,
+        .y = 2.5,
+        .z = 3.5,
+        .drift = .{ 0, 0, 0 },
+    } });
+
+    try std.testing.expectEqual(@as(usize, 1), level.entities.particles.items.len);
+    try std.testing.expectEqual(game.Particle.Kind.heart, level.entities.particles.items[0].kind);
+}
+
+test "a sound and a particle nothing is registered as are dropped rather than guessed at" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: SoundLog = .{};
+    level.world_map.sound_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .sound_effect = .{
+        .key = "random.nothing",
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .volume = 1,
+        .pitch = 1,
+    } });
+    try connection.handle(gpa, &level, testing_username, .{ .particle = .{
+        .kind = 200,
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .drift = .{ 0, 0, 0 },
+    } });
+
+    try std.testing.expectEqual(@as(usize, 0), heard.count);
+    try std.testing.expectEqual(@as(usize, 0), level.entities.particles.items.len);
 }
 
 test "an aux sound effect this build does not know is dropped rather than guessed at" {

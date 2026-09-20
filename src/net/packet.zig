@@ -61,11 +61,14 @@ pub const Id = enum(u8) {
     statistic = 200,
     mod_list = 250,
     mod_message = 251,
+    sound_effect = 252,
+    particle = 253,
     kick_disconnect = 255,
 };
 
 pub const rosebed_client_seed: i64 = 0x726f7365626564;
 pub const max_mod_channel = 64;
+pub const max_sound_key = 64;
 pub const max_mod_payload = 32 * 1024;
 
 pub const ModMessage = struct {
@@ -175,6 +178,7 @@ pub fn direction(id: Id) Direction {
         .map_chunk => .{ .to_client = true, .to_server = false },
         .mod_list => .{ .to_client = true, .to_server = false },
         .mod_message => .{ .to_client = true, .to_server = true },
+        .sound_effect, .particle => .{ .to_client = true, .to_server = false },
         .multi_block_change => .{ .to_client = true, .to_server = false },
         .block_change => .{ .to_client = true, .to_server = false },
         .play_note_block => .{ .to_client = true, .to_server = false },
@@ -532,6 +536,21 @@ pub const Packet = union(Id) {
     statistic: struct { stat_id: i32, amount: i8 },
     mod_list: ModList,
     mod_message: ModMessage,
+    sound_effect: struct {
+        key: []const u8,
+        x: f64,
+        y: f64,
+        z: f64,
+        volume: f32,
+        pitch: f32,
+    },
+    particle: struct {
+        kind: u8,
+        x: f64,
+        y: f64,
+        z: f64,
+        drift: [3]f32,
+    },
     kick_disconnect: struct { reason: []const u8 },
 
     pub fn id(self: Packet) Id {
@@ -554,6 +573,7 @@ pub const Packet = union(Id) {
             .entity_metadata => |body| freeMetadata(gpa, body.metadata),
             .kick_disconnect => |body| gpa.free(body.reason),
             .mod_list => |body| freeModList(gpa, body),
+            .sound_effect => |body| gpa.free(body.key),
             .mod_message => |body| {
                 gpa.free(body.channel);
                 gpa.free(body.payload);
@@ -1254,6 +1274,29 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .mod_list => return .{ .mod_list = try readModList(gpa, r) },
         .mod_message => return .{ .mod_message = try readModMessage(gpa, r) },
+        .sound_effect => {
+            const key = try readString(gpa, r, max_sound_key);
+            errdefer gpa.free(key);
+            return .{ .sound_effect = .{
+                .key = key,
+                .x = @bitCast(try r.takeInt(u64, .big)),
+                .y = @bitCast(try r.takeInt(u64, .big)),
+                .z = @bitCast(try r.takeInt(u64, .big)),
+                .volume = @bitCast(try r.takeInt(u32, .big)),
+                .pitch = @bitCast(try r.takeInt(u32, .big)),
+            } };
+        },
+        .particle => return .{ .particle = .{
+            .kind = try r.takeInt(u8, .big),
+            .x = @bitCast(try r.takeInt(u64, .big)),
+            .y = @bitCast(try r.takeInt(u64, .big)),
+            .z = @bitCast(try r.takeInt(u64, .big)),
+            .drift = .{
+                @bitCast(try r.takeInt(u32, .big)),
+                @bitCast(try r.takeInt(u32, .big)),
+                @bitCast(try r.takeInt(u32, .big)),
+            },
+        } },
         .kick_disconnect => return .{ .kick_disconnect = .{ .reason = try readString(gpa, r, max_kick_reason) } },
     }
 }
@@ -1570,6 +1613,21 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .mod_list => |body| try writeModList(w, body),
         .mod_message => |body| try writeModMessage(w, body),
+        .sound_effect => |body| {
+            try writeString(w, body.key, max_sound_key);
+            try w.writeInt(u64, @bitCast(body.x), .big);
+            try w.writeInt(u64, @bitCast(body.y), .big);
+            try w.writeInt(u64, @bitCast(body.z), .big);
+            try w.writeInt(u32, @bitCast(body.volume), .big);
+            try w.writeInt(u32, @bitCast(body.pitch), .big);
+        },
+        .particle => |body| {
+            try w.writeInt(u8, body.kind, .big);
+            try w.writeInt(u64, @bitCast(body.x), .big);
+            try w.writeInt(u64, @bitCast(body.y), .big);
+            try w.writeInt(u64, @bitCast(body.z), .big);
+            for (body.drift) |component| try w.writeInt(u32, @bitCast(component), .big);
+        },
         .kick_disconnect => |body| try writeString(w, body.reason, max_kick_reason),
     }
 }
@@ -2014,6 +2072,13 @@ test "every packet decodes back out of the bytes vanilla wrote" {
     }
 }
 
+fn rosebedOnly(name: []const u8) bool {
+    for ([_][]const u8{ "mod_list", "mod_message", "sound_effect", "particle" }) |own| {
+        if (std.mem.eql(u8, name, own)) return true;
+    }
+    return false;
+}
+
 test "every packet the protocol defines has a byte vector taken from vanilla" {
     var seen: [@typeInfo(Id).@"enum".fields.len]bool = @splat(false);
 
@@ -2024,7 +2089,7 @@ test "every packet the protocol defines has a byte vector taken from vanilla" {
     }
 
     inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
-        if (comptime std.mem.eql(u8, field.name, "mod_list") or std.mem.eql(u8, field.name, "mod_message")) continue;
+        if (comptime rosebedOnly(field.name)) continue;
         if (!seen[index]) {
             std.debug.print("no golden vector for {s}\n", .{field.name});
             return error.TestExpectedEqual;
@@ -2092,6 +2157,8 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .statistic, .to_client = true, .to_server = false },
         .{ .id = .mod_list, .to_client = true, .to_server = false },
         .{ .id = .mod_message, .to_client = true, .to_server = true },
+        .{ .id = .sound_effect, .to_client = true, .to_server = false },
+        .{ .id = .particle, .to_client = true, .to_server = false },
         .{ .id = .kick_disconnect, .to_client = true, .to_server = true },
     };
 
@@ -2101,6 +2168,51 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         try std.testing.expectEqual(entry.to_client, allowed.to_client);
         try std.testing.expectEqual(entry.to_server, allowed.to_server);
     }
+}
+
+test "a sound and a particle survive the trip to a client and are refused from one" {
+    const gpa = std.testing.allocator;
+
+    const sound: Packet = .{ .sound_effect = .{
+        .key = "random.explode",
+        .x = 8.5,
+        .y = 64.0,
+        .z = -12.25,
+        .volume = 4.0,
+        .pitch = 0.7,
+    } };
+    const encoded_sound = try encodeAlloc(gpa, sound);
+    defer gpa.free(encoded_sound);
+
+    const heard = try decode(gpa, encoded_sound, false);
+    defer heard.deinit(gpa);
+    try std.testing.expectEqualStrings("random.explode", heard.sound_effect.key);
+    try std.testing.expectEqual(@as(f64, 8.5), heard.sound_effect.x);
+    try std.testing.expectEqual(@as(f64, 64.0), heard.sound_effect.y);
+    try std.testing.expectEqual(@as(f64, -12.25), heard.sound_effect.z);
+    try std.testing.expectEqual(@as(f32, 4.0), heard.sound_effect.volume);
+    try std.testing.expectEqual(@as(f32, 0.7), heard.sound_effect.pitch);
+    try std.testing.expectError(error.WrongDirection, decode(gpa, encoded_sound, true));
+
+    const puff: Packet = .{ .particle = .{
+        .kind = 3,
+        .x = 1.5,
+        .y = 2.5,
+        .z = 3.5,
+        .drift = .{ 0.25, -0.5, 1.0 },
+    } };
+    const encoded_puff = try encodeAlloc(gpa, puff);
+    defer gpa.free(encoded_puff);
+
+    const seen = try decode(gpa, encoded_puff, false);
+    defer seen.deinit(gpa);
+    try std.testing.expectEqual(@as(u8, 3), seen.particle.kind);
+    try std.testing.expectEqual(@as(f64, 1.5), seen.particle.x);
+    try std.testing.expectEqual(@as(f64, 2.5), seen.particle.y);
+    try std.testing.expectEqual(@as(f64, 3.5), seen.particle.z);
+    try std.testing.expectEqual([3]f32{ 0.25, -0.5, 1.0 }, seen.particle.drift);
+    try std.testing.expectError(error.WrongDirection, decode(gpa, encoded_puff, true));
+    try std.testing.expectError(error.EndOfStream, decode(gpa, encoded_puff[0 .. encoded_puff.len - 3], false));
 }
 
 test "the mod list, which vanilla never sends, keeps vanilla's string and short encoding" {
