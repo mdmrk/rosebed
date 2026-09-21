@@ -600,6 +600,7 @@ fn applyModTextures(app_state: *AppState) bool {
 
 fn tellModsKey(app_state: *AppState, current: sdl3.events.Event) void {
     const loaded = app_state.loaded_mods orelse return;
+    if (loaded.input.on_key == null) return;
     if (app_state.screen != .playing) return;
     const key, const pressed = switch (current) {
         .key_down => |k| if (k.repeat or !worldFocused(app_state)) return else .{ k.key orelse return, true },
@@ -670,12 +671,16 @@ fn freeModSkins(app_state: *AppState) void {
     app_state.mob_skins = &.{};
 }
 
-fn modSkin(app_state: *AppState, mods_dir: std.Io.Dir, arena: std.mem.Allocator, request: ModRegistry.MobSkin) ?render.Atlas {
-    const path = std.fs.path.join(arena, &.{ request.folder, request.file }) catch return null;
-    const png = mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
+fn readModTexture(app_state: *AppState, mods_dir: std.Io.Dir, path: []const u8) ?[]u8 {
+    return mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
         std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
         return null;
     };
+}
+
+fn modSkin(app_state: *AppState, mods_dir: std.Io.Dir, arena: std.mem.Allocator, request: ModRegistry.MobSkin) ?render.Atlas {
+    const path = std.fs.path.join(arena, &.{ request.folder, request.file }) catch return null;
+    const png = readModTexture(app_state, mods_dir, path) orelse return null;
     defer app_state.gpa.free(png);
 
     return render.Atlas.load(png, app_state.settings.anaglyph) catch |err| {
@@ -701,10 +706,7 @@ fn modTile(
 }
 
 fn paintModTile(app_state: *AppState, mods_dir: std.Io.Dir, atlas: *render.Atlas, path: []const u8) ?u8 {
-    const png = mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
-        std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
-        return null;
-    };
+    const png = readModTexture(app_state, mods_dir, path) orelse return null;
     defer app_state.gpa.free(png);
 
     const tile = atlas.claimTile() orelse {
@@ -1038,22 +1040,18 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
     try closeBrokenChest(app_state, pos);
 
     const held = app_state.player.inventory.selectedStack();
-    const broken = try game.interact.breakBlockAt(app_state.gpa, &app_state.level, held, pos) orelse return;
+    const harvested = try game.interact.breakBlockAt(app_state.gpa, &app_state.level, held, pos) orelse return;
 
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
-    if (broken.harvested) try app_state.stats.mine(app_state.gpa, block_id);
+    if (harvested) try app_state.stats.mine(app_state.gpa, block_id);
 }
 
 fn closeBrokenContainer(app_state: *AppState, pos: BlockPos) !void {
-    if (app_state.mod_container_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
-    }
-    if (app_state.furnace_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
-    }
-    if (app_state.dispenser_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) return closeContainer(app_state);
+    for ([_]?BlockPos{ app_state.mod_container_open, app_state.furnace_open, app_state.dispenser_open }) |open| {
+        if (open) |at| {
+            if (std.meta.eql(at, pos)) return closeContainer(app_state);
+        }
     }
 }
 
@@ -1383,7 +1381,7 @@ fn openedModContainer(app_state: *AppState) ?OpenModContainer {
 
 fn openModContainer(app_state: *AppState, pos: BlockPos) !void {
     _ = try app_state.level.world_map.addContainer(pos);
-    app_state.mod_container_open = .{ .x = pos.x, .y = pos.y, .z = pos.z };
+    app_state.mod_container_open = pos;
     try updateMouseMode(app_state);
 }
 
@@ -2969,7 +2967,7 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
                 app_state.minecart_open = open.cart;
             } else if (app_state.level.world_map.getBlock(at).def().container != null) {
                 if (app_state.mod_container_open != null) return;
-                app_state.mod_container_open = .{ .x = at.x, .y = at.y, .z = at.z };
+                app_state.mod_container_open = at;
             } else {
                 if (app_state.chest_open != null) return;
                 app_state.chest_open = .{ .x = at.x, .y = at.y, .z = at.z };
@@ -3236,10 +3234,7 @@ fn playModEffects(app_state: *AppState) !void {
     defer loaded.effects.release(queued);
 
     for (queued) |effect| switch (effect) {
-        .sound => |body| {
-            const sound = world.sound.byKey(body.key) orelse continue;
-            app_state.level.world_map.playSoundEffect(body.at, sound, body.volume, body.pitch);
-        },
+        .sound => |body| app_state.level.world_map.playSoundEffect(body.at, body.sound, body.volume, body.pitch),
         .particle => |body| {
             const range = game.Particle.vanilla_range;
             if (app_state.player.base.position.distanceSquaredTo(body.at) > range * range) continue;

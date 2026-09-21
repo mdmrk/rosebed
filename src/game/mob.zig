@@ -163,6 +163,7 @@ pub const giant: Id = 13;
 
 var types: [capacity]Type = initialTypes();
 var count: usize = vanilla.len;
+var spawning: usize = 0;
 
 fn initialTypes() [capacity]Type {
     var out: [capacity]Type = undefined;
@@ -183,12 +184,19 @@ pub fn register(entry: Type) Id {
     std.debug.assert(count < capacity);
     types[count] = entry;
     count += 1;
+    if (entry.spawns != null) spawning += 1;
     return @intCast(count - 1);
 }
 
 pub fn replace(id: Id, entry: Type) void {
     std.debug.assert(id < count);
+    if (types[id].spawns != null) spawning -= 1;
+    if (entry.spawns != null) spawning += 1;
     types[id] = entry;
+}
+
+pub fn anySpawns() bool {
+    return spawning > 0;
 }
 
 pub fn find(name: []const u8) ?Id {
@@ -201,6 +209,7 @@ pub fn find(name: []const u8) ?Id {
 pub fn reset() void {
     types = initialTypes();
     count = vanilla.len;
+    spawning = 0;
 }
 
 test "the vanilla mob types keep the ids the save format is written against" {

@@ -129,10 +129,13 @@ fn appendClipped(mesh: *MeshBuilder, ui: gui.Ui, text: []const u8, x: f32, y: f3
     try gui.appendTextColor(mesh, ui.gpa, ui.font, clipped_tail, tail_x, y, color, ui.res);
 }
 
-fn appendTitle(mesh: *MeshBuilder, ui: gui.Ui, text: []const u8, column: Column) !void {
+fn centeredX(ui: gui.Ui, text: []const u8, column: Column) f32 {
     const width: f32 = @floatFromInt(ui.font.stringWidth(text));
-    const x = column.left + @floor(column.width / 2.0) - @floor(width / 2.0);
-    try gui.appendTextColor(mesh, ui.gpa, ui.font, text, x, 16, title_color, ui.res);
+    return column.left + @floor(column.width / 2.0) - @floor(width / 2.0);
+}
+
+fn appendTitle(mesh: *MeshBuilder, ui: gui.Ui, text: []const u8, column: Column) !void {
+    try gui.appendTextColor(mesh, ui.gpa, ui.font, text, centeredX(ui, text, column), 16, title_color, ui.res);
 }
 
 fn needsLine(buffer: []u8, depends: []const []const u8) []const u8 {
@@ -220,8 +223,7 @@ pub fn draw(
         try appendClipped(&entry_text, ui, needsLine(&needs_buffer, mod.depends), mod_x, y + 22, mod_width, description_color);
     }
     if (mods.len == 0) {
-        const width: f32 = @floatFromInt(ui.font.stringWidth(no_mods));
-        const x = mod_column.left + @floor(mod_column.width / 2.0) - @floor(width / 2.0);
+        const x = centeredX(ui, no_mods, mod_column);
         try gui.appendTextColor(&entry_text, ui.gpa, ui.font, no_mods, x, @floor((list_top + bottom) / 2.0) - 4, description_color, ui.res);
     }
     try gui.drawTexturedMesh(&entry_text, ui.shader, ui.font);

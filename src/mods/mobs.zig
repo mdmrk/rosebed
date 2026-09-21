@@ -40,14 +40,6 @@ pub const Patch = struct {
     speed: ?f32 = null,
 };
 
-pub const PatchRefs = struct {
-    on_tick: ?i32 = null,
-    drop: ?i32 = null,
-    path_weight: ?i32 = null,
-    think: ?i32 = null,
-    after_move: ?i32 = null,
-};
-
 pub const default_width: f64 = 0.6;
 pub const default_height: f64 = 1.8;
 
@@ -112,7 +104,7 @@ const Override = struct {
 
 var overrides: [Mob.capacity]Override = @splat(.{});
 
-pub fn override(type_id: Mob.Id, patch: Patch, refs: PatchRefs) void {
+pub fn override(type_id: Mob.Id, patch: Patch, refs: Refs) void {
     const slot = &overrides[type_id];
     if (patch.health) |health| slot.health = health;
     if (patch.speed) |speed| slot.speed = speed;
@@ -184,7 +176,7 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
         }.call,
         .onDeath = &struct {
             fn call(animal: *Animal, rand: *world.JavaRandom) void {
-                const slot = overrides[type_id];
+                const slot = &overrides[type_id];
                 if (slot.inner_on_death) |inner| inner(animal, rand);
                 const ref = slot.drop orelse return;
                 const hooks = Hooks.active orelse return;
@@ -206,7 +198,7 @@ fn wrapperFor(comptime type_id: Mob.Id) Wrapper {
                 players: Animal.Players,
                 rand: *world.JavaRandom,
             ) anyerror!void {
-                const slot = overrides[type_id];
+                const slot = &overrides[type_id];
                 const ref = slot.think orelse return;
                 const hooks = Hooks.active orelse return;
                 hooks.think(ref, .{
@@ -243,7 +235,7 @@ fn reshape(type_id: Mob.Id, animal: *Animal, wounds: Wounds) void {
     }
     if (overrides[type_id].after_move != null) animal.after_move = wrappers[type_id].afterMove;
 
-    const slot = overrides[type_id];
+    const slot = &overrides[type_id];
     if (slot.health) |health| {
         animal.max_health = health;
         if (wounds == .fresh) animal.health = health;
@@ -323,7 +315,7 @@ fn think(
     rand: *world.JavaRandom,
 ) anyerror!void {
     const body: *Body = @fieldParentPtr("animal", animal);
-    const slot = slots[body.slot];
+    const slot = &slots[body.slot];
     const ref = slot.refs.think orelse return;
     const hooks = Hooks.active orelse return;
     hooks.think(ref, .{

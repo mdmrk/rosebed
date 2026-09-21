@@ -15,13 +15,18 @@ fn collect(comptime T: type, comptime found: []const assets.Sound) []const asset
     return out;
 }
 
+pub const Sound = assets.Sound;
+
 pub const table = collect(assets.sounds, &.{});
 
-pub fn byKey(key: []const u8) ?assets.Sound {
-    for (table) |sound| {
-        if (std.mem.eql(u8, sound.key, key)) return sound;
-    }
-    return null;
+const lookup = std.StaticStringMap(Sound).initComptime(blk: {
+    var pairs: [table.len]struct { []const u8, Sound } = undefined;
+    for (table, &pairs) |sound, *pair| pair.* = .{ sound.key, sound };
+    break :blk pairs;
+});
+
+pub fn byKey(key: []const u8) ?Sound {
+    return lookup.get(key);
 }
 
 test "a sound is found by the key vanilla names it with" {

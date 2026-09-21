@@ -7,6 +7,7 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Hooks = @import("Hooks.zig");
 const Manifest = @import("Manifest.zig");
 const mobs = @import("mobs.zig");
@@ -49,7 +50,7 @@ pub const BlockTexture = struct {
 
 pub fn install(lua: *Lua, registrar: *Registrar) void {
     lua.newTable();
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.fields(lua, registrar, &.{
         .{ .name = "register_block", .function = zlua.wrap(registerFn(world.Block, world.block.Def)) },
         .{ .name = "register_item", .function = zlua.wrap(registerFn(world.Item, world.item.Def)) },
         .{ .name = "override_block", .function = zlua.wrap(overrideFn(world.Block, world.block.Def, "block")) },
@@ -57,8 +58,8 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "register_mob", .function = zlua.wrap(registerMob) },
         .{ .name = "override_mob", .function = zlua.wrap(overrideMob) },
         .{ .name = "register_recipe", .function = zlua.wrap(registerRecipe) },
-        .{ .name = "on_decorate", .function = zlua.wrap(onDecorate) },
-        .{ .name = "on_generate", .function = zlua.wrap(onGenerate) },
+        .{ .name = "on_decorate", .function = zlua.wrap(passFn(Hooks.addDecorator)) },
+        .{ .name = "on_generate", .function = zlua.wrap(passFn(Hooks.addShaper)) },
         .{ .name = "on_world_tick", .function = zlua.wrap(eventFn(.world_tick)) },
         .{ .name = "on_chunk_load", .function = zlua.wrap(eventFn(.chunk_load)) },
         .{ .name = "on_player_hurt", .function = zlua.wrap(eventFn(.player_hurt)) },
@@ -69,12 +70,7 @@ pub fn install(lua: *Lua, registrar: *Registrar) void {
         .{ .name = "noise", .function = zlua.wrap(createNoise) },
         .{ .name = "register_structure", .function = zlua.wrap(registerStructure) },
         .{ .name = "register_biome", .function = zlua.wrap(registerBiome) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(registrar);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
+    });
     lua.setGlobal("rosebed");
 }
 
@@ -112,7 +108,7 @@ fn overrideFn(comptime Registry: type, comptime Def: type, comptime noun: []cons
 }
 
 fn context(lua: *Lua) *Registrar {
-    const registrar: *Registrar = @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    const registrar = bind.upvalue(Registrar, lua);
     if (!registrar.open) lua.raiseErrorStr("registration is closed once every mod has loaded", .{});
     return registrar;
 }
@@ -152,7 +148,7 @@ const MobExtras = struct {
 };
 
 const PatchExtras = struct {
-    refs: mobs.PatchRefs = .{},
+    refs: mobs.Refs = .{},
 };
 
 fn Extras(comptime Def: type) type {
@@ -299,15 +295,6 @@ fn registerMob(lua: *Lua) i32 {
     return 1;
 }
 
-fn onDecorate(lua: *Lua) i32 {
-    const registrar = context(lua);
-    lua.checkType(1, .function);
-    lua.pushValue(1);
-    const ref = lua.ref(zlua.registry_index);
-    registrar.hooks.addDecorator(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
-    return 0;
-}
-
 fn eventFn(comptime event: Hooks.Event) fn (*Lua) i32 {
     return struct {
         fn call(lua: *Lua) i32 {
@@ -322,13 +309,17 @@ fn eventFn(comptime event: Hooks.Event) fn (*Lua) i32 {
     }.call;
 }
 
-fn onGenerate(lua: *Lua) i32 {
-    const registrar = context(lua);
-    lua.checkType(1, .function);
-    lua.pushValue(1);
-    const ref = lua.ref(zlua.registry_index);
-    registrar.hooks.addShaper(registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
-    return 0;
+fn passFn(comptime add: fn (*Hooks, std.mem.Allocator, i32, []const u8) anyerror!void) fn (*Lua) i32 {
+    return struct {
+        fn call(lua: *Lua) i32 {
+            const registrar = context(lua);
+            lua.checkType(1, .function);
+            lua.pushValue(1);
+            const ref = lua.ref(zlua.registry_index);
+            add(registrar.hooks, registrar.arena, ref, registrar.mod_id) catch lua.raiseErrorStr("out of memory", .{});
+            return 0;
+        }
+    }.call;
 }
 
 fn registerBiome(lua: *Lua) i32 {
@@ -353,8 +344,8 @@ fn registerBiome(lua: *Lua) i32 {
         .share = share,
         .top = biomeBlock(lua, "top", parent.topBlock()),
         .filler = biomeBlock(lua, "filler", parent.fillerBlock()),
-        .snows = biomeFlag(lua, "snows", parent.snows()),
-        .rains = biomeFlag(lua, "rains", parent.rains()),
+        .snows = bind.flag(lua, 1, "snows", parent.snows()),
+        .rains = bind.flag(lua, 1, "rains", parent.rains()),
         .trees = biomeCount(lua, "trees", -64),
         .grass = biomeCount(lua, "grass", 0),
         .flowers = biomeCount(lua, "flowers", 0),
@@ -379,22 +370,13 @@ fn biomeBlock(lua: *Lua, name: [:0]const u8, fallback: world.Block) world.Block 
     };
 }
 
-fn biomeFlag(lua: *Lua, name: [:0]const u8, fallback: bool) bool {
-    defer lua.pop(1);
-    return switch (lua.getField(1, name)) {
-        .nil => fallback,
-        .boolean => lua.toBoolean(-1),
-        else => lua.raiseErrorStr("'%s' must be true or false", .{name.ptr}),
-    };
-}
-
 fn biomeCount(lua: *Lua, name: [:0]const u8, lowest: i32) ?i32 {
     if (lua.getField(1, name) == .nil) {
         lua.pop(1);
         return null;
     }
     lua.pop(1);
-    const count = spawnsNumber(lua, 1, i32, name, 0);
+    const count = bind.whole(lua, 1, i32, name, 0);
     if (count < lowest or count > 64) lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
     return count;
 }
@@ -413,9 +395,9 @@ fn registerStructure(lua: *Lua) i32 {
     var spec: structures.Structure = .{
         .ref = ref,
         .salt = @bitCast(std.hash.Fnv1a_64.hash(key)),
-        .spacing = spawnsNumber(lua, 1, i32, "spacing", 16),
+        .spacing = bind.whole(lua, 1, i32, "spacing", 16),
         .chance = 1,
-        .radius = spawnsNumber(lua, 1, i32, "radius", 1),
+        .radius = bind.whole(lua, 1, i32, "radius", 1),
         .dimension = .overworld,
     };
     if (spec.spacing < 1 or spec.spacing > structures.max_spacing) lua.raiseErrorStr("'spacing' is 1 to 4096 chunks", .{});
@@ -427,24 +409,9 @@ fn registerStructure(lua: *Lua) i32 {
     }
     lua.pop(1);
 
-    switch (lua.getField(1, "dimension")) {
-        .nil => {},
-        .string => {
-            const dimension = lua.toString(-1) catch unreachable;
-            spec.dimension = std.meta.stringToEnum(world.Dimension, dimension) orelse
-                lua.raiseErrorStr("there is no dimension called '%s'", .{dimension.ptr});
-        },
-        else => lua.raiseErrorStr("'dimension' is 'overworld' or 'nether'", .{}),
-    }
-    lua.pop(1);
-
-    switch (lua.getField(1, "biomes")) {
-        .nil => {},
-        .table => spec.biomes = readBiomes(lua),
-        else => lua.raiseErrorStr("'biomes' is a list of biome names", .{}),
-    }
-    lua.pop(1);
-    if (spec.biomes != null and spec.dimension == .nether) lua.raiseErrorStr("the nether has no biomes to choose from", .{});
+    const where = readWhere(lua, 1);
+    spec.dimension = where.dimension;
+    spec.biomes = where.biomes;
 
     registrar.structure_keys.append(registrar.arena, key) catch raise(lua, error.OutOfMemory, key);
     registrar.hooks.addStructure(registrar.arena, spec) catch raise(lua, error.OutOfMemory, key);
@@ -458,7 +425,7 @@ fn createNoise(lua: *Lua) i32 {
     var scale: f64 = 1;
     if (!lua.isNoneOrNil(1)) {
         lua.checkType(1, .table);
-        octaves = spawnsNumber(lua, 1, usize, "octaves", 1);
+        octaves = bind.whole(lua, 1, usize, "octaves", 1);
         if (octaves < 1 or octaves > Hooks.max_octaves) lua.raiseErrorStr("'octaves' is 1 to 16", .{});
         if (lua.getField(1, "scale") != .nil) {
             scale = lua.toNumber(-1) catch lua.raiseErrorStr("'scale' must be a number", .{});
@@ -518,31 +485,14 @@ fn readSpawns(lua: *Lua) game.mob.Spawns {
         lua.raiseErrorStr("nothing spawns as a '%s'", .{name.ptr});
     lua.pop(1);
 
-    var spawns: game.mob.Spawns = .{ .category = category, .weight = spawnsNumber(lua, table, i32, "weight", 0) };
+    var spawns: game.mob.Spawns = .{ .category = category, .weight = bind.whole(lua, table, i32, "weight", 0) };
     if (spawns.weight <= 0) lua.raiseErrorStr("'weight' is how often a mob is picked, so it must be positive", .{});
-    spawns.max_per_chunk = spawnsNumber(lua, table, u32, "max_per_chunk", game.spawner.max_per_chunk);
+    spawns.max_per_chunk = bind.whole(lua, table, u32, "max_per_chunk", game.spawner.max_per_chunk);
     if (spawns.max_per_chunk == 0) lua.raiseErrorStr("'max_per_chunk' must be at least one", .{});
 
-    switch (lua.getField(table, "dimension")) {
-        .nil => {},
-        .string => {
-            const dimension = lua.toString(-1) catch unreachable;
-            spawns.dimension = std.meta.stringToEnum(world.Dimension, dimension) orelse
-                lua.raiseErrorStr("there is no dimension called '%s'", .{dimension.ptr});
-        },
-        else => lua.raiseErrorStr("'dimension' is 'overworld' or 'nether'", .{}),
-    }
-    lua.pop(1);
-
-    switch (lua.getField(table, "biomes")) {
-        .nil => {},
-        .table => spawns.biomes = readBiomes(lua),
-        else => lua.raiseErrorStr("'biomes' is a list of biome names", .{}),
-    }
-    lua.pop(1);
-    if (spawns.biomes != null and spawns.dimension == .nether) {
-        lua.raiseErrorStr("the nether has no biomes to choose from", .{});
-    }
+    const where = readWhere(lua, table);
+    spawns.dimension = where.dimension;
+    spawns.biomes = where.biomes;
     return spawns;
 }
 
@@ -601,13 +551,13 @@ fn readPart(lua: *Lua) game.mob_model.Part {
             .size = box[3..6].*,
             .tex_u = uv[0],
             .tex_v = uv[1],
-            .inflate = modelNumber(lua, table, "inflate", 0),
-            .mirror = modelFlag(lua, table, "mirror"),
+            .inflate = bind.number(lua, table, "inflate", 0),
+            .mirror = bind.flag(lua, table, "mirror", false),
         },
         .pivot = modelVector(lua, table, "pivot", 3, .{ 0, 0, 0 }),
-        .rotate_x = modelNumber(lua, table, "rotate_x", 0),
-        .rotate_y = modelNumber(lua, table, "rotate_y", 0),
-        .rotate_z = modelNumber(lua, table, "rotate_z", 0),
+        .rotate_x = bind.number(lua, table, "rotate_x", 0),
+        .rotate_y = bind.number(lua, table, "rotate_y", 0),
+        .rotate_z = bind.number(lua, table, "rotate_z", 0),
         .role = modelRole(lua, table),
     };
 }
@@ -635,28 +585,10 @@ fn modelVector(lua: *Lua, table: i32, name: [:0]const u8, comptime count: usize,
     return out;
 }
 
-fn modelNumber(lua: *Lua, table: i32, name: [:0]const u8, fallback: f32) f32 {
-    defer lua.pop(1);
-    if (lua.getField(table, name) == .nil) return fallback;
-    if (lua.typeOf(-1) != .number) lua.raiseErrorStr("'%s' must be a number", .{name.ptr});
-    const value: f32 = @floatCast(lua.toNumber(-1) catch unreachable);
-    if (!std.math.isFinite(value)) lua.raiseErrorStr("'%s' must be a finite number", .{name.ptr});
-    return value;
-}
-
 fn modelSize(lua: *Lua, table: i32, name: [:0]const u8, fallback: f32) f32 {
-    const value = modelNumber(lua, table, name, fallback);
+    const value = bind.number(lua, table, name, fallback);
     if (!(value > 0)) lua.raiseErrorStr("'%s' is above zero", .{name.ptr});
     return value;
-}
-
-fn modelFlag(lua: *Lua, table: i32, name: [:0]const u8) bool {
-    defer lua.pop(1);
-    return switch (lua.getField(table, name)) {
-        .nil => false,
-        .boolean => lua.toBoolean(-1),
-        else => lua.raiseErrorStr("'%s' must be true or false", .{name.ptr}),
-    };
 }
 
 fn modelRole(lua: *Lua, table: i32) game.mob_model.Role {
@@ -670,6 +602,30 @@ fn modelRole(lua: *Lua, table: i32) game.mob_model.Role {
         },
         else => lua.raiseErrorStr("'role' names how a part moves", .{}),
     };
+}
+
+fn readWhere(lua: *Lua, table: i32) struct { dimension: world.Dimension, biomes: ?world.biome.Set } {
+    var dimension: world.Dimension = .overworld;
+    switch (lua.getField(table, "dimension")) {
+        .nil => {},
+        .string => {
+            const name = lua.toString(-1) catch unreachable;
+            dimension = std.meta.stringToEnum(world.Dimension, name) orelse
+                lua.raiseErrorStr("there is no dimension called '%s'", .{name.ptr});
+        },
+        else => lua.raiseErrorStr("'dimension' is 'overworld' or 'nether'", .{}),
+    }
+    lua.pop(1);
+
+    var biomes: ?world.biome.Set = null;
+    switch (lua.getField(table, "biomes")) {
+        .nil => {},
+        .table => biomes = readBiomes(lua),
+        else => lua.raiseErrorStr("'biomes' is a list of biome names", .{}),
+    }
+    lua.pop(1);
+    if (biomes != null and dimension == .nether) lua.raiseErrorStr("the nether has no biomes to choose from", .{});
+    return .{ .dimension = dimension, .biomes = biomes };
 }
 
 fn readBiomes(lua: *Lua) world.biome.Set {
@@ -688,13 +644,6 @@ fn readBiomes(lua: *Lua) world.biome.Set {
     return biomes;
 }
 
-fn spawnsNumber(lua: *Lua, table: i32, comptime T: type, name: [:0]const u8, fallback: T) T {
-    defer lua.pop(1);
-    if (lua.getField(table, name) == .nil) return fallback;
-    const value = lua.toInteger(-1) catch lua.raiseErrorStr("'%s' must be a whole number", .{name.ptr});
-    return std.math.cast(T, value) orelse lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
-}
-
 fn registerRecipe(lua: *Lua) i32 {
     _ = context(lua);
     lua.checkType(1, .table);
@@ -702,8 +651,8 @@ fn registerRecipe(lua: *Lua) i32 {
     if (lua.getField(1, "result") != .string) lua.raiseErrorStr("'result' must be a registered key", .{});
     const result = keyedId(lua, lua.toString(-1) catch unreachable);
     lua.pop(1);
-    const count = recipeNumber(lua, u8, "count", 1);
-    const meta = recipeNumber(lua, u16, "meta", 0);
+    const count = bind.whole(lua, 1, u8, "count", 1);
+    const meta = bind.whole(lua, 1, u16, "meta", 0);
 
     if (lua.getField(1, "grid") == .table) {
         game.crafting.register(readGrid(lua, result, count, meta)) catch lua.raiseErrorStr("no room is left for another recipe", .{});
@@ -740,13 +689,6 @@ fn keyedId(lua: *Lua, key: [:0]const u8) world.Id {
     if (world.Block.fromKey(key)) |block| return .{ .block = block };
     if (world.Item.fromKey(key)) |item| return .{ .item = item };
     lua.raiseErrorStr("nothing is registered as '%s'", .{key.ptr});
-}
-
-fn recipeNumber(lua: *Lua, comptime T: type, name: [:0]const u8, fallback: T) T {
-    defer lua.pop(1);
-    if (lua.getField(1, name) == .nil) return fallback;
-    const value = lua.toInteger(-1) catch lua.raiseErrorStr("'%s' must be a whole number", .{name.ptr});
-    return std.math.cast(T, value) orelse lua.raiseErrorStr("'%s' is out of range", .{name.ptr});
 }
 
 fn readGrid(lua: *Lua, result: world.Id, count: u8, meta: u16) game.crafting.Recipe {

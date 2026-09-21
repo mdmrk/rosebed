@@ -3,6 +3,7 @@ const std = @import("std");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Input = @This();
@@ -13,11 +14,9 @@ on_key: ?i32 = null,
 pub fn install(self: *Input, lua: *Lua) void {
     self.lua = lua;
     _ = lua.getGlobal("rosebed");
-    lua.newTable();
-    lua.pushLightUserdata(self);
-    lua.pushClosure(zlua.wrap(onKey), 1);
-    lua.setField(-2, "on_key");
-    lua.setField(-2, "input");
+    bind.subtable(lua, "input", self, &.{
+        .{ .name = "on_key", .function = zlua.wrap(onKey) },
+    });
     lua.pop(1);
 }
 
@@ -36,11 +35,7 @@ pub fn key(self: *Input, name: []const u8, pressed: bool) void {
 }
 
 fn onKey(lua: *Lua) i32 {
-    const self: *Input = @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
-    lua.checkType(1, .function);
-    if (self.on_key) |old| lua.unref(zlua.registry_index, old);
-    lua.pushValue(1);
-    self.on_key = lua.ref(zlua.registry_index);
+    bind.listener(lua, &bind.upvalue(Input, lua).on_key);
     return 0;
 }
 

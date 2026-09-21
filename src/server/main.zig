@@ -489,15 +489,14 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
 fn drainPending(server: *Server, connection: *Connection) !void {
     for (connection.pending.items) |message| {
         defer message.deinit(server.gpa);
-        if (message == .mod_message) {
-            if (connection.session.state == .playing) {
-                if (mods.Net.active) |api| {
-                    api.deliver(message.mod_message.channel, message.mod_message.payload, connection.session.name.text());
-                }
-            }
-            continue;
+        switch (message) {
+            .mod_message => |body| {
+                if (connection.session.state != .playing) continue;
+                const api = mods.Net.active orelse continue;
+                api.deliver(body.channel, body.payload, connection.session.name.text());
+            },
+            else => try connection.session.handle(server.gpa, server.levelFor(connection), message),
         }
-        try connection.session.handle(server.gpa, server.levelFor(connection), message);
     }
     connection.pending.clearRetainingCapacity();
 }
@@ -528,7 +527,7 @@ fn flushModEffects(server: *Server, dim: *Dim) !void {
 
     for (queued) |effect| switch (effect) {
         .sound => |body| broadcastEffect(server, dim, body.at, aux_sfx_range, .{ .sound_effect = .{
-            .key = body.key,
+            .key = body.sound.key,
             .x = body.at.x,
             .y = body.at.y,
             .z = body.at.z,

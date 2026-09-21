@@ -3,6 +3,7 @@ const std = @import("std");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Hud = @This();
@@ -23,18 +24,11 @@ pub const Command = union(enum) {
 pub fn install(self: *Hud, lua: *Lua) void {
     self.lua = lua;
     _ = lua.getGlobal("rosebed");
-    lua.newTable();
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.subtable(lua, "hud", self, &.{
         .{ .name = "on_draw", .function = zlua.wrap(onDraw) },
         .{ .name = "text", .function = zlua.wrap(text) },
         .{ .name = "rect", .function = zlua.wrap(rect) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
-    lua.setField(-2, "hud");
+    });
     lua.pop(1);
 }
 
@@ -58,7 +52,7 @@ pub fn collect(self: *Hud, frame: std.mem.Allocator, width: f32, height: f32) []
 }
 
 fn hud(lua: *Lua) *Hud {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Hud, lua);
 }
 
 fn drawing(lua: *Lua) struct { *Hud, std.mem.Allocator } {
@@ -68,11 +62,7 @@ fn drawing(lua: *Lua) struct { *Hud, std.mem.Allocator } {
 }
 
 fn onDraw(lua: *Lua) i32 {
-    const self = hud(lua);
-    lua.checkType(1, .function);
-    if (self.on_draw) |old| lua.unref(zlua.registry_index, old);
-    lua.pushValue(1);
-    self.on_draw = lua.ref(zlua.registry_index);
+    bind.listener(lua, &hud(lua).on_draw);
     return 0;
 }
 

@@ -4,6 +4,7 @@ const net = @import("net");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Net = @This();
@@ -23,17 +24,10 @@ pub var active: ?*Net = null;
 pub fn install(self: *Net, lua: *Lua) void {
     self.lua = lua;
     _ = lua.getGlobal("rosebed");
-    lua.newTable();
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.subtable(lua, "net", self, &.{
         .{ .name = "send", .function = zlua.wrap(send) },
         .{ .name = "on", .function = zlua.wrap(on) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
-    lua.setField(-2, "net");
+    });
     lua.pop(1);
     active = self;
 }
@@ -75,7 +69,7 @@ pub fn deliver(self: *Net, channel: []const u8, payload: []const u8, from: ?[]co
 }
 
 fn context(lua: *Lua) *Net {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Net, lua);
 }
 
 fn channelArgument(lua: *Lua, arg: i32) []const u8 {

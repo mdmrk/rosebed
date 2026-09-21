@@ -1129,9 +1129,9 @@ fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
     switch (body.kind) {
         .furnace => _ = try level.world_map.addFurnace(.init(open.at[0], open.at[1], open.at[2])),
         .dispenser => _ = try level.world_map.addDispenser(.init(open.at[0], open.at[1], open.at[2])),
-        .chest => {
+        .chest => if (open.cart == game.Entity.no_id) {
             const at: BlockPos = .init(open.at[0], open.at[1], open.at[2]);
-            if (open.cart != game.Entity.no_id) {} else if (level.world_map.getBlock(at).def().container != null) {
+            if (level.world_map.getBlock(at).def().container != null) {
                 _ = try level.world_map.addContainer(at);
             } else {
                 const pair = level.world_map.chestPairAt(at);

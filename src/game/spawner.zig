@@ -195,9 +195,11 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
         .water_creature => @intCast(entities.countOf(mob.squid)),
     };
 
-    for (entities.mobs.items) |entry| {
-        const spawns = mob.get(entry.type_id).spawns orelse continue;
-        if (spawns.category == category) total += 1;
+    if (mob.anySpawns()) {
+        for (entities.mobs.items) |entry| {
+            const spawns = mob.get(entry.type_id).spawns orelse continue;
+            if (spawns.category == category) total += 1;
+        }
     }
     return total;
 }
@@ -235,6 +237,8 @@ fn weighChoices(
             count += 1;
         },
     }
+
+    if (!mob.anySpawns()) return buffer[0..count];
 
     var biome: ?world.biome.Biome = null;
     var type_id: mob.Id = 0;

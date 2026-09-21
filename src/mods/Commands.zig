@@ -5,6 +5,7 @@ const net = @import("net");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Commands = @This();
@@ -20,9 +21,9 @@ pub var active: ?*Commands = null;
 pub fn install(self: *Commands, lua: *Lua) void {
     self.lua = lua;
     _ = lua.getGlobal("rosebed");
-    lua.pushLightUserdata(self);
-    lua.pushClosure(zlua.wrap(registerCommand), 1);
-    lua.setField(-2, "register_command");
+    bind.fields(lua, self, &.{
+        .{ .name = "register_command", .function = zlua.wrap(registerCommand) },
+    });
     lua.pop(1);
     active = self;
 }
@@ -61,7 +62,7 @@ pub fn run(self: *Commands, index: usize, args: []const u8, who: ?[]const u8) ?[
 }
 
 fn context(lua: *Lua) *Commands {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Commands, lua);
 }
 
 fn field(lua: *Lua, name: [:0]const u8) []const u8 {

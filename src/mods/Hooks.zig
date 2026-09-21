@@ -6,6 +6,7 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const structures = @import("structures.zig");
 const Vm = @import("Vm.zig");
 
@@ -22,13 +23,7 @@ current_seed: ?i64 = null,
 current_plan: ?*structures.Plan = null,
 current_terrain: ?*structures.Terrain = null,
 decorating: bool = false,
-world_tick_ref: ?i32 = null,
-chunk_load_ref: ?i32 = null,
-player_hurt_ref: ?i32 = null,
-player_death_ref: ?i32 = null,
-mob_death_ref: ?i32 = null,
-block_broken_ref: ?i32 = null,
-block_placed_ref: ?i32 = null,
+event_refs: std.EnumArray(Event, ?i32) = .initFill(null),
 decorators: std.ArrayList(Decorator) = .empty,
 shapers: std.ArrayList(Decorator) = .empty,
 noises: std.ArrayList(Noise) = .empty,
@@ -233,24 +228,12 @@ pub fn callMob(self: *Hooks, ref: i32, animal: *game.Animal, world_map: *world.W
 pub const Event = enum { world_tick, chunk_load, player_hurt, player_death, mob_death, block_broken, block_placed };
 
 pub fn listenerFor(self: *Hooks, event: Event) *?i32 {
-    return self.refFor(event);
-}
-
-fn refFor(self: *Hooks, event: Event) *?i32 {
-    return switch (event) {
-        .world_tick => &self.world_tick_ref,
-        .chunk_load => &self.chunk_load_ref,
-        .player_hurt => &self.player_hurt_ref,
-        .player_death => &self.player_death_ref,
-        .mob_death => &self.mob_death_ref,
-        .block_broken => &self.block_broken_ref,
-        .block_placed => &self.block_placed_ref,
-    };
+    return self.event_refs.getPtr(event);
 }
 
 fn begin(self: *Hooks, event: Event) ?*Lua {
     const lua = self.lua orelse return null;
-    const ref = self.refFor(event).* orelse return null;
+    const ref = self.listenerFor(event).* orelse return null;
     _ = lua.getIndexRaw(zlua.registry_index, ref);
     return lua;
 }
@@ -259,7 +242,7 @@ fn settle(self: *Hooks, event: Event, lua: *Lua, args: i32, results: i32) bool {
     lua.protectedCall(.{ .args = args, .results = results }) catch {
         std.log.warn("a mod event failed and is switched off: {s}", .{lua.toString(-1) catch "(no message)"});
         lua.pop(1);
-        self.refFor(event).* = null;
+        self.listenerFor(event).* = null;
         return false;
     };
     if (results == 0) return false;
@@ -594,8 +577,8 @@ fn mobHurt(lua: *Lua) i32 {
 fn mobSteer(lua: *Lua) i32 {
     const animal = currentMob(lua);
     animal.move_forward = @floatCast(lua.checkNumber(1));
-    animal.move_strafing = @floatCast(optionalNumber(lua, 2, 0));
-    animal.random_yaw_velocity = @floatCast(optionalNumber(lua, 3, 0));
+    animal.move_strafing = @floatCast(bind.optionalNumber(lua, 2, 0));
+    animal.random_yaw_velocity = @floatCast(bind.optionalNumber(lua, 3, 0));
     return 0;
 }
 
@@ -608,7 +591,7 @@ fn mobJump(lua: *Lua) i32 {
 fn mobLook(lua: *Lua) i32 {
     const animal = currentMob(lua);
     animal.yaw = @floatCast(lua.checkNumber(1));
-    animal.pitch = @floatCast(optionalNumber(lua, 2, animal.pitch));
+    animal.pitch = @floatCast(bind.optionalNumber(lua, 2, animal.pitch));
     return 0;
 }
 
@@ -618,11 +601,6 @@ fn mobWander(lua: *Lua) i32 {
     wander.inner(wander.animal, wander.gpa, wander.world_map, wander.players, wander.rand) catch
         lua.raiseErrorStr("the mob could not be steered", .{});
     return 0;
-}
-
-fn optionalNumber(lua: *Lua, arg: i32, fallback: f64) f64 {
-    if (lua.isNoneOrNil(arg)) return fallback;
-    return lua.checkNumber(arg);
 }
 
 fn currentMob(lua: *Lua) *game.Animal {
@@ -672,8 +650,7 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         lua.pushValue(-1);
         lua.setGlobal("rosebed");
     }
-    lua.newTable();
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.subtable(lua, "world", self, &.{
         .{ .name = "get_block", .function = zlua.wrap(getBlock) },
         .{ .name = "get_meta", .function = zlua.wrap(getMeta) },
         .{ .name = "set_block", .function = zlua.wrap(setBlock) },
@@ -686,16 +663,9 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "set_spawner", .function = zlua.wrap(setSpawner) },
         .{ .name = "get_state", .function = zlua.wrap(getState) },
         .{ .name = "set_state", .function = zlua.wrap(setState) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
-    lua.setField(-2, "world");
+    });
 
-    lua.newTable();
-    const mob_functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.subtable(lua, "mob", self, &.{
         .{ .name = "position", .function = zlua.wrap(mobPosition) },
         .{ .name = "health", .function = zlua.wrap(mobHealth) },
         .{ .name = "hurt", .function = zlua.wrap(mobHurt) },
@@ -703,17 +673,11 @@ pub fn install(self: *Hooks, lua: *Lua) void {
         .{ .name = "jump", .function = zlua.wrap(mobJump) },
         .{ .name = "look", .function = zlua.wrap(mobLook) },
         .{ .name = "wander", .function = zlua.wrap(mobWander) },
-    };
-    for (mob_functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
-    lua.setField(-2, "mob");
+    });
 
-    lua.pushLightUserdata(self);
-    lua.pushClosure(zlua.wrap(random), 1);
-    lua.setField(-2, "random");
+    bind.fields(lua, self, &.{
+        .{ .name = "random", .function = zlua.wrap(random) },
+    });
     lua.pop(1);
 }
 
@@ -911,17 +875,7 @@ fn getChestItem(lua: *Lua) i32 {
         plan.chestItem(pos, slot)
     else
         (currentWorld(lua).addChest(pos) catch lua.raiseErrorStr("out of memory", .{})).items[slot];
-    const stack = found orelse {
-        lua.pushNil();
-        return 1;
-    };
-    _ = lua.pushString(switch (stack.id) {
-        .block => |id| id.def().key,
-        .item => |id| id.def().key,
-    });
-    lua.pushInteger(stack.count);
-    lua.pushInteger(stack.meta);
-    return 3;
+    return bind.pushStack(lua, found);
 }
 
 fn setChestItem(lua: *Lua) i32 {
@@ -1036,7 +990,7 @@ fn setState(lua: *Lua) i32 {
 }
 
 fn hooks(lua: *Lua) *Hooks {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Hooks, lua);
 }
 
 fn currentWorld(lua: *Lua) *world.World {

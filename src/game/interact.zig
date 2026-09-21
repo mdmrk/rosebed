@@ -115,13 +115,6 @@ pub const Context = struct {
     }
 };
 
-pub const Broken = struct {
-    block: world.Block,
-    meta: u4,
-    harvested: bool,
-    lit_tnt: bool,
-};
-
 pub var on_block_broken: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
 
 pub fn breakBlockAt(
@@ -129,26 +122,22 @@ pub fn breakBlockAt(
     level: *Level,
     held: ?Inventory.ItemStack,
     pos: BlockPos,
-) !?Broken {
+) !?bool {
     const block = level.world_map.getBlock(pos);
     if (block == .air) return null;
 
     const meta = level.world_map.getBlockMetadata(pos);
-    const broken: Broken = .{
-        .block = block,
-        .meta = meta,
-        .harvested = block.harvestableWith(held),
-        .lit_tnt = block == .tnt and world.tnt.isLit(meta),
-    };
+    const harvested = block.harvestableWith(held);
+    const lit_tnt = block == .tnt and world.tnt.isLit(meta);
 
     try level.world_map.setBlockWithNotify(pos, .air);
-    if (broken.lit_tnt) try world.tnt.primeByPlayer(&level.world_map, pos);
+    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, pos);
     try spillContainers(gpa, level, pos);
     _ = level.world_map.removeSign(pos);
     _ = level.world_map.removeNote(pos);
     _ = level.world_map.removeBlockState(pos);
 
-    if (broken.harvested and !broken.lit_tnt) {
+    if (harvested and !lit_tnt) {
         if (block.harvestDrop(meta, held, &level.world_map.rand)) |dropped| {
             try level.dropStackAt(gpa, pos, .{ .id = dropped.id, .count = dropped.count, .meta = dropped.meta });
         }
@@ -159,7 +148,7 @@ pub fn breakBlockAt(
     }
 
     if (on_block_broken) |hook| hook(level, pos, block, meta);
-    return broken;
+    return harvested;
 }
 
 pub var on_block_placed: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
@@ -724,13 +713,13 @@ test "breaking a block reports it once, after the world already lost it" {
     level.world_map.setBlockMetadata(pos, 3);
 
     const held: Inventory.ItemStack = .{ .id = .{ .item = .pickaxe_stone }, .count = 1 };
-    const broken = (try breakBlockAt(gpa, &level, held, pos)).?;
+    const harvested = (try breakBlockAt(gpa, &level, held, pos)).?;
 
     try std.testing.expectEqual(@as(usize, 1), broken_seen);
     try std.testing.expectEqual(world.Block.stone, broken_last.block);
     try std.testing.expectEqual(@as(u4, 3), broken_last.meta);
     try std.testing.expectEqual(pos, broken_last.pos);
-    try std.testing.expect(broken.harvested);
+    try std.testing.expect(harvested);
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(pos));
 }
 

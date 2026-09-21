@@ -1288,8 +1288,8 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
             window.addStore(&trap.items, .chest);
         },
         .mod_container => |at| {
-            const spec = level.world_map.getBlock(.init(at.x, at.y, at.z)).def().container orelse return window;
-            const held = level.world_map.containerAt(.init(at.x, at.y, at.z)) orelse return window;
+            const spec = level.world_map.getBlock(at).def().container orelse return window;
+            const held = level.world_map.containerAt(at) orelse return window;
             window.addStore(held.items[0 .. @as(usize, spec.rows) * 9], .chest);
         },
         .minecart => |id| {
@@ -1723,8 +1723,8 @@ fn digBlock(
     };
 
     const held = player.inventory.selectedStack();
-    const mined = try game.interact.breakBlockAt(gpa, level, held, .init(x, height, z)) orelse return;
-    if (mined.harvested) try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
+    const harvested = try game.interact.breakBlockAt(gpa, level, held, .init(x, height, z)) orelse return;
+    if (harvested) try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
 }
 
 fn holdingFlintAndSteel(player: *const game.Player) bool {
@@ -1786,7 +1786,7 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
             }
             const spec = standing.def().container orelse return false;
             _ = try level.world_map.addContainer(pos);
-            try self.openContainer(gpa, level, .{ .mod_container = .{ .x = pos.x, .y = pos.y, .z = pos.z } }, .chest, spec.title);
+            try self.openContainer(gpa, level, .{ .mod_container = pos }, .chest, spec.title);
             return true;
         },
     }

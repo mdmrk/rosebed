@@ -6,13 +6,14 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Effects = @This();
 
 pub const Effect = union(enum) {
     sound: struct {
-        key: []const u8,
+        sound: world.sound.Sound,
         at: math.Vec3,
         volume: f32,
         pitch: f32,
@@ -40,32 +41,19 @@ pub var active: ?*Effects = null;
 
 pub fn install(self: *Effects, lua: *Lua) void {
     _ = lua.getGlobal("rosebed");
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.fields(lua, self, &.{
         .{ .name = "play_sound", .function = zlua.wrap(playSound) },
         .{ .name = "particle", .function = zlua.wrap(particle) },
         .{ .name = "explode", .function = zlua.wrap(explode) },
         .{ .name = "spawn", .function = zlua.wrap(spawn) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
+    });
     lua.pop(1);
     active = self;
 }
 
 pub fn deinit(self: *Effects) void {
-    for (self.outgoing.items) |effect| self.free(effect);
     self.outgoing.deinit(self.gpa);
     if (active == self) active = null;
-}
-
-fn free(self: *Effects, effect: Effect) void {
-    switch (effect) {
-        .sound => |body| self.gpa.free(body.key),
-        .particle, .explode, .spawn => {},
-    }
 }
 
 pub fn take(self: *Effects) []Effect {
@@ -73,42 +61,31 @@ pub fn take(self: *Effects) []Effect {
 }
 
 pub fn release(self: *Effects, effects: []Effect) void {
-    for (effects) |effect| self.free(effect);
     self.gpa.free(effects);
 }
 
 fn context(lua: *Lua) *Effects {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Effects, lua);
 }
 
 fn place(lua: *Lua, first: i32) math.Vec3 {
     return .init(lua.checkNumber(first), lua.checkNumber(first + 1), lua.checkNumber(first + 2));
 }
 
-fn optionalNumber(lua: *Lua, arg: i32, fallback: f64) f64 {
-    if (lua.isNoneOrNil(arg)) return fallback;
-    return lua.checkNumber(arg);
-}
-
 fn playSound(lua: *Lua) i32 {
     const self = context(lua);
-    const key = lua.checkString(1);
-    if (world.sound.byKey(key) == null) lua.argError(1, "no sound is named that");
+    const sound = world.sound.byKey(lua.checkString(1)) orelse lua.argError(1, "no sound is named that");
 
     const at = place(lua, 2);
-    const volume: f32 = @floatCast(optionalNumber(lua, 5, 1.0));
-    const pitch: f32 = @floatCast(optionalNumber(lua, 6, 1.0));
+    const volume: f32 = @floatCast(bind.optionalNumber(lua, 5, 1.0));
+    const pitch: f32 = @floatCast(bind.optionalNumber(lua, 6, 1.0));
 
-    const owned = self.gpa.dupe(u8, key) catch lua.raiseErrorStr("out of memory", .{});
     self.outgoing.append(self.gpa, .{ .sound = .{
-        .key = owned,
+        .sound = sound,
         .at = at,
         .volume = volume,
         .pitch = pitch,
-    } }) catch {
-        self.gpa.free(owned);
-        lua.raiseErrorStr("out of memory", .{});
-    };
+    } }) catch lua.raiseErrorStr("out of memory", .{});
     return 0;
 }
 
@@ -119,9 +96,9 @@ fn particle(lua: *Lua) i32 {
 
     const at = place(lua, 2);
     const drift: math.Vec3 = .init(
-        optionalNumber(lua, 5, 0),
-        optionalNumber(lua, 6, 0),
-        optionalNumber(lua, 7, 0),
+        bind.optionalNumber(lua, 5, 0),
+        bind.optionalNumber(lua, 6, 0),
+        bind.optionalNumber(lua, 7, 0),
     );
 
     self.outgoing.append(self.gpa, .{ .particle = .{
@@ -193,12 +170,12 @@ test "a mod queues the sounds and particles it asks for, in order" {
     defer harness.api.release(queued);
     try std.testing.expectEqual(@as(usize, 4), queued.len);
 
-    try std.testing.expectEqualStrings("random.explode", queued[0].sound.key);
+    try std.testing.expectEqualStrings("random.explode", queued[0].sound.sound.key);
     try std.testing.expectEqual(@as(f64, 8.5), queued[0].sound.at.x);
     try std.testing.expectEqual(@as(f32, 4), queued[0].sound.volume);
     try std.testing.expectEqual(@as(f32, 0.7), queued[0].sound.pitch);
 
-    try std.testing.expectEqualStrings("random.pop", queued[1].sound.key);
+    try std.testing.expectEqualStrings("random.pop", queued[1].sound.sound.key);
     try std.testing.expectEqual(@as(f32, 1), queued[1].sound.volume);
     try std.testing.expectEqual(@as(f32, 1), queued[1].sound.pitch);
 

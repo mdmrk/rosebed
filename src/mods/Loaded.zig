@@ -77,23 +77,9 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, mods_dir: std.Io.Dir, report: *s
     errdefer resetRegistries();
     var shared: std.ArrayList(discovery.Mod) = .empty;
     for (mods) |mod| {
-        var dir = try mods_dir.openDir(io, mod.folder, .{});
-        defer dir.close(io);
-        const source = dir.readFileAlloc(io, entry_point, allocator, source_limit) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => {
-                report.print("{s}/{s}: {t}\n", .{ mod.folder, entry_point, err }) catch {};
-                return err;
-            },
-        };
         registrar.mod_id = mod.manifest.id;
         registrar.mod_folder = mod.folder;
-        const chunk_name = try std.fmt.allocPrintSentinel(allocator, "@{s}/{s}", .{ mod.folder, entry_point }, 0);
-        vm.exec(chunk_name, source) catch |err| {
-            report.print("{s}\n", .{vm.errorMessage()}) catch {};
-            return err;
-        };
-        try shared.append(allocator, mod);
+        if (try runScript(&vm, allocator, io, mods_dir, mod, entry_point, report)) try shared.append(allocator, mod);
     }
     registrar.open = false;
     const list = try describe(allocator, shared.items);
@@ -141,21 +127,34 @@ pub fn runClientScripts(self: *Loaded, io: std.Io, mods_dir: std.Io.Dir, report:
     game.Player.steer = ModPlayer.steer;
     const allocator = self.arena.allocator();
     for (self.mods) |mod| {
-        var dir = try mods_dir.openDir(io, mod.folder, .{});
-        defer dir.close(io);
-        const source = dir.readFileAlloc(io, client_entry_point, allocator, source_limit) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => {
-                report.print("{s}/{s}: {t}\n", .{ mod.folder, client_entry_point, err }) catch {};
-                return err;
-            },
-        };
-        const chunk_name = try std.fmt.allocPrintSentinel(allocator, "@{s}/{s}", .{ mod.folder, client_entry_point }, 0);
-        self.vm.exec(chunk_name, source) catch |err| {
-            report.print("{s}\n", .{self.vm.errorMessage()}) catch {};
-            return err;
-        };
+        _ = try runScript(&self.vm, allocator, io, mods_dir, mod, client_entry_point, report);
     }
+}
+
+fn runScript(
+    vm: *Vm,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    mods_dir: std.Io.Dir,
+    mod: discovery.Mod,
+    file: []const u8,
+    report: *std.Io.Writer,
+) !bool {
+    var dir = try mods_dir.openDir(io, mod.folder, .{});
+    defer dir.close(io);
+    const source = dir.readFileAlloc(io, file, allocator, source_limit) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => {
+            report.print("{s}/{s}: {t}\n", .{ mod.folder, file, err }) catch {};
+            return err;
+        },
+    };
+    const chunk_name = try std.fmt.allocPrintSentinel(allocator, "@{s}/{s}", .{ mod.folder, file }, 0);
+    vm.exec(chunk_name, source) catch |err| {
+        report.print("{s}\n", .{vm.errorMessage()}) catch {};
+        return err;
+    };
+    return true;
 }
 
 fn describe(arena: std.mem.Allocator, mods: []const discovery.Mod) !net.packet.ModList {

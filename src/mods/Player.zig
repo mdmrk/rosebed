@@ -5,6 +5,7 @@ const world = @import("world");
 const zlua = @import("zlua");
 const Lua = zlua.Lua;
 
+const bind = @import("bind.zig");
 const Vm = @import("Vm.zig");
 
 const Player = @This();
@@ -24,8 +25,7 @@ pub const Slot = enum { helmet, chestplate, leggings, boots, held };
 pub fn install(self: *Player, lua: *Lua) void {
     self.lua = lua;
     _ = lua.getGlobal("rosebed");
-    lua.newTable();
-    const functions = [_]struct { name: [:0]const u8, function: zlua.CFn }{
+    bind.subtable(lua, "player", self, &.{
         .{ .name = "on_tick", .function = zlua.wrap(onTick) },
         .{ .name = "position", .function = zlua.wrap(position) },
         .{ .name = "motion", .function = zlua.wrap(motion) },
@@ -39,13 +39,7 @@ pub fn install(self: *Player, lua: *Lua) void {
         .{ .name = "damage_equipped", .function = zlua.wrap(damageEquipped) },
         .{ .name = "set_pose", .function = zlua.wrap(setPose) },
         .{ .name = "on_peer_pose", .function = zlua.wrap(onPeerPose) },
-    };
-    for (functions) |entry| {
-        lua.pushLightUserdata(self);
-        lua.pushClosure(entry.function, 1);
-        lua.setField(-2, entry.name);
-    }
-    lua.setField(-2, "player");
+    });
     lua.pop(1);
     active = self;
 }
@@ -74,7 +68,7 @@ pub fn steer(player: *game.Player, _: *const world.World, jump: bool, sneak: boo
 }
 
 fn api(lua: *Lua) *Player {
-    return @ptrCast(@alignCast(@constCast(lua.toPointer(Lua.upvalueIndex(1)).?)));
+    return bind.upvalue(Player, lua);
 }
 
 fn steered(lua: *Lua) *game.Player {
@@ -106,20 +100,12 @@ pub fn peerPose(self: *Player, peer: *game.Player) ?game.mob_model.BipedOverride
 }
 
 fn onPeerPose(lua: *Lua) i32 {
-    const self = api(lua);
-    lua.checkType(1, .function);
-    if (self.on_peer_pose) |old| lua.unref(zlua.registry_index, old);
-    lua.pushValue(1);
-    self.on_peer_pose = lua.ref(zlua.registry_index);
+    bind.listener(lua, &api(lua).on_peer_pose);
     return 0;
 }
 
 fn onTick(lua: *Lua) i32 {
-    const self = api(lua);
-    lua.checkType(1, .function);
-    if (self.on_tick) |old| lua.unref(zlua.registry_index, old);
-    lua.pushValue(1);
-    self.on_tick = lua.ref(zlua.registry_index);
+    bind.listener(lua, &api(lua).on_tick);
     return 0;
 }
 
@@ -181,17 +167,7 @@ fn stackAt(player: *game.Player, slot: Slot) *?game.Inventory.ItemStack {
 
 fn equipped(lua: *Lua) i32 {
     const player = steered(lua);
-    const stack = stackAt(player, slotArgument(lua, 1)).* orelse {
-        lua.pushNil();
-        return 1;
-    };
-    _ = lua.pushString(switch (stack.id) {
-        .block => |id| id.def().key,
-        .item => |id| id.def().key,
-    });
-    lua.pushInteger(stack.count);
-    lua.pushInteger(stack.meta);
-    return 3;
+    return bind.pushStack(lua, stackAt(player, slotArgument(lua, 1)).*);
 }
 
 fn setMotion(lua: *Lua) i32 {
@@ -239,10 +215,10 @@ fn setPose(lua: *Lua) i32 {
     lua.checkType(1, .table);
 
     var turned: game.mob_model.BipedOverride = .{
-        .pitch = poseAngle(lua, "pitch"),
-        .roll = poseAngle(lua, "roll"),
-        .spin = poseAngle(lua, "spin"),
-        .lift = poseAngle(lua, "lift"),
+        .pitch = bind.number(lua, 1, "pitch", 0),
+        .roll = bind.number(lua, 1, "roll", 0),
+        .spin = bind.number(lua, 1, "spin", 0),
+        .lift = bind.number(lua, 1, "lift", 0),
     };
 
     if (lua.getField(1, "limbs") != .nil) {
@@ -262,15 +238,6 @@ fn setPose(lua: *Lua) i32 {
 
     posedBy(self).* = turned;
     return 0;
-}
-
-fn poseAngle(lua: *Lua, name: [:0]const u8) f32 {
-    defer lua.pop(1);
-    if (lua.getField(1, name) == .nil) return 0;
-    if (lua.typeOf(-1) != .number) lua.raiseErrorStr("'%s' must be a number", .{name.ptr});
-    const value: f32 = @floatCast(lua.toNumber(-1) catch unreachable);
-    if (!std.math.isFinite(value)) lua.raiseErrorStr("'%s' must be a finite number", .{name.ptr});
-    return value;
 }
 
 fn limbAngles(lua: *Lua, name: [:0]const u8) [3]f32 {

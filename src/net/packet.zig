@@ -109,20 +109,18 @@ pub const ModList = struct {
         for (ours.mods) |mod| {
             if (theirs.findMod(mod.id) == null) return describe(buffer, "The server does not have the mod {s}", .{mod.id});
         }
-        const ids_differ = "Mod content ids differ from the server";
-        if (ours.keys.len != theirs.keys.len) return ids_differ;
-        for (theirs.keys) |entry| {
-            const mine = findIn(ours.keys, entry.key) orelse return ids_differ;
-            if (mine.numeric != entry.numeric) return ids_differ;
-        }
-
-        const mobs_differ = "Mod mob ids differ from the server";
-        if (ours.mobs.len != theirs.mobs.len) return mobs_differ;
-        for (theirs.mobs) |entry| {
-            const mine = findIn(ours.mobs, entry.key) orelse return mobs_differ;
-            if (mine.numeric != entry.numeric) return mobs_differ;
-        }
+        if (idsDiffer(ours.keys, theirs.keys)) return "Mod content ids differ from the server";
+        if (idsDiffer(ours.mobs, theirs.mobs)) return "Mod mob ids differ from the server";
         return null;
+    }
+
+    fn idsDiffer(ours: []const Key, theirs: []const Key) bool {
+        if (ours.len != theirs.len) return true;
+        for (theirs) |entry| {
+            const mine = findIn(ours, entry.key) orelse return true;
+            if (mine.numeric != entry.numeric) return true;
+        }
+        return false;
     }
 
     fn describe(buffer: []u8, comptime format: []const u8, args: anytype) []const u8 {
