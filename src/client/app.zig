@@ -9,6 +9,8 @@ const Timer = core.Timer;
 const game = @import("game");
 const gl = @import("gl");
 const math = @import("math");
+const ModRegistry = @import("mods").registry;
+const Mods = @import("mods").Loaded;
 const net = @import("net");
 const remote = @import("remote");
 const render = @import("render");
@@ -129,6 +131,7 @@ pub const AppState = struct {
     workbench_open: bool = false,
     furnace_open: ?world.World.BlockPos = null,
     chest_open: ?world.World.BlockPos = null,
+    mod_container_open: ?world.World.BlockPos = null,
     dispenser_open: ?world.World.BlockPos = null,
     minecart_open: game.Entity.Id = game.Entity.no_id,
     paused: bool = false,
@@ -161,9 +164,14 @@ pub const AppState = struct {
     base_dir: std.Io.Dir,
     saves_dir: std.Io.Dir,
     packs_dir: std.Io.Dir,
+    loaded_mods: ?Mods = null,
     packs: []render.texture_pack.Pack = &.{},
     pack_thumbnails: []render.Atlas = &.{},
+    mob_skins: []const ModSkin = &.{},
     pack_scroll: f32 = 0,
+    mod_rows: []render.screen.texture_packs.Mod = &.{},
+    mod_scroll: f32 = 0,
+    dragged_list: render.screen.texture_packs.Side = .packs,
     save_handle: ?world.save.Save = null,
     open_folder: NameBuffer = .{},
     open_name: NameBuffer = .{},
@@ -453,6 +461,7 @@ pub fn init(
     const base_dir = try std.Io.Dir.cwd().openDir(io, base_path, .{});
     const saves_dir = try world.save.openSavesDir(io, base_dir);
     const packs_dir = try render.texture_pack.open(io, base_dir);
+    const loaded_mods = loadMods(gpa, io, base_dir);
 
     var app_state: AppState = .{
         .gpa = gpa,
@@ -475,6 +484,7 @@ pub fn init(
         .base_dir = base_dir,
         .saves_dir = saves_dir,
         .packs_dir = packs_dir,
+        .loaded_mods = loaded_mods,
     };
     app_state.settings = game.options_file.load(gpa, io, base_dir);
     if (app_state.settings.fullscreen) applyFullscreen(&app_state);
@@ -493,6 +503,7 @@ pub fn init(
     app_state.textures = try render.Textures.load(gpa, startup_pack, app_state.settings.anaglyph);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
+    _ = applyModTextures(&app_state);
 
     if (wasm) app_state.github_icon = try render.Atlas.load(@embedFile("github_png"), app_state.settings.anaglyph);
     errdefer if (app_state.github_icon) |icon| icon.deinit();
@@ -531,6 +542,183 @@ pub fn init(
     errdefer app_state.level.deinit(gpa);
 
     return .{ app_state, .run };
+}
+
+fn loadMods(gpa: std.mem.Allocator, io: std.Io, base_dir: std.Io.Dir) ?Mods {
+    var dir = base_dir.createDirPathOpen(io, Mods.folder_name, .{ .open_options = .{ .iterate = true } }) catch |err| {
+        std.log.warn("could not open the mods folder: {t}", .{err});
+        return null;
+    };
+    defer dir.close(io);
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    var loaded = Mods.load(gpa, io, dir, &report.writer) catch |err| {
+        std.log.err("playing without mods, loading them failed ({t}): {s}", .{ err, report.written() });
+        return null;
+    };
+    loaded.runClientScripts(io, dir, &report.writer) catch |err| {
+        std.log.err("a mod's client script failed ({t}): {s}", .{ err, report.written() });
+    };
+    return loaded;
+}
+
+const ModTiles = std.StringHashMapUnmanaged(?u8);
+
+fn applyModTextures(app_state: *AppState) bool {
+    const loaded = app_state.loaded_mods orelse return false;
+    if (loaded.block_textures.len == 0 and loaded.item_textures.len == 0 and loaded.mob_skins.len == 0) return false;
+
+    var mods_dir = app_state.base_dir.openDir(app_state.io, Mods.folder_name, .{}) catch |err| {
+        std.log.warn("could not open the mods folder for textures: {t}", .{err});
+        return false;
+    };
+    defer mods_dir.close(app_state.io);
+
+    var arena: std.heap.ArenaAllocator = .init(app_state.gpa);
+    defer arena.deinit();
+    var terrain_tiles: ModTiles = .empty;
+    var item_tiles: ModTiles = .empty;
+
+    for (loaded.block_textures) |request| {
+        var definition = request.block.def().*;
+        for (std.enums.values(world.Side)) |side| {
+            const file = request.faces.get(side) orelse continue;
+            const tile = modTile(app_state, mods_dir, arena.allocator(), &terrain_tiles, &app_state.textures.terrain, request.folder, file) orelse continue;
+            definition.face_textures.set(side, tile);
+        }
+        request.block.register(definition);
+    }
+    for (loaded.item_textures) |request| {
+        const tile = modTile(app_state, mods_dir, arena.allocator(), &item_tiles, &app_state.textures.items, request.folder, request.file) orelse continue;
+        var definition = request.item.def().*;
+        definition.icon = tile;
+        request.item.register(definition);
+    }
+    loadModSkins(app_state, mods_dir, loaded.mob_skins, arena.allocator());
+    return true;
+}
+
+fn tellModsKey(app_state: *AppState, current: sdl3.events.Event) void {
+    const loaded = app_state.loaded_mods orelse return;
+    if (loaded.input.on_key == null) return;
+    if (app_state.screen != .playing) return;
+    const key, const pressed = switch (current) {
+        .key_down => |k| if (k.repeat or !worldFocused(app_state)) return else .{ k.key orelse return, true },
+        .key_up => |k| .{ k.key orelse return, false },
+        else => return,
+    };
+    loaded.input.key(render.screen.controls.keyName(@intFromEnum(key)), pressed);
+}
+
+fn drawModHud(app_state: *AppState, ui: render.gui.Ui) !void {
+    const loaded = app_state.loaded_mods orelse return;
+    const commands = loaded.hud.collect(app_state.frame, ui.res.width, ui.res.height);
+    if (commands.len == 0) return;
+
+    var rects: render.MeshBuilder = .{};
+    defer rects.deinit(app_state.frame);
+    var text: render.MeshBuilder = .{};
+    defer text.deinit(app_state.frame);
+    for (commands) |command| switch (command) {
+        .rect => |box| try render.gui.appendRectColor(&rects, app_state.frame, box.x, box.y, box.width, box.height, render.gui.opaque_texel, box.color, ui.res),
+        .text => |line| try render.gui.appendTextColor(&text, app_state.frame, ui.font, line.text, line.x, line.y, line.color, ui.res),
+    };
+
+    render.gui.beginOverlay();
+    defer render.gui.endOverlay();
+    try render.gui.drawColorMesh(&rects, ui.shader);
+    try render.gui.drawTexturedMesh(&text, ui.shader, ui.font);
+}
+
+const ModSkin = struct {
+    type_id: game.mob.Id,
+    model: game.mob.Model,
+    wing_beat: f32,
+    atlas: render.Atlas,
+};
+
+fn loadModSkins(app_state: *AppState, mods_dir: std.Io.Dir, requests: []const ModRegistry.MobSkin, arena: std.mem.Allocator) void {
+    freeModSkins(app_state);
+    if (requests.len == 0) return;
+
+    var skins: std.ArrayList(ModSkin) = .empty;
+    defer skins.deinit(app_state.gpa);
+    for (requests) |request| {
+        const atlas = modSkin(app_state, mods_dir, arena, request) orelse continue;
+        skins.append(app_state.gpa, .{
+            .type_id = request.type_id,
+            .model = request.model,
+            .wing_beat = request.wing_beat,
+            .atlas = atlas,
+        }) catch {
+            atlas.deinit();
+            break;
+        };
+    }
+    app_state.mob_skins = skins.toOwnedSlice(app_state.gpa) catch &.{};
+}
+
+fn skinFor(skins: []const ModSkin, type_id: game.mob.Id) ?usize {
+    for (skins, 0..) |skin, slot| {
+        if (skin.type_id == type_id) return slot;
+    }
+    return null;
+}
+
+fn freeModSkins(app_state: *AppState) void {
+    for (app_state.mob_skins) |skin| skin.atlas.deinit();
+    app_state.gpa.free(app_state.mob_skins);
+    app_state.mob_skins = &.{};
+}
+
+fn readModTexture(app_state: *AppState, mods_dir: std.Io.Dir, path: []const u8) ?[]u8 {
+    return mods_dir.readFileAlloc(app_state.io, path, app_state.gpa, .limited(1024 * 1024)) catch |err| {
+        std.log.warn("could not read the mod texture {s}: {t}", .{ path, err });
+        return null;
+    };
+}
+
+fn modSkin(app_state: *AppState, mods_dir: std.Io.Dir, arena: std.mem.Allocator, request: ModRegistry.MobSkin) ?render.Atlas {
+    const path = std.fs.path.join(arena, &.{ request.folder, request.file }) catch return null;
+    const png = readModTexture(app_state, mods_dir, path) orelse return null;
+    defer app_state.gpa.free(png);
+
+    return render.Atlas.load(png, app_state.settings.anaglyph) catch |err| {
+        std.log.warn("could not use {s} as a mob texture: {t}", .{ path, err });
+        return null;
+    };
+}
+
+fn modTile(
+    app_state: *AppState,
+    mods_dir: std.Io.Dir,
+    arena: std.mem.Allocator,
+    tiles: *ModTiles,
+    atlas: *render.Atlas,
+    folder: []const u8,
+    file: []const u8,
+) ?u8 {
+    const path = std.fs.path.join(arena, &.{ folder, file }) catch return null;
+    if (tiles.get(path)) |known| return known;
+    const painted = paintModTile(app_state, mods_dir, atlas, path);
+    tiles.put(arena, path, painted) catch {};
+    return painted;
+}
+
+fn paintModTile(app_state: *AppState, mods_dir: std.Io.Dir, atlas: *render.Atlas, path: []const u8) ?u8 {
+    const png = readModTexture(app_state, mods_dir, path) orelse return null;
+    defer app_state.gpa.free(png);
+
+    const tile = atlas.claimTile() orelse {
+        std.log.warn("no free atlas tile is left for {s}", .{path});
+        return null;
+    };
+    atlas.writeTilePng(tile, png, app_state.settings.anaglyph) catch |err| {
+        atlas.releaseTile(tile);
+        std.log.warn("could not use {s} as a texture: {t}", .{ path, err });
+        return null;
+    };
+    return tile;
 }
 
 const missed_click_ticks = 10;
@@ -848,71 +1036,23 @@ fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void 
         return;
     }
 
-    const meta = app_state.level.world_map.getBlockMetadata(pos);
-    const held = app_state.player.inventory.selectedStack();
-    const harvested = block_id.harvestableWith(held);
-    const lit_tnt = block_id == .tnt and world.tnt.isLit(meta);
-    try app_state.level.world_map.setBlockWithNotify(pos, .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&app_state.level.world_map, pos);
-    try spillFurnace(app_state, pos);
-    try spillDispenser(app_state, pos);
-    try ejectBrokenJukebox(app_state, pos);
+    try closeBrokenContainer(app_state, pos);
     try closeBrokenChest(app_state, pos);
-    _ = app_state.level.world_map.removeSign(pos);
-    _ = app_state.level.world_map.removeNote(pos);
+
+    const held = app_state.player.inventory.selectedStack();
+    const harvested = try game.interact.breakBlockAt(app_state.gpa, &app_state.level, held, pos) orelse return;
+
     app_state.digging = null;
     try wearHeldItem(app_state, block_id);
+    if (harvested) try app_state.stats.mine(app_state.gpa, block_id);
+}
 
-    if (harvested) {
-        try app_state.stats.mine(app_state.gpa, block_id);
-        const dropped = if (lit_tnt) null else block_id.harvestDrop(meta, held, &app_state.level.world_map.rand);
-        if (dropped) |d| {
-            try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
-        }
-        if (!lit_tnt) {
-            var extra: [3]world.block.Stack = undefined;
-            for (block_id.bonusDrops(meta, &app_state.level.world_map.rand, &extra)) |d| {
-                try spawnDroppedItem(app_state, pos, .{ .id = d.id, .count = d.count, .meta = d.meta });
-            }
+fn closeBrokenContainer(app_state: *AppState, pos: BlockPos) !void {
+    for ([_]?BlockPos{ app_state.mod_container_open, app_state.furnace_open, app_state.dispenser_open }) |open| {
+        if (open) |at| {
+            if (std.meta.eql(at, pos)) return closeContainer(app_state);
         }
     }
-}
-
-fn spillFurnace(app_state: *AppState, pos: BlockPos) !void {
-    var removed = app_state.level.world_map.removeFurnace(pos) orelse return;
-
-    if (app_state.furnace_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
-    }
-
-    for (0..world.furnace.slot_count) |index| {
-        const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, pos, stack);
-    }
-}
-
-fn spillDispenser(app_state: *AppState, pos: BlockPos) !void {
-    var removed = app_state.level.world_map.removeDispenser(pos) orelse return;
-
-    if (app_state.dispenser_open) |open| {
-        if (open.x == pos.x and open.y == pos.y and open.z == pos.z) try closeContainer(app_state);
-    }
-
-    for (0..world.dispenser.slot_count) |index| {
-        const stack = removed.slot(index).* orelse continue;
-        try spawnDroppedItem(app_state, pos, stack);
-    }
-}
-
-fn ejectBrokenJukebox(app_state: *AppState, pos: BlockPos) !void {
-    const removed = app_state.level.world_map.removeJukebox(pos) orelse return;
-    const record = removed.record orelse return;
-    try app_state.level.entities.ejectRecord(
-        app_state.gpa,
-        pos,
-        .{ .id = .{ .item = record }, .count = 1 },
-        &app_state.level.world_map.rand,
-    );
 }
 
 fn closeBrokenChest(app_state: *AppState, pos: BlockPos) !void {
@@ -960,6 +1100,8 @@ fn currentWindow(app_state: *AppState) game.Window {
     } else if (openedChest(app_state)) |open| {
         window.addStore(&open.upper.items, .chest);
         if (open.lower) |lower| window.addStore(&lower.items, .chest);
+    } else if (openedModContainer(app_state)) |open| {
+        window.addStore(open.slots(), .chest);
     } else if (openedDispenser(app_state)) |trap| {
         window.addStore(&trap.items, .chest);
     } else if (openedMinecart(app_state)) |cart| {
@@ -1127,6 +1269,7 @@ fn dropGrid(app_state: *AppState, grid: []?game.Inventory.ItemStack) !void {
 fn containerOpen(app_state: *const AppState) bool {
     return app_state.inventory_open or app_state.workbench_open or app_state.furnace_open != null or
         app_state.chest_open != null or app_state.dispenser_open != null or
+        app_state.mod_container_open != null or
         app_state.minecart_open != game.Entity.no_id or app_state.sign_edit != null;
 }
 
@@ -1170,6 +1313,7 @@ fn closeContainer(app_state: *AppState) !void {
         app_state.furnace_open = null;
         app_state.chest_open = null;
         app_state.dispenser_open = null;
+        app_state.mod_container_open = null;
         app_state.minecart_open = game.Entity.no_id;
         return updateMouseMode(app_state);
     }
@@ -1179,6 +1323,7 @@ fn closeContainer(app_state: *AppState) !void {
     app_state.furnace_open = null;
     app_state.chest_open = null;
     app_state.dispenser_open = null;
+    app_state.mod_container_open = null;
     app_state.minecart_open = game.Entity.no_id;
     try updateMouseMode(app_state);
     try dropHeldStack(app_state, .left);
@@ -1217,6 +1362,27 @@ fn openedDispenser(app_state: *AppState) ?*world.dispenser.Dispenser {
     const pos = app_state.dispenser_open orelse return null;
     if (app_state.level.world_map.getBlock(pos) != .dispenser) return null;
     return app_state.level.world_map.dispenserAt(pos);
+}
+
+const OpenModContainer = struct {
+    store: *world.block_container.Store,
+    spec: world.block.Container,
+
+    fn slots(self: OpenModContainer) []?world.Stack {
+        return self.store.items[0 .. @as(usize, self.spec.rows) * 9];
+    }
+};
+
+fn openedModContainer(app_state: *AppState) ?OpenModContainer {
+    const pos = app_state.mod_container_open orelse return null;
+    const spec = app_state.level.world_map.getBlock(pos).def().container orelse return null;
+    return .{ .store = app_state.level.world_map.containerAt(pos) orelse return null, .spec = spec };
+}
+
+fn openModContainer(app_state: *AppState, pos: BlockPos) !void {
+    _ = try app_state.level.world_map.addContainer(pos);
+    app_state.mod_container_open = pos;
+    try updateMouseMode(app_state);
 }
 
 fn openChest(app_state: *AppState, pos: BlockPos) !void {
@@ -1387,8 +1553,8 @@ fn resourceName(stack: world.Stack) []const u8 {
     const named = stack.displayName();
     if (named.len > 0) return named;
     return switch (stack.id) {
-        .block => |id| @tagName(id),
-        .item => |id| @tagName(id),
+        .block => |id| std.enums.tagName(world.Block, id) orelse id.def().key,
+        .item => |id| std.enums.tagName(world.Item, id) orelse id.def().key,
     };
 }
 
@@ -1427,8 +1593,25 @@ fn lookedAtPosition(app_state: *AppState) math.Vec3 {
 fn runCommand(app_state: *AppState, line: []const u8) !void {
     switch (game.commands.parse(line)) {
         .nothing => {},
-        .help => for (game.commands.help_lines) |help_line| {
-            app_state.chat.addMessage(app_state.font, help_line);
+        .help => {
+            for (game.commands.help_lines) |help_line| {
+                app_state.chat.addMessage(app_state.font, help_line);
+            }
+            var buffer: [net.packet.max_chat]u8 = undefined;
+            for (game.commands.registered()) |entry| {
+                app_state.chat.addMessage(app_state.font, game.commands.helpLine(&buffer, entry));
+            }
+        },
+        .custom => |found| {
+            const loaded = app_state.loaded_mods orelse return;
+            if (app_state.link) |link| {
+                if (!game.commands.registered()[found.index].local) {
+                    return link.connection.say(app_state.gpa, line);
+                }
+            }
+            if (loaded.commands.run(found.index, found.args, null)) |said| {
+                app_state.chat.addMessage(app_state.font, said);
+            }
         },
         .freecam => {
             if (app_state.freecam.active) {
@@ -1534,22 +1717,15 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .spawn => |spawn| {
             const position = lookedAtPosition(app_state);
-            for (0..spawn.count) |_| switch (spawn.mob) {
-                .pig => try app_state.level.entities.spawnPig(app_state.gpa, position),
-                .cow => try app_state.level.entities.spawnCow(app_state.gpa, position),
-                .sheep => try app_state.level.entities.spawnSheep(app_state.gpa, position, &app_state.level.world_map.rand),
-                .chicken => try app_state.level.entities.spawnChicken(app_state.gpa, position, &app_state.level.world_map.rand),
-                .slime => try app_state.level.entities.spawnSlime(app_state.gpa, position, &app_state.level.world_map.rand),
-                .wolf => try app_state.level.entities.spawnWolf(app_state.gpa, position, &app_state.level.world_map.rand),
-                .ghast => try app_state.level.entities.spawnGhast(app_state.gpa, position),
-                .creeper => try app_state.level.entities.spawnCreeper(app_state.gpa, position),
-                .skeleton => try app_state.level.entities.spawnSkeleton(app_state.gpa, position),
-                .spider => try app_state.level.entities.spawnSpider(app_state.gpa, position),
-                .zombie => try app_state.level.entities.spawnZombie(app_state.gpa, position),
-                .pigzombie => try app_state.level.entities.spawnPigZombie(app_state.gpa, position),
-                .squid => try app_state.level.entities.spawnSquid(app_state.gpa, position, &app_state.level.world_map.rand),
-            };
-            reply(app_state, "Spawning {d} {s}", .{ spawn.count, @tagName(spawn.mob) });
+            for (0..spawn.count) |_| {
+                _ = try app_state.level.entities.spawnMob(
+                    app_state.gpa,
+                    spawn.type_id,
+                    position,
+                    &app_state.level.world_map.rand,
+                );
+            }
+            reply(app_state, "Spawning {d} {s}", .{ spawn.count, spawn.name });
         },
         .time => |time| {
             switch (time.method) {
@@ -1623,6 +1799,9 @@ fn freeTexturePacks(app_state: *AppState) void {
 
     render.texture_pack.deinitAll(app_state.gpa, app_state.packs);
     app_state.packs = &.{};
+
+    app_state.gpa.free(app_state.mod_rows);
+    app_state.mod_rows = &.{};
 }
 
 fn openRepository() void {
@@ -1665,6 +1844,7 @@ fn connectToServer(app_state: *AppState) !void {
         address.host,
         address.port,
         game.stats_file.default_username,
+        if (app_state.loaded_mods) |loaded| loaded.list else .{},
     ) catch |err| {
         reply(app_state, "Could not reach {s}: {s}", .{ typed, @errorName(err) });
         closeWorld(app_state);
@@ -1713,7 +1893,13 @@ fn openTexturePacks(app_state: *AppState) !void {
     }
     app_state.pack_thumbnails = thumbnails;
 
+    const mods = if (app_state.loaded_mods) |loaded| loaded.mods else &.{};
+    const rows = try app_state.gpa.alloc(render.screen.texture_packs.Mod, mods.len);
+    for (mods, rows) |mod, *row| row.* = .{ .id = mod.manifest.id, .version = mod.manifest.version, .depends = mod.manifest.depends };
+    app_state.mod_rows = rows;
+
     app_state.pack_scroll = 0;
+    app_state.mod_scroll = 0;
     app_state.screen = .texture_packs;
     try updateMouseMode(app_state);
 }
@@ -1738,6 +1924,7 @@ fn refreshTextures(app_state: *AppState) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    _ = applyModTextures(app_state);
 
     const font = try render.Font.load(font_png, app_state.settings.anaglyph);
     app_state.font.deinit();
@@ -1756,13 +1943,20 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    if (applyModTextures(app_state)) try app_state.chunks.markAllDirty(app_state.gpa);
     app_state.settings.skin.set(name);
     saveOptions(app_state);
 }
 
 fn texturePacksClick(app_state: *AppState) !void {
     const gui = guiSize(app_state);
-    if (render.screen.texture_packs.scrollbarAt(app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+    if (render.screen.texture_packs.scrollbarAt(.packs, app_state.mouse_x, app_state.mouse_y, gui, app_state.packs.len)) {
+        app_state.dragged_list = .packs;
+        app_state.dragging_scrollbar = true;
+        return;
+    }
+    if (render.screen.texture_packs.scrollbarAt(.mods, app_state.mouse_x, app_state.mouse_y, gui, app_state.mod_rows.len)) {
+        app_state.dragged_list = .mods;
         app_state.dragging_scrollbar = true;
         return;
     }
@@ -1782,7 +1976,9 @@ fn texturePacksClick(app_state: *AppState) !void {
 
     switch (hit) {
         .entry => |index| try selectTexturePack(app_state, index),
-        .open_folder => openTexturePackFolder(app_state),
+        .open_folder => openGameFolder(app_state, render.texture_pack.folder_name),
+        .open_mods_folder => openGameFolder(app_state, Mods.folder_name),
+        .refresh => try reloadModsAndPacks(app_state),
         .done => {
             freeTexturePacks(app_state);
             app_state.screen = .title;
@@ -1791,8 +1987,16 @@ fn texturePacksClick(app_state: *AppState) !void {
     }
 }
 
-fn openTexturePackFolder(app_state: *AppState) void {
-    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, render.texture_pack.folder_name }, 0) catch return;
+fn reloadModsAndPacks(app_state: *AppState) !void {
+    freeModSkins(app_state);
+    if (app_state.loaded_mods) |*loaded| loaded.deinit(app_state.gpa);
+    app_state.loaded_mods = loadMods(app_state.gpa, app_state.io, app_state.base_dir);
+    try refreshTextures(app_state);
+    try openTexturePacks(app_state);
+}
+
+fn openGameFolder(app_state: *AppState, folder_name: []const u8) void {
+    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, folder_name }, 0) catch return;
     sdl3.openURL(url) catch {};
 }
 
@@ -2297,7 +2501,10 @@ fn dragScrollbar(app_state: *AppState, dy_pixels: f32) void {
     } else if (app_state.screen == .select_world) {
         app_state.list_scroll = render.screen.select_world.dragScroll(gui, app_state.summaries.len, app_state.list_scroll, dy);
     } else if (app_state.screen == .texture_packs) {
-        app_state.pack_scroll = render.screen.texture_packs.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy);
+        switch (app_state.dragged_list) {
+            .packs => app_state.pack_scroll = render.screen.texture_packs.dragScroll(gui, app_state.packs.len, app_state.pack_scroll, dy),
+            .mods => app_state.mod_scroll = render.screen.texture_packs.dragScroll(gui, app_state.mod_rows.len, app_state.mod_scroll, dy),
+        }
     }
 }
 
@@ -2538,6 +2745,10 @@ fn useBlockOrPlace(app_state: *AppState) !bool {
                         return true;
                     }
                 }
+                if (id.def().container != null) {
+                    try openModContainer(app_state, hit.pos);
+                    return true;
+                }
             },
         }
     }
@@ -2730,6 +2941,7 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
         app_state.furnace_open = null;
         app_state.chest_open = null;
         app_state.dispenser_open = null;
+        app_state.mod_container_open = null;
         app_state.minecart_open = game.Entity.no_id;
         try updateMouseMode(app_state);
         return;
@@ -2749,12 +2961,16 @@ fn adoptServerScreen(app_state: *AppState, link: *Link) !void {
             app_state.dispenser_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
         },
         .chest => {
+            const at: BlockPos = .init(open.at[0], open.at[1], open.at[2]);
             if (open.cart != game.Entity.no_id) {
                 if (app_state.minecart_open == open.cart) return;
                 app_state.minecart_open = open.cart;
+            } else if (app_state.level.world_map.getBlock(at).def().container != null) {
+                if (app_state.mod_container_open != null) return;
+                app_state.mod_container_open = at;
             } else {
                 if (app_state.chest_open != null) return;
-                app_state.chest_open = .{ .x = open.at[0], .y = open.at[1], .z = open.at[2] };
+                app_state.chest_open = .{ .x = at.x, .y = at.y, .z = at.z };
             }
         },
         else => return,
@@ -2821,49 +3037,7 @@ fn placeBlockAtTarget(app_state: *AppState) !bool {
     }
 
     const target = world.block_update.placementTarget(&app_state.level.world_map, hit.pos, hit.face);
-    const px = target.pos.x;
-    const py = target.pos.y;
-    const pz = target.pos.z;
-    if (py < 0 or py >= world.Chunk.height) return false;
-    if (!app_state.level.world_map.getBlock(.init(px, py, pz)).isReplaceable()) return false;
-    if (!world.block_update.canPlaceOnSide(&app_state.level.world_map, .init(px, py, pz), placed, target.face)) return false;
-    if (placed == .chest and !app_state.level.world_map.canPlaceChestAt(.init(px, py, pz))) return false;
-    const meta = world.block_update.placementMetadata(&app_state.level.world_map, .init(px, py, pz), placed, target.face, stack.blockMeta());
-    try app_state.level.world_map.setBlockAndMetadataWithNotify(.init(px, py, pz), placed, meta);
-    const step_sound = placed.stepSound();
-    app_state.level.world_map.playSoundEffect(
-        BlockPos.init(px, py, pz).center(),
-        step_sound.walk(),
-        (step_sound.volume() + 1.0) / 2.0,
-        step_sound.pitch() * 0.8,
-    );
-    if (placed == .furnace) {
-        const facing = world.block.furnaceFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-        _ = try app_state.level.world_map.addFurnace(.init(px, py, pz));
-    }
-    if (placed == .chest) _ = try app_state.level.world_map.addChest(.init(px, py, pz));
-    if (placed == .dispenser) {
-        const facing = world.block.dispenserFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-        _ = try app_state.level.world_map.addDispenser(.init(px, py, pz));
-    }
-    if (placed.isStairs()) {
-        const facing = world.block.stairsFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-    }
-    if (placed == .pumpkin or placed == .jack_o_lantern) {
-        const facing = world.block.pumpkinFacingFromYaw(app_state.player.yaw);
-        try app_state.level.world_map.setBlockMetadataWithNotify(.init(px, py, pz), facing);
-    }
-    try world.redstone.onBlockPlaced(
-        &app_state.level.world_map,
-        .init(px, py, pz),
-        placed,
-        app_state.player.base.position,
-        app_state.player.yaw,
-    );
-    _ = try world.block_update.mergeSlabBelow(&app_state.level.world_map, .init(px, py, pz));
+    if (!try game.interact.placeBlockAt(&app_state.level, &app_state.player, placed, stack.blockMeta(), target)) return false;
     try app_state.stats.use(app_state.gpa, stack.id);
     consumeSelectedStack(app_state);
     try applyBlockChanges(app_state);
@@ -3031,9 +3205,78 @@ fn tickRemote(app_state: *AppState, link: *Link) !void {
     try link.connection.reportSneak(app_state.gpa, app_state.player.base.sneaking);
     try link.connection.reportHeldSlot(app_state.gpa, app_state.player.inventory.selected);
     if (link.connection.placed) try link.connection.reportPosition(app_state.gpa, &app_state.player);
+    try pumpModMessages(app_state, link);
     try link.flush();
 
     if (!link.isOpen()) try leaveServer(app_state);
+}
+
+fn pumpModMessages(app_state: *AppState, link: *Link) !void {
+    const loaded = app_state.loaded_mods orelse return;
+
+    const inbox = link.connection.takeModInbox(app_state.gpa);
+    defer remote.Connection.freeModInbox(app_state.gpa, inbox);
+    for (inbox) |message| loaded.net_api.deliver(message.channel, message.payload, null);
+
+    const outbox = loaded.net_api.take();
+    defer loaded.net_api.release(outbox);
+    for (outbox) |message| {
+        try link.connection.send(app_state.gpa, .{ .mod_message = .{
+            .channel = message.channel,
+            .payload = message.payload,
+        } });
+    }
+}
+
+fn playModEffects(app_state: *AppState) !void {
+    const loaded = app_state.loaded_mods orelse return;
+    const queued = loaded.effects.take();
+    defer loaded.effects.release(queued);
+
+    for (queued) |effect| switch (effect) {
+        .sound => |body| app_state.level.world_map.playSoundEffect(body.at, body.sound, body.volume, body.pitch),
+        .particle => |body| {
+            const range = game.Particle.vanilla_range;
+            if (app_state.player.base.position.distanceSquaredTo(body.at) > range * range) continue;
+            try app_state.level.entities.spawnVanillaParticle(
+                app_state.gpa,
+                body.kind,
+                body.at,
+                body.drift,
+                &app_state.level.world_map.rand,
+            );
+        },
+        .explode => |body| {
+            if (app_state.link != null) continue;
+            try game.explosion.detonate(
+                app_state.gpa,
+                &app_state.level.entities,
+                &app_state.level.world_map,
+                app_state.level.roster.items,
+                body.at,
+                body.size,
+                body.flaming,
+                &app_state.level.world_map.rand,
+            );
+            try applyBlockChanges(app_state);
+        },
+        .spawn => |body| {
+            if (app_state.link != null) continue;
+            _ = try app_state.level.entities.spawnMob(
+                app_state.gpa,
+                body.type_id,
+                body.at,
+                &app_state.level.world_map.rand,
+            );
+        },
+    };
+}
+
+fn loopbackModMessages(app_state: *AppState) void {
+    const loaded = app_state.loaded_mods orelse return;
+    const outbox = loaded.net_api.take();
+    defer loaded.net_api.release(outbox);
+    for (outbox) |message| loaded.net_api.deliver(message.channel, message.payload, null);
 }
 
 fn leaveServer(app_state: *AppState) !void {
@@ -3179,8 +3422,10 @@ fn tick(app_state: *AppState) !void {
                 return;
             },
         }
+        loopbackModMessages(app_state);
     }
 
+    try playModEffects(app_state);
     app_state.cloud_offset += 1;
 
     try app_state.level.entities.tickParticles(app_state.gpa, &app_state.level.world_map, &app_state.level.world_map.rand);
@@ -3846,6 +4091,25 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     while (horde.next()) |pig_zombie| {
         try render.entity_render.appendPigZombie(&pig_zombie_mesh, app_state.frame, &app_state.level.world_map, pig_zombie.*, partial);
     }
+    const mod_mob_meshes = try app_state.frame.alloc(render.MeshBuilder, app_state.mob_skins.len);
+    for (mod_mob_meshes) |*mesh| mesh.* = .{ .origin = camera_eye };
+    defer for (mod_mob_meshes) |*mesh| mesh.deinit(app_state.frame);
+    if (app_state.mob_skins.len > 0) {
+        for (app_state.level.entities.mobs.items) |entry| {
+            const slot = skinFor(app_state.mob_skins, entry.type_id) orelse continue;
+            const skin = app_state.mob_skins[slot];
+            try render.entity_render.appendModAnimal(
+                &mod_mob_meshes[slot],
+                app_state.frame,
+                &app_state.level.world_map,
+                entry.animal.*,
+                partial,
+                render.entity_render.modModel(skin.model),
+                skin.wing_beat,
+            );
+        }
+    }
+
     var painting_mesh: render.MeshBuilder = .{ .origin = camera_eye };
     defer painting_mesh.deinit(app_state.frame);
     for (app_state.level.entities.paintings.items) |painting| {
@@ -3974,6 +4238,13 @@ fn renderWorld(app_state: *AppState, horizon: render.sky.Color) !void {
     if (chicken_mesh.vertices.items.len > 0) {
         app_state.textures.chicken.bind();
         drawEntityMesh(&chicken_mesh);
+        app_state.textures.terrain.bind();
+    }
+
+    for (mod_mob_meshes, app_state.mob_skins) |*mesh, skin| {
+        if (mesh.vertices.items.len == 0) continue;
+        skin.atlas.bind();
+        drawEntityMesh(mesh);
         app_state.textures.terrain.bind();
     }
 
@@ -4126,6 +4397,8 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     var heads: render.MeshBuilder = .{ .origin = origin };
     defer heads.deinit(app_state.frame);
 
+    const posed = if (app_state.loaded_mods) |*loaded| loaded.player else null;
+
     for (link.connection.peers.items) |*peer| {
         try render.entity_render.appendPlayer(
             &mesh,
@@ -4134,6 +4407,7 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
             peer.player,
             false,
             partial,
+            if (posed) |api| api.peerPose(&peer.player) else null,
         );
         if (wornBlock(peer.player)) |id| {
             try render.entity_render.appendPlayerHeadBlock(
@@ -4144,6 +4418,7 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
                 false,
                 partial,
                 id,
+                null,
             );
         }
     }
@@ -4154,13 +4429,20 @@ fn drawPeers(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     drawEntityMesh(&heads);
 }
 
+fn modPose(app_state: *AppState) ?game.mob_model.BipedOverride {
+    const loaded = app_state.loaded_mods orelse return null;
+    return loaded.player.pose;
+}
+
 fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     const player = app_state.player;
     const holding_item = player.inventory.selectedStack() != null;
 
+    const pose = modPose(app_state);
+
     var mesh: render.MeshBuilder = .{ .origin = origin };
     defer mesh.deinit(app_state.frame);
-    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial);
+    try render.entity_render.appendPlayer(&mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, pose);
     app_state.textures.char.bind();
     drawEntityMesh(&mesh);
 
@@ -4172,7 +4454,7 @@ fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
 
         var armor_mesh: render.MeshBuilder = .{ .origin = origin };
         defer armor_mesh.deinit(app_state.frame);
-        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer);
+        try render.entity_render.appendPlayerArmor(&armor_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, layer, pose);
         app_state.textures.armor(piece.material, layer.second_texture).bind();
         drawEntityMesh(&armor_mesh);
     }
@@ -4182,7 +4464,7 @@ fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
     if (wornBlock(player)) |id| {
         var head_mesh: render.MeshBuilder = .{ .origin = origin };
         defer head_mesh.deinit(app_state.frame);
-        try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id);
+        try render.entity_render.appendPlayerHeadBlock(&head_mesh, app_state.frame, &app_state.level.world_map, player, holding_item, partial, id, pose);
         drawEntityMesh(&head_mesh);
     }
 }
@@ -4770,6 +5052,7 @@ pub fn iterate(
         }
         if (!app_state.hide_gui or !worldFocused(app_state)) {
             try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
+            try drawModHud(app_state, ui);
             if (touch_ui and worldFocused(app_state)) {
                 if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
                     .scheme = app_state.settings.touch_scheme,
@@ -4818,12 +5101,15 @@ pub fn iterate(
         try render.screen.multiplayer.draw(ui, &app_state.multiplayer_state);
     } else if (app_state.screen == .texture_packs) {
         app_state.pack_scroll = render.screen.texture_packs.clampScroll(gui, app_state.packs.len, app_state.pack_scroll);
+        app_state.mod_scroll = render.screen.texture_packs.clampScroll(gui, app_state.mod_rows.len, app_state.mod_scroll);
         try render.screen.texture_packs.draw(
             ui,
             app_state.packs,
             app_state.pack_thumbnails,
             render.texture_pack.indexOf(app_state.packs, app_state.settings.skin.text()),
             app_state.pack_scroll,
+            app_state.mod_rows,
+            app_state.mod_scroll,
         );
     } else if (app_state.screen == .confirm_delete) {
         var message: [96]u8 = undefined;
@@ -4847,6 +5133,15 @@ pub fn iterate(
         );
     } else if (openedChest(app_state)) |open| {
         try render.screen.chest.draw(ui, app_state.player.inventory, open.upper, open.lower, app_state.held_stack);
+    } else if (openedModContainer(app_state)) |open| {
+        try render.screen.chest.drawCargo(
+            ui,
+            app_state.player.inventory,
+            open.slots(),
+            open.spec.rows,
+            open.spec.title,
+            app_state.held_stack,
+        );
     } else if (openedDispenser(app_state)) |open| {
         try render.screen.dispenser.draw(ui, app_state.player.inventory, open, app_state.held_stack);
     } else if (openedMinecart(app_state)) |cart| {
@@ -4854,6 +5149,7 @@ pub fn iterate(
             ui,
             app_state.player.inventory,
             &cart.items,
+            world.chest.rows,
             game.Minecart.inventory_name,
             app_state.held_stack,
         );
@@ -5185,6 +5481,7 @@ pub fn event(
     var current = curr_event;
     // Without a keyboard the back gesture is the only way off a screen.
     if (touch_ui) backAsEscape(&current);
+    tellModsKey(app_state, current);
     switch (current) {
         .quit, .terminating => return .success,
         .finger_down => |f| if (touch_ui) try touchDown(app_state, f),
@@ -5327,8 +5624,12 @@ pub fn event(
             const step = w.scroll_y * render.screen.select_world.entry_height;
             app_state.list_scroll = render.screen.select_world.clampScroll(guiSize(app_state), app_state.summaries.len, app_state.list_scroll - step);
         } else if (app_state.screen == .texture_packs) {
+            const gui = guiSize(app_state);
             const step = w.scroll_y * render.screen.texture_packs.entry_height;
-            app_state.pack_scroll = render.screen.texture_packs.clampScroll(guiSize(app_state), app_state.packs.len, app_state.pack_scroll - step);
+            switch (render.screen.texture_packs.sideAt(app_state.mouse_x, gui)) {
+                .packs => app_state.pack_scroll = render.screen.texture_packs.clampScroll(gui, app_state.packs.len, app_state.pack_scroll - step),
+                .mods => app_state.mod_scroll = render.screen.texture_packs.clampScroll(gui, app_state.mod_rows.len, app_state.mod_scroll - step),
+            }
         },
         .text_input => |t| typeText(app_state, t.text),
         .mouse_button_down => |m| switch (m.button) {
@@ -5430,11 +5731,13 @@ pub fn quit(
         if (state.save_handle) |*handle| handle.close(state.gpa, state.io);
         world.save.freeList(state.gpa, state.summaries);
         freeTexturePacks(state);
+        freeModSkins(state);
         state.saves_dir.close(state.io);
         state.packs_dir.close(state.io);
         state.base_dir.close(state.io);
         state.chunks.deinit(state.gpa);
         state.level.deinit(state.gpa);
+        if (state.loaded_mods) |*loaded| loaded.deinit(state.gpa);
         if (state.sound) |*sound| sound.deinit(state.gpa);
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);

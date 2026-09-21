@@ -1,30 +1,15 @@
 const std = @import("std");
 
+const game = @import("game");
+pub const Box = game.mob_model.Box;
+pub const Role = game.mob_model.Role;
+pub const Part = game.mob_model.Part;
+pub const Model = game.mob_model.Model;
 const math = @import("math");
 const world = @import("world");
 
 const item_lighting = @import("item_lighting.zig");
 const MeshBuilder = @import("MeshBuilder.zig");
-
-pub const Box = struct {
-    origin: [3]f32,
-    size: [3]f32,
-    tex_u: f32,
-    tex_v: f32,
-    inflate: f32 = 0,
-    mirror: bool = false,
-};
-
-pub const Role = enum { still, head, leg_ahead, leg_behind, wing_right, wing_left };
-
-pub const Part = struct {
-    box: Box,
-    pivot: [3]f32,
-    rotate_x: f32 = 0,
-    rotate_y: f32 = 0,
-    rotate_z: f32 = 0,
-    role: Role = .still,
-};
 
 pub const Pose = struct {
     position: [3]f32,
@@ -34,13 +19,6 @@ pub const Pose = struct {
     spin: f32 = 0,
     lift: f32 = 0,
     scale: [3]f32 = .{ 1, 1, 1 },
-};
-
-pub const Model = struct {
-    parts: []const Part,
-    head_index: usize,
-    texture_width: f32,
-    texture_height: f32,
 };
 
 const pig_parts = [6]Part{
@@ -1183,4 +1161,15 @@ test "the ghast's nine tentacles hang from a three by three grid under its body,
         try std.testing.expectEqual([3]f32{ want[0], -9, want[1] }, part.pivot);
         try std.testing.expectEqual([3]f32{ 2, want[2], 2 }, part.box.size);
     }
+}
+
+test "the limbs a mod can turn line up with the parts the biped is built from" {
+    const Limb = game.mob_model.Limb;
+    try std.testing.expectEqual(biped_part_count, @typeInfo(Limb).@"enum".fields.len);
+    try std.testing.expectEqual(body_index, @intFromEnum(Limb.body));
+    try std.testing.expectEqual(right_leg_index, @intFromEnum(Limb.right_leg));
+    try std.testing.expectEqual(left_leg_index, @intFromEnum(Limb.left_leg));
+    try std.testing.expectEqual(right_arm_index, @intFromEnum(Limb.right_arm));
+    try std.testing.expectEqual(left_arm_index, @intFromEnum(Limb.left_arm));
+    try std.testing.expectEqual(biped.head_index, @intFromEnum(Limb.head));
 }

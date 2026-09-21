@@ -3,6 +3,7 @@ const std = @import("std");
 const chunk_payload = @import("world").chunk_payload;
 const game = @import("game");
 const math = @import("math");
+const ModCommands = @import("mods").Commands;
 const net = @import("net");
 const world = @import("world");
 const BlockPos = world.BlockPos;
@@ -49,6 +50,7 @@ dimension: world.Dimension = .overworld,
 raining: bool = false,
 emptied_on_death: bool = false,
 kicked: bool = false,
+mods: net.packet.ModList = .{},
 
 pub const max_chat_in: usize = 100;
 pub const track_range: f64 = 160.0;
@@ -870,7 +872,7 @@ pub fn handle(
             else => try self.kick(gpa, "Protocol error"),
         },
         .awaiting_login => switch (message) {
-            .login => |body| try self.acceptLogin(gpa, level, body.protocol_version, body.username),
+            .login => |body| try self.acceptLogin(gpa, level, body.protocol_version, body.username, body.map_seed),
             else => try self.kick(gpa, "Protocol error"),
         },
         .playing => try self.handlePlaying(gpa, level, message),
@@ -883,9 +885,15 @@ fn acceptLogin(
     level: *game.Level,
     protocol: i32,
     username: []const u8,
+    map_seed: i64,
 ) !void {
     if (protocol != net.packet.protocol_version) {
         return self.kick(gpa, if (protocol > net.packet.protocol_version) "Outdated server!" else "Outdated client!");
+    }
+    if (map_seed == net.packet.rosebed_client_seed) {
+        try self.send(gpa, .{ .mod_list = self.mods });
+    } else if (self.mods.mods.len > 0) {
+        return self.kick(gpa, "This server needs rosebed and its mods");
     }
 
     self.name.set(username);
@@ -1209,6 +1217,11 @@ fn handleChat(self: *Session, gpa: std.mem.Allocator, level: *game.Level, messag
 
 fn runCommand(self: *Session, gpa: std.mem.Allocator, level: *game.Level, line: []const u8) !void {
     switch (game.commands.parse(line)) {
+        .custom => |found| {
+            const api = ModCommands.active orelse return;
+            const said = api.run(found.index, found.args, self.name.text()) orelse return;
+            try self.sendChat(gpa, said);
+        },
         .weather => |asked| {
             if (!self.dimension.hasSky()) return self.sendChat(gpa, game.commands.no_sky_line);
 
@@ -1235,6 +1248,7 @@ pub const Open = union(enum) {
     chest: world.World.ChestPair,
     furnace: world.World.BlockPos,
     dispenser: world.World.BlockPos,
+    mod_container: world.World.BlockPos,
     minecart: game.Entity.Id,
 };
 
@@ -1272,6 +1286,11 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
         .dispenser => |at| {
             const trap = level.world_map.dispenserAt(at) orelse return window;
             window.addStore(&trap.items, .chest);
+        },
+        .mod_container => |at| {
+            const spec = level.world_map.getBlock(at).def().container orelse return window;
+            const held = level.world_map.containerAt(at) orelse return window;
+            window.addStore(held.items[0 .. @as(usize, spec.rows) * 9], .chest);
         },
         .minecart => |id| {
             const cart = level.entities.minecartById(id) orelse return window;
@@ -1702,39 +1721,10 @@ fn digBlock(
         .pos = .init(x, height, z),
         .data = @bitCast(@as(u32, @intFromEnum(broken)) | @as(u32, meta) << 8),
     };
-    const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
-    try level.world_map.setBlockWithNotify(.init(x, height, z), .air);
-    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, .init(x, height, z));
-    _ = level.world_map.removeSign(.init(x, height, z));
-    _ = level.world_map.removeNote(.init(x, height, z));
-    const held = player.inventory.selectedStack();
-    const harvested = broken.harvestableWith(held);
-    if (harvested) {
-        try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
-    }
-    if (lit_tnt) return;
 
-    const drop = if (harvested)
-        broken.harvestDrop(meta, held, &level.world_map.rand)
-    else
-        broken.drop(meta, &level.world_map.rand);
-    if (drop) |dropped| {
-        try level.dropStackAt(gpa, .init(x, height, z), .{
-            .id = dropped.id,
-            .count = dropped.count,
-            .meta = dropped.meta,
-        });
-    }
-    if (harvested) {
-        var extra: [3]world.block.Stack = undefined;
-        for (broken.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
-            try level.dropStackAt(gpa, .init(x, height, z), .{
-                .id = dropped.id,
-                .count = dropped.count,
-                .meta = dropped.meta,
-            });
-        }
-    }
+    const held = player.inventory.selectedStack();
+    const harvested = try game.interact.breakBlockAt(gpa, level, held, .init(x, height, z)) orelse return;
+    if (harvested) try self.award(gpa, .{ .mined = .{ .block = broken } }, 1);
 }
 
 fn holdingFlintAndSteel(player: *const game.Player) bool {
@@ -1791,8 +1781,13 @@ fn activateBlock(self: *Session, gpa: std.mem.Allocator, level: *game.Level, pos
         },
         .jukebox, .cake => return true,
         else => {
-            const hook = standing.def().on_activated orelse return false;
-            return hook(&level.world_map, pos, standing);
+            if (standing.def().on_activated) |hook| {
+                if (try hook(&level.world_map, pos, standing)) return true;
+            }
+            const spec = standing.def().container orelse return false;
+            _ = try level.world_map.addContainer(pos);
+            try self.openContainer(gpa, level, .{ .mod_container = pos }, .chest, spec.title);
+            return true;
         },
     }
 }
@@ -2096,20 +2091,8 @@ fn placeBlock(
         .init(x, hit_y, z),
         @enumFromInt(face),
     );
-    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
     if (!withinReach(player, target.pos)) return;
-    if (!level.world_map.getBlock(target.pos).isReplaceable()) return;
-    if (!world.block_update.canPlaceOnSide(&level.world_map, target.pos, placed, target.face)) return;
-    if (placed == .chest and !level.world_map.canPlaceChestAt(target.pos)) return;
-
-    const meta = world.block_update.placementMetadata(
-        &level.world_map,
-        target.pos,
-        placed,
-        target.face,
-        stack.blockMeta(),
-    );
-    try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
+    if (!try game.interact.placeBlockAt(level, player, placed, stack.blockMeta(), target)) return;
     self.consumeHeld();
 }
 
@@ -2376,6 +2359,85 @@ test "a login carries the entity id the level handed the player" {
     try std.testing.expect(announced != game.Entity.no_id);
 }
 
+fn rosebedLogin(gpa: std.mem.Allocator, level: *game.Level, session: *Session) !void {
+    try session.handle(gpa, level, .{ .handshake = .{ .username = "Steve" } });
+    try session.handle(gpa, level, .{ .login = .{
+        .protocol_version = net.packet.protocol_version,
+        .username = "Steve",
+        .map_seed = net.packet.rosebed_client_seed,
+        .dimension = 0,
+    } });
+}
+
+test "a rosebed client is told the server's mods before it joins" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{ .mods = .{
+        .mods = &.{.{ .id = "quartz", .version = "1.0.0" }},
+        .keys = &.{.{ .key = "quartz:marble", .numeric = 97 }},
+    } };
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try rosebedLogin(gpa, &level, &session);
+    try std.testing.expectEqual(State.playing, session.state);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(net.packet.Id.handshake, replies.items[0].id());
+    try std.testing.expectEqual(net.packet.Id.mod_list, replies.items[1].id());
+    try std.testing.expectEqual(net.packet.Id.login, replies.items[2].id());
+    const list = replies.items[1].mod_list;
+    try std.testing.expectEqualStrings("quartz", list.mods[0].id);
+    try std.testing.expectEqualStrings("quartz:marble", list.keys[0].key);
+    try std.testing.expectEqual(@as(i16, 97), list.keys[0].numeric);
+}
+
+test "a server without mods still answers a rosebed client with an empty list" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+
+    try rosebedLogin(gpa, &level, &session);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 0), replies.items[1].mod_list.mods.len);
+    try std.testing.expectEqual(net.packet.Id.login, replies.items[2].id());
+}
+
+test "a vanilla client is turned away from a server that has mods" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{ .mods = .{ .mods = &.{.{ .id = "quartz", .version = "1.0.0" }} } };
+    defer session.deinit(gpa);
+
+    try login(gpa, &level, &session);
+    try std.testing.expectEqual(State.closed, session.state);
+    try std.testing.expectEqual(@as(usize, 0), level.occupants.items.len);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqualStrings("This server needs rosebed and its mods", replies.items[1].kick_disconnect.reason);
+}
+
 test "an outdated protocol is kicked with the message vanilla uses" {
     const gpa = std.testing.allocator;
     var level = try testLevel(gpa);
@@ -2545,7 +2607,23 @@ fn stoneFloorLevel(gpa: std.mem.Allocator) !game.Level {
     return level;
 }
 
-test "a finished dig takes the block out of the world and leaves its drop" {
+fn digStoneFloor(gpa: std.mem.Allocator, level: *game.Level, session: *Session, tool: ?world.Item) !void {
+    try joinedSession(gpa, level, session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    if (tool) |held| {
+        const inventory = &session.player.?.inventory;
+        inventory.slots[inventory.selected] = .{ .id = .{ .item = held }, .count = 1 };
+    }
+    try session.handle(gpa, level, .{ .block_dig = .{
+        .status = .finished,
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+    } });
+}
+
+test "a finished dig takes the block out of the world and leaves what the tool earns" {
     const gpa = std.testing.allocator;
     var level = try stoneFloorLevel(gpa);
     defer level.deinit(gpa);
@@ -2554,21 +2632,26 @@ test "a finished dig takes the block out of the world and leaves its drop" {
     var session: Session = .{};
     defer session.deinit(gpa);
     defer session.leave(gpa, &level);
-    try joinedSession(gpa, &level, &session);
-
-    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
-
-    try session.handle(gpa, &level, .{ .block_dig = .{
-        .status = .finished,
-        .x = 8,
-        .y = 63,
-        .z = 8,
-        .face = 1,
-    } });
+    try digStoneFloor(gpa, &level, &session, .pickaxe_stone);
 
     try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 63, 8)));
     try std.testing.expectEqual(@as(usize, 1), level.entities.items.items.len);
     try std.testing.expectEqual(world.Id{ .block = .cobblestone }, level.entities.items.items[0].stack.id);
+}
+
+test "stone dug with a bare fist is gone and leaves nothing, the way b1.7.3 has it" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try digStoneFloor(gpa, &level, &session, null);
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 63, 8)));
+    try std.testing.expectEqual(@as(usize, 0), level.entities.items.items.len);
 }
 
 test "punching tnt with flint and steel lights it instead of dropping it" {
@@ -2681,6 +2764,51 @@ test "a block out of arm's reach cannot be dug" {
     try std.testing.expectEqual(world.Block.stone, level.world_map.getBlock(.init(8, 63, 28)));
 }
 
+test "activating a mod's container opens a chest window onto its own slots" {
+    const gpa = std.testing.allocator;
+    defer world.Block.resetRegistry();
+
+    const hive = try world.Block.claim(.{
+        .key = "meadow:hive",
+        .name = "Hive",
+        .container = .{ .rows = 2, .title = "Hive" },
+    });
+
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    const pos: BlockPos = .init(8, 64, 8);
+    try level.world_map.setBlockWithNotify(pos, hive);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .place = .{ .x = 8, .y = 64, .z = 8, .face = 1, .held = null } });
+
+    try std.testing.expect(session.open == .mod_container);
+    try std.testing.expect(level.world_map.containerAt(pos) != null);
+
+    const window = session.currentWindow(&level);
+    try std.testing.expectEqual(@as(usize, 18), window.store_count);
+    try std.testing.expectEqual(@as(usize, 18 + game.Window.player_slot_count), window.count);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    var opened: ?net.packet.Packet = null;
+    for (replies.items) |reply| {
+        if (reply == .open_window) opened = reply;
+    }
+    try std.testing.expectEqual(net.packet.Window.chest, opened.?.open_window.kind);
+    try std.testing.expectEqualStrings("Hive", opened.?.open_window.title);
+    try std.testing.expectEqual(@as(i8, 18), opened.?.open_window.slots);
+}
+
 test "a place puts the held block against the face the client clicked" {
     const gpa = std.testing.allocator;
     var level = try stoneFloorLevel(gpa);
@@ -2706,6 +2834,50 @@ test "a place puts the held block against the face the client clicked" {
 
     try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(.init(8, 64, 8)));
     try std.testing.expect(holder.inventory.slots[holder.inventory.selected] == null);
+}
+
+test "a chest placed on the server gets its block entity and a furnace faces the placer" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+
+    const holder = session.player.?;
+    holder.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+    holder.yaw = 0;
+    holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .chest }, .count = 1 };
+
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 8,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = @intFromEnum(world.Block.chest), .count = 1, .damage = 0 },
+    } });
+
+    try std.testing.expectEqual(world.Block.chest, level.world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expect(level.world_map.chestAt(.init(8, 64, 8)) != null);
+
+    holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .furnace }, .count = 1 };
+    try session.handle(gpa, &level, .{ .place = .{
+        .x = 9,
+        .y = 63,
+        .z = 8,
+        .face = 1,
+        .held = .{ .id = @intFromEnum(world.Block.furnace), .count = 1, .damage = 0 },
+    } });
+
+    try std.testing.expectEqual(world.Block.furnace, level.world_map.getBlock(.init(9, 64, 8)));
+    try std.testing.expect(level.world_map.furnaceAt(.init(9, 64, 8)) != null);
+    try std.testing.expectEqual(
+        world.block.furnaceFacingFromYaw(0),
+        level.world_map.getBlockMetadata(.init(9, 64, 8)),
+    );
 }
 
 test "an empty hand and an item that is not a block place nothing" {
@@ -2864,4 +3036,114 @@ test "a jockey riding its spider is attached to it on the wire" {
 
     try std.testing.expectEqual(@as(usize, 1), loosed.items.len);
     try std.testing.expectEqual(@as(i32, -1), loosed.items[0].attach_entity.vehicle_id);
+}
+
+test "a mob from a mod is spawned to the client by the byte it was given" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const bumbler = game.mob.register(.{
+        .name = "rosebug:bumbler",
+        .wire_id = game.mob.first_mod_wire_id,
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, bumbler, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    var replies: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &replies);
+    try drain(gpa, &session, &replies);
+
+    try std.testing.expectEqual(@as(usize, 1), replies.items.len);
+    try std.testing.expectEqual(game.mob.first_mod_wire_id, replies.items[0].mob_spawn.kind);
+}
+
+test "a mob with no byte of its own is still kept off the wire" {
+    const gpa = std.testing.allocator;
+    defer game.mob.reset();
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    const pig = game.mob.get(game.mob.pig);
+    const hidden = game.mob.register(.{
+        .name = "rosebug:hidden",
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+    });
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 64, .z = 8.5 };
+
+    _ = try level.entities.spawnMob(gpa, hidden, .{ .x = 9.5, .y = 64, .z = 8.5 }, &level.world_map.rand);
+
+    var peers: std.ArrayList(Peer) = .empty;
+    defer peers.deinit(gpa);
+    try mobPeers(gpa, &level, &peers);
+    try session.trackPeers(gpa, peers.items);
+
+    const quiet = try session.takeOutbox(gpa);
+    defer gpa.free(quiet);
+    try std.testing.expectEqual(@as(usize, 0), quiet.len);
+}
+
+test "breaking a furnace on the server spills what it held, the way the client already did" {
+    const gpa = std.testing.allocator;
+    var level = try stoneFloorLevel(gpa);
+    defer level.deinit(gpa);
+    level.attach();
+
+    try level.world_map.setBlockWithNotify(.init(8, 64, 8), .furnace);
+    const furnace = try level.world_map.addFurnace(.init(8, 64, 8));
+    furnace.slot(0).* = .{ .id = .{ .item = .coal }, .count = 5 };
+
+    var session: Session = .{};
+    defer session.deinit(gpa);
+    defer session.leave(gpa, &level);
+    try joinedSession(gpa, &level, &session);
+    session.player.?.base.position = .{ .x = 8.5, .y = 65, .z = 8.5 };
+
+    try session.handle(gpa, &level, .{ .block_dig = .{
+        .status = .finished,
+        .x = 8,
+        .y = 64,
+        .z = 8,
+        .face = 1,
+    } });
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(8, 64, 8)));
+    try std.testing.expect(level.world_map.removeFurnace(.init(8, 64, 8)) == null);
+
+    var coal: usize = 0;
+    for (level.entities.items.items) |dropped| {
+        if (dropped.stack.id.eql(.{ .item = .coal })) coal += dropped.stack.count;
+    }
+    try std.testing.expectEqual(@as(usize, 5), coal);
 }

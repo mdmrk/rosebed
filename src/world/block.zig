@@ -229,6 +229,11 @@ pub const StepSound = enum {
     }
 };
 
+pub const Container = struct {
+    rows: u8 = 3,
+    title: []const u8 = "",
+};
+
 pub const Def = struct {
     key: []const u8 = "",
     name: []const u8 = "",
@@ -257,6 +262,7 @@ pub const Def = struct {
     on_random_tick: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
     on_neighbor_change: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!void = null,
     on_activated: ?*const fn (*World, BlockPos, Block) std.mem.Allocator.Error!bool = null,
+    container: ?Container = null,
 };
 
 const vanilla_keys: [256][]const u8 = keysFromEnum();
@@ -575,6 +581,12 @@ pub const Id = union(enum) {
         };
     }
 
+    pub fn fromKey(name: []const u8) ?Id {
+        if (Block.fromKey(name)) |found| return .{ .block = found };
+        if (Item.fromKey(name)) |found| return .{ .item = found };
+        return null;
+    }
+
     pub fn isVanilla(self: Id) bool {
         return switch (self) {
             .block => |id| id.isVanilla(),
@@ -698,6 +710,18 @@ pub const Block = enum(u8) {
         defs[@intFromEnum(self)] = definition;
     }
 
+    pub fn claim(definition: Def) error{ DuplicateKey, RegistryFull }!Block {
+        std.debug.assert(definition.key.len != 0);
+        if (fromKey(definition.key) != null) return error.DuplicateKey;
+        for (&defs, 0..) |*entry, id| {
+            if (entry.key.len != 0) continue;
+            const block: Block = @enumFromInt(id);
+            block.register(definition);
+            return block;
+        }
+        return error.RegistryFull;
+    }
+
     pub fn resetRegistry() void {
         defs = vanillaDefs();
     }
@@ -708,7 +732,7 @@ pub const Block = enum(u8) {
 
     pub fn fromKey(key: []const u8) ?Block {
         if (key.len == 0) return null;
-        for (defs, 0..) |entry, id| {
+        for (&defs, 0..) |*entry, id| {
             if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(id);
         }
         return null;
@@ -3936,6 +3960,36 @@ test "a registered block answers to its own key without shadowing a vanilla one"
     try std.testing.expectEqual(custom, Block.fromKey("rosebed:quartz").?);
     try std.testing.expectEqual(Block.stone, Block.fromKey("stone").?);
     try std.testing.expect(!custom.isVanilla());
+}
+
+test "claiming hands out the lowest free id past the vanilla ones" {
+    defer Block.resetRegistry();
+    defer Item.resetRegistry();
+
+    try std.testing.expectEqual(@as(Block, @enumFromInt(97)), try Block.claim(.{ .key = "rosebed:quartz" }));
+    try std.testing.expectEqual(@as(Block, @enumFromInt(98)), try Block.claim(.{ .key = "rosebed:marble" }));
+    try std.testing.expectEqual(@as(Item, @enumFromInt(360)), try Item.claim(.{ .key = "rosebed:quartz_pickaxe" }));
+    try std.testing.expectEqual(@as(Block, @enumFromInt(97)), Block.fromKey("rosebed:quartz").?);
+}
+
+test "a key can only be claimed once" {
+    defer Block.resetRegistry();
+    defer Item.resetRegistry();
+
+    _ = try Block.claim(.{ .key = "rosebed:quartz" });
+    try std.testing.expectError(error.DuplicateKey, Block.claim(.{ .key = "rosebed:quartz" }));
+    try std.testing.expectError(error.DuplicateKey, Block.claim(.{ .key = "stone" }));
+    try std.testing.expectError(error.DuplicateKey, Item.claim(.{ .key = "shears" }));
+}
+
+test "claiming stops once every block id is taken" {
+    defer Block.resetRegistry();
+
+    var names: [256][16]u8 = undefined;
+    for (97..256) |id| {
+        _ = try Block.claim(.{ .key = try std.fmt.bufPrint(&names[id], "rosebed:b{d}", .{id}) });
+    }
+    try std.testing.expectError(error.RegistryFull, Block.claim(.{ .key = "rosebed:overflow" }));
 }
 
 test "a key is read against the namespace the saved number came from" {

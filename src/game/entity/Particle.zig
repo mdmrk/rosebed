@@ -21,6 +21,50 @@ origin: math.Vec3 = .{ .x = 0, .y = 0, .z = 0 },
 
 pub const Kind = enum { digging, smoke, splash, lava, flame, bubble, reddust, slime, heart, portal, explode, note, rain };
 
+pub const Vanilla = enum(u8) {
+    bubble,
+    smoke,
+    largesmoke,
+    note,
+    portal,
+    explode,
+    flame,
+    lava,
+    splash,
+    reddust,
+    snowballpoof,
+    slime,
+    heart,
+
+    pub fn fromKey(name: []const u8) ?Vanilla {
+        return std.meta.stringToEnum(Vanilla, name);
+    }
+};
+
+pub const vanilla_range: f64 = 16.0;
+
+pub fn spawnVanilla(kind: Vanilla, position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
+    return switch (kind) {
+        .bubble => spawnBubble(position, drift, rand),
+        .smoke => spawnSmoke(position, drift, rand),
+        .largesmoke => spawnLargeSmoke(position, drift, rand),
+        .note => spawnNote(position, @floatCast(drift.x), rand),
+        .portal => spawnPortal(position, drift, rand),
+        .explode => spawnExplode(position, drift, rand),
+        .flame => spawnFlame(position, drift, rand),
+        .lava => spawnLava(position, rand),
+        .splash => spawnSplash(position, drift, rand),
+        .reddust => spawnReddust(position, .{
+            @floatCast(drift.x),
+            @floatCast(drift.y),
+            @floatCast(drift.z),
+        }, rand),
+        .snowballpoof => spawnItemPoof(position, .snowball, rand),
+        .slime => spawnSlime(position, rand),
+        .heart => spawnHeart(position, rand),
+    };
+}
+
 pub const size: f64 = 0.2;
 pub const gravity: f64 = 0.04;
 pub const drag: f64 = 0.98;

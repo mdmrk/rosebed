@@ -12,6 +12,10 @@
             .url = "git+https://github.com/castholm/zigglgen.git#fdf06cc7ea9951203f91a27a5548f943cd6c1d59",
             .hash = "zigglgen-0.5.1-ziggljvILwAsVanrBL96ZTzHPQ1vIQCV_Gnt3mqufzjz",
         },
+        .zlua = .{
+            .url = "git+https://github.com/natecraddock/ziglua#d2cb6191ec20f888ab04ad222c9bcf9b194bfbf2",
+            .hash = "zlua-0.1.0-hGRpC1mUBQCNQf4CnmRTM4I7gxE3YpCvZ-p2EarlcyER",
+        },
     },
     .paths = .{
         "build.zig",

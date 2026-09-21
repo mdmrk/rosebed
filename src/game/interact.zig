@@ -115,6 +115,136 @@ pub const Context = struct {
     }
 };
 
+pub var on_block_broken: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
+
+pub fn breakBlockAt(
+    gpa: std.mem.Allocator,
+    level: *Level,
+    held: ?Inventory.ItemStack,
+    pos: BlockPos,
+) !?bool {
+    const block = level.world_map.getBlock(pos);
+    if (block == .air) return null;
+
+    const meta = level.world_map.getBlockMetadata(pos);
+    const harvested = block.harvestableWith(held);
+    const lit_tnt = block == .tnt and world.tnt.isLit(meta);
+
+    try level.world_map.setBlockWithNotify(pos, .air);
+    if (lit_tnt) try world.tnt.primeByPlayer(&level.world_map, pos);
+    try spillContainers(gpa, level, pos);
+    _ = level.world_map.removeSign(pos);
+    _ = level.world_map.removeNote(pos);
+    _ = level.world_map.removeBlockState(pos);
+
+    if (harvested and !lit_tnt) {
+        if (block.harvestDrop(meta, held, &level.world_map.rand)) |dropped| {
+            try level.dropStackAt(gpa, pos, .{ .id = dropped.id, .count = dropped.count, .meta = dropped.meta });
+        }
+        var extra: [3]world.block.Stack = undefined;
+        for (block.bonusDrops(meta, &level.world_map.rand, &extra)) |dropped| {
+            try level.dropStackAt(gpa, pos, .{ .id = dropped.id, .count = dropped.count, .meta = dropped.meta });
+        }
+    }
+
+    if (on_block_broken) |hook| hook(level, pos, block, meta);
+    return harvested;
+}
+
+pub var on_block_placed: ?*const fn (*Level, BlockPos, world.Block, u4) void = null;
+
+pub fn placeBlockAt(
+    level: *Level,
+    player: *const Player,
+    placed: world.Block,
+    stack_meta: u4,
+    target: world.block_update.Placement,
+) !bool {
+    if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return false;
+    if (!level.world_map.getBlock(target.pos).isReplaceable()) return false;
+    if (!world.block_update.canPlaceOnSide(&level.world_map, target.pos, placed, target.face)) return false;
+    if (placed == .chest and !level.world_map.canPlaceChestAt(target.pos)) return false;
+
+    const meta = world.block_update.placementMetadata(
+        &level.world_map,
+        target.pos,
+        placed,
+        target.face,
+        stack_meta,
+    );
+    try level.world_map.setBlockAndMetadataWithNotify(target.pos, placed, meta);
+
+    const step_sound = placed.stepSound();
+    level.world_map.playSoundEffect(
+        target.pos.center(),
+        step_sound.walk(),
+        (step_sound.volume() + 1.0) / 2.0,
+        step_sound.pitch() * 0.8,
+    );
+
+    if (placed == .furnace) {
+        const facing = world.block.furnaceFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+        _ = try level.world_map.addFurnace(target.pos);
+    }
+    if (placed == .chest) _ = try level.world_map.addChest(target.pos);
+    if (placed == .dispenser) {
+        const facing = world.block.dispenserFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+        _ = try level.world_map.addDispenser(target.pos);
+    }
+    if (placed.isStairs()) {
+        const facing = world.block.stairsFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+    }
+    if (placed == .pumpkin or placed == .jack_o_lantern) {
+        const facing = world.block.pumpkinFacingFromYaw(player.yaw);
+        try level.world_map.setBlockMetadataWithNotify(target.pos, facing);
+    }
+    try world.redstone.onBlockPlaced(
+        &level.world_map,
+        target.pos,
+        placed,
+        player.base.position,
+        player.yaw,
+    );
+
+    const settled = level.world_map.getBlockMetadata(target.pos);
+    _ = try world.block_update.mergeSlabBelow(&level.world_map, target.pos);
+
+    if (on_block_placed) |hook| hook(level, target.pos, placed, settled);
+    return true;
+}
+
+fn spillContainers(gpa: std.mem.Allocator, level: *Level, pos: BlockPos) !void {
+    if (level.world_map.removeFurnace(pos)) |taken| {
+        var removed = taken;
+        for (0..world.furnace.slot_count) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
+    if (level.world_map.removeDispenser(pos)) |taken| {
+        var removed = taken;
+        for (0..world.dispenser.slot_count) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
+    if (level.world_map.removeContainer(pos)) |taken| {
+        var removed = taken;
+        for (0..world.block_container.max_slots) |index| {
+            const stack = removed.slot(index).* orelse continue;
+            try level.dropStackAt(gpa, pos, stack);
+        }
+    }
+    if (level.world_map.removeJukebox(pos)) |removed| {
+        if (removed.record) |record| {
+            try level.entities.ejectRecord(gpa, pos, .{ .id = .{ .item = record }, .count = 1 }, &level.world_map.rand);
+        }
+    }
+}
+
 pub fn ejectJukeboxRecord(ctx: Context, pos: BlockPos) !bool {
     if (ctx.level.world_map.getBlockMetadata(pos) == 0) return false;
 
@@ -558,4 +688,167 @@ test "a boat aimed at open water lands on the surface, not the seabed" {
     try std.testing.expectApproxEqAbs(@as(f64, 9.0), boat.base.position.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), boat.base.position.x, 1.0e-9);
     try std.testing.expect(player.inventory.slots[player.inventory.selected] == null);
+}
+
+var broken_seen: usize = 0;
+var broken_last: struct { pos: BlockPos, block: world.Block, meta: u4 } = undefined;
+
+fn recordBroken(_: *Level, pos: BlockPos, block: world.Block, meta: u4) void {
+    broken_seen += 1;
+    broken_last = .{ .pos = pos, .block = block, .meta = meta };
+}
+
+test "breaking a block reports it once, after the world already lost it" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    broken_seen = 0;
+    on_block_broken = recordBroken;
+    defer on_block_broken = null;
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, .stone);
+    level.world_map.setBlockMetadata(pos, 3);
+
+    const held: Inventory.ItemStack = .{ .id = .{ .item = .pickaxe_stone }, .count = 1 };
+    const harvested = (try breakBlockAt(gpa, &level, held, pos)).?;
+
+    try std.testing.expectEqual(@as(usize, 1), broken_seen);
+    try std.testing.expectEqual(world.Block.stone, broken_last.block);
+    try std.testing.expectEqual(@as(u4, 3), broken_last.meta);
+    try std.testing.expectEqual(pos, broken_last.pos);
+    try std.testing.expect(harvested);
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(pos));
+}
+
+var placed_seen: usize = 0;
+var placed_last: struct { pos: BlockPos, block: world.Block, meta: u4 } = undefined;
+
+fn recordPlaced(_: *Level, pos: BlockPos, block: world.Block, meta: u4) void {
+    placed_seen += 1;
+    placed_last = .{ .pos = pos, .block = block, .meta = meta };
+}
+
+fn floorLevel(gpa: std.mem.Allocator, at: BlockPos) !Level {
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    errdefer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+    try level.world_map.setBlockWithNotify(at, .stone);
+    return level;
+}
+
+test "a placed furnace is given its block entity and the facing the placer had" {
+    const gpa = std.testing.allocator;
+    const floor: BlockPos = .init(2, 64, 2);
+    var level = try floorLevel(gpa, floor);
+    defer level.deinit(gpa);
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    player.yaw = 0;
+
+    const target = world.block_update.placementTarget(&level.world_map, floor, .up);
+    try std.testing.expect(try placeBlockAt(&level, &player, .furnace, 0, target));
+
+    try std.testing.expectEqual(world.Block.furnace, level.world_map.getBlock(.init(2, 65, 2)));
+    try std.testing.expect(level.world_map.furnaceAt(.init(2, 65, 2)) != null);
+    try std.testing.expectEqual(
+        world.block.furnaceFacingFromYaw(0),
+        level.world_map.getBlockMetadata(.init(2, 65, 2)),
+    );
+}
+
+test "a block with nothing to stand on is not placed" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    const target = world.block_update.placementTarget(&level.world_map, .init(2, 64, 2), .up);
+    try std.testing.expect(!try placeBlockAt(&level, &player, .torch, 0, target));
+
+    try std.testing.expectEqual(world.Block.air, level.world_map.getBlock(.init(2, 65, 2)));
+}
+
+test "placing a block reports the metadata it settled on" {
+    const gpa = std.testing.allocator;
+    const floor: BlockPos = .init(2, 64, 2);
+    var level = try floorLevel(gpa, floor);
+    defer level.deinit(gpa);
+
+    placed_seen = 0;
+    on_block_placed = recordPlaced;
+    defer on_block_placed = null;
+
+    var player = Player.spawn(math.Vec3.init(2.5, 65, 2.5));
+    player.yaw = 0;
+
+    const target = world.block_update.placementTarget(&level.world_map, floor, .up);
+    try std.testing.expect(try placeBlockAt(&level, &player, .furnace, 0, target));
+
+    try std.testing.expectEqual(@as(usize, 1), placed_seen);
+    try std.testing.expectEqual(world.Block.furnace, placed_last.block);
+    try std.testing.expectEqual(BlockPos.init(2, 65, 2), placed_last.pos);
+    try std.testing.expectEqual(world.block.furnaceFacingFromYaw(0), placed_last.meta);
+}
+
+test "breaking a block takes the state a mod left on it" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, .stone);
+
+    var state: world.nbt.Compound = .{};
+    try world.nbt.putDuped(gpa, &state, "charge", .{ .double = 4 });
+    try level.world_map.putBlockState(pos, state);
+
+    _ = try breakBlockAt(gpa, &level, null, pos);
+    try std.testing.expect(level.world_map.blockStateAt(pos) == null);
+}
+
+test "breaking a mod's container drops what it held" {
+    const gpa = std.testing.allocator;
+    defer world.Block.resetRegistry();
+
+    const hive = try world.Block.claim(.{
+        .key = "meadow:hive",
+        .name = "Hive",
+        .container = .{ .rows = 1, .title = "Hive" },
+    });
+
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    level.attach();
+    _ = try level.world_map.createChunk(0, 0);
+
+    const pos: BlockPos = .init(2, 64, 2);
+    try level.world_map.setBlockWithNotify(pos, hive);
+
+    const held = try level.world_map.addContainer(pos);
+    held.slot(0).* = .{ .id = .{ .item = .diamond }, .count = 3 };
+    held.slot(8).* = .{ .id = .{ .block = .planks }, .count = 12 };
+
+    _ = try breakBlockAt(gpa, &level, null, pos);
+
+    try std.testing.expect(level.world_map.containerAt(pos) == null);
+    try std.testing.expectEqual(@as(usize, 2), level.entities.items.items.len);
+}
+
+test "breaking air reports nothing and changes nothing" {
+    const gpa = std.testing.allocator;
+    var level = Level.init(gpa, try world.Generator.init(gpa, .overworld, 7));
+    defer level.deinit(gpa);
+    _ = try level.world_map.createChunk(0, 0);
+
+    broken_seen = 0;
+    on_block_broken = recordBroken;
+    defer on_block_broken = null;
+
+    try std.testing.expect(try breakBlockAt(gpa, &level, null, .init(2, 100, 2)) == null);
+    try std.testing.expectEqual(@as(usize, 0), broken_seen);
 }

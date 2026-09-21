@@ -97,6 +97,7 @@ pub fn connect(
     host: []const u8,
     port: u16,
     username: []const u8,
+    mods: net.packet.ModList,
 ) !*WebLink {
     _ = io;
 
@@ -107,6 +108,7 @@ pub fn connect(
     errdefer gpa.destroy(self);
     self.* = .{ .gpa = gpa };
     self.username.set(username);
+    self.connection.mods = mods;
 
     errdefer self.connection.deinit(gpa);
     try self.connection.begin(gpa, self.username.text());

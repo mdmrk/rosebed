@@ -104,7 +104,8 @@ pub const Swimmer = enum {
 const Creature = struct { weight: i32, kind: Kind };
 const Horror = struct { weight: i32, monster: Monster };
 const Shoal = struct { weight: i32, swimmer: Swimmer };
-const Chosen = union(Category) { monster: Monster, creature: Kind, water_creature: Swimmer };
+const Chosen = union(enum) { monster: Monster, creature: Kind, water_creature: Swimmer, modded: mob.Id };
+const Choice = struct { weight: i32, chosen: Chosen };
 
 const base_creatures = [_]Creature{
     .{ .weight = 12, .kind = .sheep },
@@ -135,7 +136,7 @@ const nether_monsters = [_]Horror{
 };
 
 pub fn creatureList(in_biome: world.biome.Biome) []const Creature {
-    return switch (in_biome) {
+    return switch (in_biome.vanilla()) {
         .forest, .taiga => &wooded_creatures,
         else => &base_creatures,
     };
@@ -185,7 +186,7 @@ pub fn chunksAroundOnePlayer() usize {
 }
 
 fn liveCount(entities: *const Entities, category: Category) i32 {
-    return switch (category) {
+    var total: i32 = switch (category) {
         .monster => @intCast(entities.countOf(mob.slime) + entities.countOf(mob.ghast) +
             entities.countOf(mob.creeper) + entities.countOf(mob.skeleton) +
             entities.countOf(mob.spider) + entities.countOf(mob.zombie) +
@@ -193,6 +194,67 @@ fn liveCount(entities: *const Entities, category: Category) i32 {
         .creature => @intCast(entities.animalCount()),
         .water_creature => @intCast(entities.countOf(mob.squid)),
     };
+
+    if (mob.anySpawns()) {
+        for (entities.mobs.items) |entry| {
+            const spawns = mob.get(entry.type_id).spawns orelse continue;
+            if (spawns.category == category) total += 1;
+        }
+    }
+    return total;
+}
+
+const max_choices = @max(
+    wooded_creatures.len,
+    overworld_monsters.len,
+    nether_monsters.len,
+    water_creatures.len,
+) + mob.capacity;
+
+fn weighChoices(
+    category: Category,
+    world_map: *const world.World,
+    dimension: world.Dimension,
+    chunk_x: i32,
+    chunk_z: i32,
+    buffer: *[max_choices]Choice,
+) []const Choice {
+    var count: usize = 0;
+    switch (category) {
+        .creature => {
+            const biome = world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width);
+            for (creatureList(biome)) |entry| {
+                buffer[count] = .{ .weight = entry.weight, .chosen = .{ .creature = entry.kind } };
+                count += 1;
+            }
+        },
+        .monster => for (monsterList(dimension)) |entry| {
+            buffer[count] = .{ .weight = entry.weight, .chosen = .{ .monster = entry.monster } };
+            count += 1;
+        },
+        .water_creature => for (&water_creatures) |entry| {
+            buffer[count] = .{ .weight = entry.weight, .chosen = .{ .water_creature = entry.swimmer } };
+            count += 1;
+        },
+    }
+
+    if (!mob.anySpawns()) return buffer[0..count];
+
+    var biome: ?world.biome.Biome = null;
+    var type_id: mob.Id = 0;
+    while (type_id < mob.registered()) : (type_id += 1) {
+        const spawns = mob.get(type_id).spawns orelse continue;
+        if (spawns.category != category) continue;
+        if (spawns.dimension != dimension) continue;
+        if (spawns.biomes) |allowed| {
+            const here = biome orelse world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width);
+            biome = here;
+            if (!allowed.isSet(@intFromEnum(here))) continue;
+        }
+        buffer[count] = .{ .weight = spawns.weight, .chosen = .{ .modded = type_id } };
+        count += 1;
+    }
+    return buffer[0..count];
 }
 
 fn canSpawnAtLocation(category: Category, world_map: *const world.World, pos: BlockPos) bool {
@@ -293,15 +355,12 @@ fn spawnInChunk(
     chunk_x: i32,
     chunk_z: i32,
 ) !u32 {
-    const chosen: Chosen = switch (category) {
-        .creature => .{ .creature = pickWeighted(
-            Creature,
-            creatureList(world_map.biomeAt(chunk_x * world.Chunk.width, chunk_z * world.Chunk.width)),
-            rand,
-        ).kind },
-        .monster => .{ .monster = pickWeighted(Horror, monsterList(dimension), rand).monster },
-        .water_creature => .{ .water_creature = pickWeighted(Shoal, &water_creatures, rand).swimmer },
-    };
+    var buffer: [max_choices]Choice = undefined;
+    const chosen = pickWeighted(
+        Choice,
+        weighChoices(category, world_map, dimension, chunk_x, chunk_z, &buffer),
+        rand,
+    ).chosen;
 
     const origin_x = chunk_x * world.Chunk.width + rand.nextIntBound(world.Chunk.width);
     const origin_y = rand.nextIntBound(world.Chunk.height);
@@ -439,6 +498,20 @@ fn spawnInChunk(
 
                     spawned += 1;
                     if (spawned >= swimmer.maxPerChunk()) return spawned;
+                },
+                .modded => |type_id| {
+                    const kind = mob.get(type_id);
+                    const animal = try kind.spawn(gpa, position, rand);
+                    animal.faceYaw(rand.nextFloat() * 360.0);
+                    if (!kind.canSpawnHere(animal, world_map, world_seed, rand)) {
+                        kind.destroy(animal, gpa);
+                        continue;
+                    }
+                    errdefer kind.destroy(animal, gpa);
+                    try entities.adoptMob(gpa, type_id, animal);
+
+                    spawned += 1;
+                    if (spawned >= kind.spawns.?.max_per_chunk) return spawned;
                 },
             }
         }
@@ -1245,4 +1318,220 @@ test "a spider the spawner rejects never rolls for a jockey" {
     while (walk.next()) |skeleton| {
         try std.testing.expectEqual(Animal.Entity.no_id, skeleton.animal.riding);
     }
+}
+
+fn registerTestMob(name: []const u8, spawns: ?mob.Spawns) mob.Id {
+    const pig = mob.get(mob.pig);
+    return mob.register(.{
+        .name = name,
+        .spawn = pig.spawn,
+        .tick = pig.tick,
+        .takeDrops = pig.takeDrops,
+        .store = pig.store,
+        .load = pig.load,
+        .destroy = pig.destroy,
+        .canSpawnHere = if (spawns) |rule| mob.spawnCheckFor(rule.category) else pig.canSpawnHere,
+        .spawns = spawns,
+    });
+}
+
+const VanillaTally = struct {
+    counts: [14]usize,
+    seed: i64,
+};
+
+fn tallyVanillaSpawns(gpa: std.mem.Allocator) !VanillaTally {
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+    w.difficulty = .normal;
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(1234);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..200) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+    }
+
+    var tally: VanillaTally = .{ .counts = @splat(0), .seed = rand.seed };
+    for (&tally.counts, 0..) |*count, type_id| count.* = entities.countOf(@intCast(type_id));
+    return tally;
+}
+
+test "registering a mob with no spawn rule leaves the vanilla spawns untouched" {
+    const gpa = std.testing.allocator;
+    const plain = try tallyVanillaSpawns(gpa);
+
+    defer mob.reset();
+    _ = registerTestMob("rosebug:bumbler", null);
+    const alongside = try tallyVanillaSpawns(gpa);
+
+    try std.testing.expectEqual(plain.seed, alongside.seed);
+    try std.testing.expectEqualSlices(usize, &plain.counts, &alongside.counts);
+}
+
+test "with nothing registered the roll weighs exactly the vanilla list, in its order" {
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+    stampClimate(&w, 3, 5, 0.4, 0.9);
+
+    var buffer: [max_choices]Choice = undefined;
+
+    const creatures = weighChoices(.creature, &w, .overworld, 3, 0, &buffer);
+    const vanilla_creatures = creatureList(.taiga);
+    try std.testing.expectEqual(vanilla_creatures.len, creatures.len);
+    for (creatures, vanilla_creatures) |choice, entry| {
+        try std.testing.expectEqual(entry.weight, choice.weight);
+        try std.testing.expectEqual(entry.kind, choice.chosen.creature);
+    }
+
+    const monsters = weighChoices(.monster, &w, .nether, 3, 0, &buffer);
+    try std.testing.expectEqual(nether_monsters.len, monsters.len);
+    for (monsters, &nether_monsters) |choice, entry| {
+        try std.testing.expectEqual(entry.weight, choice.weight);
+        try std.testing.expectEqual(entry.monster, choice.chosen.monster);
+    }
+
+    const shoal = weighChoices(.water_creature, &w, .overworld, 3, 0, &buffer);
+    try std.testing.expectEqual(water_creatures.len, shoal.len);
+    try std.testing.expectEqual(Swimmer.squid, shoal[0].chosen.water_creature);
+}
+
+test "a registered mob with no spawn rule of its own never joins the roll" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    var buffer: [max_choices]Choice = undefined;
+    const before = weighChoices(.creature, &w, .overworld, 3, 0, &buffer).len;
+
+    _ = registerTestMob("rosebug:bumbler", null);
+
+    try std.testing.expectEqual(before, weighChoices(.creature, &w, .overworld, 3, 0, &buffer).len);
+}
+
+test "a registered mob is weighed beside the vanilla entries of its own category" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    const vanilla = creatureList(w.biomeAt(3 * world.Chunk.width, 0));
+    const bumbler = registerTestMob("rosebug:bumbler", .{ .category = .creature, .weight = 60 });
+    var buffer: [max_choices]Choice = undefined;
+
+    const creatures = weighChoices(.creature, &w, .overworld, 3, 0, &buffer);
+    try std.testing.expectEqual(vanilla.len + 1, creatures.len);
+    try std.testing.expectEqual(@as(i32, 60), creatures[creatures.len - 1].weight);
+    try std.testing.expectEqual(bumbler, creatures[creatures.len - 1].chosen.modded);
+
+    var other: [max_choices]Choice = undefined;
+    try std.testing.expectEqual(overworld_monsters.len, weighChoices(.monster, &w, .overworld, 3, 0, &other).len);
+    try std.testing.expectEqual(water_creatures.len, weighChoices(.water_creature, &w, .overworld, 3, 0, &other).len);
+
+    var vanilla_weight: i32 = 0;
+    for (vanilla) |entry| vanilla_weight += entry.weight;
+
+    var rand = world.JavaRandom.init(4);
+    var rolled: u32 = 0;
+    const total = 4000;
+    for (0..total) |_| {
+        if (pickWeighted(Choice, creatures, &rand).chosen == .modded) rolled += 1;
+    }
+
+    const want: u32 = @intCast(@divTrunc(60 * 100, 60 + vanilla_weight));
+    const share = rolled * 100 / total;
+    try std.testing.expect(share > want - 4 and share < want + 4);
+}
+
+test "a registered creature spawns onto lit grass like the vanilla animals" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    const bumbler = registerTestMob("rosebug:bumbler", .{ .category = .creature, .weight = 1000 });
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..4000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+        if (entities.countOf(bumbler) > 0) break;
+    }
+
+    try std.testing.expect(entities.countOf(bumbler) > 0);
+    for (entities.mobs.items) |entry| {
+        if (entry.type_id != bumbler) continue;
+        try expectStandingOnGrass(&w, entry.animal.*);
+    }
+}
+
+test "a registered monster is held to the dark, and counted against the monster cap" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+    w.difficulty = .normal;
+
+    const horror = registerTestMob("rosebug:horror", .{ .category = .monster, .weight = 1000 });
+
+    var entities: Entities = .{};
+    defer entities.deinit(gpa);
+
+    var rand = world.JavaRandom.init(9);
+    const player = math.Vec3.init(0, surface + 1, 0);
+    for (0..2000) |_| {
+        _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), entities.countOf(horror));
+
+    const monsters_before = liveCount(&entities, .monster);
+    const creatures_before = liveCount(&entities, .creature);
+
+    const animal = try mob.get(horror).spawn(gpa, math.Vec3.init(64, surface + 1, 8), &rand);
+    try entities.adoptMob(gpa, horror, animal);
+
+    try std.testing.expectEqual(monsters_before + 1, liveCount(&entities, .monster));
+    try std.testing.expectEqual(creatures_before, liveCount(&entities, .creature));
+}
+
+test "a registered mob is only weighed in the biomes it names" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    const here = w.biomeAt(3 * world.Chunk.width, 0);
+    var local: world.biome.Set = .initEmpty();
+    local.set(@intFromEnum(here));
+    var elsewhere: world.biome.Set = .initFull();
+    elsewhere.unset(@intFromEnum(here));
+
+    _ = registerTestMob("rosebug:local", .{ .category = .creature, .weight = 5, .biomes = local });
+    _ = registerTestMob("rosebug:stranger", .{ .category = .creature, .weight = 7, .biomes = elsewhere });
+
+    var buffer: [max_choices]Choice = undefined;
+    const creatures = weighChoices(.creature, &w, .overworld, 3, 0, &buffer);
+    try std.testing.expectEqual(creatureList(here).len + 1, creatures.len);
+    try std.testing.expectEqual(@as(i32, 5), creatures[creatures.len - 1].weight);
+}
+
+test "a registered mob is only weighed in its own dimension" {
+    defer mob.reset();
+    const gpa = std.testing.allocator;
+    var w = try grassPlateau(gpa, 3, 5, surface);
+    defer w.deinit();
+
+    _ = registerTestMob("rosebug:imp", .{ .category = .monster, .weight = 5, .dimension = .nether });
+
+    var buffer: [max_choices]Choice = undefined;
+    try std.testing.expectEqual(overworld_monsters.len, weighChoices(.monster, &w, .overworld, 3, 0, &buffer).len);
+    try std.testing.expectEqual(nether_monsters.len + 1, weighChoices(.monster, &w, .nether, 3, 0, &buffer).len);
 }

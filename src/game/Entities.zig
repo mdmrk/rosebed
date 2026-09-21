@@ -781,6 +781,17 @@ pub fn puffDispenserSmoke(
     }
 }
 
+pub fn spawnVanillaParticle(
+    self: *Entities,
+    gpa: std.mem.Allocator,
+    kind: Particle.Vanilla,
+    at: math.Vec3,
+    drift: math.Vec3,
+    rand: *world.JavaRandom,
+) !void {
+    try self.particles.append(gpa, Particle.spawnVanilla(kind, at, drift, rand));
+}
+
 pub fn ejectRecord(
     self: *Entities,
     gpa: std.mem.Allocator,
@@ -2563,6 +2574,7 @@ pub fn tickMobs(
                 }
             }
             try kind.onDeath(entry.animal, context);
+            if (on_mob_death) |hook| hook(entry.type_id, entry.animal, context.world_map);
             _ = self.mobs.orderedRemove(index);
             kind.destroy(entry.animal, gpa);
             continue;
@@ -2570,6 +2582,8 @@ pub fn tickMobs(
         index += 1;
     }
 }
+
+pub var on_mob_death: ?*const fn (mob.Id, *Animal, *world.World) void = null;
 
 pub fn spawnSlimeLandingParticles(
     self: *Entities,

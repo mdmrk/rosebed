@@ -155,6 +155,41 @@ pub fn readNamed(gpa: std.mem.Allocator, r: *std.Io.Reader) !NamedTag {
     return .{ .name = name, .tag = tag };
 }
 
+pub fn dupe(gpa: std.mem.Allocator, tag: Tag) std.mem.Allocator.Error!Tag {
+    return switch (tag) {
+        .byte_array => |v| .{ .byte_array = try gpa.dupe(u8, v) },
+        .string => |v| .{ .string = try gpa.dupe(u8, v) },
+        .list => |l| blk: {
+            const items = try gpa.alloc(Tag, l.items.len);
+            var filled: usize = 0;
+            errdefer {
+                for (items[0..filled]) |*item| deinit(gpa, item);
+                gpa.free(items);
+            }
+            for (l.items, items) |source, *item| {
+                item.* = try dupe(gpa, source);
+                filled += 1;
+            }
+            break :blk .{ .list = .{ .element_type = l.element_type, .items = items } };
+        },
+        .compound => |c| blk: {
+            var copy: Compound = .{};
+            errdefer {
+                var owned: Tag = .{ .compound = copy };
+                deinit(gpa, &owned);
+            }
+            try copy.ensureTotalCapacity(gpa, c.count());
+            for (c.keys(), c.values()) |key, value| {
+                const owned_key = try gpa.dupe(u8, key);
+                errdefer gpa.free(owned_key);
+                try copy.put(gpa, owned_key, try dupe(gpa, value));
+            }
+            break :blk .{ .compound = copy };
+        },
+        else => tag,
+    };
+}
+
 pub fn deinit(gpa: std.mem.Allocator, tag: *Tag) void {
     switch (tag.*) {
         .byte_array => |v| gpa.free(v),

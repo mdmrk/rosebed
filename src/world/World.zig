@@ -5,6 +5,8 @@ const math = @import("math");
 
 const block = @import("block.zig");
 const Block = block.Block;
+const block_container = @import("block_container.zig");
+const block_state = @import("block_state.zig");
 const block_update = @import("block_update.zig");
 pub const BlockPos = @import("BlockPos.zig");
 const chest = @import("chest.zig");
@@ -197,6 +199,8 @@ notes: std.AutoHashMapUnmanaged(BlockPos, note.Note) = .{},
 dispensers: std.AutoHashMapUnmanaged(BlockPos, dispenser.Dispenser) = .{},
 mob_spawners: std.AutoHashMapUnmanaged(BlockPos, mob_spawner.MobSpawner) = .{},
 pistons: std.AutoHashMapUnmanaged(BlockPos, piston.Moving) = .{},
+block_states: std.AutoHashMapUnmanaged(BlockPos, nbt.Compound) = .{},
+containers: std.AutoHashMapUnmanaged(BlockPos, block_container.Store) = .{},
 furnace_updates: std.ArrayList(BlockPos) = .empty,
 chest_updates: std.ArrayList(BlockPos) = .empty,
 jukebox_updates: std.ArrayList(BlockPos) = .empty,
@@ -306,6 +310,13 @@ pub fn deinit(self: *World) void {
     self.dispensers.deinit(self.allocator);
     self.mob_spawners.deinit(self.allocator);
     self.pistons.deinit(self.allocator);
+    var states = self.block_states.valueIterator();
+    while (states.next()) |state| {
+        var owned: nbt.Tag = .{ .compound = state.* };
+        nbt.deinit(self.allocator, &owned);
+    }
+    self.block_states.deinit(self.allocator);
+    self.containers.deinit(self.allocator);
     self.piston_updates.deinit(self.allocator);
     self.piston_shoves.deinit(self.allocator);
     self.furnace_updates.deinit(self.allocator);
@@ -334,14 +345,20 @@ pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
     return chunk;
 }
 
+pub var on_chunk_load: ?*const fn (*World, i32, i32, bool) void = null;
+
 pub fn getOrGenerateChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !*Chunk {
     if (self.getChunk(chunk_x, chunk_z)) |existing| return existing;
 
-    if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| return loaded;
+    if (try self.loadChunk(generator, chunk_x, chunk_z)) |loaded| {
+        if (on_chunk_load) |hook| hook(self, chunk_x, chunk_z, false);
+        return loaded;
+    }
 
     const chunk = try self.createChunk(chunk_x, chunk_z);
     generator.generateShape(chunk);
     light.generateSkylightMap(chunk);
+    if (on_chunk_load) |hook| hook(self, chunk_x, chunk_z, true);
     return chunk;
 }
 
@@ -378,6 +395,7 @@ fn loadChunk(self: *World, generator: anytype, chunk_x: i32, chunk_z: i32) !?*Ch
             chunk.setClimate(@intCast(x), @intCast(z), @floatCast(climate.temperature[i]), @floatCast(climate.humidity[i]));
         }
     }
+    if (self.has_sky) chunk.resolveBiomes(generator.worldSeed());
 
     if (stored.populated) try self.decorated.put(self.allocator, .{ .x = chunk_x, .z = chunk_z }, {});
     return chunk;
@@ -596,9 +614,7 @@ pub fn getBlock(self: *const World, pos: BlockPos) Block {
 
 pub fn biomeAt(self: *const World, x: i32, z: i32) biome.Biome {
     const chunk = self.getChunk(floorDiv(x, Chunk.width), floorDiv(z, Chunk.width)) orelse return .plains;
-    const local_x: u32 = @intCast(floorMod(x, Chunk.width));
-    const local_z: u32 = @intCast(floorMod(z, Chunk.width));
-    return biome.classify(chunk.getTemperature(local_x, local_z), chunk.getHumidity(local_x, local_z));
+    return chunk.getBiome(@intCast(floorMod(x, Chunk.width)), @intCast(floorMod(z, Chunk.width)));
 }
 
 pub fn setBlock(self: *World, pos: BlockPos, id: Block) void {
@@ -800,6 +816,41 @@ pub fn forgetOrphanSpawners(self: *World) !void {
     }
 
     for (self.spawner_updates.items) |pos| _ = self.mob_spawners.remove(pos);
+}
+
+pub fn containerAt(self: *World, pos: BlockPos) ?*block_container.Store {
+    return self.containers.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
+}
+
+pub fn addContainer(self: *World, pos: BlockPos) !*block_container.Store {
+    const entry = try self.containers.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
+    if (!entry.found_existing) entry.value_ptr.* = .{};
+    return entry.value_ptr;
+}
+
+pub fn removeContainer(self: *World, pos: BlockPos) ?block_container.Store {
+    const removed = self.containers.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return null;
+    return removed.value;
+}
+
+pub fn blockStateAt(self: *World, pos: BlockPos) ?*nbt.Compound {
+    return self.block_states.getPtr(.{ .x = pos.x, .y = pos.y, .z = pos.z });
+}
+
+pub fn putBlockState(self: *World, pos: BlockPos, state: nbt.Compound) !void {
+    const entry = try self.block_states.getOrPut(self.allocator, .{ .x = pos.x, .y = pos.y, .z = pos.z });
+    if (entry.found_existing) {
+        var owned: nbt.Tag = .{ .compound = entry.value_ptr.* };
+        nbt.deinit(self.allocator, &owned);
+    }
+    entry.value_ptr.* = state;
+}
+
+pub fn removeBlockState(self: *World, pos: BlockPos) bool {
+    const removed = self.block_states.fetchRemove(.{ .x = pos.x, .y = pos.y, .z = pos.z }) orelse return false;
+    var owned: nbt.Tag = .{ .compound = removed.value };
+    nbt.deinit(self.allocator, &owned);
+    return true;
 }
 
 pub fn chestAt(self: *World, pos: BlockPos) ?*chest.Chest {
@@ -1174,11 +1225,33 @@ fn collectTileEntities(self: *World, coord: ChunkCoord, out: *std.ArrayList(nbt.
         if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
         try out.append(self.allocator, try mob_spawner.store(self.allocator, pos, entry.value_ptr.*));
     }
+
+    var containers_it = self.containers.iterator();
+    while (containers_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try block_container.store(self.allocator, pos, entry.value_ptr.*));
+    }
+
+    var states_it = self.block_states.iterator();
+    while (states_it.next()) |entry| {
+        const pos = entry.key_ptr.*;
+        if (floorDiv(pos.x, Chunk.width) != coord.x or floorDiv(pos.z, Chunk.width) != coord.z) continue;
+        try out.append(self.allocator, try block_state.store(self.allocator, pos, entry.value_ptr.*));
+    }
 }
 
 fn restoreTileEntity(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
     _ = gpa;
     const self: *World = @ptrCast(@alignCast(context));
+    if (block_container.load(compound)) |placed| {
+        (try self.addContainer(placed.pos)).* = placed.state;
+        return;
+    }
+    if (try block_state.load(self.allocator, compound)) |placed| {
+        try self.putBlockState(placed.pos, placed.state);
+        return;
+    }
     if (sign.load(compound)) |placed| {
         (try self.addSign(placed.pos)).* = placed.state;
         return;
@@ -1972,6 +2045,41 @@ test "sleeping rounds the clock up to the next dawn" {
     world_map.time = 0;
     world_map.skipToDawn();
     try std.testing.expectEqual(@as(i64, 24000), world_map.time);
+}
+
+test "a block's mod state is gathered with its chunk and restored into a fresh world" {
+    const gpa = std.testing.allocator;
+
+    var origin: World = .init(gpa);
+    defer origin.deinit();
+    _ = try origin.createChunk(0, 0);
+
+    var state: nbt.Compound = .{};
+    try nbt.putDuped(gpa, &state, "honey", .{ .double = 0.75 });
+    try origin.putBlockState(.init(4, 70, 6), state);
+
+    var far: nbt.Compound = .{};
+    try nbt.putDuped(gpa, &far, "honey", .{ .double = 0.25 });
+    try origin.putBlockState(.init(40, 70, 6), far);
+
+    var gathered: std.ArrayList(nbt.Tag) = .empty;
+    defer {
+        for (gathered.items) |*tag| nbt.deinit(gpa, tag);
+        gathered.deinit(gpa);
+    }
+    try origin.collectTileEntities(.{ .x = 0, .z = 0 }, &gathered);
+    try std.testing.expectEqual(@as(usize, 1), gathered.items.len);
+
+    var restored: World = .init(gpa);
+    defer restored.deinit();
+    try restoreTileEntity(&restored, gpa, gathered.items[0].compound);
+
+    const held = restored.blockStateAt(.init(4, 70, 6)).?;
+    try std.testing.expectEqual(@as(f64, 0.75), held.get("honey").?.double);
+    try std.testing.expect(restored.blockStateAt(.init(40, 70, 6)) == null);
+
+    try std.testing.expect(origin.removeBlockState(.init(4, 70, 6)));
+    try std.testing.expect(!origin.removeBlockState(.init(4, 70, 6)));
 }
 
 test "moving the clock drags the pending scheduled ticks along with it" {

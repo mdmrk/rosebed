@@ -3,6 +3,7 @@ const std = @import("std");
 const math = @import("math");
 
 const block = @import("block.zig");
+const block_state = @import("block_state.zig");
 const BlockPos = @import("BlockPos.zig");
 const chest = @import("chest.zig");
 const Chunk = @import("Chunk.zig");
@@ -981,6 +982,51 @@ test "a chest written with its chunk comes back with its contents" {
     try std.testing.expectEqual(@as(i32, 33), found.pos.x);
     try std.testing.expectEqual(@as(i32, -71), found.pos.z);
     try std.testing.expectEqual(state, found.state);
+}
+
+const StateSink = struct {
+    found: ?block_state.Placed = null,
+
+    fn visit(context: *anyopaque, gpa: std.mem.Allocator, compound: nbt.Compound) anyerror!void {
+        const self: *StateSink = @ptrCast(@alignCast(context));
+        self.found = try block_state.load(gpa, compound);
+    }
+};
+
+test "the state a mod put on a block comes back with its chunk" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var world = try open(io, tmp.dir, "Hive");
+    defer world.close(gpa, io);
+
+    var state: nbt.Compound = .{};
+    defer {
+        var owned: nbt.Tag = .{ .compound = state };
+        nbt.deinit(gpa, &owned);
+    }
+    try nbt.putDuped(gpa, &state, "honey", .{ .double = 0.75 });
+    try nbt.putDuped(gpa, &state, "queen", .{ .string = try gpa.dupe(u8, "Maja") });
+
+    const chunk = Chunk.init(2, -5);
+    const tile_entities = try gpa.alloc(nbt.Tag, 1);
+    tile_entities[0] = try block_state.store(gpa, .init(33, 64, -71), state);
+    try world.writeChunk(gpa, io, &chunk, 1, true, try gpa.alloc(nbt.Tag, 0), tile_entities);
+
+    var sink: StateSink = .{};
+    _ = (try world.readChunk(gpa, io, 2, -5, null, .{ .context = &sink, .visit = StateSink.visit })).?;
+
+    var found = sink.found.?;
+    defer {
+        var owned: nbt.Tag = .{ .compound = found.state };
+        nbt.deinit(gpa, &owned);
+    }
+    try std.testing.expectEqual(BlockPos.init(33, 64, -71), found.pos);
+    try std.testing.expectEqual(@as(usize, 2), found.state.count());
+    try std.testing.expectEqual(@as(f64, 0.75), found.state.get("honey").?.double);
+    try std.testing.expectEqualStrings("Maja", found.state.get("queen").?.string);
 }
 
 test "a second session takes the lock and the first refuses to write over it" {

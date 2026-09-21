@@ -3,9 +3,11 @@ const std = @import("std");
 const world = @import("world");
 
 const achievements = @import("achievements.zig");
+const mob = @import("mob.zig");
 
 pub const max_count: u8 = 64;
 pub const max_fill_volume: u32 = 32768;
+pub const mod_capacity: usize = 32;
 
 pub const Verb = enum {
     help,
@@ -59,7 +61,39 @@ pub const Verb = enum {
     }
 };
 
-pub const Mob = enum { pig, cow, sheep, chicken, slime, wolf, ghast, creeper, skeleton, spider, zombie, pigzombie, squid };
+pub const Mob = enum {
+    pig,
+    cow,
+    sheep,
+    chicken,
+    slime,
+    wolf,
+    ghast,
+    creeper,
+    skeleton,
+    spider,
+    zombie,
+    pigzombie,
+    squid,
+
+    pub fn typeId(self: Mob) mob.Id {
+        return switch (self) {
+            .pig => mob.pig,
+            .cow => mob.cow,
+            .sheep => mob.sheep,
+            .chicken => mob.chicken,
+            .slime => mob.slime,
+            .wolf => mob.wolf,
+            .ghast => mob.ghast,
+            .creeper => mob.creeper,
+            .skeleton => mob.skeleton,
+            .spider => mob.spider,
+            .zombie => mob.zombie,
+            .pigzombie => mob.pig_zombie,
+            .squid => mob.squid,
+        };
+    }
+};
 
 pub const Achievement = struct {
     method: Method,
@@ -89,7 +123,8 @@ pub const Seed = struct {
 };
 
 pub const Spawn = struct {
-    mob: Mob,
+    type_id: mob.Id,
+    name: []const u8,
     count: u8,
 };
 
@@ -112,6 +147,41 @@ pub const Weather = struct {
 
     pub const Sky = enum { clear, rain, thunder };
 };
+
+pub const Custom = struct {
+    name: []const u8,
+    usage: []const u8 = "",
+    description: []const u8 = "",
+    local: bool = false,
+};
+
+var customs: [mod_capacity]Custom = undefined;
+var custom_count: usize = 0;
+
+pub fn register(entry: Custom) error{ RegistryFull, DuplicateKey }!usize {
+    if (custom_count == mod_capacity) return error.RegistryFull;
+    if (verbFromWord(entry.name) != null) return error.DuplicateKey;
+    if (find(entry.name) != null) return error.DuplicateKey;
+
+    customs[custom_count] = entry;
+    custom_count += 1;
+    return custom_count - 1;
+}
+
+pub fn registered() []const Custom {
+    return customs[0..custom_count];
+}
+
+pub fn find(name: []const u8) ?usize {
+    for (customs[0..custom_count], 0..) |entry, index| {
+        if (std.mem.eql(u8, entry.name, name)) return index;
+    }
+    return null;
+}
+
+pub fn resetRegistry() void {
+    custom_count = 0;
+}
 
 pub const Result = union(enum) {
     nothing,
@@ -137,6 +207,7 @@ pub const Result = union(enum) {
     unparsed_item: []const u8,
     unknown_method: []const u8,
     unknown: []const u8,
+    custom: struct { index: usize, args: []const u8 },
 };
 
 const help_indent = "   ";
@@ -144,6 +215,26 @@ const help_gap = 2;
 
 fn signature(comptime verb: Verb) []const u8 {
     return if (verb.usage().len == 0) @tagName(verb) else @tagName(verb) ++ " " ++ verb.usage();
+}
+
+pub const help_width: usize = blk: {
+    var widest: usize = 0;
+    for (std.enums.values(Verb)) |verb| widest = @max(widest, signature(verb).len);
+    break :blk widest;
+};
+
+const help_padding = " " ** 64;
+
+pub fn helpLine(buffer: []u8, entry: Custom) []const u8 {
+    const used = entry.name.len + if (entry.usage.len == 0) 0 else entry.usage.len + 1;
+    const gap = (if (used < help_width) help_width - used else 0) + help_gap;
+    return std.fmt.bufPrint(buffer, help_indent ++ "{s}{s}{s}{s}{s}", .{
+        entry.name,
+        if (entry.usage.len == 0) "" else " ",
+        entry.usage,
+        help_padding[0..@min(help_padding.len, gap)],
+        entry.description,
+    }) catch entry.name;
 }
 
 pub const help_lines: []const []const u8 = blk: {
@@ -192,19 +283,56 @@ fn tryParse(text: ?[]const u8, fallback: u8) u8 {
 
 pub fn resolveId(raw: u32) ?world.Id {
     if (raw == 0) return null;
-    if (raw < 256) {
-        const id: world.Block = @enumFromInt(raw);
-        return if (std.enums.tagName(world.Block, id) == null) null else .{ .block = id };
-    }
+    if (raw < 256) return .{ .block = resolveBlock(raw) orelse return null };
     if (raw > std.math.maxInt(u16)) return null;
     const id: world.Item = @enumFromInt(raw);
-    return if (std.enums.tagName(world.Item, id) == null) null else .{ .item = id };
+    return if (std.enums.tagName(world.Item, id) == null and id.def().key.len == 0) null else .{ .item = id };
 }
 
 pub fn resolveBlock(raw: u32) ?world.Block {
     if (raw > 255) return null;
     const id: world.Block = @enumFromInt(raw);
-    return if (std.enums.tagName(world.Block, id) == null) null else id;
+    return if (std.enums.tagName(world.Block, id) == null and id.def().key.len == 0) null else id;
+}
+
+pub fn resolveBlockName(name: []const u8) ?world.Block {
+    if (std.meta.stringToEnum(world.Block, name)) |id| return id;
+    const found = registeredName(name, .blocks) orelse return null;
+    return found.block;
+}
+
+const Searched = enum { blocks, everything };
+
+fn registeredName(name: []const u8, searched: Searched) ?world.Id {
+    if (std.mem.indexOfScalar(u8, name, ':') != null) {
+        if (world.Block.fromKey(name)) |id| return .{ .block = id };
+        if (searched == .everything) {
+            if (world.Item.fromKey(name)) |id| return .{ .item = id };
+        }
+        return null;
+    }
+
+    var found: ?world.Id = null;
+    for (0..256) |raw| {
+        const id: world.Block = @enumFromInt(raw);
+        if (!namespacedAs(id.def().key, name)) continue;
+        if (found != null) return null;
+        found = .{ .block = id };
+    }
+    if (searched == .everything) {
+        for (0..world.item.def_capacity) |offset| {
+            const id: world.Item = @enumFromInt(world.item.first_item_id + offset);
+            if (!namespacedAs(id.def().key, name)) continue;
+            if (found != null) return null;
+            found = .{ .item = id };
+        }
+    }
+    return found;
+}
+
+fn namespacedAs(key: []const u8, name: []const u8) bool {
+    const colon = std.mem.indexOfScalar(u8, key, ':') orelse return false;
+    return std.mem.eql(u8, key[colon + 1 ..], name);
 }
 
 fn verbFromWord(word: []const u8) ?Verb {
@@ -215,7 +343,7 @@ fn verbFromWord(word: []const u8) ?Verb {
 pub fn resolveName(name: []const u8) ?world.Id {
     if (std.meta.stringToEnum(world.Item, name)) |id| return .{ .item = id };
     if (std.meta.stringToEnum(world.Block, name)) |id| return .{ .block = id };
-    return null;
+    return registeredName(name, .everything);
 }
 
 pub fn parse(line: []const u8) Result {
@@ -224,7 +352,10 @@ pub fn parse(line: []const u8) Result {
     var words = std.mem.tokenizeScalar(u8, line[1..], ' ');
     const word = words.next() orelse return .nothing;
 
-    return switch (verbFromWord(word) orelse return .{ .unknown = word }) {
+    return switch (verbFromWord(word) orelse {
+        const index = find(word) orelse return .{ .unknown = word };
+        return .{ .custom = .{ .index = index, .args = words.rest() } };
+    }) {
         .help => .help,
         .achievement => parseAchievement(&words),
         .clear => if (words.next() == null) .clear else .nothing,
@@ -274,7 +405,7 @@ fn parseFill(words: *Words) Result {
     const id = if (std.fmt.parseInt(u32, id_text, 10)) |raw|
         resolveBlock(raw) orelse return .{ .missing_block = id_text }
     else |_|
-        std.meta.stringToEnum(world.Block, id_text) orelse return .{ .missing_block = id_text };
+        resolveBlockName(id_text) orelse return .{ .missing_block = id_text };
 
     const from: world.BlockPos = .init(
         @min(coords[0], coords[3]),
@@ -318,8 +449,14 @@ fn parseSpawn(words: *Words) Result {
     const count_text = words.next();
     if (words.next() != null) return .nothing;
 
-    const mob = std.meta.stringToEnum(Mob, name) orelse return .{ .missing_mob = name };
-    return .{ .spawn = .{ .mob = mob, .count = tryParse(count_text, 1) } };
+    const type_id = spawnableMob(name) orelse return .{ .missing_mob = name };
+    return .{ .spawn = .{ .type_id = type_id, .name = name, .count = tryParse(count_text, 1) } };
+}
+
+fn spawnableMob(name: []const u8) ?mob.Id {
+    if (std.meta.stringToEnum(Mob, name)) |vanilla| return vanilla.typeId();
+    if (std.mem.indexOfScalar(u8, name, ':') == null) return null;
+    return mob.find(name);
 }
 
 fn parseSeed(words: *Words) Result {
@@ -413,17 +550,85 @@ test "give stays silent when the argument count is wrong" {
 
 test "spawn names a mob and defaults to one" {
     const result = parse("/spawn pig");
-    try std.testing.expectEqual(Mob.pig, result.spawn.mob);
+    try std.testing.expectEqual(mob.pig, result.spawn.type_id);
+    try std.testing.expectEqualStrings("pig", result.spawn.name);
     try std.testing.expectEqual(@as(u8, 1), result.spawn.count);
 
-    try std.testing.expectEqual(Mob.squid, parse("/spawn squid").spawn.mob);
-    try std.testing.expectEqual(Mob.chicken, parse("/spawn chicken 3").spawn.mob);
+    try std.testing.expectEqual(mob.squid, parse("/spawn squid").spawn.type_id);
+    try std.testing.expectEqual(mob.chicken, parse("/spawn chicken 3").spawn.type_id);
     try std.testing.expectEqual(@as(u8, 3), parse("/spawn chicken 3").spawn.count);
+}
+
+test "spawn names a registered mob by the key it was registered under" {
+    defer mob.reset();
+
+    const custom = mob.register(.{
+        .name = "rosebug:bumbler",
+        .spawn = mob.get(mob.pig).spawn,
+        .tick = mob.get(mob.pig).tick,
+        .takeDrops = mob.get(mob.pig).takeDrops,
+        .store = mob.get(mob.pig).store,
+        .load = mob.get(mob.pig).load,
+        .destroy = mob.get(mob.pig).destroy,
+    });
+
+    try std.testing.expectEqual(custom, parse("/spawn rosebug:bumbler").spawn.type_id);
+    try std.testing.expectEqualStrings("rosebug:bumbler", parse("/spawn rosebug:bumbler").spawn.name);
+    try std.testing.expectEqualStrings("rosebug:weevil", parse("/spawn rosebug:weevil").missing_mob);
 }
 
 test "spawn rejects a mob it cannot build" {
     try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20).missing_mob);
     try std.testing.expectEqual(Result.nothing, parse("/spawn"));
+}
+
+test "a command a mod registered is parsed with the rest of the line as its arguments" {
+    defer resetRegistry();
+
+    const index = try register(.{ .name = "wings", .usage = "<on|off>", .description = "toggles the wings" });
+    try std.testing.expectEqual(@as(usize, 0), index);
+
+    const found = parse("/wings on loud");
+    try std.testing.expectEqual(index, found.custom.index);
+    try std.testing.expectEqualStrings("on loud", found.custom.args);
+    try std.testing.expectEqualStrings("", parse("/wings").custom.args);
+    try std.testing.expectEqualStrings("feathers", parse("/feathers").unknown);
+}
+
+test "a mod cannot take a name a vanilla command or another mod already answers to" {
+    defer resetRegistry();
+
+    _ = try register(.{ .name = "wings" });
+    try std.testing.expectError(error.DuplicateKey, register(.{ .name = "wings" }));
+    try std.testing.expectError(error.DuplicateKey, register(.{ .name = "weather" }));
+    try std.testing.expectEqual(@as(usize, 1), registered().len);
+}
+
+test "the registry holds only as many commands as it has room for" {
+    defer resetRegistry();
+
+    var name: [mod_capacity][8]u8 = undefined;
+    for (0..mod_capacity) |index| {
+        _ = std.fmt.bufPrint(&name[index], "mod{d}", .{index}) catch unreachable;
+        _ = try register(.{ .name = name[index][0 .. 3 + std.fmt.count("{d}", .{index})] });
+    }
+    try std.testing.expectError(error.RegistryFull, register(.{ .name = "onemore" }));
+}
+
+test "a mod command lines up with the vanilla help, with or without a usage" {
+    var buffer: [128]u8 = undefined;
+
+    const with_usage = helpLine(&buffer, .{
+        .name = "wings",
+        .usage = "<on|off>",
+        .description = "toggles the wings",
+    });
+    try std.testing.expect(std.mem.startsWith(u8, with_usage, help_indent ++ "wings <on|off>"));
+    try std.testing.expect(std.mem.endsWith(u8, with_usage, "toggles the wings"));
+    try std.testing.expectEqual(help_indent.len + help_width + help_gap, std.mem.indexOf(u8, with_usage, "toggles").?);
+
+    const bare = helpLine(&buffer, .{ .name = "wings", .description = "toggles the wings" });
+    try std.testing.expectEqual(help_indent.len + help_width + help_gap, std.mem.indexOf(u8, bare, "toggles").?);
 }
 
 test "time adds to or sets the clock" {
@@ -685,4 +890,33 @@ test "clear takes no arguments at all" {
     try std.testing.expectEqual(Result.clear, parse("/clear"));
     try std.testing.expectEqual(Result.nothing, parse("/clear all"));
     try std.testing.expectEqualStrings("Clear", parse("/Clear").unknown);
+}
+
+test "give and fill reach a mod's blocks and items by key, bare name or number" {
+    defer world.Block.resetRegistry();
+    defer world.Item.resetRegistry();
+
+    const block = try world.Block.claim(.{ .key = "beetles:amber_block" });
+    const item = try world.Item.claim(.{ .key = "beetles:amber" });
+
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give beetles:amber_block").give.id);
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give amber_block 4").give.id);
+    try std.testing.expectEqual(world.Id{ .item = item }, parse("/give amber").give.id);
+    try std.testing.expectEqual(world.Id{ .block = block }, parse("/give 97").give.id);
+    try std.testing.expectEqual(world.Id{ .item = item }, parse(std.fmt.comptimePrint("/give {d}", .{world.item.first_item_id + 104})).give.id);
+
+    try std.testing.expectEqual(block, parse("/fill 0 0 0 1 1 1 amber_block").fill.id);
+    try std.testing.expectEqual(block, parse("/fill 0 0 0 1 1 1 97").fill.id);
+    try std.testing.expectEqualStrings("amber", parse("/fill 0 0 0 1 1 1 amber").missing_block);
+    try std.testing.expectEqualStrings("beetles:nothing", parse("/give beetles:nothing").unparsed_item);
+}
+
+test "a bare name two mods both registered names neither" {
+    defer world.Block.resetRegistry();
+
+    _ = try world.Block.claim(.{ .key = "beetles:marble" });
+    _ = try world.Block.claim(.{ .key = "quarry:marble" });
+
+    try std.testing.expectEqualStrings("marble", parse("/give marble").unparsed_item);
+    try std.testing.expectEqual(world.Block.fromKey("quarry:marble").?, parse("/give quarry:marble").give.id.block);
 }

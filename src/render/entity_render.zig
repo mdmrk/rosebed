@@ -217,6 +217,19 @@ pub const item_shadow_size: f32 = 0.15;
 pub const item_shadow_opacity: f32 = 12.0 / 16.0;
 pub const shadow_opacity: f32 = 1.0;
 
+pub fn modModel(model: game.mob.Model) mob_model.Model {
+    return switch (model) {
+        .custom => |custom| custom,
+        .builtin => |kind| switch (kind) {
+            .pig => mob_model.pig,
+            .cow => mob_model.cow,
+            .sheep => mob_model.sheep,
+            .chicken => mob_model.chicken,
+            .creeper => mob_model.creeper,
+        },
+    };
+}
+
 pub fn mobShadowSize(type_id: game.mob.Id) f32 {
     return switch (type_id) {
         game.mob.spider => 1.0,
@@ -540,8 +553,9 @@ pub fn appendPlayer(
     player: game.Player,
     holding_item: bool,
     partial_ticks: f32,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, mob_model.biped, &all_biped_parts_shown);
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, mob_model.biped, &all_biped_parts_shown, override);
 }
 
 pub fn appendPlayerArmor(
@@ -552,8 +566,9 @@ pub fn appendPlayerArmor(
     holding_item: bool,
     partial_ticks: f32,
     layer: mob_model.ArmorLayer,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible);
+    return appendBiped(mesh, gpa, world_map, player, holding_item, partial_ticks, layer.model, &layer.visible, override);
 }
 
 fn bipedParts(
@@ -625,11 +640,13 @@ pub fn appendPlayerHeadBlock(
     holding_item: bool,
     partial_ticks: f32,
     id: world.Block,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
     const first_vertex = mesh.vertices.items.len;
-    const parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
+    var parts = bipedParts(mob_model.biped, player, holding_item, partial_ticks);
+    var pose = bipedPose(mesh, world_map, player, partial_ticks);
+    overridePose(&parts, &pose, override);
     const head = parts[mob_model.biped.head_index];
-    const pose = bipedPose(mesh, world_map, player, partial_ticks);
 
     try held_item.appendBlock(mesh, gpa, id, .{
         .orient = headBlockOrient(head, pose),
@@ -644,6 +661,24 @@ pub fn appendPlayerHeadBlock(
     }
 }
 
+fn overridePose(
+    parts: *[mob_model.biped_part_count]mob_model.Part,
+    pose: *mob_model.Pose,
+    override: ?game.mob_model.BipedOverride,
+) void {
+    const turned = override orelse return;
+    pose.pitch += turned.pitch;
+    pose.roll += turned.roll;
+    pose.spin += turned.spin;
+    pose.lift += turned.lift;
+    for (parts, turned.limbs) |*part, angles| {
+        const turn = angles orelse continue;
+        part.rotate_x = turn[0];
+        part.rotate_y = turn[1];
+        part.rotate_z = turn[2];
+    }
+}
+
 fn appendBiped(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
@@ -653,9 +688,11 @@ fn appendBiped(
     partial_ticks: f32,
     model: mob_model.Model,
     shown: []const bool,
+    override: ?game.mob_model.BipedOverride,
 ) !void {
-    const parts = bipedParts(model, player, holding_item, partial_ticks);
-    const pose = bipedPose(mesh, world_map, player, partial_ticks);
+    var parts = bipedParts(model, player, holding_item, partial_ticks);
+    var pose = bipedPose(mesh, world_map, player, partial_ticks);
+    overridePose(&parts, &pose, override);
     const material = item_lighting.material(brightnessOf(world_map, player.base), untinted);
 
     for (parts, shown) |part, visible| {
@@ -989,7 +1026,7 @@ fn animalPose(mesh: *const MeshBuilder, animal: game.Animal, partial_ticks: f32,
     };
 }
 
-fn appendAnimal(
+pub fn appendAnimal(
     mesh: *MeshBuilder,
     gpa: std.mem.Allocator,
     world_map: *const world.World,
@@ -1025,6 +1062,28 @@ fn appendAnimal(
         }
         try mob_model.appendPart(mesh, gpa, p, model.texture_width, model.texture_height, pose, .{ .material = material });
     }
+}
+
+pub const wing_beat_reach: f32 = 0.5;
+
+pub fn beatenWing(rate: f32, animal: game.Animal, partial_ticks: f32) f32 {
+    if (rate == 0) return 0;
+    const age = @as(f32, @floatFromInt(animal.entity_age)) + partial_ticks;
+    return (math.util.sin(age * rate) + 1.0) * wing_beat_reach;
+}
+
+pub fn appendModAnimal(
+    mesh: *MeshBuilder,
+    gpa: std.mem.Allocator,
+    world_map: *const world.World,
+    animal: game.Animal,
+    partial_ticks: f32,
+    model: mob_model.Model,
+    wing_beat: f32,
+) !void {
+    return appendAnimal(mesh, gpa, world_map, animal, partial_ticks, model, .{
+        .wing_flap = beatenWing(wing_beat, animal, partial_ticks),
+    });
 }
 
 fn hurtTinted(color: [4]u8, brightness: f32) [4]u8 {
@@ -3786,7 +3845,7 @@ pub fn appendFishLine(
 fn sleepingHeadOffset(world_map: *const world.World, gpa: std.mem.Allocator, player: game.Player) ![3]f32 {
     var mesh: MeshBuilder = .{ .origin = player.base.renderPosition(0.0) };
     defer mesh.deinit(gpa);
-    try appendPlayer(&mesh, gpa, world_map, player, false, 0.0);
+    try appendPlayer(&mesh, gpa, world_map, player, false, 0.0, null);
 
     var far: [3]f32 = .{ 0, 0, 0 };
     var reach: f32 = -1.0;
@@ -3860,7 +3919,7 @@ test "a pumpkin worn on the head is a cube over the face, carved side forward" {
 
     var mesh: MeshBuilder = .{};
     defer mesh.deinit(gpa);
-    try appendPlayerHeadBlock(&mesh, gpa, &world_map, player, false, 0, .pumpkin);
+    try appendPlayerHeadBlock(&mesh, gpa, &world_map, player, false, 0, .pumpkin, null);
 
     try std.testing.expectEqual(@as(usize, 6 * 4), mesh.vertices.items.len);
 
@@ -3966,4 +4025,119 @@ test "a ghast's tentacles sway with its age while its body holds still" {
         if (@abs(before.z - after.z) > 1.0e-3) moved = true;
     }
     try std.testing.expect(moved);
+}
+
+const beater_parts = [_]mob_model.Part{
+    .{ .box = .{ .origin = .{ -3, -5, -4 }, .size = .{ 6, 5, 8 }, .tex_u = 0, .tex_v = 0 }, .pivot = .{ 0, -8, 0 } },
+    .{ .box = .{ .origin = .{ 0, 0, -3 }, .size = .{ 1, 4, 6 }, .tex_u = 24, .tex_v = 0 }, .pivot = .{ -4, -11, 0 }, .role = .wing_right },
+};
+
+const beater: mob_model.Model = .{ .parts = &beater_parts, .head_index = 0, .texture_width = 64, .texture_height = 32 };
+
+test "a mod's wing sweeps while its body holds still, and holds still without a beat" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+
+    var animal: game.Animal = .spawn(.init(0, 64, 0), .{ .width = 0.4, .height = 0.5 });
+
+    var early: MeshBuilder = .{};
+    defer early.deinit(gpa);
+    var late: MeshBuilder = .{};
+    defer late.deinit(gpa);
+    var never: MeshBuilder = .{};
+    defer never.deinit(gpa);
+
+    try appendModAnimal(&early, gpa, &world_map, animal, 0, beater, 0.8);
+    try appendModAnimal(&never, gpa, &world_map, animal, 0, beater, 0);
+    animal.entity_age = 2;
+    try appendModAnimal(&late, gpa, &world_map, animal, 0, beater, 0.8);
+    var still: MeshBuilder = .{};
+    defer still.deinit(gpa);
+    try appendModAnimal(&still, gpa, &world_map, animal, 0, beater, 0);
+
+    for (partVertices(early, 0), partVertices(late, 0)) |before, after| {
+        try std.testing.expectApproxEqAbs(before.y, after.y, 1.0e-6);
+        try std.testing.expectApproxEqAbs(before.x, after.x, 1.0e-6);
+    }
+    var swept = false;
+    for (partVertices(early, 1), partVertices(late, 1)) |before, after| {
+        if (@abs(before.y - after.y) > 1.0e-3) swept = true;
+    }
+    try std.testing.expect(swept);
+
+    for (partVertices(never, 1), partVertices(still, 1)) |before, after| {
+        try std.testing.expectEqual(before.y, after.y);
+        try std.testing.expectEqual(before.x, after.x);
+    }
+}
+
+test "a wing only beats for a mob that asked for a beat" {
+    var animal: game.Animal = .spawn(.init(0, 0, 0), .{ .width = 0.4, .height = 0.5 });
+    var swept: f32 = 0;
+    for (0..40) |tick| {
+        animal.entity_age = @intCast(tick);
+        try std.testing.expectEqual(@as(f32, 0), beatenWing(0, animal, 0));
+        const flap = beatenWing(0.8, animal, 0);
+        try std.testing.expect(flap >= 0 and flap <= wing_beat_reach * 2);
+        swept = @max(swept, flap);
+    }
+    try std.testing.expect(swept > wing_beat_reach);
+
+    animal.entity_age = 3;
+    try std.testing.expect(beatenWing(0.8, animal, 0) != beatenWing(0.8, animal, 0.5));
+}
+
+test "a pose a mod asked for lays the player over and turns only the limbs it named" {
+    const gpa = std.testing.allocator;
+    var world_map = world.World.init(gpa);
+    defer world_map.deinit();
+    const player: game.Player = .spawn(.init(8, 64, 8));
+
+    var upright: MeshBuilder = .{};
+    defer upright.deinit(gpa);
+    var same: MeshBuilder = .{};
+    defer same.deinit(gpa);
+    var flat: MeshBuilder = .{};
+    defer flat.deinit(gpa);
+
+    try appendPlayer(&upright, gpa, &world_map, player, false, 0, null);
+    try appendPlayer(&same, gpa, &world_map, player, false, 0, .{});
+    for (upright.vertices.items, same.vertices.items) |before, after| {
+        try std.testing.expectEqual(before.y, after.y);
+        try std.testing.expectEqual(before.z, after.z);
+    }
+
+    var turned: game.mob_model.BipedOverride = .{ .pitch = std.math.pi * 0.5 };
+    turned.limbs[@intFromEnum(game.mob_model.Limb.right_arm)] = .{ 0, 0, -1.4 };
+    try appendPlayer(&flat, gpa, &world_map, player, false, 0, turned);
+
+    var moved = false;
+    for (upright.vertices.items, flat.vertices.items) |before, after| {
+        if (@abs(before.z - after.z) > 1.0e-3) moved = true;
+    }
+    try std.testing.expect(moved);
+
+    const head = mob_model.biped.head_index;
+    var lowered = false;
+    for (partVertices(upright, head), partVertices(flat, head)) |before, after| {
+        if (after.y < before.y - 0.2) lowered = true;
+    }
+    try std.testing.expect(lowered);
+}
+
+test "every model a mod can wear animates from the roles of its parts" {
+    for (std.enums.values(game.mob.Model.Builtin)) |kind| {
+        const model = modModel(.{ .builtin = kind });
+        var head = false;
+        var stride = false;
+        for (model.parts) |part| switch (part.role) {
+            .head => head = true,
+            .leg_ahead, .leg_behind => stride = true,
+            else => {},
+        };
+        try std.testing.expect(head);
+        try std.testing.expect(stride);
+        try std.testing.expect(model.head_index < model.parts.len);
+    }
 }

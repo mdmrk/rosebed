@@ -13,6 +13,7 @@ const density_x = density.size_x;
 const density_y = density.size_y;
 const density_z = density.size_z;
 const densityIndex = density.index;
+const generator = @import("generator.zig");
 const PerlinOctaves = @import("PerlinOctaves.zig");
 const springs = @import("springs.zig");
 
@@ -64,6 +65,10 @@ pub fn deinit(self: NetherGenerator, gpa: std.mem.Allocator) void {
     self.depth_variation_noise.deinit(gpa);
     self.scale_noise.deinit(gpa);
     self.depth_noise.deinit(gpa);
+}
+
+pub fn worldSeed(self: NetherGenerator) i64 {
+    return self.world_seed;
 }
 
 pub fn sampleClimate(_: NetherGenerator, _: i32, _: i32) Climate.Sample {
@@ -148,6 +153,7 @@ pub fn generateShape(self: *NetherGenerator, chunk: *Chunk) void {
     density.fill(chunk, &field, Picker{});
 
     self.dressSurface(chunk);
+    if (generator.after_shape) |hook| hook(chunk, .nether, self.world_seed);
     caves.carve(.nether, chunk, chunk.x, chunk.z, self.world_seed);
 }
 

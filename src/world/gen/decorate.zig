@@ -496,7 +496,10 @@ pub fn treeCountFor(rand: *JavaRandom, density_noise: f64, surface_biome: biome.
     var count: i32 = 0;
     if (rand.nextIntBound(10) == 0) count += 1;
 
-    return count + switch (surface_biome) {
+    if (surface_biome.def()) |entry| {
+        if (entry.trees) |extra| return count + from_noise + extra;
+    }
+    return count + switch (surface_biome.vanilla()) {
         .forest, .rainforest, .taiga => from_noise + 5,
         .seasonal_forest => from_noise + 2,
         .desert, .tundra, .plains => -20,
@@ -505,7 +508,7 @@ pub fn treeCountFor(rand: *JavaRandom, density_noise: f64, surface_biome: biome.
 }
 
 fn growRandomTree(world_map: *World, rand: *JavaRandom, pos: BlockPos, surface_biome: biome.Biome) void {
-    switch (surface_biome) {
+    switch (surface_biome.vanilla()) {
         .forest => {
             if (rand.nextIntBound(5) == 0) {
                 _ = generateBirchTree(world_map, rand, pos.x, pos.y, pos.z);
@@ -690,7 +693,10 @@ pub fn generateReedPatch(world_map: *World, rand: *JavaRandom, pos: BlockPos) vo
 }
 
 fn dandelionCountFor(surface_biome: biome.Biome) i32 {
-    return switch (surface_biome) {
+    if (surface_biome.def()) |entry| {
+        if (entry.flowers) |count| return count;
+    }
+    return switch (surface_biome.vanilla()) {
         .forest => 2,
         .seasonal_forest => 4,
         .taiga => 2,
@@ -700,7 +706,10 @@ fn dandelionCountFor(surface_biome: biome.Biome) i32 {
 }
 
 fn tallGrassCountFor(surface_biome: biome.Biome) i32 {
-    return switch (surface_biome) {
+    if (surface_biome.def()) |entry| {
+        if (entry.grass) |count| return count;
+    }
+    return switch (surface_biome.vanilla()) {
         .forest => 2,
         .rainforest, .plains => 10,
         .seasonal_forest => 2,
@@ -725,14 +734,14 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
     i = 0;
     const grass_count = tallGrassCountFor(surface_biome);
     while (i < grass_count) : (i += 1) {
-        const is_fern = surface_biome == .rainforest and rand.nextIntBound(3) != 0;
+        const is_fern = surface_biome.vanilla() == .rainforest and rand.nextIntBound(3) != 0;
         const x = base_x + rand.nextIntBound(16) + 8;
         const y = rand.nextIntBound(128);
         const z = base_z + rand.nextIntBound(16) + 8;
         generateTallGrassPatch(world_map, rand, x, y, z, if (is_fern) 2 else 1);
     }
 
-    if (surface_biome == .desert) {
+    if (surface_biome.vanilla() == .desert) {
         i = 0;
         while (i < 2) : (i += 1) {
             const x = base_x + rand.nextIntBound(16) + 8;
@@ -778,7 +787,7 @@ pub fn generateSurfacePlants(world_map: *World, chunk_x: i32, chunk_z: i32, rand
         generatePumpkinPatch(world_map, rand, .init(x, y, z));
     }
 
-    if (surface_biome == .desert) {
+    if (surface_biome.vanilla() == .desert) {
         i = 0;
         while (i < 10) : (i += 1) {
             const x = base_x + rand.nextIntBound(16) + 8;

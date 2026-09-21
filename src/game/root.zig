@@ -39,6 +39,7 @@ pub const interact = @import("interact.zig");
 pub const Inventory = @import("Inventory.zig");
 pub const Level = @import("Level.zig");
 pub const mob = @import("mob.zig");
+pub const mob_model = @import("mob_model.zig");
 pub const mob_spawner = @import("mob_spawner.zig");
 pub const options_file = @import("options_file.zig");
 pub const physics = @import("physics.zig");

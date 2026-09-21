@@ -206,6 +206,8 @@ pub fn tickRidden(self: *Player, world_map: *const world.World, strafe: f32, for
     if (self.health <= 0) self.death_time += 1;
 }
 
+pub var steer: ?*const fn (*Player, *const world.World, bool, bool) bool = null;
+
 pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forward_in: f32, jump: bool, sneak: bool) void {
     self.base.beginTick();
     self.jumped = false;
@@ -277,6 +279,8 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         if (sneak and self.base.motion.y < 0) self.base.motion.y = 0;
     }
 
+    const claimed = if (steer) |hook| hook(self, world_map, jump, sneak) else false;
+
     const before_y = self.base.position.y;
     const moved = self.base.move(world_map);
     self.updateFallState(world_map, moved.dy);
@@ -302,7 +306,7 @@ pub fn tick(self: *Player, world_map: *const world.World, strafe_in: f32, forwar
         if (blocked_horizontally and self.base.isOffsetPositionInLiquid(world_map, self.base.motion.x, step_up, self.base.motion.z)) {
             self.base.motion.y = liquid_climb_out;
         }
-    } else {
+    } else if (!claimed) {
         self.base.motion.y -= gravity;
         self.base.motion.y *= vertical_drag;
         self.base.motion.x *= @as(f64, friction);
@@ -497,9 +501,18 @@ pub fn hurtByHostile(self: *Player, world_map: *const world.World, amount: i32, 
     self.damageFrom(world_map, world_map.difficulty.scaleHostileDamage(amount), source);
 }
 
+pub var on_hurt: ?*const fn (*Player, i32) bool = null;
+pub var on_death: ?*const fn (*Player) void = null;
+
 fn damageFrom(self: *Player, world_map: *const world.World, amount: i32, source: ?math.Vec3) void {
     if (world_map.remote) return;
     if (self.health <= 0 or amount == 0) return;
+    if (on_hurt) |hook| {
+        if (hook(self, amount)) return;
+    }
+    defer if (self.health <= 0) {
+        if (on_death) |hook| hook(self);
+    };
     if (self.sleeping) self.wake_pending = true;
     self.damage_taken += amount;
 

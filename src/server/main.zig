@@ -2,6 +2,8 @@ const std = @import("std");
 
 const core = @import("core");
 const game = @import("game");
+const math = @import("math");
+const mods = @import("mods");
 const net = @import("net");
 const world = @import("world");
 const BlockPos = world.BlockPos;
@@ -150,6 +152,7 @@ const Server = struct {
     running: std.atomic.Value(bool) = .init(true),
     tick_count: u64 = 0,
     ticks_since_save: u64 = 0,
+    mods: net.packet.ModList = .{},
 
     fn lock(self: *Server) void {
         self.mutex.lockUncancelable(self.io);
@@ -449,6 +452,7 @@ fn writeLoop(server: *Server, connection: *Connection) void {
         if (!open or !server.running.load(.acquire)) break;
         std.Io.sleep(server.io, .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
     }
+    connection.stream.shutdown(server.io, .send) catch {};
 
     server.lock();
     connection.open = false;
@@ -463,7 +467,7 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
             stream.close(server.io);
             continue;
         };
-        connection.* = .{ .stream = stream };
+        connection.* = .{ .stream = stream, .session = .{ .mods = server.mods } };
 
         server.adopt(connection) catch {
             connection.deinit(server.gpa);
@@ -485,9 +489,95 @@ fn acceptLoop(server: *Server, listener: *std.Io.net.Server) void {
 fn drainPending(server: *Server, connection: *Connection) !void {
     for (connection.pending.items) |message| {
         defer message.deinit(server.gpa);
-        try connection.session.handle(server.gpa, server.levelFor(connection), message);
+        switch (message) {
+            .mod_message => |body| {
+                if (connection.session.state != .playing) continue;
+                const api = mods.Net.active orelse continue;
+                api.deliver(body.channel, body.payload, connection.session.name.text());
+            },
+            else => try connection.session.handle(server.gpa, server.levelFor(connection), message),
+        }
     }
     connection.pending.clearRetainingCapacity();
+}
+
+fn flushModMessages(server: *Server) void {
+    const api = mods.Net.active orelse return;
+    const messages = api.take();
+    defer api.release(messages);
+    if (messages.len == 0) return;
+
+    for (server.connections.items) |connection| {
+        if (connection.session.state != .playing) continue;
+        for (messages) |message| {
+            connection.session.send(server.gpa, .{ .mod_message = .{
+                .channel = message.channel,
+                .payload = message.payload,
+            } }) catch {};
+        }
+    }
+}
+
+pub const particle_range: f64 = 16.0;
+
+fn flushModEffects(server: *Server, dim: *Dim) !void {
+    const api = mods.Effects.active orelse return;
+    const queued = api.take();
+    defer api.release(queued);
+
+    for (queued) |effect| switch (effect) {
+        .sound => |body| broadcastEffect(server, dim, body.at, aux_sfx_range, .{ .sound_effect = .{
+            .key = body.sound.key,
+            .x = body.at.x,
+            .y = body.at.y,
+            .z = body.at.z,
+            .volume = body.volume,
+            .pitch = body.pitch,
+        } }),
+        .particle => |body| broadcastEffect(server, dim, body.at, particle_range, .{ .particle = .{
+            .kind = @intFromEnum(body.kind),
+            .x = body.at.x,
+            .y = body.at.y,
+            .z = body.at.z,
+            .drift = .{
+                @floatCast(body.drift.x),
+                @floatCast(body.drift.y),
+                @floatCast(body.drift.z),
+            },
+        } }),
+        .explode => |body| try game.explosion.detonate(
+            server.gpa,
+            &dim.level.entities,
+            &dim.level.world_map,
+            dim.level.roster.items,
+            body.at,
+            body.size,
+            body.flaming,
+            &dim.level.world_map.rand,
+        ),
+        .spawn => |body| _ = try dim.level.entities.spawnMob(
+            server.gpa,
+            body.type_id,
+            body.at,
+            &dim.level.world_map.rand,
+        ),
+    };
+}
+
+fn broadcastEffect(
+    server: *Server,
+    dim: *Dim,
+    at: math.Vec3,
+    range: f64,
+    message: net.packet.Packet,
+) void {
+    for (server.connections.items) |connection| {
+        if (connection.session.state != .playing) continue;
+        if (connection.session.dimension != dim.dimension) continue;
+        const player = connection.session.player orelse continue;
+        if (player.base.position.distanceSquaredTo(at) >= range * range) continue;
+        connection.session.send(server.gpa, message) catch {};
+    }
 }
 
 fn queueOutbox(server: *Server, connection: *Connection) !void {
@@ -639,7 +729,7 @@ fn tick(server: *Server) !void {
             queueOutbox(server, connection) catch {};
             connection.open = false;
             connection.session.leave(server.gpa, server.levelFor(connection));
-            connection.stream.shutdown(server.io, .both) catch {};
+            connection.stream.shutdown(server.io, .recv) catch {};
             try server.retired.append(server.gpa, connection);
             _ = server.connections.orderedRemove(index);
             continue;
@@ -649,8 +739,12 @@ fn tick(server: *Server) !void {
 
     var arena: std.heap.ArenaAllocator = .init(server.gpa);
     defer arena.deinit();
-    for (&server.dims) |*dim| try dim.level.tick(server.gpa, arena.allocator());
+    for (&server.dims) |*dim| {
+        try dim.level.tick(server.gpa, arena.allocator());
+        try flushModEffects(server, dim);
+    }
     for (&server.dims) |*dim| try flushBlockChanges(dim);
+    flushModMessages(server);
 
     for (server.connections.items) |connection| {
         const travelling = connection.session.tickPlayer(server.gpa, server.levelFor(connection)) catch false;
@@ -732,12 +826,28 @@ fn sendThroughPortal(server: *Server, connection: *Connection) !void {
     );
 }
 
+fn loadMods(gpa: std.mem.Allocator, io: std.Io) !mods.Loaded {
+    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, mods.Loaded.folder_name, .{ .open_options = .{ .iterate = true } });
+    defer dir.close(io);
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    const loaded = mods.Loaded.load(gpa, io, dir, &report.writer) catch |err| {
+        std.log.err("could not load mods: {s}", .{report.written()});
+        return err;
+    };
+    if (loaded.mods.len > 0) std.log.info("loaded {d} mods", .{loaded.mods.len});
+    return loaded;
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const options = try parseArgs(args);
+
+    var loaded_mods = try loadMods(gpa, io);
+    defer loaded_mods.deinit(gpa);
 
     var saves_dir = try world.save.openSavesDir(io, .cwd());
     defer saves_dir.close(io);
@@ -758,6 +868,7 @@ pub fn main(init: std.process.Init) !void {
     var server: Server = .{
         .gpa = gpa,
         .io = io,
+        .mods = loaded_mods.list,
         .dims = .{
             .{
                 .dimension = .overworld,

@@ -78,8 +78,24 @@ carried: ?world.Stack = null,
 opened: ?Opened = null,
 aiming_at: [3]i32 = .{ 0, 0, 0 },
 aiming_cart: game.Entity.Id = game.Entity.no_id,
+mods: net.packet.ModList = .{},
+mods_checked: bool = false,
+mod_inbox: std.ArrayList(net.packet.ModMessage) = .empty,
+
+pub fn takeModInbox(self: *Connection, gpa: std.mem.Allocator) []net.packet.ModMessage {
+    return self.mod_inbox.toOwnedSlice(gpa) catch &.{};
+}
+
+pub fn freeModInbox(gpa: std.mem.Allocator, messages: []net.packet.ModMessage) void {
+    for (messages) |message| {
+        gpa.free(message.channel);
+        gpa.free(message.payload);
+    }
+    gpa.free(messages);
+}
 
 pub fn deinit(self: *Connection, gpa: std.mem.Allocator) void {
+    freeModInbox(gpa, self.takeModInbox(gpa));
     self.peers.deinit(gpa);
     self.chat.deinit(gpa);
     self.awarded.deinit(gpa);
@@ -135,14 +151,26 @@ pub fn handle(
                 try self.send(gpa, .{ .login = .{
                     .protocol_version = net.packet.protocol_version,
                     .username = username,
-                    .map_seed = 0,
+                    .map_seed = net.packet.rosebed_client_seed,
                     .dimension = 0,
                 } });
             },
             else => self.fail(gpa, "Server spoke out of turn", false),
         },
         .awaiting_login => switch (message) {
+            .mod_list => |theirs| {
+                var buffer: [net.packet.max_kick_reason]u8 = undefined;
+                if (net.packet.ModList.difference(self.mods, theirs, &buffer)) |reason| {
+                    self.fail(gpa, try gpa.dupe(u8, reason), true);
+                    return;
+                }
+                self.mods_checked = true;
+            },
             .login => |body| {
+                if (!self.mods_checked and self.mods.mods.len > 0) {
+                    self.fail(gpa, "The server does not run rosebed mods", false);
+                    return;
+                }
                 self.entity_id = @bitCast(body.protocol_version);
                 self.map_seed = body.map_seed;
                 self.dimension = @enumFromInt(body.dimension);
@@ -162,6 +190,10 @@ fn handlePlaying(
 ) !void {
     switch (message) {
         .keep_alive => {},
+        .mod_message => |body| try self.mod_inbox.append(gpa, .{
+            .channel = try gpa.dupe(u8, body.channel),
+            .payload = try gpa.dupe(u8, body.payload),
+        }),
         .spawn_position => |body| self.spawn = .{ body.x, body.y, body.z },
         .update_time => |body| level.world_map.time = body.time,
         .update_health => |body| {
@@ -322,6 +354,25 @@ fn handlePlaying(
         .door_change => |body| {
             const effect = world.World.AuxSfx.fromId(body.effect) orelse return;
             level.world_map.playAuxSfx(effect, .init(body.x, body.y, body.z), body.data);
+        },
+        .sound_effect => |body| {
+            const sound = world.sound.byKey(body.key) orelse return;
+            level.world_map.playSoundEffect(
+                math.Vec3.init(body.x, body.y, body.z),
+                sound,
+                body.volume,
+                body.pitch,
+            );
+        },
+        .particle => |body| {
+            const kind = std.enums.fromInt(game.Particle.Vanilla, body.kind) orelse return;
+            try level.entities.spawnVanillaParticle(
+                gpa,
+                kind,
+                math.Vec3.init(body.x, body.y, body.z),
+                math.Vec3.init(body.drift[0], body.drift[1], body.drift[2]),
+                &level.world_map.rand,
+            );
         },
         .multi_block_change => |body| try self.multiBlockChange(level, body),
         else => {},
@@ -1078,11 +1129,14 @@ fn openWindow(self: *Connection, level: *game.Level, body: anytype) !void {
     switch (body.kind) {
         .furnace => _ = try level.world_map.addFurnace(.init(open.at[0], open.at[1], open.at[2])),
         .dispenser => _ = try level.world_map.addDispenser(.init(open.at[0], open.at[1], open.at[2])),
-        .chest => {
-            if (open.cart == game.Entity.no_id) {
-                const pair = level.world_map.chestPairAt(.init(open.at[0], open.at[1], open.at[2]));
+        .chest => if (open.cart == game.Entity.no_id) {
+            const at: BlockPos = .init(open.at[0], open.at[1], open.at[2]);
+            if (level.world_map.getBlock(at).def().container != null) {
+                _ = try level.world_map.addContainer(at);
+            } else {
+                const pair = level.world_map.chestPairAt(at);
                 _ = try level.world_map.addChest(pair.upper);
-                if (pair.lower) |at| _ = try level.world_map.addChest(at);
+                if (pair.lower) |lower| _ = try level.world_map.addChest(lower);
             }
         },
         else => {},
@@ -1341,6 +1395,90 @@ test "the login reply carries the entity id and seed the server chose" {
     try std.testing.expectEqual(@as(i64, -4242), connection.map_seed);
 }
 
+test "the login marks the client as rosebed with a seed vanilla servers ignore" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .greeting;
+
+    try connection.handle(gpa, &level, testing_username, .{ .handshake = .{ .username = "-" } });
+
+    var sent: std.ArrayList(net.packet.Packet) = .empty;
+    defer freeAll(gpa, &sent);
+    try drain(gpa, &connection, &sent);
+    try std.testing.expectEqual(net.packet.rosebed_client_seed, sent.items[0].login.map_seed);
+}
+
+const testing_mods: net.packet.ModList = .{
+    .mods = &.{.{ .id = "quartz", .version = "1.0.0" }},
+    .keys = &.{.{ .key = "quartz:marble", .numeric = 97 }},
+};
+
+fn joinWith(gpa: std.mem.Allocator, level: *game.Level, connection: *Connection, server_mods: ?net.packet.ModList) !void {
+    connection.state = .awaiting_login;
+    if (server_mods) |list| try connection.handle(gpa, level, testing_username, .{ .mod_list = list });
+    try connection.handle(gpa, level, testing_username, .{ .login = .{
+        .protocol_version = 5,
+        .username = "",
+        .map_seed = 1,
+        .dimension = 0,
+    } });
+}
+
+test "a server with the same mods and ids lets the client join" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, testing_mods);
+    try std.testing.expectEqual(State.playing, connection.state);
+    try std.testing.expect(connection.disconnect == null);
+}
+
+test "a server with different mods is left with the first difference as the reason" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, .{ .mods = &.{.{ .id = "quartz", .version = "2.0.0" }}, .keys = testing_mods.keys });
+    try std.testing.expectEqual(State.closed, connection.state);
+    try std.testing.expectEqualStrings("The server has quartz 2.0.0, you have 1.0.0", connection.disconnect.?.reason);
+}
+
+test "a client with mods leaves a server that never names its mods" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{ .mods = testing_mods };
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, null);
+    try std.testing.expectEqual(State.closed, connection.state);
+    try std.testing.expectEqualStrings("The server does not run rosebed mods", connection.disconnect.?.reason);
+}
+
+test "a client without mods still joins a vanilla server" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+
+    try joinWith(gpa, &level, &connection, null);
+    try std.testing.expectEqual(State.playing, connection.state);
+}
+
 test "a kick at any point closes the connection and keeps the reason" {
     const gpa = std.testing.allocator;
     var level = try testLevel(gpa);
@@ -1458,6 +1596,99 @@ test "an aux sound effect from the server is played out on this client" {
     try std.testing.expectEqual(@as(i32, -6), heard.pos.z);
     try std.testing.expectEqual(@as(i32, 0x0301), heard.data);
     try std.testing.expectEqual(@as(usize, 1), heard.count);
+}
+
+const SoundLog = struct {
+    key: []const u8 = "",
+    at: math.Vec3 = .init(0, 0, 0),
+    volume: f32 = 0,
+    pitch: f32 = 0,
+    count: usize = 0,
+
+    fn record(context: *anyopaque, sound: assets.Sound, at: math.Vec3, volume: f32, pitch: f32) void {
+        const self: *SoundLog = @ptrCast(@alignCast(context));
+        self.key = sound.key;
+        self.at = at;
+        self.volume = volume;
+        self.pitch = pitch;
+        self.count += 1;
+    }
+
+    fn ignoreRecord(_: *anyopaque, _: ?[]const u8, _: world.BlockPos) void {}
+
+    fn sink(self: *SoundLog) world.World.SoundSink {
+        return .{ .context = self, .playSound = record, .playRecord = ignoreRecord };
+    }
+};
+
+test "a sound and a particle from the server are played out on this client" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: SoundLog = .{};
+    level.world_map.sound_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .sound_effect = .{
+        .key = "random.explode",
+        .x = 5.5,
+        .y = 70.0,
+        .z = -6.5,
+        .volume = 4.0,
+        .pitch = 0.7,
+    } });
+
+    try std.testing.expectEqual(@as(usize, 1), heard.count);
+    try std.testing.expectEqualStrings("random.explode", heard.key);
+    try std.testing.expectEqual(@as(f64, 5.5), heard.at.x);
+    try std.testing.expectEqual(@as(f32, 4.0), heard.volume);
+
+    try connection.handle(gpa, &level, testing_username, .{ .particle = .{
+        .kind = @intFromEnum(game.Particle.Vanilla.heart),
+        .x = 1.5,
+        .y = 2.5,
+        .z = 3.5,
+        .drift = .{ 0, 0, 0 },
+    } });
+
+    try std.testing.expectEqual(@as(usize, 1), level.entities.particles.items.len);
+    try std.testing.expectEqual(game.Particle.Kind.heart, level.entities.particles.items[0].kind);
+}
+
+test "a sound and a particle nothing is registered as are dropped rather than guessed at" {
+    const gpa = std.testing.allocator;
+    var level = try testLevel(gpa);
+    defer level.deinit(gpa);
+
+    var heard: SoundLog = .{};
+    level.world_map.sound_sink = heard.sink();
+
+    var connection: Connection = .{};
+    defer connection.deinit(gpa);
+    connection.state = .playing;
+
+    try connection.handle(gpa, &level, testing_username, .{ .sound_effect = .{
+        .key = "random.nothing",
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .volume = 1,
+        .pitch = 1,
+    } });
+    try connection.handle(gpa, &level, testing_username, .{ .particle = .{
+        .kind = 200,
+        .x = 0,
+        .y = 0,
+        .z = 0,
+        .drift = .{ 0, 0, 0 },
+    } });
+
+    try std.testing.expectEqual(@as(usize, 0), heard.count);
+    try std.testing.expectEqual(@as(usize, 0), level.entities.particles.items.len);
 }
 
 test "an aux sound effect this build does not know is dropped rather than guessed at" {

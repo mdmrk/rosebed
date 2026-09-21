@@ -59,7 +59,73 @@ pub const Id = enum(u8) {
     update_sign = 130,
     map_data = 131,
     statistic = 200,
+    mod_list = 250,
+    mod_message = 251,
+    sound_effect = 252,
+    particle = 253,
     kick_disconnect = 255,
+};
+
+pub const rosebed_client_seed: i64 = 0x726f7365626564;
+pub const max_mod_channel = 64;
+pub const max_sound_key = 64;
+pub const max_mod_payload = 32 * 1024;
+
+pub const ModMessage = struct {
+    channel: []const u8,
+    payload: []const u8,
+};
+
+pub const ModList = struct {
+    mods: []const Mod = &.{},
+    keys: []const Key = &.{},
+    mobs: []const Key = &.{},
+
+    pub const Mod = struct { id: []const u8, version: []const u8 };
+    pub const Key = struct { key: []const u8, numeric: i16 };
+
+    fn findMod(self: ModList, id: []const u8) ?Mod {
+        for (self.mods) |mod| {
+            if (std.mem.eql(u8, mod.id, id)) return mod;
+        }
+        return null;
+    }
+
+    fn findIn(list: []const Key, key: []const u8) ?Key {
+        for (list) |entry| {
+            if (std.mem.eql(u8, entry.key, key)) return entry;
+        }
+        return null;
+    }
+
+    pub fn difference(ours: ModList, theirs: ModList, buffer: []u8) ?[]const u8 {
+        for (theirs.mods) |mod| {
+            const mine = ours.findMod(mod.id) orelse
+                return describe(buffer, "The server needs the mod {s} {s}", .{ mod.id, mod.version });
+            if (!std.mem.eql(u8, mine.version, mod.version)) {
+                return describe(buffer, "The server has {s} {s}, you have {s}", .{ mod.id, mod.version, mine.version });
+            }
+        }
+        for (ours.mods) |mod| {
+            if (theirs.findMod(mod.id) == null) return describe(buffer, "The server does not have the mod {s}", .{mod.id});
+        }
+        if (idsDiffer(ours.keys, theirs.keys)) return "Mod content ids differ from the server";
+        if (idsDiffer(ours.mobs, theirs.mobs)) return "Mod mob ids differ from the server";
+        return null;
+    }
+
+    fn idsDiffer(ours: []const Key, theirs: []const Key) bool {
+        if (ours.len != theirs.len) return true;
+        for (theirs) |entry| {
+            const mine = findIn(ours, entry.key) orelse return true;
+            if (mine.numeric != entry.numeric) return true;
+        }
+        return false;
+    }
+
+    fn describe(buffer: []u8, comptime format: []const u8, args: anytype) []const u8 {
+        return std.fmt.bufPrint(buffer, format, args) catch "Mods differ from the server";
+    }
 };
 
 pub const Direction = struct {
@@ -108,6 +174,9 @@ pub fn direction(id: Id) Direction {
         .entity_metadata => .{ .to_client = true, .to_server = false },
         .pre_chunk => .{ .to_client = true, .to_server = false },
         .map_chunk => .{ .to_client = true, .to_server = false },
+        .mod_list => .{ .to_client = true, .to_server = false },
+        .mod_message => .{ .to_client = true, .to_server = true },
+        .sound_effect, .particle => .{ .to_client = true, .to_server = false },
         .multi_block_change => .{ .to_client = true, .to_server = false },
         .block_change => .{ .to_client = true, .to_server = false },
         .play_note_block => .{ .to_client = true, .to_server = false },
@@ -224,6 +293,7 @@ pub const Stack = struct {
 };
 
 pub const max_metadata_text = 64;
+pub const max_mod_text = 128;
 pub const metadata_end: u8 = 127;
 
 pub const Metadata = struct {
@@ -462,6 +532,23 @@ pub const Packet = union(Id) {
     update_sign: struct { x: i32, y: i16, z: i32, lines: [sign_lines][]const u8 },
     map_data: struct { kind: i16, map_id: i16, data: []const u8 },
     statistic: struct { stat_id: i32, amount: i8 },
+    mod_list: ModList,
+    mod_message: ModMessage,
+    sound_effect: struct {
+        key: []const u8,
+        x: f64,
+        y: f64,
+        z: f64,
+        volume: f32,
+        pitch: f32,
+    },
+    particle: struct {
+        kind: u8,
+        x: f64,
+        y: f64,
+        z: f64,
+        drift: [3]f32,
+    },
     kick_disconnect: struct { reason: []const u8 },
 
     pub fn id(self: Packet) Id {
@@ -483,6 +570,12 @@ pub const Packet = union(Id) {
             .mob_spawn => |body| freeMetadata(gpa, body.metadata),
             .entity_metadata => |body| freeMetadata(gpa, body.metadata),
             .kick_disconnect => |body| gpa.free(body.reason),
+            .mod_list => |body| freeModList(gpa, body),
+            .sound_effect => |body| gpa.free(body.key),
+            .mod_message => |body| {
+                gpa.free(body.channel);
+                gpa.free(body.payload);
+            },
             .map_chunk => |body| gpa.free(body.compressed),
             .multi_block_change => |body| {
                 gpa.free(body.coordinates);
@@ -504,8 +597,103 @@ pub const ReadError = error{
     UnknownMetadataType,
 } || std.mem.Allocator.Error || std.Io.Reader.Error || error{EndOfStream};
 
-pub const WriteError = error{ StringTooLong, InvalidUtf8 } ||
+pub const WriteError = error{ StringTooLong, InvalidUtf8, ListTooLong } ||
     std.mem.Allocator.Error || std.Io.Writer.Error;
+
+fn freeModList(gpa: std.mem.Allocator, list: ModList) void {
+    for (list.mods) |mod| {
+        gpa.free(mod.id);
+        gpa.free(mod.version);
+    }
+    gpa.free(list.mods);
+    freeModKeys(gpa, list.keys);
+    freeModKeys(gpa, list.mobs);
+}
+
+fn freeModKeys(gpa: std.mem.Allocator, keys: []const ModList.Key) void {
+    for (keys) |entry| gpa.free(entry.key);
+    gpa.free(keys);
+}
+
+fn readModKeys(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError![]const ModList.Key {
+    const count = try r.takeInt(i16, .big);
+    if (count < 0) return error.NegativeLength;
+    const keys = try gpa.alloc(ModList.Key, @intCast(count));
+    var filled: usize = 0;
+    errdefer {
+        for (keys[0..filled]) |entry| gpa.free(entry.key);
+        gpa.free(keys);
+    }
+    while (filled < keys.len) : (filled += 1) {
+        const key = try readString(gpa, r, max_mod_text);
+        errdefer gpa.free(key);
+        keys[filled] = .{ .key = key, .numeric = try r.takeInt(i16, .big) };
+    }
+    return keys;
+}
+
+fn readModList(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModList {
+    const mod_count = try r.takeInt(i16, .big);
+    if (mod_count < 0) return error.NegativeLength;
+    const mods = try gpa.alloc(ModList.Mod, @intCast(mod_count));
+    var mods_read: usize = 0;
+    errdefer {
+        for (mods[0..mods_read]) |mod| {
+            gpa.free(mod.id);
+            gpa.free(mod.version);
+        }
+        gpa.free(mods);
+    }
+    while (mods_read < mods.len) : (mods_read += 1) {
+        const id = try readString(gpa, r, max_mod_text);
+        errdefer gpa.free(id);
+        mods[mods_read] = .{ .id = id, .version = try readString(gpa, r, max_mod_text) };
+    }
+
+    const keys = try readModKeys(gpa, r);
+    errdefer freeModKeys(gpa, keys);
+
+    return .{ .mods = mods, .keys = keys, .mobs = try readModKeys(gpa, r) };
+}
+
+fn readModMessage(gpa: std.mem.Allocator, r: *std.Io.Reader) ReadError!ModMessage {
+    const channel = try readString(gpa, r, max_mod_channel);
+    errdefer gpa.free(channel);
+
+    const length = try r.takeInt(i32, .big);
+    if (length < 0) return error.NegativeLength;
+    if (length > max_mod_payload) return error.StringTooLong;
+    const payload = try gpa.alloc(u8, @intCast(length));
+    errdefer gpa.free(payload);
+    try r.readSliceAll(payload);
+
+    return .{ .channel = channel, .payload = payload };
+}
+
+fn writeModMessage(w: *std.Io.Writer, body: ModMessage) WriteError!void {
+    try writeString(w, body.channel, max_mod_channel);
+    if (body.payload.len > max_mod_payload) return error.ListTooLong;
+    try w.writeInt(i32, @intCast(body.payload.len), .big);
+    try w.writeAll(body.payload);
+}
+
+fn writeModList(w: *std.Io.Writer, list: ModList) WriteError!void {
+    try w.writeInt(i16, std.math.cast(i16, list.mods.len) orelse return error.ListTooLong, .big);
+    for (list.mods) |mod| {
+        try writeString(w, mod.id, max_mod_text);
+        try writeString(w, mod.version, max_mod_text);
+    }
+    try writeModKeys(w, list.keys);
+    try writeModKeys(w, list.mobs);
+}
+
+fn writeModKeys(w: *std.Io.Writer, keys: []const ModList.Key) WriteError!void {
+    try w.writeInt(i16, std.math.cast(i16, keys.len) orelse return error.ListTooLong, .big);
+    for (keys) |entry| {
+        try writeString(w, entry.key, max_mod_text);
+        try w.writeInt(i16, entry.numeric, .big);
+    }
+}
 
 fn readString(gpa: std.mem.Allocator, r: *std.Io.Reader, limit: u16) ![]u8 {
     const length = try r.takeInt(i16, .big);
@@ -524,7 +712,7 @@ fn readString(gpa: std.mem.Allocator, r: *std.Io.Reader, limit: u16) ![]u8 {
 
 const longest_string = @max(
     @max(max_username, max_handshake_name),
-    @max(@max(max_chat, max_kick_reason), max_metadata_text),
+    @max(@max(max_chat, max_kick_reason), @max(max_metadata_text, max_mod_text)),
 );
 
 fn writeString(w: *std.Io.Writer, text: []const u8, limit: u16) !void {
@@ -1082,6 +1270,31 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .stat_id = try r.takeInt(i32, .big),
             .amount = try r.takeInt(i8, .big),
         } },
+        .mod_list => return .{ .mod_list = try readModList(gpa, r) },
+        .mod_message => return .{ .mod_message = try readModMessage(gpa, r) },
+        .sound_effect => {
+            const key = try readString(gpa, r, max_sound_key);
+            errdefer gpa.free(key);
+            return .{ .sound_effect = .{
+                .key = key,
+                .x = @bitCast(try r.takeInt(u64, .big)),
+                .y = @bitCast(try r.takeInt(u64, .big)),
+                .z = @bitCast(try r.takeInt(u64, .big)),
+                .volume = @bitCast(try r.takeInt(u32, .big)),
+                .pitch = @bitCast(try r.takeInt(u32, .big)),
+            } };
+        },
+        .particle => return .{ .particle = .{
+            .kind = try r.takeInt(u8, .big),
+            .x = @bitCast(try r.takeInt(u64, .big)),
+            .y = @bitCast(try r.takeInt(u64, .big)),
+            .z = @bitCast(try r.takeInt(u64, .big)),
+            .drift = .{
+                @bitCast(try r.takeInt(u32, .big)),
+                @bitCast(try r.takeInt(u32, .big)),
+                @bitCast(try r.takeInt(u32, .big)),
+            },
+        } },
         .kick_disconnect => return .{ .kick_disconnect = .{ .reason = try readString(gpa, r, max_kick_reason) } },
     }
 }
@@ -1395,6 +1608,23 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         .statistic => |body| {
             try w.writeInt(i32, body.stat_id, .big);
             try w.writeInt(i8, body.amount, .big);
+        },
+        .mod_list => |body| try writeModList(w, body),
+        .mod_message => |body| try writeModMessage(w, body),
+        .sound_effect => |body| {
+            try writeString(w, body.key, max_sound_key);
+            try w.writeInt(u64, @bitCast(body.x), .big);
+            try w.writeInt(u64, @bitCast(body.y), .big);
+            try w.writeInt(u64, @bitCast(body.z), .big);
+            try w.writeInt(u32, @bitCast(body.volume), .big);
+            try w.writeInt(u32, @bitCast(body.pitch), .big);
+        },
+        .particle => |body| {
+            try w.writeInt(u8, body.kind, .big);
+            try w.writeInt(u64, @bitCast(body.x), .big);
+            try w.writeInt(u64, @bitCast(body.y), .big);
+            try w.writeInt(u64, @bitCast(body.z), .big);
+            for (body.drift) |component| try w.writeInt(u32, @bitCast(component), .big);
         },
         .kick_disconnect => |body| try writeString(w, body.reason, max_kick_reason),
     }
@@ -1840,6 +2070,13 @@ test "every packet decodes back out of the bytes vanilla wrote" {
     }
 }
 
+fn rosebedOnly(name: []const u8) bool {
+    for ([_][]const u8{ "mod_list", "mod_message", "sound_effect", "particle" }) |own| {
+        if (std.mem.eql(u8, name, own)) return true;
+    }
+    return false;
+}
+
 test "every packet the protocol defines has a byte vector taken from vanilla" {
     var seen: [@typeInfo(Id).@"enum".fields.len]bool = @splat(false);
 
@@ -1850,6 +2087,7 @@ test "every packet the protocol defines has a byte vector taken from vanilla" {
     }
 
     inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
+        if (comptime rosebedOnly(field.name)) continue;
         if (!seen[index]) {
             std.debug.print("no golden vector for {s}\n", .{field.name});
             return error.TestExpectedEqual;
@@ -1915,6 +2153,10 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .update_sign, .to_client = true, .to_server = true },
         .{ .id = .map_data, .to_client = true, .to_server = false },
         .{ .id = .statistic, .to_client = true, .to_server = false },
+        .{ .id = .mod_list, .to_client = true, .to_server = false },
+        .{ .id = .mod_message, .to_client = true, .to_server = true },
+        .{ .id = .sound_effect, .to_client = true, .to_server = false },
+        .{ .id = .particle, .to_client = true, .to_server = false },
         .{ .id = .kick_disconnect, .to_client = true, .to_server = true },
     };
 
@@ -1924,6 +2166,150 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         try std.testing.expectEqual(entry.to_client, allowed.to_client);
         try std.testing.expectEqual(entry.to_server, allowed.to_server);
     }
+}
+
+test "a sound and a particle survive the trip to a client and are refused from one" {
+    const gpa = std.testing.allocator;
+
+    const sound: Packet = .{ .sound_effect = .{
+        .key = "random.explode",
+        .x = 8.5,
+        .y = 64.0,
+        .z = -12.25,
+        .volume = 4.0,
+        .pitch = 0.7,
+    } };
+    const encoded_sound = try encodeAlloc(gpa, sound);
+    defer gpa.free(encoded_sound);
+
+    const heard = try decode(gpa, encoded_sound, false);
+    defer heard.deinit(gpa);
+    try std.testing.expectEqualStrings("random.explode", heard.sound_effect.key);
+    try std.testing.expectEqual(@as(f64, 8.5), heard.sound_effect.x);
+    try std.testing.expectEqual(@as(f64, 64.0), heard.sound_effect.y);
+    try std.testing.expectEqual(@as(f64, -12.25), heard.sound_effect.z);
+    try std.testing.expectEqual(@as(f32, 4.0), heard.sound_effect.volume);
+    try std.testing.expectEqual(@as(f32, 0.7), heard.sound_effect.pitch);
+    try std.testing.expectError(error.WrongDirection, decode(gpa, encoded_sound, true));
+
+    const puff: Packet = .{ .particle = .{
+        .kind = 3,
+        .x = 1.5,
+        .y = 2.5,
+        .z = 3.5,
+        .drift = .{ 0.25, -0.5, 1.0 },
+    } };
+    const encoded_puff = try encodeAlloc(gpa, puff);
+    defer gpa.free(encoded_puff);
+
+    const seen = try decode(gpa, encoded_puff, false);
+    defer seen.deinit(gpa);
+    try std.testing.expectEqual(@as(u8, 3), seen.particle.kind);
+    try std.testing.expectEqual(@as(f64, 1.5), seen.particle.x);
+    try std.testing.expectEqual(@as(f64, 2.5), seen.particle.y);
+    try std.testing.expectEqual(@as(f64, 3.5), seen.particle.z);
+    try std.testing.expectEqual([3]f32{ 0.25, -0.5, 1.0 }, seen.particle.drift);
+    try std.testing.expectError(error.WrongDirection, decode(gpa, encoded_puff, true));
+    try std.testing.expectError(error.EndOfStream, decode(gpa, encoded_puff[0 .. encoded_puff.len - 3], false));
+}
+
+test "the mod list, which vanilla never sends, keeps vanilla's string and short encoding" {
+    const gpa = std.testing.allocator;
+    const list: Packet = .{ .mod_list = .{
+        .mods = &.{.{ .id = "a", .version = "1" }},
+        .keys = &.{.{ .key = "a:b", .numeric = 97 }},
+        .mobs = &.{.{ .key = "a:c", .numeric = 96 }},
+    } };
+    const expected = try fromHex(gpa, "fa00010001006100010031000100030061003a00620061000100030061003a00630060");
+    defer gpa.free(expected);
+
+    const encoded = try encodeAlloc(gpa, list);
+    defer gpa.free(encoded);
+    try std.testing.expectEqualSlices(u8, expected, encoded);
+
+    const decoded = try decode(gpa, encoded, false);
+    defer decoded.deinit(gpa);
+    try std.testing.expectEqualStrings("a", decoded.mod_list.mods[0].id);
+    try std.testing.expectEqualStrings("1", decoded.mod_list.mods[0].version);
+    try std.testing.expectEqualStrings("a:b", decoded.mod_list.keys[0].key);
+    try std.testing.expectEqual(@as(i16, 97), decoded.mod_list.keys[0].numeric);
+    try std.testing.expectEqualStrings("a:c", decoded.mod_list.mobs[0].key);
+    try std.testing.expectEqual(@as(i16, 96), decoded.mod_list.mobs[0].numeric);
+
+    try std.testing.expectError(error.WrongDirection, decode(gpa, encoded, true));
+    try std.testing.expectError(error.EndOfStream, decode(gpa, encoded[0 .. encoded.len - 3], false));
+}
+
+test "a mod message carries its channel and its bytes in both directions" {
+    const gpa = std.testing.allocator;
+    const sent: Packet = .{ .mod_message = .{ .channel = "hive", .payload = &.{ 0, 1, 0xff, 'x' } } };
+
+    const encoded = try encodeAlloc(gpa, sent);
+    defer gpa.free(encoded);
+
+    for ([_]bool{ true, false }) |to_server| {
+        const decoded = try decode(gpa, encoded, to_server);
+        defer decoded.deinit(gpa);
+        try std.testing.expectEqualStrings("hive", decoded.mod_message.channel);
+        try std.testing.expectEqualSlices(u8, &.{ 0, 1, 0xff, 'x' }, decoded.mod_message.payload);
+    }
+
+    try std.testing.expectError(error.EndOfStream, decode(gpa, encoded[0 .. encoded.len - 1], false));
+}
+
+test "a mod message is refused once it outgrows what the protocol carries" {
+    const gpa = std.testing.allocator;
+    const payload = try gpa.alloc(u8, max_mod_payload + 1);
+    defer gpa.free(payload);
+    @memset(payload, 'x');
+
+    try std.testing.expectError(error.ListTooLong, encodeAlloc(gpa, .{
+        .mod_message = .{ .channel = "hive", .payload = payload },
+    }));
+
+    var long_channel: [max_mod_channel + 1]u8 = @splat('c');
+    try std.testing.expectError(error.StringTooLong, encodeAlloc(gpa, .{
+        .mod_message = .{ .channel = &long_channel, .payload = "" },
+    }));
+}
+
+test "two mod lists differ when a mob was given a different byte on each side" {
+    var buffer: [max_kick_reason]u8 = undefined;
+    const mods = [_]ModList.Mod{.{ .id = "rosebug", .version = "1" }};
+
+    const ours: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 96 }} };
+    const same: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 96 }} };
+    try std.testing.expect(ModList.difference(ours, same, &buffer) == null);
+
+    const shifted: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:bumbler", .numeric = 97 }} };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, shifted, &buffer).?);
+
+    const renamed: ModList = .{ .mods = &mods, .mobs = &.{.{ .key = "rosebug:weevil", .numeric = 96 }} };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, renamed, &buffer).?);
+
+    const none: ModList = .{ .mods = &mods };
+    try std.testing.expectEqualStrings("Mod mob ids differ from the server", ModList.difference(ours, none, &buffer).?);
+}
+
+test "two mod lists name their first difference from the client's side" {
+    var buffer: [max_kick_reason]u8 = undefined;
+    const server: ModList = .{
+        .mods = &.{ .{ .id = "copper", .version = "1.0.0" }, .{ .id = "quartz", .version = "2.0.0" } },
+        .keys = &.{ .{ .key = "copper:ore", .numeric = 97 }, .{ .key = "quartz:gem", .numeric = 360 } },
+    };
+
+    try std.testing.expect(ModList.difference(server, server, &buffer) == null);
+    try std.testing.expect(ModList.difference(.{}, .{}, &buffer) == null);
+
+    const missing: ModList = .{ .mods = server.mods[0..1], .keys = server.keys };
+    try std.testing.expectEqualStrings("The server needs the mod quartz 2.0.0", ModList.difference(missing, server, &buffer).?);
+    try std.testing.expectEqualStrings("The server does not have the mod quartz", ModList.difference(server, missing, &buffer).?);
+
+    const older: ModList = .{ .mods = &.{ .{ .id = "copper", .version = "1.0.0" }, .{ .id = "quartz", .version = "1.9.0" } }, .keys = server.keys };
+    try std.testing.expectEqualStrings("The server has quartz 2.0.0, you have 1.9.0", ModList.difference(older, server, &buffer).?);
+
+    const shuffled: ModList = .{ .mods = server.mods, .keys = &.{ .{ .key = "copper:ore", .numeric = 98 }, .{ .key = "quartz:gem", .numeric = 360 } } };
+    try std.testing.expectEqualStrings("Mod content ids differ from the server", ModList.difference(shuffled, server, &buffer).?);
 }
 
 test "an id the protocol does not define is refused rather than guessed at" {
