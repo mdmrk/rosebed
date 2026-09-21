@@ -123,7 +123,7 @@ fn dropped(block: world.Block, meta: u4, rand: *world.JavaRandom) ?world.Stack {
 }
 
 pub fn rollDrop(self: *Hooks, ref: i32, meta: ?u4, rand: *world.JavaRandom) ?world.Stack {
-    const lua = self.lua.?;
+    const lua = self.lua orelse return null;
 
     const outer_rand = self.current_rand;
     self.current_rand = rand;
@@ -143,11 +143,7 @@ pub fn rollDrop(self: *Hooks, ref: i32, meta: ?u4, rand: *world.JavaRandom) ?wor
 
     if (lua.typeOf(-3) != .string) return null;
     const key = lua.toString(-3) catch unreachable;
-    const id: world.Id = if (world.Block.fromKey(key)) |block_id|
-        .{ .block = block_id }
-    else if (world.Item.fromKey(key)) |item_id|
-        .{ .item = item_id }
-    else {
+    const id = world.Id.fromKey(key) orelse {
         std.log.warn("a mod dropped '{s}', which nothing is registered as", .{key});
         return null;
     };
@@ -327,7 +323,7 @@ fn reportBlock(event: Event, level: *game.Level, pos: world.BlockPos, block: wor
     self.current_world = &level.world_map;
     defer self.current_world = outer;
     const key = block.def().key;
-    if (key.len == 0) _ = lua.pushString(@tagName(world.Block.air)) else _ = lua.pushString(key);
+    _ = lua.pushString(if (key.len == 0) @tagName(world.Block.air) else key);
     lua.pushInteger(pos.x);
     lua.pushInteger(pos.y);
     lua.pushInteger(pos.z);
@@ -620,7 +616,7 @@ fn random(lua: *Lua) i32 {
 }
 
 fn call(self: *Hooks, world_map: *world.World, ref: i32, pos: world.BlockPos, extra: anytype) bool {
-    const lua = self.lua.?;
+    const lua = self.lua orelse return false;
     const outer_world = self.current_world;
     self.current_world = world_map;
     defer self.current_world = outer_world;
@@ -748,10 +744,11 @@ fn getMeta(lua: *Lua) i32 {
 }
 
 fn setBlock(lua: *Lua) i32 {
+    const self = hooks(lua);
     const pos = position(lua, 1);
     const block = blockArgument(lua, 4);
     const meta: ?u4 = if (lua.isNoneOrNil(5)) null else metadata(lua, 5);
-    if (hooks(lua).current_chunk) |chunk| {
+    if (self.current_chunk) |chunk| {
         const cell = shapedCell(chunk, pos) orelse return 0;
         chunk.setBlock(cell[0], cell[1], cell[2], block);
         if (meta) |value| chunk.setBlockMetadata(cell[0], cell[1], cell[2], value);
@@ -763,7 +760,7 @@ fn setBlock(lua: *Lua) i32 {
         return 0;
     }
     const world_map = currentWorld(lua);
-    if (hooks(lua).decorating) {
+    if (self.decorating) {
         world_map.setBlock(pos, block);
         if (meta) |value| world_map.setBlockMetadata(pos, value);
         return 0;
@@ -777,9 +774,10 @@ fn setBlock(lua: *Lua) i32 {
 }
 
 fn setMeta(lua: *Lua) i32 {
+    const self = hooks(lua);
     const pos = position(lua, 1);
     const meta = metadata(lua, 4);
-    if (hooks(lua).current_chunk) |chunk| {
+    if (self.current_chunk) |chunk| {
         const cell = shapedCell(chunk, pos) orelse return 0;
         chunk.setBlockMetadata(cell[0], cell[1], cell[2], meta);
         return 0;
@@ -790,7 +788,7 @@ fn setMeta(lua: *Lua) i32 {
         return 0;
     }
     const world_map = currentWorld(lua);
-    if (hooks(lua).decorating) {
+    if (self.decorating) {
         world_map.setBlockMetadata(pos, meta);
         return 0;
     }
@@ -833,7 +831,7 @@ fn biomeName(lua: *Lua) i32 {
             lua.pushNil();
             return 1;
         };
-        const name = if (hooks(lua).current_dimension != .overworld) "nether" else chunk.getBiome(local_x, local_z).name();
+        const name = if (hooks(lua).current_dimension == .overworld) chunk.getBiome(local_x, local_z).name() else "nether";
         _ = lua.pushString(name);
         return 1;
     }
@@ -884,11 +882,7 @@ fn setChestItem(lua: *Lua) i32 {
     requireBlock(lua, pos, .chest, "there is no chest at %d %d %d");
     const stack: ?world.Stack = if (lua.isNoneOrNil(5)) null else blk: {
         const key = lua.checkString(5);
-        const id: world.Id = if (world.Block.fromKey(key)) |block|
-            .{ .block = block }
-        else if (world.Item.fromKey(key)) |item|
-            .{ .item = item }
-        else
+        const id = world.Id.fromKey(key) orelse
             lua.raiseErrorStr("no block or item is registered as '%s'", .{key.ptr});
         const count = std.math.cast(u8, lua.optInteger(6) orelse 1) orelse lua.argError(6, "a count is 1 to 64");
         if (count == 0 or count > world.chest.stack_limit) lua.argError(6, "a count is 1 to 64");

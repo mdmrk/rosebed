@@ -117,17 +117,20 @@ pub const Plan = struct {
             pos.x >= self.min_x and pos.x < self.max_x and pos.z >= self.min_z and pos.z < self.max_z;
     }
 
-    pub fn setBlock(self: *Plan, pos: world.BlockPos, block: world.Block, meta: ?u4) !void {
+    fn cell(self: *Plan, pos: world.BlockPos) !*Placed {
         const entry = try self.blocks.getOrPut(self.gpa, pos);
         if (!entry.found_existing) entry.value_ptr.* = .{};
-        entry.value_ptr.block = block;
-        if (meta) |value| entry.value_ptr.meta = value;
+        return entry.value_ptr;
+    }
+
+    pub fn setBlock(self: *Plan, pos: world.BlockPos, block: world.Block, meta: ?u4) !void {
+        const placed = try self.cell(pos);
+        placed.block = block;
+        if (meta) |value| placed.meta = value;
     }
 
     pub fn setMeta(self: *Plan, pos: world.BlockPos, meta: u4) !void {
-        const entry = try self.blocks.getOrPut(self.gpa, pos);
-        if (!entry.found_existing) entry.value_ptr.* = .{};
-        entry.value_ptr.meta = meta;
+        (try self.cell(pos)).meta = meta;
     }
 
     pub fn seal(self: *Plan) !void {
@@ -161,10 +164,8 @@ pub const Plan = struct {
     }
 
     pub fn chestItem(self: Plan, pos: world.BlockPos, slot: usize) ?world.Stack {
-        var index = self.chest_items.items.len;
-        while (index > 0) {
-            index -= 1;
-            const entry = self.chest_items.items[index];
+        var written = std.mem.reverseIterator(self.chest_items.items);
+        while (written.next()) |entry| {
             if (std.meta.eql(entry.pos, pos) and entry.slot == slot) return entry.stack;
         }
         return null;
@@ -173,11 +174,6 @@ pub const Plan = struct {
     pub fn apply(self: Plan, world_map: *world.World, chunk_x: i32, chunk_z: i32) !void {
         const square_x = chunk_x * width + 8;
         const square_z = chunk_z * width + 8;
-        const inSquare = struct {
-            fn at(pos: world.BlockPos, x: i32, z: i32) bool {
-                return pos.x >= x and pos.x < x + width and pos.z >= z and pos.z < z + width;
-            }
-        }.at;
 
         const first, const last = std.sort.equalRange(Placement, self.placements, [2]i32{ chunk_x, chunk_z }, squareOrder);
         for (self.placements[first..last]) |placement| {
@@ -194,6 +190,10 @@ pub const Plan = struct {
         }
     }
 };
+
+fn inSquare(pos: world.BlockPos, x: i32, z: i32) bool {
+    return pos.x >= x and pos.x < x + width and pos.z >= z and pos.z < z + width;
+}
 
 pub const Terrain = struct {
     gpa: std.mem.Allocator,

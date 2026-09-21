@@ -205,28 +205,27 @@ fn setField(comptime Def: type, definition: *Def, extras: *Extras(Def), lua: *Lu
             definition.container = readContainer(lua, registrar);
             return;
         }
-    } else {
-        if (comptime @hasField(Extras(Def), "texture")) {
-            if (std.mem.eql(u8, name, "texture")) {
-                extras.texture = texturePath(lua, registrar, -1, "texture");
-                return;
-            }
+    }
+    if (comptime @hasField(Extras(Def), "texture")) {
+        if (std.mem.eql(u8, name, "texture")) {
+            extras.texture = texturePath(lua, registrar, -1, "texture");
+            return;
         }
-        if (comptime Extras(Def) == ItemExtras) {
-            if (std.mem.eql(u8, name, "armor")) {
-                definition.armor = readArmor(lua);
-                return;
-            }
+    }
+    if (comptime Extras(Def) == ItemExtras) {
+        if (std.mem.eql(u8, name, "armor")) {
+            definition.armor = readArmor(lua);
+            return;
         }
-        if (comptime Extras(Def) == MobExtras) {
-            if (std.mem.eql(u8, name, "spawns")) {
-                definition.spawns = readSpawns(lua);
-                return;
-            }
-            if (std.mem.eql(u8, name, "model")) {
-                definition.model = readModel(lua, registrar);
-                return;
-            }
+    }
+    if (comptime Extras(Def) == MobExtras) {
+        if (std.mem.eql(u8, name, "spawns")) {
+            definition.spawns = readSpawns(lua);
+            return;
+        }
+        if (std.mem.eql(u8, name, "model")) {
+            definition.model = readModel(lua, registrar);
+            return;
         }
     }
     inline for (@typeInfo(@TypeOf(extras.refs)).@"struct".fields) |field| {
@@ -686,9 +685,7 @@ fn readIngredient(lua: *Lua) game.crafting.Ingredient {
 }
 
 fn keyedId(lua: *Lua, key: [:0]const u8) world.Id {
-    if (world.Block.fromKey(key)) |block| return .{ .block = block };
-    if (world.Item.fromKey(key)) |item| return .{ .item = item };
-    lua.raiseErrorStr("nothing is registered as '%s'", .{key.ptr});
+    return world.Id.fromKey(key) orelse lua.raiseErrorStr("nothing is registered as '%s'", .{key.ptr});
 }
 
 fn readGrid(lua: *Lua, result: world.Id, count: u8, meta: u16) game.crafting.Recipe {

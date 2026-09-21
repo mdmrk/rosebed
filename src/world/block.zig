@@ -581,6 +581,12 @@ pub const Id = union(enum) {
         };
     }
 
+    pub fn fromKey(name: []const u8) ?Id {
+        if (Block.fromKey(name)) |found| return .{ .block = found };
+        if (Item.fromKey(name)) |found| return .{ .item = found };
+        return null;
+    }
+
     pub fn isVanilla(self: Id) bool {
         return switch (self) {
             .block => |id| id.isVanilla(),

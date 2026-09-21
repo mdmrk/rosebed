@@ -503,20 +503,18 @@ pub fn findMatch(grid: []const ?Inventory.ItemStack, size: u8) ?Inventory.ItemSt
     return matchShapelessIn(registered_shapeless[0..registered_shapeless_count], grid);
 }
 
-pub fn isCraftable(id: world.Id) bool {
-    for (recipes) |recipe| {
-        if (recipe.output_id.eql(id)) return true;
-    }
-    for (shapeless_recipes) |recipe| {
-        if (recipe.output_id.eql(id)) return true;
-    }
-    for (registered_shaped[0..registered_shaped_count]) |recipe| {
-        if (recipe.output_id.eql(id)) return true;
-    }
-    for (registered_shapeless[0..registered_shapeless_count]) |recipe| {
+fn makes(list: anytype, id: world.Id) bool {
+    for (list) |recipe| {
         if (recipe.output_id.eql(id)) return true;
     }
     return false;
+}
+
+pub fn isCraftable(id: world.Id) bool {
+    return makes(&recipes, id) or
+        makes(&shapeless_recipes, id) or
+        makes(registered_shaped[0..registered_shaped_count], id) or
+        makes(registered_shapeless[0..registered_shapeless_count], id);
 }
 
 pub fn consume(grid: []?Inventory.ItemStack) void {

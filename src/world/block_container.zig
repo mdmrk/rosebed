@@ -81,5 +81,4 @@ test "a mod container survives a round trip through its tile entity compound" {
     const placed = load(tag.compound).?;
     try std.testing.expectEqual(BlockPos.init(7, 65, -3), placed.pos);
     try std.testing.expectEqual(original, placed.state);
-    try std.testing.expect(load(tag.compound) != null);
 }

@@ -15,6 +15,13 @@ fn isHeader(key: []const u8) bool {
     return false;
 }
 
+fn copyFields(gpa: std.mem.Allocator, into: *nbt.Compound, from: nbt.Compound) !void {
+    for (from.keys(), from.values()) |key, value| {
+        if (isHeader(key)) continue;
+        try nbt.putDuped(gpa, into, key, try nbt.dupe(gpa, value));
+    }
+}
+
 pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: nbt.Compound) !nbt.Tag {
     var compound: nbt.Compound = .{};
     errdefer {
@@ -23,10 +30,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: nbt.Compound) !nbt.Ta
     }
 
     try tile.header(gpa, &compound, id_key, pos);
-    for (state.keys(), state.values()) |key, value| {
-        if (isHeader(key)) continue;
-        try nbt.putDuped(gpa, &compound, key, try nbt.dupe(gpa, value));
-    }
+    try copyFields(gpa, &compound, state);
 
     return .{ .compound = compound };
 }
@@ -49,10 +53,7 @@ pub fn load(gpa: std.mem.Allocator, compound: nbt.Compound) !?Placed {
         var owned: nbt.Tag = .{ .compound = state };
         nbt.deinit(gpa, &owned);
     }
-    for (compound.keys(), compound.values()) |key, value| {
-        if (isHeader(key)) continue;
-        try nbt.putDuped(gpa, &state, key, try nbt.dupe(gpa, value));
-    }
+    try copyFields(gpa, &state, compound);
 
     return .{ .pos = pos, .state = state };
 }
