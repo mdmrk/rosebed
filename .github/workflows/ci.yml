@@ -197,9 +197,15 @@ jobs:
         run: zig build fetch-assets
       - name: fetch sdl for ios
         run: zig build fetch-ios-sdl
+      - name: patch zig std for ios
+        run: |
+          lib_dir=$(zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$/\1/p')
+          cp -r "$lib_dir" ziglib
+          chmod -R u+w ziglib
+          patch -p1 -d ziglib < .github/zig-ios.patch
       - name: build
         run: |
-          zig build \
+          ZIG_LIB_DIR="$PWD/ziglib" zig build \
             -Dtarget=aarch64-ios \
             -Doptimize=fast \
             -Dios-sdk="$(xcrun --sdk iphoneos --show-sdk-path)"

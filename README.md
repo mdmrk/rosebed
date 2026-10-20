@@ -95,11 +95,15 @@ If `ANDROID_NDK_HOME` and `ANDROID_HOME` are set, you can leave out the two `-D`
 
 ### iOS
 
-You need macOS with Xcode, and `zip`.
+You need macOS with Xcode, `zip`, and a patched copy of the Zig standard library:
 
 ```sh
+cp -r "$(zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$/\1/p')" ziglib
+chmod -R u+w ziglib
+patch -p1 -d ziglib < .github/zig-ios.patch
+
 zig build fetch-ios-sdl   # once: downloads SDL3
-zig build -Dtarget=aarch64-ios -Doptimize=fast
+ZIG_LIB_DIR="$PWD/ziglib" zig build -Dtarget=aarch64-ios -Doptimize=fast
 ```
 
 ## License
