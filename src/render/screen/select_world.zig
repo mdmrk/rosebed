@@ -80,12 +80,12 @@ pub fn localOffsetSeconds(last_played: i64) i32 {
 pub fn formatDetail(buffer: []u8, folder: []const u8, last_played: i64, utc_offset_seconds: i32, size_bytes: u64) []const u8 {
     const megabytes = @as(f32, @floatFromInt(size_bytes / 1024)) / 1024.0;
     if (last_played <= 0) {
-        return std.fmt.bufPrint(buffer, "{s} ({d:.2} MB)", .{ folder, megabytes }) catch folder;
+        return std.mem.print(buffer, "{s} ({d:.2} MB)", .{ folder, megabytes }) catch folder;
     }
 
     const local = @divFloor(last_played, std.time.ms_per_s) + utc_offset_seconds;
     if (local <= 0) {
-        return std.fmt.bufPrint(buffer, "{s} ({d:.2} MB)", .{ folder, megabytes }) catch folder;
+        return std.mem.print(buffer, "{s} ({d:.2} MB)", .{ folder, megabytes }) catch folder;
     }
     const seconds: u64 = @intCast(local);
     const epoch: std.time.epoch.EpochSeconds = .{ .secs = seconds };
@@ -97,7 +97,7 @@ pub fn formatDetail(buffer: []u8, folder: []const u8, last_played: i64, utc_offs
     const am_or_pm = if (hours >= 12) "PM" else "AM";
     const hours_12_format = if (hours % 12 == 0) 12 else hours % 12;
 
-    return std.fmt.bufPrint(buffer, "{s} ({d}/{d}/{d:0>2} {d}:{d:0>2} {s}, {d:.2} MB)", .{
+    return std.mem.print(buffer, "{s} ({d}/{d}/{d:0>2} {d}:{d:0>2} {s}, {d:.2} MB)", .{
         folder,
         month_day.month.numeric(),
         month_day.day_index + 1,
@@ -297,37 +297,37 @@ test "the detail line shows the folder, a date and a size" {
     var buffer: [96]u8 = undefined;
     const detail = formatDetail(&buffer, "My World", 1700000000 * std.time.ms_per_s, 0, 3 * 1024 * 1024);
     try std.testing.expect(std.mem.startsWith(u8, detail, "My World ("));
-    try std.testing.expect(std.mem.indexOf(u8, detail, "11/14/23") != null);
-    try std.testing.expect(std.mem.indexOf(u8, detail, "3.00 MB") != null);
+    try std.testing.expect(std.mem.find(u8, detail, "11/14/23") != null);
+    try std.testing.expect(std.mem.find(u8, detail, "3.00 MB") != null);
 }
 
 test "the clock reads as a twelve hour time, not the minute twice over" {
     var buffer: [96]u8 = undefined;
 
     const morning = formatDetail(&buffer, "W", 1700000000 * std.time.ms_per_s, 0, 0);
-    try std.testing.expect(std.mem.indexOf(u8, morning, "10:13 PM") != null);
+    try std.testing.expect(std.mem.find(u8, morning, "10:13 PM") != null);
 
     var midnight_buffer: [96]u8 = undefined;
     const midnight = formatDetail(&midnight_buffer, "W", 1699920000 * std.time.ms_per_s, 0, 0);
-    try std.testing.expect(std.mem.indexOf(u8, midnight, "12:00 AM") != null);
+    try std.testing.expect(std.mem.find(u8, midnight, "12:00 AM") != null);
 
     var noon_buffer: [96]u8 = undefined;
     const noon = formatDetail(&noon_buffer, "W", 1699963200 * std.time.ms_per_s, 0, 0);
-    try std.testing.expect(std.mem.indexOf(u8, noon, "12:00 PM") != null);
+    try std.testing.expect(std.mem.find(u8, noon, "12:00 PM") != null);
 }
 
 test "an offset east of UTC moves the clock forward" {
     var utc_buffer: [96]u8 = undefined;
     const utc = formatDetail(&utc_buffer, "W", 1700000000 * std.time.ms_per_s, 0, 0);
-    try std.testing.expect(std.mem.indexOf(u8, utc, "11/14/23 10:13 PM") != null);
+    try std.testing.expect(std.mem.find(u8, utc, "11/14/23 10:13 PM") != null);
 
     var plus_two: [96]u8 = undefined;
     const east = formatDetail(&plus_two, "W", 1700000000 * std.time.ms_per_s, 2 * 60 * 60, 0);
-    try std.testing.expect(std.mem.indexOf(u8, east, "11/15/23 12:13 AM") != null);
+    try std.testing.expect(std.mem.find(u8, east, "11/15/23 12:13 AM") != null);
 
     var minus_eight: [96]u8 = undefined;
     const west = formatDetail(&minus_eight, "W", 1700000000 * std.time.ms_per_s, -8 * 60 * 60, 0);
-    try std.testing.expect(std.mem.indexOf(u8, west, "11/14/23 2:13 PM") != null);
+    try std.testing.expect(std.mem.find(u8, west, "11/14/23 2:13 PM") != null);
 }
 
 test "a world that has never been played shows only its size" {

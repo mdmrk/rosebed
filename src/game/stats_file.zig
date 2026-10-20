@@ -14,7 +14,7 @@ const Entry = struct { id: u32, value: i32 };
 
 pub fn guid(stat_id: u32) ?[]const u8 {
     var prefix_buffer: [16]u8 = undefined;
-    const prefix = std.fmt.bufPrint(&prefix_buffer, "{d},", .{stat_id}) catch return null;
+    const prefix = std.mem.print(&prefix_buffer, "{d},", .{stat_id}) catch return null;
     var lines = std.mem.tokenizeAny(u8, assets.achievement.map_txt.bytes, "\r\n");
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, prefix)) return line[prefix.len..];
@@ -41,7 +41,7 @@ pub fn fileName(buffer: []u8, username: []const u8, extension: []const u8) ![]co
     var lowered: [64]u8 = undefined;
     const length = @min(username.len, lowered.len);
     for (username[0..length], 0..) |c, index| lowered[index] = std.ascii.toLower(c);
-    return std.fmt.bufPrint(buffer, "stats_{s}{s}", .{ lowered[0..length], extension });
+    return std.mem.print(buffer, "stats_{s}{s}", .{ lowered[0..length], extension });
 }
 
 fn sortedEntries(gpa: std.mem.Allocator, source: *const stats.Stats) ![]Entry {
@@ -231,12 +231,12 @@ test "an encoded file carries the user block, the sorted changes and a checksum"
     const text = try encode(gpa, "Player", &source);
     defer gpa.free(text);
 
-    try std.testing.expect(std.mem.indexOf(u8, text, "\"name\":\"Player\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\"sessionid\":\"local\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "{\"1000\":2}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "{\"2010\":7}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "{\"1000\":2}").? < std.mem.indexOf(u8, text, "{\"2010\":7}").?);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\"checksum\":\"") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\"name\":\"Player\"") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\"sessionid\":\"local\"") != null);
+    try std.testing.expect(std.mem.find(u8, text, "{\"1000\":2}") != null);
+    try std.testing.expect(std.mem.find(u8, text, "{\"2010\":7}") != null);
+    try std.testing.expect(std.mem.find(u8, text, "{\"1000\":2}").? < std.mem.find(u8, text, "{\"2010\":7}").?);
+    try std.testing.expect(std.mem.find(u8, text, "\"checksum\":\"") != null);
 }
 
 test "an empty stat set still encodes a valid document" {
@@ -247,7 +247,7 @@ test "an empty stat set still encodes a valid document" {
     const text = try encode(gpa, "Player", &source);
     defer gpa.free(text);
 
-    try std.testing.expect(std.mem.indexOf(u8, text, "\"stats-change\":[\r\n  ],") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\"stats-change\":[\r\n  ],") != null);
 
     var restored = (try decode(gpa, text)).?;
     defer restored.deinit(gpa);

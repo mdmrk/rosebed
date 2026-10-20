@@ -27,7 +27,7 @@ pub fn localCoord(chunk_coord: i32) u32 {
 }
 
 pub fn fileName(buffer: []u8, region_x: i32, region_z: i32) ![]u8 {
-    return std.fmt.bufPrint(buffer, "r.{d}.{d}.mcr", .{ region_x, region_z });
+    return std.mem.print(buffer, "r.{d}.{d}.mcr", .{ region_x, region_z });
 }
 
 pub fn open(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, region_x: i32, region_z: i32) !RegionFile {
@@ -250,7 +250,7 @@ test "many chunks coexist in one region file and survive reopening" {
         defer region.close(gpa, io);
 
         for (0..16) |i| {
-            const payload = try std.fmt.bufPrint(&buffer, "chunk number {d}", .{i});
+            const payload = try std.mem.print(&buffer, "chunk number {d}", .{i});
             try region.writeChunk(gpa, io, @intCast(i), @intCast(i * 2), payload);
         }
     }
@@ -259,7 +259,7 @@ test "many chunks coexist in one region file and survive reopening" {
     defer region.close(gpa, io);
 
     for (0..16) |i| {
-        const expected = try std.fmt.bufPrint(&buffer, "chunk number {d}", .{i});
+        const expected = try std.mem.print(&buffer, "chunk number {d}", .{i});
         const read_back = (try region.readChunk(gpa, io, @intCast(i), @intCast(i * 2))).?;
         defer gpa.free(read_back);
         try std.testing.expectEqualStrings(expected, read_back);

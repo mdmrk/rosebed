@@ -19,7 +19,7 @@ pub fn selectedStack(self: Inventory) ?ItemStack {
 }
 
 pub fn armorSlot(self: *Inventory, slot: world.item.ArmorSlot) *?ItemStack {
-    return &self.armor[@intFromEnum(slot)];
+    return &self.armor[@backingInt(slot)];
 }
 
 pub fn fitsArmorSlot(stack: ItemStack, slot: world.item.ArmorSlot) bool {
@@ -219,15 +219,15 @@ test "the slot holding the last of an item is emptied, not left at zero" {
 
 test "addStack fills a single slot below the stack limit" {
     var inv: Inventory = .{};
-    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 10 });
+    const leftover = inv.addStack(.{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 10 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 10), inv.slots[0].?.count);
 }
 
 test "addStack tops up a matching slot before using a new one" {
     var inv: Inventory = .{};
-    inv.slots[0] = .{ .id = .{ .block = @enumFromInt(1) }, .count = 60 };
-    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 10 });
+    inv.slots[0] = .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 60 };
+    const leftover = inv.addStack(.{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 10 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 64), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 6), inv.slots[1].?.count);
@@ -235,8 +235,8 @@ test "addStack tops up a matching slot before using a new one" {
 
 test "addStack does not merge stacks with different metadata" {
     var inv: Inventory = .{};
-    inv.slots[0] = .{ .id = .{ .block = @enumFromInt(17) }, .count = 10, .meta = 0 };
-    _ = inv.addStack(.{ .id = .{ .block = @enumFromInt(17) }, .count = 5, .meta = 1 });
+    inv.slots[0] = .{ .id = .{ .block = @fromBackingInt(@intCast(17)) }, .count = 10, .meta = 0 };
+    _ = inv.addStack(.{ .id = .{ .block = @fromBackingInt(@intCast(17)) }, .count = 5, .meta = 1 });
     try std.testing.expectEqual(@as(u8, 10), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 5), inv.slots[1].?.count);
     try std.testing.expectEqual(@as(u16, 1), inv.slots[1].?.meta);
@@ -253,7 +253,7 @@ test "tools never stack, so each one opens a slot of its own" {
 
 test "addStack splits a stack larger than the limit across slots" {
     var inv: Inventory = .{};
-    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 100 });
+    const leftover = inv.addStack(.{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 100 });
     try std.testing.expectEqual(@as(u8, 0), leftover);
     try std.testing.expectEqual(@as(u8, 64), inv.slots[0].?.count);
     try std.testing.expectEqual(@as(u8, 36), inv.slots[1].?.count);
@@ -261,8 +261,8 @@ test "addStack splits a stack larger than the limit across slots" {
 
 test "addStack returns the leftover once the inventory is full" {
     var inv: Inventory = .{};
-    for (0..size) |i| inv.slots[i] = .{ .id = .{ .block = @enumFromInt(1) }, .count = max_stack_size };
-    const leftover = inv.addStack(.{ .id = .{ .block = @enumFromInt(1) }, .count = 5 });
+    for (0..size) |i| inv.slots[i] = .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = max_stack_size };
+    const leftover = inv.addStack(.{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 5 });
     try std.testing.expectEqual(@as(u8, 5), leftover);
 }
 
@@ -360,8 +360,8 @@ test "an inventory round-trips through the save format" {
 
 test "worn armour round-trips through the original's 100-and-up slot numbering" {
     var inv: Inventory = .{};
-    inv.armor[@intFromEnum(world.item.ArmorSlot.helmet)] = .{ .id = .{ .item = .helmet_iron }, .count = 1, .meta = 40 };
-    inv.armor[@intFromEnum(world.item.ArmorSlot.boots)] = .{ .id = .{ .item = .boots_diamond }, .count = 1 };
+    inv.armor[@backingInt(world.item.ArmorSlot.helmet)] = .{ .id = .{ .item = .helmet_iron }, .count = 1, .meta = 40 };
+    inv.armor[@backingInt(world.item.ArmorSlot.boots)] = .{ .id = .{ .item = .boots_diamond }, .count = 1 };
 
     var entries: std.ArrayList(world.save.InventoryEntry) = .empty;
     defer entries.deinit(std.testing.allocator);
@@ -380,21 +380,21 @@ test "the armour value scales the worn protection by the durability left" {
     var inv: Inventory = .{};
     try std.testing.expectEqual(@as(i32, 0), inv.totalArmorValue());
 
-    inv.armor[@intFromEnum(world.item.ArmorSlot.chestplate)] = .{ .id = .{ .item = .chestplate_iron }, .count = 1 };
+    inv.armor[@backingInt(world.item.ArmorSlot.chestplate)] = .{ .id = .{ .item = .chestplate_iron }, .count = 1 };
     try std.testing.expectEqual(@as(i32, 8), inv.totalArmorValue());
 
-    inv.armor[@intFromEnum(world.item.ArmorSlot.chestplate)].?.meta = 96;
+    inv.armor[@backingInt(world.item.ArmorSlot.chestplate)].?.meta = 96;
     try std.testing.expectEqual(@as(i32, 4), inv.totalArmorValue());
 }
 
 test "damaging armour wears every worn piece and drops one that runs out" {
     var inv: Inventory = .{};
-    inv.armor[@intFromEnum(world.item.ArmorSlot.helmet)] = .{ .id = .{ .item = .helmet_leather }, .count = 1, .meta = 33 };
-    inv.armor[@intFromEnum(world.item.ArmorSlot.boots)] = .{ .id = .{ .item = .boots_leather }, .count = 1 };
+    inv.armor[@backingInt(world.item.ArmorSlot.helmet)] = .{ .id = .{ .item = .helmet_leather }, .count = 1, .meta = 33 };
+    inv.armor[@backingInt(world.item.ArmorSlot.boots)] = .{ .id = .{ .item = .boots_leather }, .count = 1 };
 
     inv.damageArmor(1);
-    try std.testing.expectEqual(@as(?ItemStack, null), inv.armor[@intFromEnum(world.item.ArmorSlot.helmet)]);
-    try std.testing.expectEqual(@as(u16, 1), inv.armor[@intFromEnum(world.item.ArmorSlot.boots)].?.meta);
+    try std.testing.expectEqual(@as(?ItemStack, null), inv.armor[@backingInt(world.item.ArmorSlot.helmet)]);
+    try std.testing.expectEqual(@as(u16, 1), inv.armor[@backingInt(world.item.ArmorSlot.boots)].?.meta);
 }
 
 test "an armour slot only takes its own piece, plus a pumpkin on the head" {

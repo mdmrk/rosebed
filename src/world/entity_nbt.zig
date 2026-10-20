@@ -453,8 +453,8 @@ pub fn storeBoat(gpa: std.mem.Allocator, boat: Boat) !nbt.Tag {
 
 fn storedStackId(stack: block.Stack) i16 {
     return switch (stack.id) {
-        .block => |id| @intCast(@intFromEnum(id)),
-        .item => |id| @bitCast(@as(u16, @intFromEnum(id))),
+        .block => |id| @intCast(@backingInt(id)),
+        .item => |id| @bitCast(@as(u16, @backingInt(id))),
     };
 }
 
@@ -481,7 +481,7 @@ pub fn storeMinecart(gpa: std.mem.Allocator, cart: Minecart) !nbt.Tag {
     }
 
     try storeBase(gpa, &compound, minecart_id, cart.base);
-    try put(gpa, &compound, "Type", .{ .int = @intFromEnum(cart.kind) });
+    try put(gpa, &compound, "Type", .{ .int = @backingInt(cart.kind) });
     if (cart.kind == .furnace) {
         try put(gpa, &compound, "Fuel", .{ .int = cart.fuel });
         try put(gpa, &compound, "PushX", .{ .double = cart.push[0] });
@@ -723,9 +723,9 @@ fn loadCartStack(compound: nbt.Compound) ?block.Stack {
     if (count == 0) return null;
 
     const id: block.Id = if (raw < 256)
-        .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
+        .{ .block = @fromBackingInt(@intCast(@as(u8, @intCast(raw)))) }
     else
-        .{ .item = @enumFromInt(raw) };
+        .{ .item = @fromBackingInt(@intCast(raw)) };
     return .{ .id = id, .count = count, .meta = @bitCast(shortField(compound, "Damage", 0)) };
 }
 
@@ -1206,7 +1206,7 @@ test "a dropped modded item comes back at whatever id its key holds now" {
     const gpa = std.testing.allocator;
     defer ItemId.resetRegistry();
 
-    const was: ItemId = @enumFromInt(400);
+    const was: ItemId = @fromBackingInt(@intCast(400));
     was.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
 
     var tag = try storeItem(gpa, .{
@@ -1217,7 +1217,7 @@ test "a dropped modded item comes back at whatever id its key holds now" {
     try std.testing.expectEqualStrings("rosebed:quartz_pickaxe", tag.compound.get("Item").?.compound.get("Key").?.string);
 
     ItemId.resetRegistry();
-    const now: ItemId = @enumFromInt(511);
+    const now: ItemId = @fromBackingInt(@intCast(511));
     now.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
 
     const loaded = loadItem(tag.compound).?;
@@ -1229,7 +1229,7 @@ test "a dropped item whose mod is gone is read as nothing" {
     const gpa = std.testing.allocator;
     defer ItemId.resetRegistry();
 
-    const was: ItemId = @enumFromInt(400);
+    const was: ItemId = @fromBackingInt(@intCast(400));
     was.register(.{ .key = "rosebed:quartz_pickaxe" });
 
     var tag = try storeItem(gpa, .{

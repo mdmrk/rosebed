@@ -41,27 +41,27 @@ pub fn draw(
 
     var buf: [128]u8 = undefined;
 
-    const version = std.fmt.bufPrint(&buf, "Minecraft Beta 1.7.3 ({d} fps, {d} chunk updates)", .{ stats.fps, stats.chunk_updates }) catch "Minecraft Beta 1.7.3";
+    const version = std.mem.print(&buf, "Minecraft Beta 1.7.3 ({d} fps, {d} chunk updates)", .{ stats.fps, stats.chunk_updates }) catch "Minecraft Beta 1.7.3";
     try gui.appendTextColor(&text, ui.gpa, ui.font, version, 2, 2, white, ui.res);
 
     var renderers_buf: [128]u8 = undefined;
-    const renderers = std.fmt.bufPrint(&renderers_buf, "C: {d}/{d}. F: 0, O: 0, E: 0", .{ stats.renderers_rendered, stats.renderers_loaded }) catch "C: ";
+    const renderers = std.mem.print(&renderers_buf, "C: {d}/{d}. F: 0, O: 0, E: 0", .{ stats.renderers_rendered, stats.renderers_loaded }) catch "C: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, renderers, 2, 12, white, ui.res);
 
     var entities_buf: [128]u8 = undefined;
-    const entities = std.fmt.bufPrint(&entities_buf, "E: {d}/{d}. B: 0, I: 0", .{ stats.entities_rendered, stats.entities_total }) catch "E: ";
+    const entities = std.mem.print(&entities_buf, "E: {d}/{d}. B: 0, I: 0", .{ stats.entities_rendered, stats.entities_total }) catch "E: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, entities, 2, 22, white, ui.res);
 
     var particles_buf: [128]u8 = undefined;
-    const particles = std.fmt.bufPrint(&particles_buf, "P: {d}. T: All: {d}", .{ stats.particles, stats.entities_total }) catch "P: ";
+    const particles = std.mem.print(&particles_buf, "P: {d}. T: All: {d}", .{ stats.particles, stats.entities_total }) catch "P: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, particles, 2, 32, white, ui.res);
 
     var cache_buf: [64]u8 = undefined;
-    const cache = std.fmt.bufPrint(&cache_buf, "ChunkCache: {d}", .{stats.chunk_cache}) catch "ChunkCache: ";
+    const cache = std.mem.print(&cache_buf, "ChunkCache: {d}", .{stats.chunk_cache}) catch "ChunkCache: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, cache, 2, 42, white, ui.res);
 
     var used_buf: [128]u8 = undefined;
-    const used = std.fmt.bufPrint(&used_buf, "Used memory: {d}% ({d}MB) of {d}MB", .{
+    const used = std.mem.print(&used_buf, "Used memory: {d}% ({d}MB) of {d}MB", .{
         stats.used_memory * 100 / @max(stats.max_memory, 1),
         stats.used_memory / megabyte,
         stats.max_memory / megabyte,
@@ -70,7 +70,7 @@ pub fn draw(
     try gui.appendTextColor(&text, ui.gpa, ui.font, used, ui.res.width - used_width - 2, 2, grey, ui.res);
 
     var allocated_buf: [128]u8 = undefined;
-    const allocated = std.fmt.bufPrint(&allocated_buf, "Allocated memory: {d}% ({d}MB)", .{
+    const allocated = std.mem.print(&allocated_buf, "Allocated memory: {d}% ({d}MB)", .{
         stats.allocated_memory * 100 / @max(stats.max_memory, 1),
         stats.allocated_memory / megabyte,
     }) catch "Allocated memory: ";
@@ -78,19 +78,19 @@ pub fn draw(
     try gui.appendTextColor(&text, ui.gpa, ui.font, allocated, ui.res.width - allocated_width - 2, 12, grey, ui.res);
 
     var x_buf: [64]u8 = undefined;
-    const x_line = std.fmt.bufPrint(&x_buf, "x: {d}", .{stats.x}) catch "x: ";
+    const x_line = std.mem.print(&x_buf, "x: {d}", .{stats.x}) catch "x: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, x_line, 2, 64, grey, ui.res);
 
     var y_buf: [64]u8 = undefined;
-    const y_line = std.fmt.bufPrint(&y_buf, "y: {d}", .{stats.y}) catch "y: ";
+    const y_line = std.mem.print(&y_buf, "y: {d}", .{stats.y}) catch "y: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, y_line, 2, 72, grey, ui.res);
 
     var z_buf: [64]u8 = undefined;
-    const z_line = std.fmt.bufPrint(&z_buf, "z: {d}", .{stats.z}) catch "z: ";
+    const z_line = std.mem.print(&z_buf, "z: {d}", .{stats.z}) catch "z: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, z_line, 2, 80, grey, ui.res);
 
     var f_buf: [64]u8 = undefined;
-    const f_line = std.fmt.bufPrint(&f_buf, "f: {d}", .{facing(stats.yaw)}) catch "f: ";
+    const f_line = std.mem.print(&f_buf, "f: {d}", .{facing(stats.yaw)}) catch "f: ";
     try gui.appendTextColor(&text, ui.gpa, ui.font, f_line, 2, 88, grey, ui.res);
 
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);

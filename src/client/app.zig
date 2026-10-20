@@ -52,7 +52,7 @@ fn pickSplash(rand: *world.JavaRandom) []const u8 {
     const chosen = splashes[@intCast(rand.nextIntBound(@intCast(splashes.len)))];
     const now = sdl3.time.Time.getCurrent() catch return chosen;
     const date = sdl3.time.DateTime.fromTime(now, true) catch return chosen;
-    const month = @intFromEnum(date.month);
+    const month = @backingInt(date.month);
     if (month == 11 and date.day == 9) return "Happy birthday, ez!";
     if (month == 6 and date.day == 1) return "Happy birthday, Notch!";
     if (month == 12 and date.day == 24) return "Merry X-mas!";
@@ -284,7 +284,7 @@ fn playerChunkCoord(app_state: *const AppState) world.World.ChunkCoord {
 }
 
 fn viewRadius(app_state: *const AppState) i32 {
-    return render.ChunkRenderer.radiusFor(@intFromEnum(app_state.settings.render_distance));
+    return render.ChunkRenderer.radiusFor(@backingInt(app_state.settings.render_distance));
 }
 
 const Pending = struct {
@@ -412,7 +412,7 @@ pub fn init(
     try sdl3.video.gl.setAttribute(.depth_size, 24);
     try sdl3.video.gl.setAttribute(.context_major_version, 3);
     try sdl3.video.gl.setAttribute(.context_minor_version, if (gles) 0 else 3);
-    try sdl3.video.gl.setAttribute(.context_profile_mask, @intFromEnum(
+    try sdl3.video.gl.setAttribute(.context_profile_mask, @backingInt(
         if (gles) sdl3.video.gl.Profile.es else sdl3.video.gl.Profile.core,
     ));
 
@@ -520,7 +520,7 @@ pub fn init(
 
     app_state.sound = audio.Manager.init(gpa, @bitCast(sdl3.timer.getNanosecondsSinceInit())) catch null;
     if (app_state.sound) |*sound| {
-        const resources = try std.fs.path.join(gpa, &.{ base_path, audio.Manager.folder_name });
+        const resources = try std.Io.Dir.path.join(gpa, &.{ base_path, audio.Manager.folder_name });
         defer gpa.free(resources);
         try sound.loadResources(gpa, io, resources);
         try sound.setVolumes(app_state.settings.sound_volume, app_state.settings.music_volume);
@@ -738,7 +738,7 @@ fn playAuxSfx(context: *anyopaque, effect: world.World.AuxSfx, pos: BlockPos, da
         },
         .fizz => world_map.playFizzAt(pos),
         .record_play => {
-            const record: ?world.Item = if (data > 0 and data <= std.math.maxInt(u16)) @enumFromInt(@as(u16, @intCast(data))) else null;
+            const record: ?world.Item = if (data > 0 and data <= std.math.maxInt(u16)) @fromBackingInt(@intCast(@as(u16, @intCast(data)))) else null;
             const name = if (record) |id| id.recordName() else null;
             if (app_state.sound) |*sound| sound.playStreaming(name, pos.toVec3(), 1.0) catch {};
         },
@@ -757,7 +757,7 @@ fn playAuxSfx(context: *anyopaque, effect: world.World.AuxSfx, pos: BlockPos, da
 }
 
 fn breakEffect(app_state: *AppState, pos: BlockPos, data: i32) !void {
-    const broken: world.Block = @enumFromInt(@as(u8, @truncate(@as(u32, @bitCast(data)))));
+    const broken: world.Block = @fromBackingInt(@intCast(@as(u8, @truncate(@as(u32, @bitCast(data))))));
     const meta: u4 = @truncate(@as(u32, @bitCast(data)) >> 8);
     if (broken == .air) return;
 
@@ -834,7 +834,7 @@ fn holdingFlintAndSteel(app_state: *const AppState) bool {
 
 fn breakEffectData(world_map: *const world.World, pos: BlockPos, block_id: world.Block) i32 {
     const meta: u32 = world_map.getBlockMetadata(pos);
-    return @bitCast(@as(u32, @intFromEnum(block_id)) | meta << 8);
+    return @bitCast(@as(u32, @backingInt(block_id)) | meta << 8);
 }
 
 fn breakBlock(app_state: *AppState, pos: BlockPos, block_id: world.Block) !void {
@@ -972,7 +972,7 @@ fn currentWindow(app_state: *AppState) game.Window {
             window.add(.{
                 .stack = &app_state.player.inventory.armor[piece],
                 .kind = .armor,
-                .armor = @enumFromInt(piece),
+                .armor = @fromBackingInt(@intCast(piece)),
             });
         }
     }
@@ -1375,7 +1375,7 @@ fn sendChat(app_state: *AppState) !void {
             try link.connection.say(app_state.gpa, trimmed);
         } else {
             var buf: [render.chat.max_message_length + 32]u8 = undefined;
-            const line = std.fmt.bufPrint(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
+            const line = std.mem.print(&buf, "<{s}> {s}", .{ game.stats_file.default_username, trimmed }) catch trimmed;
             app_state.chat.addMessage(app_state.font, line);
         }
         app_state.chat.pushHistory(trimmed);
@@ -1394,7 +1394,7 @@ fn resourceName(stack: world.Stack) []const u8 {
 
 fn reply(app_state: *AppState, comptime format: []const u8, args: anytype) void {
     var buf: [render.chat.max_message_length * 2]u8 = undefined;
-    app_state.chat.addMessage(app_state.font, std.fmt.bufPrint(&buf, format, args) catch return);
+    app_state.chat.addMessage(app_state.font, std.mem.print(&buf, format, args) catch return);
 }
 
 fn takeScreenshot(app_state: *AppState, width: gl.sizei, height: gl.sizei) void {
@@ -1508,7 +1508,7 @@ fn runCommand(app_state: *AppState, line: []const u8) !void {
         },
         .seed => |seed| {
             var buffer: [64]u8 = undefined;
-            const world_seed = try std.fmt.bufPrintSentinel(&buffer, "{d}", .{app_state.level.generator.worldSeed()}, 0);
+            const world_seed = try std.mem.printSentinel(&buffer, "{d}", .{app_state.level.generator.worldSeed()}, 0);
             const copy_msg = if (seed.copy)
                 " (Copied to clipboard)"
             else
@@ -2650,7 +2650,7 @@ fn placeSignAtTarget(app_state: *AppState) !bool {
         try app_state.level.world_map.setBlockAndMetadataWithNotify(
             target.pos,
             .wall_sign,
-            @intFromEnum(hit.face),
+            @backingInt(hit.face),
         );
     }
 
@@ -2671,7 +2671,7 @@ fn useFishingRod(app_state: *AppState) !bool {
 
     if (caught) |what| {
         if (what == .fish) try app_state.stats.add(app_state.gpa, .{ .general = .fish_caught }, 1);
-        try damageHeldItem(app_state, @intFromEnum(what));
+        try damageHeldItem(app_state, @backingInt(what));
         swingArm(app_state);
         return true;
     }
@@ -3462,7 +3462,7 @@ fn stepFogBrightness(app_state: *AppState) void {
         .init(math.util.floorDouble(position.x), math.util.floorDouble(position.y), math.util.floorDouble(position.z)),
         0,
     );
-    const target = render.sky.fogBrightnessTarget(light, @intFromEnum(app_state.settings.render_distance));
+    const target = render.sky.fogBrightnessTarget(light, @backingInt(app_state.settings.render_distance));
 
     app_state.prev_fog_brightness = app_state.fog_brightness;
     app_state.fog_brightness += (target - app_state.fog_brightness) * render.sky.fog_brightness_step;
@@ -3492,7 +3492,7 @@ fn horizonColor(app_state: *const AppState) render.sky.Color {
             math.util.floorDouble(app_state.player.base.position.x),
             math.util.floorDouble(app_state.player.base.position.z),
         ));
-        const render_distance = @intFromEnum(app_state.settings.render_distance);
+        const render_distance = @backingInt(app_state.settings.render_distance);
         const partial = app_state.timer.render_partial_ticks;
         const angle = app_state.level.world_map.celestialAngle(partial);
         const weather = app_state.level.world_map.weather;
@@ -3520,7 +3520,7 @@ fn setupFog(app_state: *const AppState, horizon: render.sky.Color) void {
         return;
     }
 
-    const far = render.sky.farPlaneDistance(@intFromEnum(app_state.settings.render_distance));
+    const far = render.sky.farPlaneDistance(@backingInt(app_state.settings.render_distance));
     app_state.shader.setInt(.u_fog_exponential, 0);
     app_state.shader.setFloat(.u_fog_start, if (app_state.dimension.hasSky()) far * 0.25 else 0.0);
     app_state.shader.setFloat(.u_fog_end, far);
@@ -4188,7 +4188,7 @@ fn drawPlayer(app_state: *AppState, origin: math.Vec3, partial: f32) !void {
 }
 
 fn wornBlock(player: game.Player) ?world.Block {
-    const worn = player.inventory.armor[@intFromEnum(world.item.ArmorSlot.helmet)] orelse return null;
+    const worn = player.inventory.armor[@backingInt(world.item.ArmorSlot.helmet)] orelse return null;
     return switch (worn.id) {
         .block => |id| if (id == .air) null else id,
         .item => null,
@@ -4525,7 +4525,7 @@ fn weatheredSky(app_state: *const AppState, color: render.sky.Color, partial: f3
 fn drawSky(app_state: *AppState, proj: math.Mat4, partial: f32, horizon: render.sky.Color) !void {
     if (!app_state.dimension.hasSky()) return;
 
-    const render_distance = @intFromEnum(app_state.settings.render_distance);
+    const render_distance = @backingInt(app_state.settings.render_distance);
     if (!render.SkyRenderer.visibleAt(render_distance)) return;
 
     const angle = app_state.level.world_map.celestialAngle(partial);
@@ -4828,7 +4828,7 @@ pub fn iterate(
     } else if (app_state.screen == .confirm_delete) {
         var message: [96]u8 = undefined;
         const name = if (app_state.selected_world) |index| app_state.summaries[index].name else "";
-        const line = std.fmt.bufPrint(&message, "'{s}' will be lost forever! (A long time!)", .{name}) catch "This world will be lost forever! (A long time!)";
+        const line = std.mem.print(&message, "'{s}' will be lost forever! (A long time!)", .{name}) catch "This world will be lost forever! (A long time!)";
         try render.screen.confirm.draw(ui, "Are you sure you want to delete this world?", line, "Delete");
     } else if (app_state.screen == .loading) {
         const total = app_state.loading.total;
@@ -4946,7 +4946,7 @@ fn pasteClipboard(app_state: *AppState) void {
 }
 
 fn boundTo(app_state: *const AppState, binding: game.Settings.Binding, key: ?sdl3.keycode.Keycode) bool {
-    return app_state.settings.keys.get(binding) == @intFromEnum(key orelse return false);
+    return app_state.settings.keys.get(binding) == @backingInt(key orelse return false);
 }
 
 fn setKeyState(app_state: *AppState, key: ?sdl3.keycode.Keycode, down: bool) void {
@@ -5201,7 +5201,7 @@ pub fn event(
         } else if (app_state.controls_open) {
             if (app_state.rebinding) |binding| {
                 if (k.key) |key| {
-                    app_state.settings.keys.set(binding, @intFromEnum(key));
+                    app_state.settings.keys.set(binding, @backingInt(key));
                     saveOptions(app_state);
                     app_state.rebinding = null;
                 }

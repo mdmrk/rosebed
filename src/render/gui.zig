@@ -490,7 +490,7 @@ pub fn appendStackIcon(
 
     if (stack.count > 1) {
         var buf: [3]u8 = undefined;
-        const label = std.fmt.bufPrint(&buf, "{d}", .{stack.count}) catch return;
+        const label = std.mem.print(&buf, "{d}", .{stack.count}) catch return;
         const label_width: f32 = @floatFromInt(font.stringWidth(label));
         try appendText(text_mesh, gpa, font, label, x + 17.0 - label_width, y + 9.0, res);
     }

@@ -29,8 +29,8 @@ pub fn position(compound: nbt.Compound) ?BlockPos {
 
 fn storedId(stack: Stack) i16 {
     return switch (stack.id) {
-        .block => |id| @intCast(@intFromEnum(id)),
-        .item => |id| @bitCast(@as(u16, @intFromEnum(id))),
+        .block => |id| @intCast(@backingInt(id)),
+        .item => |id| @bitCast(@as(u16, @backingInt(id))),
     };
 }
 
@@ -74,9 +74,9 @@ fn loadStack(compound: nbt.Compound) ?Stack {
     if (count == 0) return null;
 
     const id: block.Id = if (raw < 256)
-        .{ .block = @enumFromInt(@as(u8, @intCast(raw))) }
+        .{ .block = @fromBackingInt(@intCast(@as(u8, @intCast(raw)))) }
     else
-        .{ .item = @enumFromInt(raw) };
+        .{ .item = @fromBackingInt(@intCast(raw)) };
     return .{ .id = id, .count = count, .meta = @bitCast(nbt.shortField(compound, "Damage")) };
 }
 

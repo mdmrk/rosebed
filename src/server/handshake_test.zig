@@ -244,7 +244,7 @@ test "a block the client places appears on both sides" {
     holder.inventory.slots[holder.inventory.selected] = .{ .id = .{ .block = .planks }, .count = 2 };
 
     try pair.connection.reportPlace(gpa, .init(x, y, z), 1, .{
-        .id = @intFromEnum(world.Block.planks),
+        .id = @backingInt(world.Block.planks),
         .count = 2,
         .damage = 0,
     });
@@ -772,7 +772,7 @@ test "joining is announced to whoever is already there" {
 
     var found = false;
     for (heard) |line| {
-        if (std.mem.indexOf(u8, line.text(), "Carol joined the game.") != null) found = true;
+        if (std.mem.find(u8, line.text(), "Carol joined the game.") != null) found = true;
     }
     try std.testing.expect(found);
 }
@@ -1216,7 +1216,7 @@ test "the block a client asks for is only placed if the server agrees it is held
     try pair.settle(2);
 
     try pair.connection.reportPlace(gpa, .init(x, y, z), 1, .{
-        .id = @intFromEnum(world.Block.block_diamond),
+        .id = @backingInt(world.Block.block_diamond),
         .count = 64,
         .damage = 0,
     });
@@ -1749,7 +1749,7 @@ test "the block below the note block picks the instrument sent down the wire" {
     for (heard.items) |message| {
         if (message == .play_note_block) instrument = message.play_note_block.instrument;
     }
-    try std.testing.expectEqual(@intFromEnum(world.note.Instrument.click), instrument.?);
+    try std.testing.expectEqual(@backingInt(world.note.Instrument.click), instrument.?);
 }
 
 test "a finished dig leaves the break for the server to pass on to everyone else" {
@@ -1773,7 +1773,7 @@ test "a finished dig leaves the break for the server to pass on to everyone else
     try std.testing.expectEqual(at.x, broke.pos.x);
     try std.testing.expectEqual(at.y, broke.pos.y);
     try std.testing.expectEqual(at.z, broke.pos.z);
-    try std.testing.expectEqual(@as(i32, @intFromEnum(world.Block.wool)) | 5 << 8, broke.data);
+    try std.testing.expectEqual(@as(i32, @backingInt(world.Block.wool)) | 5 << 8, broke.data);
 
     try std.testing.expect(pair.session.takeBreak() == null);
 }
@@ -1789,16 +1789,16 @@ test "a record the server starts reaches the client as an aux sound effect" {
     pair.client_level.world_map.aux_sfx_sink = .{ .context = &heard, .play = recordClientAuxSfx };
 
     try pair.session.send(gpa, .{ .door_change = .{
-        .effect = @intFromEnum(world.World.AuxSfx.record_play),
+        .effect = @backingInt(world.World.AuxSfx.record_play),
         .x = 8,
         .y = 70,
         .z = 8,
-        .data = @intFromEnum(world.Item.record_cat),
+        .data = @backingInt(world.Item.record_cat),
     } });
     _ = try pair.pumpToClient();
 
     try std.testing.expectEqual(world.World.AuxSfx.record_play, heard.last.?);
-    try std.testing.expectEqual(@as(i32, @intFromEnum(world.Item.record_cat)), heard.data);
+    try std.testing.expectEqual(@as(i32, @backingInt(world.Item.record_cat)), heard.data);
 }
 
 const ClientAuxSfx = struct {

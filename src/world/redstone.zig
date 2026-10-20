@@ -1077,7 +1077,7 @@ fn armedDispenser(w: *World, facing: u4) !void {
 test "a lever powering a dispenser makes it hand one item out four ticks later" {
     var w = try flatWorld(12);
     defer w.deinit();
-    try armedDispenser(&w, @intFromEnum(block.Side.south));
+    try armedDispenser(&w, @backingInt(block.Side.south));
 
     w.setBlock(.init(7, 12, 8), .stone);
     try w.setBlockAndMetadataWithNotify(.init(7, 12, 8), .lever, 5 | block.power_bit);
@@ -1131,7 +1131,7 @@ const AuxSfxLog = struct {
 test "a dispenser signals a plain drop, a launch over an arrow and a failure over nothing" {
     var w = try flatWorld(12);
     defer w.deinit();
-    try armedDispenser(&w, @intFromEnum(block.Side.south));
+    try armedDispenser(&w, @backingInt(block.Side.south));
 
     var heard: AuxSfxLog = .{};
     w.aux_sfx_sink = heard.sink();
@@ -1152,7 +1152,7 @@ test "a dispenser signals a plain drop, a launch over an arrow and a failure ove
 test "an unpowered dispenser is never scheduled and an empty one queues nothing" {
     var w = try flatWorld(12);
     defer w.deinit();
-    try armedDispenser(&w, @intFromEnum(block.Side.west));
+    try armedDispenser(&w, @backingInt(block.Side.west));
 
     w.setBlock(.init(7, 12, 8), .stone);
     w.time += Block.dispenser.tickRate();
@@ -1170,10 +1170,10 @@ test "a dispenser fires the way its metadata points" {
     var w = try flatWorld(12);
     defer w.deinit();
 
-    try std.testing.expectEqual([2]i32{ 0, 1 }, block.dispenserStep(@intFromEnum(block.Side.south)));
-    try std.testing.expectEqual([2]i32{ 0, -1 }, block.dispenserStep(@intFromEnum(block.Side.north)));
-    try std.testing.expectEqual([2]i32{ 1, 0 }, block.dispenserStep(@intFromEnum(block.Side.east)));
-    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(@intFromEnum(block.Side.west)));
+    try std.testing.expectEqual([2]i32{ 0, 1 }, block.dispenserStep(@backingInt(block.Side.south)));
+    try std.testing.expectEqual([2]i32{ 0, -1 }, block.dispenserStep(@backingInt(block.Side.north)));
+    try std.testing.expectEqual([2]i32{ 1, 0 }, block.dispenserStep(@backingInt(block.Side.east)));
+    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(@backingInt(block.Side.west)));
     try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(0));
 }
 
@@ -1183,13 +1183,13 @@ test "a dispenser walled in on one side turns away from the wall when it is plac
 
     w.setBlock(.init(8, 12, 7), .stone);
     try w.setBlockWithNotify(.init(8, 12, 8), .dispenser);
-    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.south)), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, @backingInt(block.Side.south)), w.getBlockMetadata(.init(8, 12, 8)));
 
     try w.setBlockWithNotify(.init(8, 12, 8), .air);
     w.setBlock(.init(8, 12, 7), .air);
     w.setBlock(.init(9, 12, 8), .stone);
     try w.setBlockWithNotify(.init(8, 12, 8), .dispenser);
-    try std.testing.expectEqual(@as(u4, @intFromEnum(block.Side.west)), w.getBlockMetadata(.init(8, 12, 8)));
+    try std.testing.expectEqual(@as(u4, @backingInt(block.Side.west)), w.getBlockMetadata(.init(8, 12, 8)));
 }
 
 test "redstone ore lights up when touched and goes dark on its own" {

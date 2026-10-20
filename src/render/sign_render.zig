@@ -194,7 +194,7 @@ pub fn appendTextAt(
     for (0..world.sign.line_count) |index| {
         var buffer: [world.sign.max_line_length + 4]u8 = undefined;
         const text = if (highlighted_line == index)
-            std.fmt.bufPrint(&buffer, "> {s} <", .{state.line(index)}) catch state.line(index)
+            std.mem.print(&buffer, "> {s} <", .{state.line(index)}) catch state.line(index)
         else
             state.line(index);
         if (text.len == 0) continue;

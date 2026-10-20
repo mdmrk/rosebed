@@ -764,7 +764,7 @@ fn iosSdk(b: *std.Build) []const u8 {
             std.process.exit(1);
         },
     };
-    return b.dupe(std.mem.trim(u8, output, " \r\n"));
+    return b.graph.dupeString(std.mem.trim(u8, output, " \r\n"));
 }
 
 fn iosLibC(b: *std.Build, sdk: []const u8) std.Build.LazyPath {

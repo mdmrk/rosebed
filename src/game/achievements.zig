@@ -21,11 +21,11 @@ pub const Id = enum(u8) {
     fly_pig,
 
     pub fn def(self: Id) Def {
-        return table[@intFromEnum(self)];
+        return table[@backingInt(self)];
     }
 
     pub fn statId(self: Id) u32 {
-        return stat_base + @intFromEnum(self);
+        return stat_base + @backingInt(self);
     }
 
     pub fn descendsFrom(self: Id, ancestor: Id) bool {
@@ -242,8 +242,8 @@ pub const key_placeholder = "%1$s";
 
 pub fn describe(buffer: []u8, id: Id, inventory_key: []const u8) []const u8 {
     const raw = id.def().description;
-    const at = std.mem.indexOf(u8, raw, key_placeholder) orelse return raw;
-    return std.fmt.bufPrint(buffer, "{s}{s}{s}", .{
+    const at = std.mem.find(u8, raw, key_placeholder) orelse return raw;
+    return std.mem.print(buffer, "{s}{s}{s}", .{
         raw[0..at],
         inventory_key,
         raw[at + key_placeholder.len ..],
@@ -254,7 +254,7 @@ pub const get_banner = "Achievement get!";
 pub const taken_banner = "Taken!";
 
 pub fn requiresText(buffer: []u8, parent: Id) []const u8 {
-    return std.fmt.bufPrint(buffer, "Requires '{s}'", .{parent.def().title}) catch "";
+    return std.mem.print(buffer, "Requires '{s}'", .{parent.def().title}) catch "";
 }
 
 pub const Bounds = struct {
@@ -279,12 +279,12 @@ pub fn fromStatId(id: u32) ?Id {
     if (id < stat_base) return null;
     const offset = id - stat_base;
     if (offset >= table.len) return null;
-    return @enumFromInt(@as(u8, @intCast(offset)));
+    return @fromBackingInt(@intCast(@as(u8, @intCast(offset))));
 }
 
 pub fn find(key: []const u8) ?Id {
     for (table, 0..) |entry, index| {
-        if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(@as(u8, @intCast(index)));
+        if (std.mem.eql(u8, entry.key, key)) return @fromBackingInt(@intCast(@as(u8, @intCast(index))));
     }
     return null;
 }
@@ -293,7 +293,7 @@ fn langValue(key: []const u8) ?[]const u8 {
     const assets = @import("assets");
     var lines = std.mem.tokenizeAny(u8, assets.lang.stats_US_lang.bytes, "\r\n");
     while (lines.next()) |line| {
-        const split = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const split = std.mem.findScalar(u8, line, '=') orelse continue;
         if (std.mem.eql(u8, line[0..split], key)) return line[split + 1 ..];
     }
     return null;
@@ -305,13 +305,13 @@ test "every achievement's title and description come from the real stats_US lang
     for (std.enums.values(Id)) |id| {
         const entry = id.def();
 
-        const title_key = try std.fmt.bufPrint(&buffer, "achievement.{s}", .{entry.key});
+        const title_key = try std.mem.print(&buffer, "achievement.{s}", .{entry.key});
         try std.testing.expectEqualStrings(langValue(title_key).?, entry.title);
     }
 
     for (std.enums.values(Id)) |id| {
         const entry = id.def();
-        const desc_key = try std.fmt.bufPrint(&buffer, "achievement.{s}.desc", .{entry.key});
+        const desc_key = try std.mem.print(&buffer, "achievement.{s}.desc", .{entry.key});
         try std.testing.expectEqualStrings(langValue(desc_key).?, entry.description);
     }
 

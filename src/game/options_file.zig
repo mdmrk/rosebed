@@ -39,14 +39,14 @@ fn parseFloat(value: []const u8) ?f32 {
 fn parseChoice(comptime Choice: type, value: []const u8) ?Choice {
     const ordinal = std.fmt.parseInt(u8, value, 10) catch return null;
     if (ordinal >= std.enums.values(Choice).len) return null;
-    return @enumFromInt(ordinal);
+    return @fromBackingInt(@intCast(ordinal));
 }
 
 fn writeFloat(out: *std.Io.Writer, name: []const u8, value: f32) !void {
     var buffer: [32]u8 = undefined;
-    const text = try std.fmt.bufPrint(&buffer, "{d}", .{value});
+    const text = try std.mem.print(&buffer, "{d}", .{value});
     try out.print("{s}:{s}", .{ name, text });
-    if (std.mem.indexOfAny(u8, text, ".eEn") == null) try out.writeAll(".0");
+    if (std.mem.findAny(u8, text, ".eEn") == null) try out.writeAll(".0");
     try out.writeByte('\n');
 }
 
@@ -59,16 +59,16 @@ pub fn encode(gpa: std.mem.Allocator, settings: *const Settings) ![]u8 {
     try writeFloat(out, "sound", settings.sound_volume);
     try out.print("invertYMouse:{s}\n", .{boolText(settings.invert_mouse)});
     try writeFloat(out, "mouseSensitivity", settings.sensitivity);
-    try out.print("viewDistance:{d}\n", .{@intFromEnum(settings.render_distance)});
-    try out.print("guiScale:{d}\n", .{@intFromEnum(settings.gui_scale)});
+    try out.print("viewDistance:{d}\n", .{@backingInt(settings.render_distance)});
+    try out.print("guiScale:{d}\n", .{@backingInt(settings.gui_scale)});
     try out.print("bobView:{s}\n", .{boolText(settings.view_bobbing)});
     try out.print("anaglyph3d:{s}\n", .{boolText(settings.anaglyph)});
     try out.print("advancedOpengl:{s}\n", .{boolText(settings.advanced_opengl)});
     try out.print("fullscreen:{s}\n", .{boolText(settings.fullscreen)});
     try out.print("autoJump:{s}\n", .{boolText(settings.auto_jump)});
-    try out.print("touchScheme:{d}\n", .{@intFromEnum(settings.touch_scheme)});
-    try out.print("fpsLimit:{d}\n", .{@intFromEnum(settings.framerate_limit)});
-    try out.print("difficulty:{d}\n", .{@intFromEnum(settings.difficulty)});
+    try out.print("touchScheme:{d}\n", .{@backingInt(settings.touch_scheme)});
+    try out.print("fpsLimit:{d}\n", .{@backingInt(settings.framerate_limit)});
+    try out.print("difficulty:{d}\n", .{@backingInt(settings.difficulty)});
     try out.print("fancyGraphics:{s}\n", .{boolText(settings.fancy_graphics)});
     try out.print("ao:{s}\n", .{boolText(settings.ambient_occlusion)});
     try out.print("skin:{s}\n", .{settings.skin.text()});
@@ -135,7 +135,7 @@ pub fn decode(settings: *Settings, text: []const u8) void {
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
         applyOption(settings, line[0..colon], line[colon + 1 ..]);
     }
 }
@@ -174,11 +174,11 @@ test "the defaults round-trip through the file the original writes" {
     defer gpa.free(text);
 
     try std.testing.expect(std.mem.startsWith(u8, text, "music:1.0\nsound:1.0\ninvertYMouse:false\nmouseSensitivity:0.5\n"));
-    try std.testing.expect(std.mem.indexOf(u8, text, "\nviewDistance:0\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\nfpsLimit:1\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\ndifficulty:2\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\nskin:Default\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "\nlastServer:\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\nviewDistance:0\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\nfpsLimit:1\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\ndifficulty:2\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\nskin:Default\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "\nlastServer:\n") != null);
 
     var loaded: Settings = .{ .difficulty = .hard, .anaglyph = true };
     decode(&loaded, text);
@@ -292,8 +292,8 @@ test "the file is written where the original writes it and read back" {
     defer file.close(io);
     var stored: [4096]u8 = undefined;
     const length = try file.readPositionalAll(io, stored[0..@intCast(try file.length(io))], 0);
-    try std.testing.expect(std.mem.indexOf(u8, stored[0..length], "\nanaglyph3d:true\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stored[0..length], "\nkey_key.jump:99\n") != null);
+    try std.testing.expect(std.mem.find(u8, stored[0..length], "\nanaglyph3d:true\n") != null);
+    try std.testing.expect(std.mem.find(u8, stored[0..length], "\nkey_key.jump:99\n") != null);
 
     const reloaded = load(gpa, io, tmp.dir);
     try std.testing.expect(reloaded.anaglyph);

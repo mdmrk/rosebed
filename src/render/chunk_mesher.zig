@@ -2329,7 +2329,7 @@ test "an unobstructed face lights all four corners the same" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const view = world.ChunkView.around(&world_map, 0, 0);
-    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(8, 0, 8), 0);
+    const corners = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(8, 0, 8), 0);
     for (corners) |corner| try std.testing.expectApproxEqAbs(@as(f32, 1.0), corner, 1.0e-6);
 }
 
@@ -2343,7 +2343,7 @@ test "a block beside the face darkens the two corners nearest it" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const view = world.ChunkView.around(&world_map, 0, 0);
-    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(8, 0, 8), 0);
+    const corners = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(8, 0, 8), 0);
 
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[3], 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), corners[2], 1.0e-6);
@@ -2362,7 +2362,7 @@ test "a diagonal block darkens only the corner it touches" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const view = world.ChunkView.around(&world_map, 0, 0);
-    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(8, 0, 8), 0);
+    const corners = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(8, 0, 8), 0);
 
     const dark = world.light.brightnessAt(&world_map, .init(9, 1, 9), 0);
     try std.testing.expectApproxEqAbs((3.0 + dark) / 4.0, corners[0], 1.0e-6);
@@ -2382,7 +2382,7 @@ test "two solid edges hide whatever is diagonally behind them" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const view = world.ChunkView.around(&world_map, 0, 0);
-    const corners = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(8, 0, 8), 0);
+    const corners = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(8, 0, 8), 0);
 
     const dark = world.light.brightnessAt(&world_map, .init(9, 1, 8), 0);
     try std.testing.expect(world.light.brightnessAt(&world_map, .init(9, 1, 9), 0) > dark);
@@ -2405,13 +2405,13 @@ test "a seam face needs its neighbour lit before it shades correctly" {
 
     try world.light.relightChunk(gpa, &world_map, 0, 0);
     const view = world.ChunkView.around(&world_map, 0, 0);
-    const unlit_neighbour = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(15, 0, 8), 0);
+    const unlit_neighbour = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(15, 0, 8), 0);
     try std.testing.expect(unlit_neighbour[1] < 1.0);
     try std.testing.expect(unlit_neighbour[0] < 1.0);
 
     try world.light.relightChunk(gpa, &world_map, 1, 0);
-    const lit_neighbour = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(15, 0, 8), 0);
-    const interior = smoothBrightness(&view, faces[@intFromEnum(world.Side.up)], .init(8, 0, 8), 0);
+    const lit_neighbour = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(15, 0, 8), 0);
+    const interior = smoothBrightness(&view, faces[@backingInt(world.Side.up)], .init(8, 0, 8), 0);
     for (lit_neighbour, interior) |seam, inside| {
         try std.testing.expectApproxEqAbs(@as(f32, 1.0), seam, 1.0e-6);
         try std.testing.expectApproxEqAbs(inside, seam, 1.0e-6);

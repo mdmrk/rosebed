@@ -67,8 +67,8 @@ pub fn sliderValueAt(which: Slider, mouse_x: f32, res: gui.Scaled) f32 {
 }
 
 fn percentLabel(buf: []u8, prefix: []const u8, value: f32, scale: f32) []const u8 {
-    if (value == 0.0) return std.fmt.bufPrint(buf, "{s}OFF", .{prefix}) catch prefix;
-    return std.fmt.bufPrint(buf, "{s}{d}%", .{ prefix, @as(u32, @intFromFloat(value * scale)) }) catch prefix;
+    if (value == 0.0) return std.mem.print(buf, "{s}OFF", .{prefix}) catch prefix;
+    return std.mem.print(buf, "{s}{d}%", .{ prefix, @as(u32, @intFromFloat(value * scale)) }) catch prefix;
 }
 
 fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
@@ -81,12 +81,12 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
             else if (settings.sensitivity == 1.0)
                 "Sensitivity: HYPERSPEED!!!"
             else
-                std.fmt.bufPrint(buf, "Sensitivity: {d}%", .{@as(u32, @intFromFloat(settings.sensitivity * 200.0))}) catch "Sensitivity: ",
+                std.mem.print(buf, "Sensitivity: {d}%", .{@as(u32, @intFromFloat(settings.sensitivity * 200.0))}) catch "Sensitivity: ",
         },
         .toggle_invert => if (settings.invert_mouse) "Invert Mouse: ON" else "Invert Mouse: OFF",
         .toggle_auto_jump => if (settings.auto_jump) "Auto-Jump: ON" else "Auto-Jump: OFF",
-        .cycle_touch_scheme => std.fmt.bufPrint(buf, "Controls: {s}", .{settings.touch_scheme.label()}) catch "Controls: ",
-        .cycle_difficulty => std.fmt.bufPrint(buf, "Difficulty: {s}", .{settings.difficulty.label()}) catch "Difficulty: ",
+        .cycle_touch_scheme => std.mem.print(buf, "Controls: {s}", .{settings.touch_scheme.label()}) catch "Controls: ",
+        .cycle_difficulty => std.mem.print(buf, "Difficulty: {s}", .{settings.difficulty.label()}) catch "Difficulty: ",
         .video => "Video Settings...",
         .controls => "Controls...",
         .done => "Done",

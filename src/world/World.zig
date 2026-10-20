@@ -92,7 +92,7 @@ pub const AuxSfx = enum(i32) {
 
     pub fn fromId(id: i32) ?AuxSfx {
         inline for (@typeInfo(AuxSfx).@"enum".field_values) |value| {
-            if (value == id) return @enumFromInt(value);
+            if (value == id) return @fromBackingInt(@intCast(value));
         }
         return null;
     }
@@ -135,11 +135,11 @@ pub const Difficulty = enum(u2) {
     }
 
     pub fn next(self: Difficulty) Difficulty {
-        return @enumFromInt(@intFromEnum(self) +% 1);
+        return @fromBackingInt(@intCast(@backingInt(self) +% 1));
     }
 
     pub fn atLeast(self: Difficulty, floor: Difficulty) bool {
-        return @intFromEnum(self) >= @intFromEnum(floor);
+        return @backingInt(self) >= @backingInt(floor);
     }
 
     pub fn scaleHostileDamage(self: Difficulty, amount: i32) i32 {
@@ -436,7 +436,7 @@ pub fn saveLoadedChunks(self: *World) !void {
 const map_data_prefix = "map_";
 
 fn mapFileName(buffer: []u8, id: i16) ![]const u8 {
-    return std.fmt.bufPrint(buffer, map_data_prefix ++ "{d}", .{id});
+    return std.mem.print(buffer, map_data_prefix ++ "{d}", .{id});
 }
 
 pub fn mapData(self: *World, id: i16) !*map.MapData {
@@ -1242,11 +1242,11 @@ fn dispenserDefaultFacing(self: *const World, pos: BlockPos) u4 {
     const west = self.getBlock(pos.offset(-1, 0, 0)).isOpaqueCube();
     const east = self.getBlock(pos.offset(1, 0, 0)).isOpaqueCube();
 
-    var facing: u4 = @intFromEnum(block.Side.south);
-    if (north and !south) facing = @intFromEnum(block.Side.south);
-    if (south and !north) facing = @intFromEnum(block.Side.north);
-    if (west and !east) facing = @intFromEnum(block.Side.east);
-    if (east and !west) facing = @intFromEnum(block.Side.west);
+    var facing: u4 = @backingInt(block.Side.south);
+    if (north and !south) facing = @backingInt(block.Side.south);
+    if (south and !north) facing = @backingInt(block.Side.north);
+    if (west and !east) facing = @backingInt(block.Side.east);
+    if (east and !west) facing = @backingInt(block.Side.west);
     return facing;
 }
 
@@ -1481,7 +1481,7 @@ test "a lit furnace swaps the block for its burning id, keeping its facing" {
     defer w.deinit();
     _ = try w.createChunk(0, 0);
 
-    const facing: u4 = @intFromEnum(block.Side.west);
+    const facing: u4 = @backingInt(block.Side.west);
     try w.setBlockAndMetadataWithNotify(.init(3, 10, 4), .furnace, facing);
     const state = try w.addFurnace(.init(3, 10, 4));
     state.input = .{ .id = .{ .block = .sand }, .count = 1 };
@@ -2032,7 +2032,7 @@ test "a registered block's scheduled tick hook runs when its update falls due" {
     defer Block.resetRegistry();
     hook_hits = 0;
 
-    const custom: Block = @enumFromInt(200);
+    const custom: Block = @fromBackingInt(@intCast(200));
     custom.register(.{ .key = "rosebed:ticker", .on_tick = countHook });
 
     var w = try loadedWorld(std.testing.allocator);
@@ -2064,7 +2064,7 @@ test "a registered block's neighbour hook runs when the block beside it changes"
     defer Block.resetRegistry();
     hook_hits = 0;
 
-    const custom: Block = @enumFromInt(201);
+    const custom: Block = @fromBackingInt(@intCast(201));
     custom.register(.{ .key = "rosebed:listener", .on_neighbor_change = countHook });
 
     var w = try loadedWorld(std.testing.allocator);
@@ -2080,7 +2080,7 @@ test "a neighbour hook that removes its own block stops the support check runnin
     defer Block.resetRegistry();
     hook_hits = 0;
 
-    const custom: Block = @enumFromInt(202);
+    const custom: Block = @fromBackingInt(@intCast(202));
     custom.register(.{ .key = "rosebed:crumbler", .on_neighbor_change = clearHook });
 
     var w = try loadedWorld(std.testing.allocator);
@@ -2113,7 +2113,7 @@ test "a registered block's random tick hook runs when the sampler lands on it" {
     defer Block.resetRegistry();
     hook_hits = 0;
 
-    const custom: Block = @enumFromInt(203);
+    const custom: Block = @fromBackingInt(@intCast(203));
     custom.register(.{ .key = "rosebed:grower", .on_random_tick = countHook });
 
     var w = try loadedWorld(std.testing.allocator);

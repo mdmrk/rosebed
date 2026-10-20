@@ -84,14 +84,14 @@ fn onOff(value: bool) []const u8 {
 fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
     return switch (hit) {
         .graphics => if (settings.fancy_graphics) "Graphics: Fancy" else "Graphics: Fast",
-        .render_distance => std.fmt.bufPrint(buf, "Render Distance: {s}", .{settings.render_distance.label()}) catch "Render Distance: ",
-        .ambient_occlusion => std.fmt.bufPrint(buf, "Smooth Lighting: {s}", .{onOff(settings.ambient_occlusion)}) catch "Smooth Lighting: ",
-        .framerate_limit => std.fmt.bufPrint(buf, "Performance: {s}", .{settings.framerate_limit.label()}) catch "Performance: ",
-        .anaglyph => std.fmt.bufPrint(buf, "3D Anaglyph: {s}", .{onOff(settings.anaglyph)}) catch "3D Anaglyph: ",
-        .view_bobbing => std.fmt.bufPrint(buf, "View Bobbing: {s}", .{onOff(settings.view_bobbing)}) catch "View Bobbing: ",
-        .gui_scale => std.fmt.bufPrint(buf, "GUI Scale: {s}", .{settings.gui_scale.label()}) catch "GUI Scale: ",
-        .advanced_opengl => std.fmt.bufPrint(buf, "Advanced OpenGL: {s}", .{onOff(settings.advanced_opengl)}) catch "Advanced OpenGL: ",
-        .fullscreen => std.fmt.bufPrint(buf, "Fullscreen: {s}", .{onOff(settings.fullscreen)}) catch "Fullscreen: ",
+        .render_distance => std.mem.print(buf, "Render Distance: {s}", .{settings.render_distance.label()}) catch "Render Distance: ",
+        .ambient_occlusion => std.mem.print(buf, "Smooth Lighting: {s}", .{onOff(settings.ambient_occlusion)}) catch "Smooth Lighting: ",
+        .framerate_limit => std.mem.print(buf, "Performance: {s}", .{settings.framerate_limit.label()}) catch "Performance: ",
+        .anaglyph => std.mem.print(buf, "3D Anaglyph: {s}", .{onOff(settings.anaglyph)}) catch "3D Anaglyph: ",
+        .view_bobbing => std.mem.print(buf, "View Bobbing: {s}", .{onOff(settings.view_bobbing)}) catch "View Bobbing: ",
+        .gui_scale => std.mem.print(buf, "GUI Scale: {s}", .{settings.gui_scale.label()}) catch "GUI Scale: ",
+        .advanced_opengl => std.mem.print(buf, "Advanced OpenGL: {s}", .{onOff(settings.advanced_opengl)}) catch "Advanced OpenGL: ",
+        .fullscreen => std.mem.print(buf, "Fullscreen: {s}", .{onOff(settings.fullscreen)}) catch "Fullscreen: ",
         .done => "Done",
     };
 }
@@ -154,7 +154,7 @@ test "the last row clears the Done button" {
 }
 
 test "fullscreen is offered only where the window is not already the whole screen" {
-    try std.testing.expectEqual(!wasm and !android, std.mem.indexOfScalar(Hit, &order, .fullscreen) != null);
+    try std.testing.expectEqual(!wasm and !android, std.mem.findScalar(Hit, &order, .fullscreen) != null);
 }
 
 test "fullscreen toggles off and on" {

@@ -224,7 +224,7 @@ fn flushBlockChanges(dim: *Dim) !void {
                 .x = pos.x,
                 .y = @intCast(pos.y),
                 .z = pos.z,
-                .block = @intFromEnum(dim.level.world_map.getBlock(pos)),
+                .block = @backingInt(dim.level.world_map.getBlock(pos)),
                 .metadata = dim.level.world_map.getBlockMetadata(pos),
             } });
             continue;
@@ -244,7 +244,7 @@ fn flushBlockChanges(dim: *Dim) !void {
                 @intCast(raw & 255),
                 coord.z * width + @as(i32, @intCast(raw >> 8 & 15)),
             );
-            types[index] = @intFromEnum(dim.level.world_map.getBlock(pos));
+            types[index] = @backingInt(dim.level.world_map.getBlock(pos));
             metadata[index] = dim.level.world_map.getBlockMetadata(pos);
         }
 
@@ -332,7 +332,7 @@ fn broadcastAuxSfx(
     except: ?*Connection,
 ) void {
     const message: net.packet.Packet = .{ .door_change = .{
-        .effect = @intFromEnum(effect),
+        .effect = @backingInt(effect),
         .x = pos.x,
         .y = @truncate(pos.y),
         .z = pos.z,

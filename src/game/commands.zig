@@ -193,17 +193,17 @@ fn tryParse(text: ?[]const u8, fallback: u8) u8 {
 pub fn resolveId(raw: u32) ?world.Id {
     if (raw == 0) return null;
     if (raw < 256) {
-        const id: world.Block = @enumFromInt(raw);
+        const id: world.Block = @fromBackingInt(@intCast(raw));
         return if (std.enums.tagName(world.Block, id) == null) null else .{ .block = id };
     }
     if (raw > std.math.maxInt(u16)) return null;
-    const id: world.Item = @enumFromInt(raw);
+    const id: world.Item = @fromBackingInt(@intCast(raw));
     return if (std.enums.tagName(world.Item, id) == null) null else .{ .item = id };
 }
 
 pub fn resolveBlock(raw: u32) ?world.Block {
     if (raw > 255) return null;
-    const id: world.Block = @enumFromInt(raw);
+    const id: world.Block = @fromBackingInt(@intCast(raw));
     return if (std.enums.tagName(world.Block, id) == null) null else id;
 }
 
@@ -523,10 +523,10 @@ test "every verb names itself in help and answers to that name" {
 }
 
 test "help lines all break for their description in the same column" {
-    const column = std.mem.indexOf(u8, help_lines[1], Verb.help.description()).?;
+    const column = std.mem.find(u8, help_lines[1], Verb.help.description()).?;
     var tightest: usize = std.math.maxInt(usize);
     for (std.enums.values(Verb), help_lines[1..]) |verb, line| {
-        try std.testing.expectEqual(column, std.mem.indexOf(u8, line, verb.description()).?);
+        try std.testing.expectEqual(column, std.mem.find(u8, line, verb.description()).?);
         const written = std.mem.trimEnd(u8, line[0..column], " ");
         try std.testing.expect(std.mem.endsWith(u8, written, verb.usage()));
         tightest = @min(tightest, column - written.len);
@@ -557,7 +557,7 @@ test "give takes a block or item by its own name" {
 test "a name that is both a block and an item hands over the item" {
     for ([_][]const u8{ "cake", "reed", "brick", "door_wood", "door_iron" }) |name| {
         var line: [64]u8 = undefined;
-        const typed = std.fmt.bufPrint(&line, "/give {s}", .{name}) catch unreachable;
+        const typed = std.mem.print(&line, "/give {s}", .{name}) catch unreachable;
         const given = parse(typed).give;
         try std.testing.expect(given.id == .item);
         try std.testing.expectEqualStrings(name, @tagName(given.id.item));

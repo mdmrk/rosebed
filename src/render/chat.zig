@@ -346,7 +346,7 @@ test "the backlog stops at fifty lines and drops the oldest" {
     var state: State = .{};
     for (0..max_lines + 5) |i| {
         var buf: [8]u8 = undefined;
-        state.addMessage(test_font, std.fmt.bufPrint(&buf, "{d}", .{i}) catch unreachable);
+        state.addMessage(test_font, std.mem.print(&buf, "{d}", .{i}) catch unreachable);
     }
 
     try std.testing.expectEqual(max_lines, state.line_count);

@@ -17,7 +17,7 @@ pub const Opcode = enum(u4) {
     _,
 
     pub fn control(self: Opcode) bool {
-        return @intFromEnum(self) & 0x8 != 0;
+        return @backingInt(self) & 0x8 != 0;
     }
 };
 
@@ -58,7 +58,7 @@ pub fn readUpgrade(r: *std.Io.Reader) ![accept_length]u8 {
         const line = std.mem.trimEnd(u8, raw, "\r\n");
         if (line.len == 0) break;
 
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
         const name = std.mem.trim(u8, line[0..colon], " \t");
         if (!std.ascii.eqlIgnoreCase(name, "sec-websocket-key")) continue;
 
@@ -92,7 +92,7 @@ pub fn readFrame(gpa: std.mem.Allocator, r: *std.Io.Reader, payload: *std.ArrayL
 
     const mask = (try r.takeArray(4)).*;
     const frame: Frame = .{
-        .opcode = @enumFromInt(@as(u4, @truncate(first))),
+        .opcode = @fromBackingInt(@intCast(@as(u4, @truncate(first)))),
         .final = first & 0x80 != 0,
     };
 
@@ -113,7 +113,7 @@ pub fn readFrame(gpa: std.mem.Allocator, r: *std.Io.Reader, payload: *std.ArrayL
 }
 
 pub fn writeFrame(w: *std.Io.Writer, opcode: Opcode, payload: []const u8) !void {
-    try w.writeInt(u8, 0x80 | @as(u8, @intFromEnum(opcode)), .big);
+    try w.writeInt(u8, 0x80 | @as(u8, @backingInt(opcode)), .big);
 
     if (payload.len < 126) {
         try w.writeInt(u8, @intCast(payload.len), .big);

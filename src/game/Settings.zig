@@ -20,7 +20,7 @@ pub const RenderDistance = enum(u2) {
     }
 
     pub fn next(self: RenderDistance) RenderDistance {
-        return @enumFromInt(@intFromEnum(self) +% 1);
+        return @fromBackingInt(@intCast(@backingInt(self) +% 1));
     }
 };
 
@@ -83,11 +83,11 @@ pub const GuiScale = enum(u2) {
     }
 
     pub fn next(self: GuiScale) GuiScale {
-        return @enumFromInt(@intFromEnum(self) +% 1);
+        return @fromBackingInt(@intCast(@backingInt(self) +% 1));
     }
 
     pub fn limit(self: GuiScale) f32 {
-        return if (self == .auto) 1000 else @floatFromInt(@intFromEnum(self));
+        return if (self == .auto) 1000 else @floatFromInt(@backingInt(self));
     }
 };
 

@@ -16,7 +16,7 @@ pub const Jukebox = struct {
 pub fn insertRecord(world_map: *World, pos: BlockPos, record: Item) !void {
     (try world_map.addJukebox(pos)).record = record;
     try world_map.setBlockMetadataWithNotify(pos, 1);
-    world_map.playAuxSfx(.record_play, pos, @intFromEnum(record));
+    world_map.playAuxSfx(.record_play, pos, @backingInt(record));
 }
 
 pub fn takeRecord(world_map: *World, pos: BlockPos) !?Item {
@@ -38,7 +38,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Jukebox) !nbt.Tag {
     try tile.header(gpa, &compound, id_key, pos);
 
     if (state.record) |record| {
-        try nbt.putDuped(gpa, &compound, "Record", .{ .int = @intFromEnum(record) });
+        try nbt.putDuped(gpa, &compound, "Record", .{ .int = @backingInt(record) });
     }
 
     return .{ .compound = compound };
@@ -58,7 +58,7 @@ pub fn load(compound: nbt.Compound) ?Placed {
 
     const raw = nbt.intField(compound, "Record") orelse 0;
     const record: ?Item = if (raw > 0 and raw <= std.math.maxInt(u16))
-        @enumFromInt(@as(u16, @intCast(raw)))
+        @fromBackingInt(@intCast(@as(u16, @intCast(raw))))
     else
         null;
 
@@ -168,7 +168,7 @@ test "a jukebox names the record it starts, and names nothing when it stops" {
 
     try insertRecord(&w, .init(8, 4, 8), .record_cat);
     try std.testing.expectEqual(World.AuxSfx.record_play, heard.last.?);
-    try std.testing.expectEqual(@as(i32, @intFromEnum(Item.record_cat)), heard.data);
+    try std.testing.expectEqual(@as(i32, @backingInt(Item.record_cat)), heard.data);
 
     try std.testing.expectEqual(Item.record_cat, (try takeRecord(&w, .init(8, 4, 8))).?);
     try std.testing.expectEqual(World.AuxSfx.record_play, heard.last.?);

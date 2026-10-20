@@ -23,7 +23,7 @@ pub fn deinit(self: *Pool, gpa: std.mem.Allocator) void {
 }
 
 pub fn keyOf(gpa: std.mem.Allocator, path: []const u8, strip_digits: bool) ![]u8 {
-    var end = std.mem.indexOfScalar(u8, path, '.') orelse path.len;
+    var end = std.mem.findScalar(u8, path, '.') orelse path.len;
     if (strip_digits) {
         while (end > 0 and std.ascii.isDigit(path[end - 1])) end -= 1;
     }

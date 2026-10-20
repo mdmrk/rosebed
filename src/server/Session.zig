@@ -664,7 +664,7 @@ pub fn tickPlayer(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !b
     return false;
 }
 
-pub const map_item_id: i16 = @intFromEnum(world.Item.map);
+pub const map_item_id: i16 = @backingInt(world.Item.map);
 
 fn holdsMap(player: *const game.Player, stack: world.Stack) bool {
     for (player.inventory.slots) |carried| {
@@ -774,7 +774,7 @@ pub fn travel(
     self.window_id = player_window;
     self.progress = @splat(-1);
 
-    try self.send(gpa, .{ .respawn = .{ .dimension = @intFromEnum(target) } });
+    try self.send(gpa, .{ .respawn = .{ .dimension = @backingInt(target) } });
     try self.sendPosition(gpa);
     try self.send(gpa, .{ .update_time = .{ .time = to.world_map.time } });
     try self.sendWindowContents(gpa, to);
@@ -903,7 +903,7 @@ fn acceptLogin(
         .protocol_version = @intCast(player.base.id),
         .username = "",
         .map_seed = level.generator.worldSeed(),
-        .dimension = @intFromEnum(self.dimension),
+        .dimension = @backingInt(self.dimension),
     } });
     try self.send(gpa, .{ .spawn_position = .{
         .x = level.spawn[0],
@@ -931,7 +931,7 @@ fn respawnPlayer(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !vo
     self.last_height = player.base.position.y;
     self.sent_health = std.math.maxInt(i16);
     try self.sendPosition(gpa);
-    try self.send(gpa, .{ .respawn = .{ .dimension = @intFromEnum(self.dimension) } });
+    try self.send(gpa, .{ .respawn = .{ .dimension = @backingInt(self.dimension) } });
     try self.reportHealth(gpa);
 }
 
@@ -1202,7 +1202,7 @@ fn handleChat(self: *Session, gpa: std.mem.Allocator, level: *game.Level, messag
     if (trimmed[0] == '/') return self.runCommand(gpa, level, trimmed);
 
     var line: ChatLine = .{};
-    const written = std.fmt.bufPrint(&line.bytes, "<{s}> {s}", .{ self.name.text(), trimmed }) catch return;
+    const written = std.mem.print(&line.bytes, "<{s}> {s}", .{ self.name.text(), trimmed }) catch return;
     line.len = written.len;
     self.pending_chat = line;
 }
@@ -1215,7 +1215,7 @@ fn runCommand(self: *Session, gpa: std.mem.Allocator, level: *game.Level, line: 
             game.commands.applyWeather(&level.world_map.weather, asked);
 
             var buffer: [net.packet.max_chat]u8 = undefined;
-            const said = std.fmt.bufPrint(&buffer, game.commands.set_weather_line, .{@tagName(asked.sky)}) catch return;
+            const said = std.mem.print(&buffer, game.commands.set_weather_line, .{@tagName(asked.sky)}) catch return;
             try self.sendChat(gpa, said);
         },
         else => {},
@@ -1249,7 +1249,7 @@ pub fn currentWindow(self: *Session, level: *game.Level) game.Window {
                 window.add(.{
                     .stack = &player.inventory.armor[piece],
                     .kind = .armor,
-                    .armor = @enumFromInt(piece),
+                    .armor = @fromBackingInt(@intCast(piece)),
                 });
             }
         },
@@ -1565,7 +1565,7 @@ pub fn sendNote(
         .x = pos.x,
         .y = @intCast(pos.y),
         .z = pos.z,
-        .instrument = @intFromEnum(instrument),
+        .instrument = @backingInt(instrument),
         .pitch = pitch,
     } });
 }
@@ -1648,7 +1648,7 @@ pub fn announce(self: *Session, gpa: std.mem.Allocator, who: []const u8, joined:
     if (self.state != .playing) return;
 
     var buffer: [net.packet.max_chat]u8 = undefined;
-    const line = std.fmt.bufPrint(&buffer, "{s}{s} {s} the game.", .{
+    const line = std.mem.print(&buffer, "{s}{s} {s} the game.", .{
         join_colour,
         who,
         if (joined) "joined" else "left",
@@ -1684,7 +1684,7 @@ fn digBlock(
     if (!withinReach(player, .init(x, height, z))) return;
 
     if (status == .started) {
-        if (face <= 5) try level.world_map.onBlockHit(.init(x, height, z), @enumFromInt(face));
+        if (face <= 5) try level.world_map.onBlockHit(.init(x, height, z), @fromBackingInt(@intCast(face)));
 
         const punched = level.world_map.getBlock(.init(x, height, z));
         if (punched == .tnt and holdingFlintAndSteel(player)) {
@@ -1700,7 +1700,7 @@ fn digBlock(
     const meta = level.world_map.getBlockMetadata(.init(x, height, z));
     self.broke = .{
         .pos = .init(x, height, z),
-        .data = @bitCast(@as(u32, @intFromEnum(broken)) | @as(u32, meta) << 8),
+        .data = @bitCast(@as(u32, @backingInt(broken)) | @as(u32, meta) << 8),
     };
     const lit_tnt = broken == .tnt and world.tnt.isLit(meta);
     try level.world_map.setBlockWithNotify(.init(x, height, z), .air);
@@ -1914,7 +1914,7 @@ fn useFishingRod(self: *Session, gpa: std.mem.Allocator, level: *game.Level) !vo
     const player = self.player orelse return;
 
     if (try level.entities.reelHook(gpa, player, &level.world_map.rand)) |what| {
-        self.damageHeld(@intFromEnum(what));
+        self.damageHeld(@backingInt(what));
         return;
     }
     try level.entities.castHook(gpa, player, &level.world_map.rand);
@@ -1961,7 +1961,7 @@ fn placeSign(self: *Session, level: *game.Level, pos: BlockPos, face: world.bloc
         try level.world_map.setBlockAndMetadataWithNotify(
             target.pos,
             .wall_sign,
-            @intFromEnum(face),
+            @backingInt(face),
         );
     }
 
@@ -2087,14 +2087,14 @@ fn placeBlock(
     const stack = player.inventory.selectedStack() orelse return;
     const placed = switch (stack.id) {
         .block => |id| id,
-        .item => |id| id.placedBlock() orelse return self.useItemOn(gpa, level, id, stack, .init(x, hit_y, z), @enumFromInt(face)),
+        .item => |id| id.placedBlock() orelse return self.useItemOn(gpa, level, id, stack, .init(x, hit_y, z), @fromBackingInt(@intCast(face))),
     };
     if (placed == .air) return;
 
     const target = world.block_update.placementTarget(
         &level.world_map,
         .init(x, hit_y, z),
-        @enumFromInt(face),
+        @fromBackingInt(@intCast(face)),
     );
     if (target.pos.y < 0 or target.pos.y >= world.Chunk.height) return;
     if (!withinReach(player, target.pos)) return;
@@ -2136,7 +2136,7 @@ pub fn sendBlockChange(
         .x = pos.x,
         .y = @intCast(pos.y),
         .z = pos.z,
-        .block = @intFromEnum(block),
+        .block = @backingInt(block),
         .metadata = metadata,
     } });
 }
@@ -2701,7 +2701,7 @@ test "a place puts the held block against the face the client clicked" {
         .y = 63,
         .z = 8,
         .face = 1,
-        .held = .{ .id = @intFromEnum(world.Block.planks), .count = 1, .damage = 0 },
+        .held = .{ .id = @backingInt(world.Block.planks), .count = 1, .damage = 0 },
     } });
 
     try std.testing.expectEqual(world.Block.planks, level.world_map.getBlock(.init(8, 64, 8)));
@@ -2817,7 +2817,7 @@ test "a block change only reaches a player who has been sent that chunk" {
     const change = replies.items[0].block_change;
     try std.testing.expectEqual(@as(i32, 8), change.x);
     try std.testing.expectEqual(@as(u8, 63), change.y);
-    try std.testing.expectEqual(@intFromEnum(world.Block.stone), change.block);
+    try std.testing.expectEqual(@backingInt(world.Block.stone), change.block);
     try std.testing.expectEqual(@as(u8, 5), change.metadata);
 }
 

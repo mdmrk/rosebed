@@ -131,14 +131,14 @@ const thing_stat_stride: u32 = 65536;
 
 pub fn idNumber(id: world.Id) u16 {
     return switch (id) {
-        .block => |block| @intFromEnum(block),
-        .item => |item| @intFromEnum(item),
+        .block => |block| @backingInt(block),
+        .item => |item| @backingInt(item),
     };
 }
 
 fn idFromNumber(raw: u16) world.Id {
-    if (raw < 256) return .{ .block = @enumFromInt(@as(u8, @intCast(raw))) };
-    return .{ .item = @enumFromInt(raw) };
+    if (raw < 256) return .{ .block = @fromBackingInt(@intCast(@as(u8, @intCast(raw)))) };
+    return .{ .item = @fromBackingInt(@intCast(raw)) };
 }
 
 pub fn statId(stat: Key) u32 {
@@ -358,7 +358,7 @@ pub fn itemRows(gpa: std.mem.Allocator, stats: *const Stats) ![]world.Id {
 
 fn appendGrouped(buffer: []u8, value: i64) []const u8 {
     var digits: [24]u8 = undefined;
-    const text = std.fmt.bufPrint(&digits, "{d}", .{value}) catch return "";
+    const text = std.mem.print(&digits, "{d}", .{value}) catch return "";
     const negative = text[0] == '-';
     const body = if (negative) text[1..] else text;
 
@@ -382,8 +382,8 @@ fn appendGrouped(buffer: []u8, value: i64) []const u8 {
 }
 
 fn javaDouble(buffer: []u8, value: f64) []const u8 {
-    const text = std.fmt.bufPrint(buffer, "{d}", .{value}) catch return "";
-    if (std.mem.indexOfScalar(u8, text, '.') != null) return text;
+    const text = std.mem.print(buffer, "{d}", .{value}) catch return "";
+    if (std.mem.findScalar(u8, text, '.') != null) return text;
     if (text.len + 2 > buffer.len) return text;
     buffer[text.len] = '.';
     buffer[text.len + 1] = '0';
@@ -399,19 +399,19 @@ pub fn formatValue(buffer: []u8, unit: Unit, value: i32) []const u8 {
             const hours = minutes / 60.0;
             const days = hours / 24.0;
             const years = days / 365.0;
-            if (years > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} y", .{years}) catch "";
-            if (days > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} d", .{days}) catch "";
-            if (hours > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} h", .{hours}) catch "";
-            if (minutes > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} m", .{minutes}) catch "";
+            if (years > 0.5) return std.mem.print(buffer, "{d:.2} y", .{years}) catch "";
+            if (days > 0.5) return std.mem.print(buffer, "{d:.2} d", .{days}) catch "";
+            if (hours > 0.5) return std.mem.print(buffer, "{d:.2} h", .{hours}) catch "";
+            if (minutes > 0.5) return std.mem.print(buffer, "{d:.2} m", .{minutes}) catch "";
             var number: [32]u8 = undefined;
-            return std.fmt.bufPrint(buffer, "{s} s", .{javaDouble(&number, seconds)}) catch "";
+            return std.mem.print(buffer, "{s} s", .{javaDouble(&number, seconds)}) catch "";
         },
         .distance => {
             const meters = @as(f64, @floatFromInt(value)) / 100.0;
             const kilometers = meters / 1000.0;
-            if (kilometers > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} km", .{kilometers}) catch "";
-            if (meters > 0.5) return std.fmt.bufPrint(buffer, "{d:.2} m", .{meters}) catch "";
-            return std.fmt.bufPrint(buffer, "{d} cm", .{value}) catch "";
+            if (kilometers > 0.5) return std.mem.print(buffer, "{d:.2} km", .{kilometers}) catch "";
+            if (meters > 0.5) return std.mem.print(buffer, "{d:.2} m", .{meters}) catch "";
+            return std.mem.print(buffer, "{d} cm", .{value}) catch "";
         },
     }
 }

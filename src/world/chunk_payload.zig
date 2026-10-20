@@ -12,7 +12,7 @@ pub const nibbles_len = Chunk.volume / 2;
 pub const full_len = blocks_len + nibbles_len * 3;
 
 pub fn writeFull(chunk: *const Chunk, out: *[full_len]u8) void {
-    for (chunk.blocks, out[0..blocks_len]) |block, *byte| byte.* = @intFromEnum(block);
+    for (chunk.blocks, out[0..blocks_len]) |block, *byte| byte.* = @backingInt(block);
     @memcpy(out[blocks_len..][0..nibbles_len], &chunk.metadata.data);
     @memcpy(out[blocks_len + nibbles_len ..][0..nibbles_len], &chunk.block_light.data);
     @memcpy(out[blocks_len + nibbles_len * 2 ..][0..nibbles_len], &chunk.sky_light.data);
@@ -60,7 +60,7 @@ pub fn writeBox(chunk: *const Chunk, box: Box, out: []u8) void {
         for (box.z..box.z + box.size_z) |z| {
             const start = runIndex(@intCast(x), box.y, @intCast(z));
             for (chunk.blocks[start..][0..box.size_y], out[at..][0..box.size_y]) |id, *byte| {
-                byte.* = @intFromEnum(id);
+                byte.* = @backingInt(id);
             }
             at += box.size_y;
         }
@@ -101,7 +101,7 @@ pub fn readBox(chunk: *Chunk, box: Box, raw: []const u8) ReadError!void {
         for (box.z..box.z + box.size_z) |z| {
             const start = runIndex(@intCast(x), box.y, @intCast(z));
             for (raw[at..][0..box.size_y], chunk.blocks[start..][0..box.size_y]) |byte, *id| {
-                id.* = @enumFromInt(byte);
+                id.* = @fromBackingInt(@intCast(byte));
             }
             at += box.size_y;
         }
@@ -134,7 +134,7 @@ pub fn decompressBox(gpa: std.mem.Allocator, chunk: *Chunk, box: Box, compressed
 pub fn readFull(chunk: *Chunk, raw: []const u8) ReadError!void {
     if (raw.len != full_len) return error.WrongSize;
 
-    for (raw[0..blocks_len], &chunk.blocks) |byte, *block| block.* = @enumFromInt(byte);
+    for (raw[0..blocks_len], &chunk.blocks) |byte, *block| block.* = @fromBackingInt(@intCast(byte));
     @memcpy(&chunk.metadata.data, raw[blocks_len..][0..nibbles_len]);
     @memcpy(&chunk.block_light.data, raw[blocks_len + nibbles_len ..][0..nibbles_len]);
     @memcpy(&chunk.sky_light.data, raw[blocks_len + nibbles_len * 2 ..][0..nibbles_len]);
@@ -168,7 +168,7 @@ test "the payload is blocks, then metadata, then block light, then sky light" {
     writeFull(chunk, out);
 
     const index = (@as(usize, 1) << 11) | (@as(usize, 3) << 7) | 2;
-    try std.testing.expectEqual(@intFromEnum(Block.stone), out[index]);
+    try std.testing.expectEqual(@backingInt(Block.stone), out[index]);
     try std.testing.expectEqual(@as(u8, 9), out[blocks_len + index / 2] & 0x0f);
     try std.testing.expectEqual(@as(u8, 7), out[blocks_len + nibbles_len + index / 2] & 0x0f);
     try std.testing.expectEqual(@as(u8, 15), out[blocks_len + nibbles_len * 2 + index / 2] & 0x0f);
@@ -215,7 +215,7 @@ test "a chunk read back from its payload matches the one that was written" {
         for (0..Chunk.width) |z| {
             for (0..40) |y| {
                 seed = seed *% 1664525 +% 1013904223;
-                sent.setBlock(@intCast(x), @intCast(y), @intCast(z), @enumFromInt(@as(u8, @truncate(seed >> 16))));
+                sent.setBlock(@intCast(x), @intCast(y), @intCast(z), @fromBackingInt(@intCast(@as(u8, @truncate(seed >> 16)))));
                 sent.setBlockMetadata(@intCast(x), @intCast(y), @intCast(z), @truncate(seed >> 8));
                 sent.setBlockLight(@intCast(x), @intCast(y), @intCast(z), @truncate(seed >> 4));
                 sent.setSkyLight(@intCast(x), @intCast(y), @intCast(z), @truncate(seed));
@@ -252,7 +252,7 @@ fn speckledChunk(chunk: *Chunk) void {
         for (0..Chunk.width) |z| {
             for (0..Chunk.height) |y| {
                 const seed: u32 = @intCast(x * 31 + z * 17 + y * 7);
-                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), @enumFromInt(@as(u8, @truncate(seed))));
+                chunk.setBlock(@intCast(x), @intCast(y), @intCast(z), @fromBackingInt(@intCast(@as(u8, @truncate(seed)))));
                 chunk.setBlockMetadata(@intCast(x), @intCast(y), @intCast(z), @truncate(seed));
                 chunk.setBlockLight(@intCast(x), @intCast(y), @intCast(z), @truncate(seed >> 1));
                 chunk.setSkyLight(@intCast(x), @intCast(y), @intCast(z), @truncate(seed >> 2));

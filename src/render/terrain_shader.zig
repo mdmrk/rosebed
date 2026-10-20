@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const Shader = @import("Shader.zig");
 
 fn retarget(comptime source: []const u8, comptime header: []const u8) [:0]const u8 {
-    const body = source[std.mem.indexOfScalar(u8, source, '\n').? + 1 ..];
+    const body = source[std.mem.findScalar(u8, source, '\n').? + 1 ..];
     return std.fmt.comptimePrint("{s}{s}", .{ header, body });
 }
 

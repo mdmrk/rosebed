@@ -145,7 +145,7 @@ pub fn handle(
             .login => |body| {
                 self.entity_id = @bitCast(body.protocol_version);
                 self.map_seed = body.map_seed;
-                self.dimension = @enumFromInt(body.dimension);
+                self.dimension = @fromBackingInt(@intCast(body.dimension));
                 self.state = .playing;
             },
             else => self.fail(gpa, "Server spoke out of turn", false),
@@ -173,7 +173,7 @@ fn handlePlaying(
             }
         },
         .respawn => |body| {
-            const target: world.Dimension = @enumFromInt(body.dimension);
+            const target: world.Dimension = @fromBackingInt(@intCast(body.dimension));
             if (target != self.dimension) {
                 self.dimension = target;
                 self.pending_dimension = target;
@@ -279,7 +279,7 @@ fn handlePlaying(
         },
         .play_note_block => |body| level.world_map.playNoteAt(
             .init(body.x, body.y, body.z),
-            @enumFromInt(body.instrument),
+            @fromBackingInt(@intCast(body.instrument)),
             body.pitch,
         ),
         .explosion => |body| try self.showBlast(gpa, level, body),
@@ -304,7 +304,7 @@ fn handlePlaying(
             try self.chat.append(gpa, line);
         },
         .map_data => |body| {
-            if (body.kind != @as(i16, @intFromEnum(world.Item.map))) return;
+            if (body.kind != @as(i16, @backingInt(world.Item.map))) return;
             const data = try level.world_map.mapData(body.map_id);
             try data.applyPayload(gpa, body.data);
         },
@@ -873,7 +873,7 @@ fn mapChunkBox(
 }
 
 fn blockChange(_: *Connection, level: *game.Level, x: i32, y: u8, z: i32, block: u8, metadata: u8) !void {
-    level.world_map.setBlock(.init(x, @intCast(y), z), @enumFromInt(block));
+    level.world_map.setBlock(.init(x, @intCast(y), z), @fromBackingInt(@intCast(block)));
     level.world_map.setBlockMetadata(.init(x, @intCast(y), z), @truncate(metadata));
     try level.world_map.markChanged(.init(x, @intCast(y), z));
 }
@@ -1445,7 +1445,7 @@ test "an aux sound effect from the server is played out on this client" {
     connection.state = .playing;
 
     try connection.handle(gpa, &level, testing_username, .{ .door_change = .{
-        .effect = @intFromEnum(world.World.AuxSfx.block_break),
+        .effect = @backingInt(world.World.AuxSfx.block_break),
         .x = 5,
         .y = 70,
         .z = -6,
@@ -1558,7 +1558,7 @@ test "a block change from the server lands in the world" {
         .x = 5,
         .y = 70,
         .z = 6,
-        .block = @intFromEnum(world.Block.planks),
+        .block = @backingInt(world.Block.planks),
         .metadata = 3,
     } });
 
@@ -1584,7 +1584,7 @@ test "a multi block change unpacks each coordinate the way vanilla packs it" {
         .chunk_x = 1,
         .chunk_z = 1,
         .coordinates = &.{ packed_a, packed_b },
-        .types = &.{ @intFromEnum(world.Block.stone), @intFromEnum(world.Block.glass) },
+        .types = &.{ @backingInt(world.Block.stone), @backingInt(world.Block.glass) },
         .metadata = &.{ 0, 2 },
     } });
 

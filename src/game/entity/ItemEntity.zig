@@ -145,7 +145,7 @@ pub fn pickupPitch(rand: *world.JavaRandom) f32 {
 
 test "spawn seeds an upward hop and a small random horizontal drift" {
     var rand = world.JavaRandom.init(0);
-    const item = ItemEntity.spawn(math.Vec3.init(8, 5, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
+    const item = ItemEntity.spawn(math.Vec3.init(8, 5, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), item.base.motion.y, 1.0e-9);
     try std.testing.expect(item.base.motion.x >= -0.1 and item.base.motion.x <= 0.1);
     try std.testing.expect(item.base.motion.z >= -0.1 and item.base.motion.z <= 0.1);
@@ -155,7 +155,7 @@ test "gravity accelerates a falling item" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
+    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
     item.base.motion = math.Vec3.init(0, 0, 0);
     item.tick(&w, &rand);
     try std.testing.expectApproxEqAbs(@as(f64, -0.04 * 0.98), item.base.motion.y, 1.0e-9);
@@ -165,7 +165,7 @@ test "landing zeroes motionY, so the -0.5 bounce factor has nothing to act on" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 1, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
+    var item = ItemEntity.spawn(math.Vec3.init(8, 1, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
     item.base.motion = math.Vec3.init(0, -0.0784, 0);
     item.tick(&w, &rand);
     try std.testing.expect(item.base.on_ground);
@@ -174,7 +174,7 @@ test "landing zeroes motionY, so the -0.5 bounce factor has nothing to act on" {
 
 test "isExpired only becomes true at 6000 ticks (5 minutes)" {
     var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(0, 0, 0), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
+    var item = ItemEntity.spawn(math.Vec3.init(0, 0, 0), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
     item.age = 5999;
     try std.testing.expect(!item.isExpired());
     item.age = 6000;
@@ -185,7 +185,7 @@ test "canPickUp is false until the pickup delay elapses" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
     var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @enumFromInt(1) }, .count = 1 }, &rand);
+    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
     try std.testing.expect(!item.canPickUp());
     for (0..10) |_| item.tick(&w, &rand);
     try std.testing.expect(item.canPickUp());

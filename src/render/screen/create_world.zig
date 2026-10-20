@@ -128,7 +128,7 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
 
     if (state.mode == .create) {
         var folder_buffer: [96]u8 = undefined;
-        const folder_line = std.fmt.bufPrint(&folder_buffer, "Will be saved in: {s}", .{state.folderName()}) catch "Will be saved in:";
+        const folder_line = std.mem.print(&folder_buffer, "Will be saved in: {s}", .{state.folderName()}) catch "Will be saved in:";
         try gui.appendTextColor(&text, ui.gpa, ui.font, folder_line, left, 85, label_color, ui.res);
         try gui.appendTextColor(&text, ui.gpa, ui.font, "Seed for the World Generator", left, 104, label_color, ui.res);
         try gui.appendTextColor(&text, ui.gpa, ui.font, "Leave blank for a random seed", left, 140, label_color, ui.res);

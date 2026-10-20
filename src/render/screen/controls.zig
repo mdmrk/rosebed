@@ -61,7 +61,7 @@ fn controlLabel(hit: Hit, settings: game.Settings, rebinding: ?Binding, buf: []u
     };
     const name = keyName(settings.keys.get(binding));
     if (rebinding != binding) return name;
-    return std.fmt.bufPrint(buf, "> {s} <", .{name}) catch name;
+    return std.mem.print(buf, "> {s} <", .{name}) catch name;
 }
 
 pub fn draw(
@@ -160,7 +160,7 @@ test "the default keycodes name the vanilla keys" {
     try std.testing.expectEqualStrings("Space", keyName(settings.keys.get(.jump)));
     try std.testing.expectEqualStrings("Left Shift", keyName(settings.keys.get(.sneak)));
     try std.testing.expectEqual(
-        @intFromEnum(sdl3.keycode.Keycode.left_shift),
+        @backingInt(sdl3.keycode.Keycode.left_shift),
         settings.keys.get(.sneak),
     );
 }

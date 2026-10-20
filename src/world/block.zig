@@ -274,7 +274,7 @@ fn vanillaDefs() [256]Def {
     @setEvalBranchQuota(200_000);
     var out: [256]Def = undefined;
     for (&out, 0..) |*entry, id| {
-        const self: Block = @enumFromInt(id);
+        const self: Block = @fromBackingInt(@intCast(id));
         entry.* = .{
             .key = vanilla_keys[id],
             .name = self.vanillaName(),
@@ -551,15 +551,15 @@ pub const Id = union(enum) {
 
     pub fn numeric(self: Id) i16 {
         return switch (self) {
-            .block => |b| @intCast(@intFromEnum(b)),
-            .item => |i| @bitCast(@as(u16, @intFromEnum(i))),
+            .block => |b| @intCast(@backingInt(b)),
+            .item => |i| @bitCast(@as(u16, @backingInt(i))),
         };
     }
 
     pub fn fromNumeric(value: i16) Id {
         const raw: u16 = @bitCast(value);
-        if (raw < 256) return .{ .block = @enumFromInt(@as(u8, @intCast(raw))) };
-        return .{ .item = @enumFromInt(raw) };
+        if (raw < 256) return .{ .block = @fromBackingInt(@intCast(@as(u8, @intCast(raw)))) };
+        return .{ .item = @fromBackingInt(@intCast(raw)) };
     }
 
     pub fn maxStackSize(self: Id) u8 {
@@ -692,11 +692,11 @@ pub const Block = enum(u8) {
     _,
 
     pub fn def(self: Block) *const Def {
-        return &defs[@intFromEnum(self)];
+        return &defs[@backingInt(self)];
     }
 
     pub fn register(self: Block, definition: Def) void {
-        defs[@intFromEnum(self)] = definition;
+        defs[@backingInt(self)] = definition;
     }
 
     pub fn resetRegistry() void {
@@ -704,13 +704,13 @@ pub const Block = enum(u8) {
     }
 
     pub fn isVanilla(self: Block) bool {
-        return vanilla_keys[@intFromEnum(self)].len != 0;
+        return vanilla_keys[@backingInt(self)].len != 0;
     }
 
     pub fn fromKey(key: []const u8) ?Block {
         if (key.len == 0) return null;
         for (defs, 0..) |entry, id| {
-            if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(id);
+            if (std.mem.eql(u8, entry.key, key)) return @fromBackingInt(@intCast(id));
         }
         return null;
     }
@@ -1611,11 +1611,11 @@ const furnace_side_tile: u8 = 45;
 const furnace_top_tile: u8 = 62;
 const furnace_front_tile: u8 = 44;
 const furnace_front_lit_tile: u8 = 61;
-pub const furnace_default_facing: u4 = @intFromEnum(Side.south);
+pub const furnace_default_facing: u4 = @backingInt(Side.south);
 
 pub fn furnaceFacing(metadata: u4) Side {
     return switch (metadata) {
-        @intFromEnum(Side.north), @intFromEnum(Side.west), @intFromEnum(Side.east) => @enumFromInt(metadata),
+        @backingInt(Side.north), @backingInt(Side.west), @backingInt(Side.east) => @fromBackingInt(@intCast(metadata)),
         else => .south,
     };
 }
@@ -1623,10 +1623,10 @@ pub fn furnaceFacing(metadata: u4) Side {
 pub fn furnaceFacingFromYaw(yaw: f32) u4 {
     const quarter = @floor(@mod(yaw, 360.0) * 4.0 / 360.0 + 0.5);
     return switch (@as(u2, @intFromFloat(@mod(quarter, 4.0)))) {
-        0 => @intFromEnum(Side.north),
-        1 => @intFromEnum(Side.east),
-        2 => @intFromEnum(Side.south),
-        3 => @intFromEnum(Side.west),
+        0 => @backingInt(Side.north),
+        1 => @backingInt(Side.east),
+        2 => @backingInt(Side.south),
+        3 => @backingInt(Side.west),
     };
 }
 
@@ -1670,8 +1670,8 @@ pub fn doorFaceTile(id: Block, side: Side, metadata: u4) DoorFace {
     if (side == .down or side == .up) return .{ .tile = bottom, .mirrored = false };
 
     const state: u8 = doorState(metadata);
-    const index: u8 = @intFromEnum(side);
-    if ((state == 0 or state == 2) != (index <= @intFromEnum(Side.south))) {
+    const index: u8 = @backingInt(side);
+    if ((state == 0 or state == 2) != (index <= @backingInt(Side.south))) {
         return .{ .tile = bottom, .mirrored = false };
     }
 
@@ -1878,7 +1878,7 @@ const bed_side_lookup = [4][6]u8{
 pub fn bedTile(side: Side, metadata: u4) u8 {
     if (side == .down) return 4;
 
-    const turned = bed_side_lookup[bedFacing(metadata)][@intFromEnum(side)];
+    const turned = bed_side_lookup[bedFacing(metadata)][@backingInt(side)];
     if (bedIsPillow(metadata)) {
         if (turned == 2) return bed_tile + 2 + 16;
         if (turned == 5 or turned == 4) return bed_tile + 1 + 16;
@@ -1999,7 +1999,7 @@ pub fn pistonHeadTextures(metadata: u4) FaceTextures {
 const dispenser_side_tile: u8 = 45;
 const dispenser_top_tile: u8 = 62;
 const dispenser_front_tile: u8 = 46;
-pub const dispenser_default_facing: u4 = @intFromEnum(Side.south);
+pub const dispenser_default_facing: u4 = @backingInt(Side.south);
 
 pub const rail_straight_tile: u8 = 128;
 pub const rail_curved_tile: u8 = 112;
@@ -2046,9 +2046,9 @@ fn railBounds(metadata: u4) Bounds {
 
 pub fn dispenserStep(metadata: u4) [2]i32 {
     return switch (metadata) {
-        @intFromEnum(Side.south) => .{ 0, 1 },
-        @intFromEnum(Side.north) => .{ 0, -1 },
-        @intFromEnum(Side.east) => .{ 1, 0 },
+        @backingInt(Side.south) => .{ 0, 1 },
+        @backingInt(Side.north) => .{ 0, -1 },
+        @backingInt(Side.east) => .{ 1, 0 },
         else => .{ -1, 0 },
     };
 }
@@ -2061,8 +2061,8 @@ pub fn dispenserTextures(metadata: u4) FaceTextures {
     var textures = FaceTextures.initFill(dispenser_side_tile);
     textures.set(.down, dispenser_top_tile);
     textures.set(.up, dispenser_top_tile);
-    if (metadata >= @intFromEnum(Side.north) and metadata <= @intFromEnum(Side.east)) {
-        textures.set(@enumFromInt(metadata), dispenser_front_tile);
+    if (metadata >= @backingInt(Side.north) and metadata <= @backingInt(Side.east)) {
+        textures.set(@fromBackingInt(@intCast(metadata)), dispenser_front_tile);
     }
     return textures;
 }
@@ -2322,13 +2322,13 @@ pub fn plateBounds(metadata: u4) Bounds {
 }
 
 test "the furnace turns its face towards the side its metadata names" {
-    const idle = furnaceTextures(.furnace, @intFromEnum(Side.west));
+    const idle = furnaceTextures(.furnace, @backingInt(Side.west));
     try std.testing.expectEqual(@as(u8, 44), idle.get(.west));
     try std.testing.expectEqual(@as(u8, 45), idle.get(.south));
     try std.testing.expectEqual(@as(u8, 62), idle.get(.up));
     try std.testing.expectEqual(@as(u8, 62), idle.get(.down));
 
-    const lit = furnaceTextures(.burning_furnace, @intFromEnum(Side.north));
+    const lit = furnaceTextures(.burning_furnace, @backingInt(Side.north));
     try std.testing.expectEqual(@as(u8, 61), lit.get(.north));
     try std.testing.expectEqual(@as(u8, 45), lit.get(.east));
 }
@@ -2401,13 +2401,13 @@ test "the chest item icon is the plain south-facing chest" {
 }
 
 test "a furnace faces the player who placed it, whichever way they were turned" {
-    try std.testing.expectEqual(@intFromEnum(Side.north), furnaceFacingFromYaw(0));
-    try std.testing.expectEqual(@intFromEnum(Side.east), furnaceFacingFromYaw(90));
-    try std.testing.expectEqual(@intFromEnum(Side.south), furnaceFacingFromYaw(180));
-    try std.testing.expectEqual(@intFromEnum(Side.west), furnaceFacingFromYaw(270));
-    try std.testing.expectEqual(@intFromEnum(Side.west), furnaceFacingFromYaw(-90));
-    try std.testing.expectEqual(@intFromEnum(Side.north), furnaceFacingFromYaw(-720));
-    try std.testing.expectEqual(@intFromEnum(Side.east), furnaceFacingFromYaw(3690));
+    try std.testing.expectEqual(@backingInt(Side.north), furnaceFacingFromYaw(0));
+    try std.testing.expectEqual(@backingInt(Side.east), furnaceFacingFromYaw(90));
+    try std.testing.expectEqual(@backingInt(Side.south), furnaceFacingFromYaw(180));
+    try std.testing.expectEqual(@backingInt(Side.west), furnaceFacingFromYaw(270));
+    try std.testing.expectEqual(@backingInt(Side.west), furnaceFacingFromYaw(-90));
+    try std.testing.expectEqual(@backingInt(Side.north), furnaceFacingFromYaw(-720));
+    try std.testing.expectEqual(@backingInt(Side.east), furnaceFacingFromYaw(3690));
 }
 
 test "a furnace with no facing yet still shows its front, as GuiFurnace's item does" {
@@ -3874,7 +3874,7 @@ test "a stair block resists like the block it is cut from" {
 }
 
 test "an id no vanilla block claims falls back to the empty definition" {
-    const unclaimed: Block = @enumFromInt(100);
+    const unclaimed: Block = @fromBackingInt(@intCast(100));
     try std.testing.expectEqual(Material.rock, unclaimed.material());
     try std.testing.expectEqual(Shape.cube, unclaimed.shape());
     try std.testing.expectEqual(@as(f32, 0.0), unclaimed.hardness());
@@ -3885,7 +3885,7 @@ test "an id no vanilla block claims falls back to the empty definition" {
 }
 
 test "registering over an unclaimed id changes what every caller sees" {
-    const custom: Block = @enumFromInt(101);
+    const custom: Block = @fromBackingInt(@intCast(101));
     const restore = custom.def().*;
     defer custom.register(restore);
 
@@ -3924,14 +3924,14 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
     try std.testing.expect(Block.fromKey("") == null);
 
     try std.testing.expect(Block.stone.isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(200))).isVanilla());
-    try std.testing.expect(!(@as(Block, @enumFromInt(97))).isVanilla());
+    try std.testing.expect(!(@as(Block, @fromBackingInt(@intCast(200)))).isVanilla());
+    try std.testing.expect(!(@as(Block, @fromBackingInt(@intCast(97)))).isVanilla());
 }
 
 test "a registered block answers to its own key without shadowing a vanilla one" {
     defer Block.resetRegistry();
 
-    const custom: Block = @enumFromInt(200);
+    const custom: Block = @fromBackingInt(@intCast(200));
     custom.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
 
     try std.testing.expectEqual(custom, Block.fromKey("rosebed:quartz").?);
@@ -3954,11 +3954,11 @@ test "a key that moved id comes back at the id it holds now" {
     defer Block.resetRegistry();
     defer Item.resetRegistry();
 
-    (@as(Block, @enumFromInt(213))).register(.{ .key = "rosebed:quartz" });
-    (@as(Item, @enumFromInt(500))).register(.{ .key = "rosebed:quartz_pickaxe" });
+    (@as(Block, @fromBackingInt(@intCast(213)))).register(.{ .key = "rosebed:quartz" });
+    (@as(Item, @fromBackingInt(@intCast(500)))).register(.{ .key = "rosebed:quartz_pickaxe" });
 
-    try std.testing.expectEqual(@as(Block, @enumFromInt(213)), Id.resolve(200, "rosebed:quartz").?.block);
-    try std.testing.expectEqual(@as(Item, @enumFromInt(500)), Id.resolve(400, "rosebed:quartz_pickaxe").?.item);
+    try std.testing.expectEqual(@as(Block, @fromBackingInt(@intCast(213))), Id.resolve(200, "rosebed:quartz").?.block);
+    try std.testing.expectEqual(@as(Item, @fromBackingInt(@intCast(500))), Id.resolve(400, "rosebed:quartz_pickaxe").?.item);
 }
 
 fn quartzDrop(_: Block, meta: u4, _: *JavaRandom) ?Stack {
@@ -3982,7 +3982,7 @@ test "a registered block's metadata hooks answer in place of the vanilla switch"
     defer Block.resetRegistry();
     var rand = JavaRandom.init(0);
 
-    const custom: Block = @enumFromInt(200);
+    const custom: Block = @fromBackingInt(@intCast(200));
     custom.register(.{
         .key = "rosebed:quartz",
         .name = "Rose Quartz",
@@ -4011,7 +4011,7 @@ test "a vanilla block ignores the hooks entirely and keeps its own switch" {
 test "a registered sprite with no tile hook draws its own texture, not tile zero" {
     defer Block.resetRegistry();
 
-    const custom: Block = @enumFromInt(201);
+    const custom: Block = @fromBackingInt(@intCast(201));
     custom.register(.{
         .key = "rosebed:fern",
         .shape = .cross,
@@ -4027,7 +4027,7 @@ test "a registered block with no drop hook drops itself, as the vanilla fallthro
     defer Block.resetRegistry();
     var rand = JavaRandom.init(0);
 
-    const custom: Block = @enumFromInt(202);
+    const custom: Block = @fromBackingInt(@intCast(202));
     custom.register(.{ .key = "rosebed:marble" });
 
     try std.testing.expectEqual(Id{ .block = custom }, custom.drop(0, &rand).?.id);

@@ -66,7 +66,7 @@ const Resource = struct {
 };
 
 fn poolFor(path: []const u8) ?Resource.Pool {
-    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
+    const slash = std.mem.findScalar(u8, path, '/') orelse return null;
     const prefix = path[0..slash];
     if (std.mem.eql(u8, prefix, "newsound")) return .embedded;
     if (std.mem.eql(u8, prefix, "music") or std.mem.eql(u8, prefix, "newmusic")) return .streamed;
@@ -123,7 +123,7 @@ fn fetchResource(
     sha1Hex(bytes, &actual_hex);
     if (!std.mem.eql(u8, &actual_hex, resource.hash)) return error.ChecksumMismatch;
 
-    if (std.fs.path.dirname(resource.path)) |parent| try dir.createDirPath(io, parent);
+    if (std.Io.Dir.path.dirname(resource.path)) |parent| try dir.createDirPath(io, parent);
     try dir.writeFile(io, .{ .sub_path = resource.path, .data = bytes });
 }
 
@@ -132,7 +132,7 @@ fn sha1Hex(bytes: []const u8, out: *[40]u8) void {
     hasher.update(bytes);
     var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
     hasher.final(&digest);
-    _ = std.fmt.bufPrint(out, "{x}", .{digest}) catch unreachable;
+    _ = std.mem.print(out, "{x}", .{digest}) catch unreachable;
 }
 
 const sound_namespace = "sounds";
@@ -155,7 +155,7 @@ fn isUnportedSound(path: []const u8) bool {
 }
 
 fn soundKey(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
-    var end = std.mem.indexOfScalar(u8, name, '.') orelse name.len;
+    var end = std.mem.findScalar(u8, name, '.') orelse name.len;
     while (end > 0 and std.ascii.isDigit(name[end - 1])) end -= 1;
     const key = try alloc.dupe(u8, name[0..end]);
     std.mem.replaceScalar(u8, key, '/', '.');
@@ -268,7 +268,7 @@ fn writeManifest(
     const root = try Node.init(gpa);
     for (names.items) |p| try insert(gpa, root, p, p, p);
     for (sounds) |sound| {
-        const slash = std.mem.indexOfScalar(u8, sound.path, '/').?;
+        const slash = std.mem.findScalar(u8, sound.path, '/').?;
         const name = sound.path[slash + 1 ..];
         try insertSound(gpa, root, try soundKey(gpa, name), name, sound.path);
     }
@@ -348,7 +348,7 @@ pub fn main(init: std.process.Init) !void {
     var names: std.ArrayList([]const u8) = .empty;
     defer names.deinit(gpa);
     var iter = try std.zip.Iterator.init(&jar_reader);
-    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var filename_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
         const name = filename_buf[0..entry.filename_len];
         try jar_reader.seekTo(entry.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));

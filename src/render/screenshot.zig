@@ -11,10 +11,10 @@ pub const max_name_len = 40;
 
 pub fn fileName(buf: *[max_name_len]u8, at: sdl3.time.DateTime, index: u32) []const u8 {
     var suffix_buf: [12]u8 = undefined;
-    const suffix = if (index == 1) "" else std.fmt.bufPrint(&suffix_buf, "_{d}", .{index}) catch unreachable;
-    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}_{d:0>2}.{d:0>2}.{d:0>2}{s}.png", .{
+    const suffix = if (index == 1) "" else std.mem.print(&suffix_buf, "_{d}", .{index}) catch unreachable;
+    return std.mem.print(buf, "{d:0>4}-{d:0>2}-{d:0>2}_{d:0>2}.{d:0>2}.{d:0>2}{s}.png", .{
         at.year,
-        @as(u8, @intCast(@intFromEnum(at.month))),
+        @as(u8, @intCast(@backingInt(at.month))),
         at.day,
         at.hour,
         at.minute,

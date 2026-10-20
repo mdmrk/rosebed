@@ -632,7 +632,7 @@ fn readMetadata(gpa: std.mem.Allocator, r: *std.Io.Reader) !Metadata {
 
 fn writeMetadata(w: *std.Io.Writer, metadata: Metadata) !void {
     for (metadata.entries) |entry| {
-        const kind: u8 = @intFromEnum(std.meta.activeTag(entry.value));
+        const kind: u8 = @backingInt(std.meta.activeTag(entry.value));
         try w.writeInt(u8, (kind << 5) | entry.key, .big);
         switch (entry.value) {
             .byte => |raw| try w.writeInt(i8, raw, .big),
@@ -661,7 +661,7 @@ fn takeBytes(gpa: std.mem.Allocator, r: *std.Io.Reader, length: usize) ![]u8 {
 pub fn readId(r: *std.Io.Reader) !Id {
     const raw = try r.takeInt(u8, .big);
     inline for (@typeInfo(Id).@"enum".field_values) |value| {
-        if (raw == value) return @enumFromInt(raw);
+        if (raw == value) return @fromBackingInt(@intCast(raw));
     }
     return error.UnknownPacketId;
 }
@@ -742,7 +742,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .on_ground = try r.takeInt(u8, .big) != 0,
         } },
         .block_dig => return .{ .block_dig = .{
-            .status = @enumFromInt(try r.takeInt(u8, .big)),
+            .status = @fromBackingInt(@intCast(try r.takeInt(u8, .big))),
             .x = try r.takeInt(i32, .big),
             .y = try r.takeInt(u8, .big),
             .z = try r.takeInt(i32, .big),
@@ -758,7 +758,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .block_item_switch => return .{ .block_item_switch = .{ .slot = try r.takeInt(i16, .big) } },
         .animation => return .{ .animation = .{
             .entity_id = try r.takeInt(i32, .big),
-            .animate = @enumFromInt(try r.takeInt(i8, .big)),
+            .animate = @fromBackingInt(@intCast(try r.takeInt(i8, .big))),
         } },
         .named_entity_spawn => {
             const entity_id = try r.takeInt(i32, .big);
@@ -891,7 +891,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .use_entity => return .{ .use_entity = .{
             .player_id = try r.takeInt(i32, .big),
             .target_id = try r.takeInt(i32, .big),
-            .action = @enumFromInt(try r.takeInt(i8, .big)),
+            .action = @fromBackingInt(@intCast(try r.takeInt(i8, .big))),
         } },
         .sleep => return .{ .sleep = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -902,7 +902,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .entity_action => return .{ .entity_action = .{
             .entity_id = try r.takeInt(i32, .big),
-            .state = @enumFromInt(try r.takeInt(i8, .big)),
+            .state = @fromBackingInt(@intCast(try r.takeInt(i8, .big))),
         } },
         .pickup_spawn => return .{ .pickup_spawn = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -923,7 +923,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         .vehicle_spawn => {
             var body: @FieldType(Packet, "vehicle_spawn") = .{
                 .entity_id = try r.takeInt(i32, .big),
-                .kind = @enumFromInt(try r.takeInt(u8, .big)),
+                .kind = @fromBackingInt(@intCast(try r.takeInt(u8, .big))),
                 .x = try r.takeInt(i32, .big),
                 .y = try r.takeInt(i32, .big),
                 .z = try r.takeInt(i32, .big),
@@ -965,7 +965,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
         } },
         .entity_status => return .{ .entity_status = .{
             .entity_id = try r.takeInt(i32, .big),
-            .status = @enumFromInt(try r.takeInt(i8, .big)),
+            .status = @fromBackingInt(@intCast(try r.takeInt(i8, .big))),
         } },
         .attach_entity => return .{ .attach_entity = .{
             .entity_id = try r.takeInt(i32, .big),
@@ -1003,17 +1003,17 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
             .z = try r.takeInt(i32, .big),
             .data = try r.takeInt(i32, .big),
         } },
-        .bed => return .{ .bed = .{ .state = @enumFromInt(try r.takeInt(i8, .big)) } },
+        .bed => return .{ .bed = .{ .state = @fromBackingInt(@intCast(try r.takeInt(i8, .big))) } },
         .weather => return .{ .weather = .{
             .entity_id = try r.takeInt(i32, .big),
-            .kind = @enumFromInt(try r.takeInt(i8, .big)),
+            .kind = @fromBackingInt(@intCast(try r.takeInt(i8, .big))),
             .x = try r.takeInt(i32, .big),
             .y = try r.takeInt(i32, .big),
             .z = try r.takeInt(i32, .big),
         } },
         .open_window => {
             const window_id = try r.takeInt(i8, .big);
-            const kind: Window = @enumFromInt(try r.takeInt(i8, .big));
+            const kind: Window = @fromBackingInt(@intCast(try r.takeInt(i8, .big)));
             const title = try readUtf8(gpa, r, max_window_title);
             errdefer gpa.free(title);
             return .{ .open_window = .{
@@ -1087,7 +1087,7 @@ pub fn readBody(gpa: std.mem.Allocator, r: *std.Io.Reader, packet_id: Id) ReadEr
 }
 
 pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
-    try w.writeInt(u8, @intFromEnum(packet.id()), .big);
+    try w.writeInt(u8, @backingInt(packet.id()), .big);
     switch (packet) {
         .keep_alive => {},
         .login => |body| {
@@ -1129,7 +1129,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(u8, @intFromBool(body.on_ground), .big);
         },
         .block_dig => |body| {
-            try w.writeInt(u8, @intFromEnum(body.status), .big);
+            try w.writeInt(u8, @backingInt(body.status), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(u8, body.y, .big);
             try w.writeInt(i32, body.z, .big);
@@ -1145,7 +1145,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         .block_item_switch => |body| try w.writeInt(i16, body.slot, .big),
         .animation => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.animate), .big);
+            try w.writeInt(i8, @backingInt(body.animate), .big);
         },
         .named_entity_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1239,7 +1239,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         .use_entity => |body| {
             try w.writeInt(i32, body.player_id, .big);
             try w.writeInt(i32, body.target_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.action), .big);
+            try w.writeInt(i8, @backingInt(body.action), .big);
         },
         .sleep => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1250,7 +1250,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .entity_action => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.state), .big);
+            try w.writeInt(i8, @backingInt(body.state), .big);
         },
         .pickup_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1270,7 +1270,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .vehicle_spawn => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(u8, @intFromEnum(body.kind), .big);
+            try w.writeInt(u8, @backingInt(body.kind), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(i32, body.y, .big);
             try w.writeInt(i32, body.z, .big);
@@ -1305,7 +1305,7 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
         },
         .entity_status => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.status), .big);
+            try w.writeInt(i8, @backingInt(body.status), .big);
         },
         .attach_entity => |body| {
             try w.writeInt(i32, body.entity_id, .big);
@@ -1337,17 +1337,17 @@ pub fn write(w: *std.Io.Writer, packet: Packet) WriteError!void {
             try w.writeInt(i32, body.z, .big);
             try w.writeInt(i32, body.data, .big);
         },
-        .bed => |body| try w.writeInt(i8, @intFromEnum(body.state), .big),
+        .bed => |body| try w.writeInt(i8, @backingInt(body.state), .big),
         .weather => |body| {
             try w.writeInt(i32, body.entity_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.kind), .big);
+            try w.writeInt(i8, @backingInt(body.kind), .big);
             try w.writeInt(i32, body.x, .big);
             try w.writeInt(i32, body.y, .big);
             try w.writeInt(i32, body.z, .big);
         },
         .open_window => |body| {
             try w.writeInt(i8, body.window_id, .big);
-            try w.writeInt(i8, @intFromEnum(body.kind), .big);
+            try w.writeInt(i8, @backingInt(body.kind), .big);
             try writeUtf8(w, body.title, max_window_title);
             try w.writeInt(i8, body.slots, .big);
         },
@@ -1845,7 +1845,7 @@ test "every packet the protocol defines has a byte vector taken from vanilla" {
 
     for (golden) |entry| {
         inline for (@typeInfo(Id).@"enum".field_values, 0..) |value, index| {
-            if (entry.packet.id() == @as(Id, @enumFromInt(value))) seen[index] = true;
+            if (entry.packet.id() == @as(Id, @fromBackingInt(@intCast(value)))) seen[index] = true;
         }
     }
 

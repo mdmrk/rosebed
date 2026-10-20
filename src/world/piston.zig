@@ -79,7 +79,7 @@ pub fn store(gpa: std.mem.Allocator, pos: BlockPos, state: Moving) !nbt.Tag {
     }
 
     try tile.header(gpa, &compound, id_key, pos);
-    try put(gpa, &compound, "blockId", .{ .int = @intFromEnum(state.stored) });
+    try put(gpa, &compound, "blockId", .{ .int = @backingInt(state.stored) });
     try put(gpa, &compound, "blockData", .{ .int = state.stored_metadata });
     try put(gpa, &compound, "facing", .{ .int = block.pistonFacingValue(state.facing) });
     try put(gpa, &compound, "progress", .{ .float = state.prev_progress });
@@ -111,8 +111,8 @@ pub fn load(compound: nbt.Compound) ?Placed {
 
     const raw_id = nbt.intField(compound, "blockId") orelse 0;
     const stored: Block = if (raw_id >= 0 and raw_id <= 255 and
-        std.enums.tagName(Block, @as(Block, @enumFromInt(@as(u8, @intCast(raw_id))))) != null)
-        @enumFromInt(@as(u8, @intCast(raw_id)))
+        std.enums.tagName(Block, @as(Block, @fromBackingInt(@intCast(@as(u8, @intCast(raw_id)))))) != null)
+        @fromBackingInt(@intCast(@as(u8, @intCast(raw_id))))
     else
         .air;
 
@@ -423,7 +423,7 @@ pub fn facingForPlacement(player: math.Vec3, pos: BlockPos, yaw: f32) Side {
         if (block_y - eye > 0.0) return .down;
     }
 
-    return @enumFromInt(block.furnaceFacingFromYaw(yaw));
+    return @fromBackingInt(@intCast(block.furnaceFacingFromYaw(yaw)));
 }
 
 pub fn onBlockPlaced(world_map: *World, pos: BlockPos, player: math.Vec3, yaw: f32) !void {

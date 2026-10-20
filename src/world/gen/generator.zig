@@ -111,8 +111,8 @@ pub const Generator = union(Dimension) {
 test "a dimension names the world on the other side of a portal" {
     try std.testing.expectEqual(Dimension.nether, Dimension.overworld.other());
     try std.testing.expectEqual(Dimension.overworld, Dimension.nether.other());
-    try std.testing.expectEqual(@as(i8, -1), @intFromEnum(Dimension.nether));
-    try std.testing.expectEqual(@as(i8, 0), @intFromEnum(Dimension.overworld));
+    try std.testing.expectEqual(@as(i8, -1), @backingInt(Dimension.nether));
+    try std.testing.expectEqual(@as(i8, 0), @backingInt(Dimension.overworld));
 }
 
 test "the nether packs eight overworld blocks into one, and hides the sky" {

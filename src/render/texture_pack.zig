@@ -289,7 +289,7 @@ test "a deflated entry is inflated on the way out" {
     defer gpa.free(archive);
 
     std.mem.writeInt(u16, archive[8..10], 8, .little);
-    const central = std.mem.indexOf(u8, archive, &central_header_sig).?;
+    const central = std.mem.find(u8, archive, &central_header_sig).?;
     std.mem.writeInt(u16, archive[central + 10 ..][0..2], 8, .little);
     std.mem.writeInt(u32, archive[central + 24 ..][0..4], @intCast(plain.len), .little);
 

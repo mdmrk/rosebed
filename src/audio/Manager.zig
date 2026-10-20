@@ -156,7 +156,7 @@ const embedded_bytes = blk: {
 };
 
 fn targetFor(self: *Manager, path: []const u8) ?Target {
-    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
+    const slash = std.mem.findScalar(u8, path, '/') orelse return null;
     const prefix = path[0..slash];
     const name = path[slash + 1 ..];
     const pool: *Pool = if (std.mem.eql(u8, prefix, "sound") or std.mem.eql(u8, prefix, "newsound"))
@@ -182,10 +182,10 @@ pub fn loadResources(self: *Manager, gpa: std.mem.Allocator, io: std.Io, root: [
 
         const relative = try gpa.dupe(u8, entry.path);
         defer gpa.free(relative);
-        std.mem.replaceScalar(u8, relative, std.fs.path.sep, '/');
+        std.mem.replaceScalar(u8, relative, std.Io.Dir.path.sep, '/');
 
         const target = self.targetFor(relative) orelse continue;
-        const path = try std.fs.path.joinZ(gpa, &.{ root, entry.path });
+        const path = try std.Io.Dir.path.joinZ(gpa, &.{ root, entry.path });
         errdefer gpa.free(path);
         try target.pool.add(gpa, target.name, .{ .file = path });
     }

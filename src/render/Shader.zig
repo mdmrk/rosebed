@@ -75,7 +75,7 @@ pub fn init(vertex_source: [:0]const u8, fragment_source: [:0]const u8) !Shader 
 }
 
 fn locationOf(self: Shader, name: Uniform) gl.int {
-    return self.locations[@intFromEnum(name)];
+    return self.locations[@backingInt(name)];
 }
 
 pub fn use(self: Shader) void {

@@ -78,14 +78,14 @@ fn writePayload(w: *std.Io.Writer, tag: Tag) !void {
         },
         .string => |v| try writeString(w, v),
         .list => |l| {
-            try w.writeByte(@intFromEnum(l.element_type));
+            try w.writeByte(@backingInt(l.element_type));
             try w.writeInt(i32, @intCast(l.items.len), .big);
             for (l.items) |item| try writePayload(w, item);
         },
         .compound => |c| {
             var it = c.iterator();
             while (it.next()) |entry| {
-                try w.writeByte(@intFromEnum(std.meta.activeTag(entry.value_ptr.*)));
+                try w.writeByte(@backingInt(std.meta.activeTag(entry.value_ptr.*)));
                 try writeString(w, entry.key_ptr.*);
                 try writePayload(w, entry.value_ptr.*);
             }
@@ -95,7 +95,7 @@ fn writePayload(w: *std.Io.Writer, tag: Tag) !void {
 }
 
 pub fn writeNamed(w: *std.Io.Writer, name: []const u8, tag: Tag) !void {
-    try w.writeByte(@intFromEnum(std.meta.activeTag(tag)));
+    try w.writeByte(@backingInt(std.meta.activeTag(tag)));
     try writeString(w, name);
     try writePayload(w, tag);
 }
@@ -126,7 +126,7 @@ fn readPayload(gpa: std.mem.Allocator, r: *std.Io.Reader, id: TagId) anyerror!Ta
         },
         .string => .{ .string = try readString(gpa, r) },
         .list => blk: {
-            const elem_id: TagId = @enumFromInt(try r.takeByte());
+            const elem_id: TagId = @fromBackingInt(@intCast(try r.takeByte()));
             const count = try r.takeInt(i32, .big);
             const items = try gpa.alloc(Tag, @intCast(count));
             for (items) |*item| item.* = try readPayload(gpa, r, elem_id);
@@ -137,7 +137,7 @@ fn readPayload(gpa: std.mem.Allocator, r: *std.Io.Reader, id: TagId) anyerror!Ta
             while (true) {
                 const type_byte = try r.takeByte();
                 if (type_byte == 0) break;
-                const child_id: TagId = @enumFromInt(type_byte);
+                const child_id: TagId = @fromBackingInt(@intCast(type_byte));
                 const name = try readString(gpa, r);
                 const value = try readPayload(gpa, r, child_id);
                 try map.put(gpa, name, value);
@@ -149,7 +149,7 @@ fn readPayload(gpa: std.mem.Allocator, r: *std.Io.Reader, id: TagId) anyerror!Ta
 
 pub fn readNamed(gpa: std.mem.Allocator, r: *std.Io.Reader) !NamedTag {
     const type_byte = try r.takeByte();
-    const id: TagId = @enumFromInt(type_byte);
+    const id: TagId = @fromBackingInt(@intCast(type_byte));
     const name = try readString(gpa, r);
     const tag = try readPayload(gpa, r, id);
     return .{ .name = name, .tag = tag };

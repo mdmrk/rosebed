@@ -56,7 +56,7 @@ pub fn parseAddress(text: []const u8) Address {
     const trimmed = std.mem.trim(u8, text, " ");
 
     if (trimmed.len > 0 and trimmed[0] == '[') {
-        if (std.mem.indexOfScalar(u8, trimmed, ']')) |close| {
+        if (std.mem.findScalar(u8, trimmed, ']')) |close| {
             if (close > 0) {
                 const host = trimmed[1..close];
                 const rest = std.mem.trim(u8, trimmed[close + 1 ..], " ");

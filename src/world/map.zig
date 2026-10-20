@@ -131,9 +131,9 @@ pub const MapData = struct {
                     var hash: i32 = world_x +% world_z *% 231871;
                     hash = hash *% hash *% 31287121 +% hash *% 11;
                     if (hash >> 20 & 1 == 0) {
-                        histogram[@intFromEnum(Block.dirt)] += 10;
+                        histogram[@backingInt(Block.dirt)] += 10;
                     } else {
-                        histogram[@intFromEnum(Block.stone)] += 10;
+                        histogram[@backingInt(Block.stone)] += 10;
                     }
                     height_sum = 100.0;
                 } else {
@@ -144,7 +144,7 @@ pub const MapData = struct {
                         while (sz < step) : (sz += 1) {
                             const sampled = sampleColumn(world_map, world_x + sx, world_z + sz, &depth);
                             height_sum += @as(f64, @floatFromInt(sampled.top)) / samples;
-                            histogram[@intFromEnum(sampled.id)] += 1;
+                            histogram[@backingInt(sampled.id)] += 1;
                         }
                     }
                 }
@@ -168,14 +168,14 @@ pub const MapData = struct {
 
                 var tone: u8 = 0;
                 if (best_id > 0) {
-                    const map_color = @as(Block, @enumFromInt(best_id)).material().mapColor();
+                    const map_color = @as(Block, @fromBackingInt(@intCast(best_id))).material().mapColor();
                     if (map_color == .water) {
                         relief = @as(f64, @floatFromInt(depth)) * 0.1 + checker * 0.2;
                         shade = 1;
                         if (relief < 0.5) shade = 2;
                         if (relief > 0.9) shade = 0;
                     }
-                    tone = @intFromEnum(map_color);
+                    tone = @backingInt(map_color);
                 }
 
                 previous_height = height_sum;
@@ -254,7 +254,7 @@ pub const MapData = struct {
         if (viewer.marker_countdown < 0) {
             viewer.marker_countdown = marker_period;
             out.clearRetainingCapacity();
-            try out.append(gpa, @intFromEnum(Payload.markers));
+            try out.append(gpa, @backingInt(Payload.markers));
             for (self.markers.items) |marker| {
                 try out.append(gpa, marker.icon +% (marker.rotation & 15) *% 16);
                 try out.append(gpa, @bitCast(marker.x));
@@ -276,7 +276,7 @@ pub const MapData = struct {
             const first = viewer.min_row[at];
             const rows: usize = @intCast(viewer.max_row[at] - first + 1);
             out.clearRetainingCapacity();
-            try out.append(gpa, @intFromEnum(Payload.columns));
+            try out.append(gpa, @backingInt(Payload.columns));
             try out.append(gpa, @intCast(column));
             try out.append(gpa, @intCast(first));
             for (0..rows) |offset| {
@@ -293,7 +293,7 @@ pub const MapData = struct {
 
     pub fn applyPayload(self: *MapData, gpa: std.mem.Allocator, bytes: []const u8) !void {
         if (bytes.len == 0) return;
-        if (@as(Payload, @enumFromInt(bytes[0])) == .columns) {
+        if (@as(Payload, @fromBackingInt(@intCast(bytes[0]))) == .columns) {
             if (bytes.len < 3) return;
             const column: usize = bytes[1];
             const first: usize = bytes[2];
@@ -305,7 +305,7 @@ pub const MapData = struct {
             self.markDirty();
             return;
         }
-        if (@as(Payload, @enumFromInt(bytes[0])) != .markers) return;
+        if (@as(Payload, @fromBackingInt(@intCast(bytes[0]))) != .markers) return;
 
         self.markers.clearRetainingCapacity();
         var index: usize = 0;
@@ -370,7 +370,7 @@ fn floorDouble(value: f64) i32 {
 }
 
 pub fn writeToNbt(data: *const MapData, gpa: std.mem.Allocator, compound: *nbt.Compound) !void {
-    try nbt.putDuped(gpa, compound, "dimension", .{ .byte = @intFromEnum(data.dimension) });
+    try nbt.putDuped(gpa, compound, "dimension", .{ .byte = @backingInt(data.dimension) });
     try nbt.putDuped(gpa, compound, "xCenter", .{ .int = data.center_x });
     try nbt.putDuped(gpa, compound, "zCenter", .{ .int = data.center_z });
     try nbt.putDuped(gpa, compound, "scale", .{ .byte = @intCast(data.scale) });

@@ -38,7 +38,7 @@ pub const palette_key = "BlockPalette";
 
 fn moddedPalette(gpa: std.mem.Allocator, chunk: *const Chunk) !?nbt.Tag {
     var used = std.bit_set.Static(256).empty;
-    for (chunk.blocks) |id| used.set(@intFromEnum(id));
+    for (chunk.blocks) |id| used.set(@backingInt(id));
 
     var entries: std.ArrayList(nbt.Tag) = .empty;
     errdefer {
@@ -49,7 +49,7 @@ fn moddedPalette(gpa: std.mem.Allocator, chunk: *const Chunk) !?nbt.Tag {
 
     var walk = used.iterator(.{});
     while (walk.next()) |raw| {
-        const id: Block = @enumFromInt(raw);
+        const id: Block = @fromBackingInt(@intCast(raw));
         if (id.isVanilla()) continue;
         const key = id.def().key;
         if (key.len == 0) continue;
@@ -74,7 +74,7 @@ fn remapFromPalette(level: nbt.Compound, chunk: *Chunk) void {
     };
 
     var remap: [256]Block = undefined;
-    for (&remap, 0..) |*slot, id| slot.* = @enumFromInt(id);
+    for (&remap, 0..) |*slot, id| slot.* = @fromBackingInt(@intCast(id));
 
     var changed = false;
     for (list.items) |item| {
@@ -93,13 +93,13 @@ fn remapFromPalette(level: nbt.Compound, chunk: *Chunk) void {
         };
 
         const current = Block.fromKey(key) orelse .air;
-        if (current == @as(Block, @enumFromInt(saved))) continue;
+        if (current == @as(Block, @fromBackingInt(@intCast(saved)))) continue;
         remap[saved] = current;
         changed = true;
     }
     if (!changed) return;
 
-    for (&chunk.blocks) |*id| id.* = remap[@intFromEnum(id.*)];
+    for (&chunk.blocks) |*id| id.* = remap[@backingInt(id.*)];
 }
 
 pub fn store(
@@ -303,7 +303,7 @@ test "a registered block writes its key into the palette" {
     const gpa = std.testing.allocator;
     defer Block.resetRegistry();
 
-    const quartz: Block = @enumFromInt(200);
+    const quartz: Block = @fromBackingInt(@intCast(200));
     quartz.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
 
     var chunk = sampleChunk();
@@ -325,7 +325,7 @@ test "a block whose id moved between runs comes back at its new id" {
     const gpa = std.testing.allocator;
     defer Block.resetRegistry();
 
-    const was: Block = @enumFromInt(200);
+    const was: Block = @fromBackingInt(@intCast(200));
     was.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
 
     var chunk = sampleChunk();
@@ -335,7 +335,7 @@ test "a block whose id moved between runs comes back at its new id" {
     defer nbt.deinit(gpa, &tag);
 
     Block.resetRegistry();
-    const now: Block = @enumFromInt(213);
+    const now: Block = @fromBackingInt(@intCast(213));
     now.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
 
     const loaded = try load(tag);
@@ -347,7 +347,7 @@ test "a block whose mod is gone loads as air rather than as whatever took its id
     const gpa = std.testing.allocator;
     defer Block.resetRegistry();
 
-    const quartz: Block = @enumFromInt(200);
+    const quartz: Block = @fromBackingInt(@intCast(200));
     quartz.register(.{ .key = "rosebed:quartz", .name = "Rose Quartz" });
 
     var chunk = sampleChunk();
@@ -357,7 +357,7 @@ test "a block whose mod is gone loads as air rather than as whatever took its id
     defer nbt.deinit(gpa, &tag);
 
     Block.resetRegistry();
-    const squatter: Block = @enumFromInt(200);
+    const squatter: Block = @fromBackingInt(@intCast(200));
     squatter.register(.{ .key = "othermod:copper", .name = "Copper" });
 
     const loaded = try load(tag);

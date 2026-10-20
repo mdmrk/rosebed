@@ -179,7 +179,7 @@ test "the armour column sits where ContainerPlayer puts it, helmet at the top" {
         found += 1;
     }
     try std.testing.expectEqual(armor_size, found);
-    try std.testing.expectEqual(@as(usize, @intFromEnum(world.item.ArmorSlot.helmet)), layout[5].index);
+    try std.testing.expectEqual(@as(usize, @backingInt(world.item.ArmorSlot.helmet)), layout[5].index);
 }
 
 test "the inventory screen's slots line up with the protocol window, slot for slot" {
@@ -192,7 +192,7 @@ test "the inventory screen's slots line up with the protocol window, slot for sl
         window.add(.{
             .stack = &player.armor[piece],
             .kind = .armor,
-            .armor = @enumFromInt(piece),
+            .armor = @fromBackingInt(@intCast(piece)),
         });
     }
     window.addPlayer(&player);

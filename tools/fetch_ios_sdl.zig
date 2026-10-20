@@ -27,7 +27,7 @@ fn sha256Hex(bytes: []const u8, out: *[64]u8) void {
     hasher.update(bytes);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     hasher.final(&digest);
-    _ = std.fmt.bufPrint(out, "{x}", .{digest}) catch unreachable;
+    _ = std.mem.print(out, "{x}", .{digest}) catch unreachable;
 }
 
 fn run(io: std.Io, argv: []const []const u8) !void {

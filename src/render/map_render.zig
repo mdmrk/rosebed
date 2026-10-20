@@ -88,7 +88,7 @@ pub fn paint(pixels: []u8, colors: []const u8, desaturate: bool) void {
             continue;
         }
 
-        const rgb = @as(world.block.MapColor, @enumFromInt(tone)).rgb();
+        const rgb = @as(world.block.MapColor, @fromBackingInt(@intCast(tone))).rgb();
         const shade: u32 = switch (shaded & 3) {
             2 => shade_lit,
             0 => shade_dark,
@@ -223,7 +223,7 @@ pub fn appendLabel(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text:
 }
 
 pub fn labelText(buffer: []u8, id: i16) []const u8 {
-    return std.fmt.bufPrint(buffer, "map_{d}", .{id}) catch buffer[0..0];
+    return std.mem.print(buffer, "map_{d}", .{id}) catch buffer[0..0];
 }
 
 fn placedAt(transform: math.Mat4, point: [4]f32) [4]f32 {

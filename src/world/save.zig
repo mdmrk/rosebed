@@ -422,7 +422,7 @@ pub const id_counts_file = "idcounts.dat";
 const max_data_bytes = 1 << 20;
 
 fn dataFileName(buffer: []u8, name: []const u8) ![]const u8 {
-    return std.fmt.bufPrint(buffer, "{s}/{s}.dat", .{ data_dir_name, name });
+    return std.mem.print(buffer, "{s}/{s}.dat", .{ data_dir_name, name });
 }
 
 pub fn readDataTag(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8, compressed: bool) !nbt.Tag {
@@ -517,7 +517,7 @@ fn playerToTag(gpa: std.mem.Allocator, player: PlayerState) !nbt.Tag {
     try put(gpa, &compound, "HurtTime", .{ .short = player.hurt_time });
     try put(gpa, &compound, "DeathTime", .{ .short = player.death_time });
     try put(gpa, &compound, "AttackTime", .{ .short = player.attack_time });
-    try put(gpa, &compound, "Dimension", .{ .int = @intFromEnum(player.dimension) });
+    try put(gpa, &compound, "Dimension", .{ .int = @backingInt(player.dimension) });
     try put(gpa, &compound, "Sleeping", .{ .byte = @intFromBool(player.sleeping) });
     try put(gpa, &compound, "SleepTimer", .{ .short = player.sleep_timer });
     if (player.spawn) |spawn| {

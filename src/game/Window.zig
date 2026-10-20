@@ -272,7 +272,7 @@ test "the player window lays its slots out the way vanilla numbers them" {
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
     for (0..Inventory.armor_size) |piece| {
-        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
+        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @fromBackingInt(@intCast(piece)) });
     }
     window.addPlayer(&inventory);
 
@@ -292,7 +292,7 @@ test "picking a stack up and putting it back down goes through the carried slot"
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
     for (0..Inventory.armor_size) |piece| {
-        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
+        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @fromBackingInt(@intCast(piece)) });
     }
     window.addPlayer(&inventory);
 
@@ -314,7 +314,7 @@ test "a helmet only goes in the helmet slot" {
     window.add(.{ .kind = .craft_result });
     for (0..crafting_grid) |slot| window.add(.{ .stack = &grid[slot], .kind = .craft_input });
     for (0..Inventory.armor_size) |piece| {
-        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @enumFromInt(piece) });
+        window.add(.{ .stack = &inventory.armor[piece], .kind = .armor, .armor = @fromBackingInt(@intCast(piece)) });
     }
     window.addPlayer(&inventory);
 

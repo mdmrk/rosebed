@@ -29,7 +29,7 @@ fn sha256Hex(bytes: []const u8, out: *[64]u8) void {
     hasher.update(bytes);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     hasher.final(&digest);
-    _ = std.fmt.bufPrint(out, "{x}", .{digest}) catch unreachable;
+    _ = std.mem.print(out, "{x}", .{digest}) catch unreachable;
 }
 
 fn wanted(name: []const u8) bool {
@@ -42,7 +42,7 @@ fn extractInto(io: std.Io, file: std.Io.File, dest: std.Io.Dir, filter: ?*const 
     var read_buffer: [4096]u8 = undefined;
     var reader = file.reader(io, &read_buffer);
     var iter = try std.zip.Iterator.init(&reader);
-    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var filename_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
         const name = filename_buf[0..entry.filename_len];
         try reader.seekTo(entry.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));

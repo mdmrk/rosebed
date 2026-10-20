@@ -328,7 +328,7 @@ test "a generated chunk matches the ChunkProviderHell reference block for block"
     for (0..16) |x| {
         for (0..16) |z| {
             for (0..128) |y| {
-                ids[at] = @intFromEnum(generated.chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)));
+                ids[at] = @backingInt(generated.chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)));
                 at += 1;
             }
         }

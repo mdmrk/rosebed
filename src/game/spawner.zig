@@ -963,7 +963,7 @@ test "the biome's creature list picks each kind by its own weight" {
     var rolls: [std.enums.values(Kind).len]u32 = @splat(0);
     const total = 4000;
     for (0..total) |_| {
-        rolls[@intFromEnum(pickWeighted(Creature, creatureList(.plains), &rand).kind)] += 1;
+        rolls[@backingInt(pickWeighted(Creature, creatureList(.plains), &rand).kind)] += 1;
     }
 
     // Of the plains list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
@@ -973,9 +973,9 @@ test "the biome's creature list picks each kind by its own weight" {
         try std.testing.expect(share > percent - 4 and share < percent + 4);
     }
 
-    try std.testing.expectEqual(@as(u32, 0), rolls[@intFromEnum(Kind.wolf)]);
-    try std.testing.expect(rolls[@intFromEnum(Kind.sheep)] > rolls[@intFromEnum(Kind.pig)]);
-    try std.testing.expect(rolls[@intFromEnum(Kind.pig)] > rolls[@intFromEnum(Kind.cow)]);
+    try std.testing.expectEqual(@as(u32, 0), rolls[@backingInt(Kind.wolf)]);
+    try std.testing.expect(rolls[@backingInt(Kind.sheep)] > rolls[@backingInt(Kind.pig)]);
+    try std.testing.expect(rolls[@backingInt(Kind.pig)] > rolls[@backingInt(Kind.cow)]);
 }
 
 test "only forest and taiga put a wolf on the list, at one part in twenty-one" {

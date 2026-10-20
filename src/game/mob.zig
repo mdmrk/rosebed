@@ -199,7 +199,7 @@ test "the monster flag marks exactly the mobs EntityMob covers" {
     const monsters = [_]Id{ creeper, skeleton, spider, zombie, pig_zombie, giant };
     for (0..registered()) |type_id| {
         const id: Id = @intCast(type_id);
-        const want = std.mem.indexOfScalar(Id, &monsters, id) != null;
+        const want = std.mem.findScalar(Id, &monsters, id) != null;
         try std.testing.expectEqual(want, get(id).monster);
     }
 }

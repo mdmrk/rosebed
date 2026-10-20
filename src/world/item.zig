@@ -244,7 +244,7 @@ fn vanillaDefs() [def_capacity]Def {
     @setEvalBranchQuota(2_000_000);
     var out: [def_capacity]Def = undefined;
     for (&out, 0..) |*entry, offset| {
-        const self: Item = @enumFromInt(first_item_id + offset);
+        const self: Item = @fromBackingInt(@intCast(first_item_id + offset));
         entry.* = .{
             .key = vanilla_keys[offset],
             .name = self.vanillaName(),
@@ -373,13 +373,13 @@ pub const Item = enum(u16) {
     _,
 
     pub fn def(self: Item) *const Def {
-        const raw = @intFromEnum(self);
+        const raw = @backingInt(self);
         if (raw < first_item_id or raw - first_item_id >= def_capacity) return &unregistered;
         return &defs[raw - first_item_id];
     }
 
     pub fn register(self: Item, definition: Def) void {
-        const raw = @intFromEnum(self);
+        const raw = @backingInt(self);
         std.debug.assert(raw >= first_item_id and raw - first_item_id < def_capacity);
         defs[raw - first_item_id] = definition;
     }
@@ -389,7 +389,7 @@ pub const Item = enum(u16) {
     }
 
     pub fn isVanilla(self: Item) bool {
-        const raw = @intFromEnum(self);
+        const raw = @backingInt(self);
         if (raw < first_item_id or raw - first_item_id >= def_capacity) return false;
         return vanilla_keys[raw - first_item_id].len != 0;
     }
@@ -397,7 +397,7 @@ pub const Item = enum(u16) {
     pub fn fromKey(key: []const u8) ?Item {
         if (key.len == 0) return null;
         for (defs, 0..) |entry, offset| {
-            if (std.mem.eql(u8, entry.key, key)) return @enumFromInt(first_item_id + offset);
+            if (std.mem.eql(u8, entry.key, key)) return @fromBackingInt(@intCast(first_item_id + offset));
         }
         return null;
     }
@@ -870,7 +870,7 @@ test "iconTile matches the real items.png icon coordinates" {
     try std.testing.expectEqual(@as(?u8, 7), Item.coal.iconTile(0));
     try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
     try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, null), (@as(Item, @enumFromInt(0))).iconTile(0));
+    try std.testing.expectEqual(@as(?u8, null), (@as(Item, @fromBackingInt(@intCast(0)))).iconTile(0));
 }
 
 test "dye display names are selected by metadata" {
@@ -882,7 +882,7 @@ test "dye display names are selected by metadata" {
 test "an item's display name ignores metadata unless it is a dye" {
     try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(0));
     try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(7));
-    try std.testing.expectEqualStrings("", (@as(Item, @enumFromInt(0))).displayName(0));
+    try std.testing.expectEqualStrings("", (@as(Item, @fromBackingInt(@intCast(0)))).displayName(0));
 }
 
 test "the new items match their real items.png icon coordinates" {
@@ -1125,7 +1125,7 @@ test "both records sit one after the other on the bottom row and never stack" {
 
 test "an id no vanilla item claims falls back to the empty definition" {
     for ([_]u16{ 0, 255, 400, first_item_id + def_capacity }) |raw| {
-        const unclaimed: Item = @enumFromInt(raw);
+        const unclaimed: Item = @fromBackingInt(@intCast(raw));
         try std.testing.expect(unclaimed.tool() == null);
         try std.testing.expect(unclaimed.armor() == null);
         try std.testing.expect(unclaimed.placedBlock() == null);
@@ -1137,7 +1137,7 @@ test "an id no vanilla item claims falls back to the empty definition" {
 }
 
 test "registering over an unclaimed id changes what every caller sees" {
-    const custom: Item = @enumFromInt(400);
+    const custom: Item = @fromBackingInt(@intCast(400));
     const restore = custom.def().*;
     defer custom.register(restore);
 
@@ -1165,14 +1165,14 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
     try std.testing.expect(Item.fromKey("") == null);
 
     try std.testing.expect(Item.diamond.isVanilla());
-    try std.testing.expect(!(@as(Item, @enumFromInt(400))).isVanilla());
-    try std.testing.expect(!(@as(Item, @enumFromInt(0))).isVanilla());
+    try std.testing.expect(!(@as(Item, @fromBackingInt(@intCast(400)))).isVanilla());
+    try std.testing.expect(!(@as(Item, @fromBackingInt(@intCast(0)))).isVanilla());
 }
 
 test "a registered item answers to its own key without shadowing a vanilla one" {
     defer Item.resetRegistry();
 
-    const custom: Item = @enumFromInt(400);
+    const custom: Item = @fromBackingInt(@intCast(400));
     custom.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
 
     try std.testing.expectEqual(custom, Item.fromKey("rosebed:quartz_pickaxe").?);
@@ -1191,7 +1191,7 @@ fn quartzLabel(_: Item, damage: u16) []const u8 {
 test "a registered item's metadata hooks answer in place of the vanilla switch" {
     defer Item.resetRegistry();
 
-    const custom: Item = @enumFromInt(400);
+    const custom: Item = @fromBackingInt(@intCast(400));
     custom.register(.{
         .key = "rosebed:quartz_pickaxe",
         .name = "Quartz Pickaxe",
@@ -1218,7 +1218,7 @@ test "a vanilla item ignores the hooks and keeps the switch it always had" {
 test "a registered item with no hooks falls back to its constant icon and name" {
     defer Item.resetRegistry();
 
-    const custom: Item = @enumFromInt(401);
+    const custom: Item = @fromBackingInt(@intCast(401));
     custom.register(.{ .key = "rosebed:marble", .name = "Marble", .icon = 55 });
 
     try std.testing.expectEqual(@as(?u8, 55), custom.iconTile(0));
