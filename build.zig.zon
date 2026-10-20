@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .sdl3 = .{
-            .url = "git+https://codeberg.org/mdmrk/zig-sdl3?ref=cast-fix#5339fcc215a9434ec80ff7de414ddf499d85d00c",
-            .hash = "sdl3-0.2.3-NmT1Q2ADKgDl5YExBiNM5qNnmzfEv3bgn2tQPd2EwQeR",
+            .url = "git+https://codeberg.org/mdmrk/zig-sdl3?ref=cast-fix#606dd3c9da10310699034d2698f5ae6b4eda5fbe",
+            .hash = "sdl3-0.2.3-NmT1Q6ADKgAaGng9hAhaL6j-esmlFC0lIvZm5DNqwqmo",
         },
         .zigglgen = .{
             .url = "git+https://github.com/castholm/zigglgen.git#38bfc858ce2182fcb9d5d1819210f97beb4a19d3",
