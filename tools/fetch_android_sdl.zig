@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const version = "3.4.0";
+const version = "3.4.18";
 const archive_url = "https://github.com/libsdl-org/SDL/releases/download/release-" ++ version ++ "/SDL3-devel-" ++ version ++ "-android.zip";
-const archive_sha256 = "ed8e9278b4a944fc0ad93ece64cfc6d46693eaa4d47a5f87d891a3c24c783c21";
+const archive_sha256 = "e09e4d6593335d089ba124375e8b8abd0fd75173dffcd2c17012b45af121d4e9";
 const aar_name = "SDL3-" ++ version ++ ".aar";
 const tmp_dir_name = ".zig-cache/tmp";
 const staging_name = ".zig-cache/tmp/sdl-android";

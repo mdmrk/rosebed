@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const version = "3.4.0";
+const version = "3.4.18";
 const archive_url = "https://github.com/libsdl-org/SDL/releases/download/release-" ++ version ++ "/SDL3-" ++ version ++ ".dmg";
-const archive_sha256 = "adf14bde6258b9f4a8775bec093f26797f1679aeb60ecb832cb34f9df5c85812";
+const archive_sha256 = "c1adf3da91108dbc3e4205da5dacebc203085d283fa89e86eb2c889abd03a853";
 const tmp_dir_name = ".zig-cache/tmp";
 const archive_name = "fetched-sdl-ios.dmg";
 const mount_name = ".zig-cache/tmp/sdl-ios-mount";

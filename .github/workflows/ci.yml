@@ -54,7 +54,7 @@ jobs:
             tar -czf "dist/rosebed-${{ matrix.name }}.tar.gz" -C zig-out/bin rosebed rosebed-server
           fi
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rosebed-${{ matrix.name }}
           path: dist/*
@@ -71,7 +71,7 @@ jobs:
       - name: setup emsdk
         uses: emscripten-core/setup-emsdk@v16
         with:
-          version: 6.0.9
+          version: 6.0.13
           actions-cache-folder: emsdk-cache
       - name: patch zig std for emscripten
         run: |
@@ -96,12 +96,12 @@ jobs:
           mkdir -p dist
           tar -czf dist/rosebed-wasm32-emscripten.tar.gz -C zig-out/www .
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rosebed-wasm32-emscripten
           path: dist/*
       - name: upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: zig-out/www
   android:
@@ -134,7 +134,7 @@ jobs:
           mkdir -p dist
           cp zig-out/rosebed.apk dist/rosebed-aarch64-linux-android.apk
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rosebed-aarch64-linux-android
           path: dist/*
@@ -165,7 +165,7 @@ jobs:
           mkdir -p dist
           cp zig-out/rosebed.ipa dist/rosebed-aarch64-ios.ipa
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rosebed-aarch64-ios
           path: dist/*
@@ -193,7 +193,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7
       - name: download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: rosebed-*
@@ -218,7 +218,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7
       - name: download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: rosebed-*
