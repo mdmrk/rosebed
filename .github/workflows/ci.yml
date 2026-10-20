@@ -10,7 +10,25 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: check for changes since the last nightly
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh api "repos/${{ github.repository }}/commits/nightly" --jq .sha 2>/dev/null || true)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$last" = "$GITHUB_SHA" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
   build:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +78,8 @@ jobs:
           path: dist/*
   web:
     name: build (ubuntu-latest, wasm32-emscripten)
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -106,6 +126,8 @@ jobs:
           path: zig-out/www
   android:
     name: build (ubuntu-latest, aarch64-linux-android)
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -140,6 +162,8 @@ jobs:
           path: dist/*
   ios:
     name: build (macos-latest, aarch64-ios)
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: macos-latest
     steps:
       - name: checkout
@@ -204,9 +228,9 @@ jobs:
         run: |
           notes="nightly build of ${GITHUB_SHA:0:7}"
           if gh release view nightly >/dev/null 2>&1; then
-            gh release delete nightly --yes
+            gh release delete nightly --yes --cleanup-tag
           fi
-          gh release create nightly --verify-tag --prerelease --title nightly --notes "$notes"
+          gh release create nightly --target "$GITHUB_SHA" --prerelease --title nightly --notes "$notes"
           gh release upload nightly dist/*
   release:
     if: startsWith(github.ref, 'refs/tags/v')
