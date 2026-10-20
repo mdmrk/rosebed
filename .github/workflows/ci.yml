@@ -50,8 +50,13 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - name: seed freetype tarball
-        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: seed freetype package
+        run: |
+          pkg=zig-pkg/N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT
+          mkdir -p "$pkg"
+          curl -fsSL https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz -o freetype.tar.xz
+          tar -xJf freetype.tar.xz --strip-components=1 -C "$pkg"
+          rm freetype.tar.xz
       - name: fetch assets
         run: zig build fetch-assets
       - name: test
@@ -99,8 +104,13 @@ jobs:
           cp -r "$lib_dir" ziglib
           chmod -R u+w ziglib
           patch -p1 -d ziglib < .github/zig-emscripten.patch
-      - name: seed freetype tarball
-        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: seed freetype package
+        run: |
+          pkg=zig-pkg/N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT
+          mkdir -p "$pkg"
+          curl -fsSL https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz -o freetype.tar.xz
+          tar -xJf freetype.tar.xz --strip-components=1 -C "$pkg"
+          rm freetype.tar.xz
       - name: fetch assets
         run: zig build fetch-assets
       - name: build
@@ -136,8 +146,13 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - name: seed freetype tarball
-        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: seed freetype package
+        run: |
+          pkg=zig-pkg/N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT
+          mkdir -p "$pkg"
+          curl -fsSL https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz -o freetype.tar.xz
+          tar -xJf freetype.tar.xz --strip-components=1 -C "$pkg"
+          rm freetype.tar.xz
       - name: fetch assets
         run: zig build fetch-assets
       - name: fetch sdl for android
@@ -172,8 +187,13 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - name: seed freetype tarball
-        run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
+      - name: seed freetype package
+        run: |
+          pkg=zig-pkg/N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT
+          mkdir -p "$pkg"
+          curl -fsSL https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz -o freetype.tar.xz
+          tar -xJf freetype.tar.xz --strip-components=1 -C "$pkg"
+          rm freetype.tar.xz
       - name: fetch assets
         run: zig build fetch-assets
       - name: fetch sdl for ios
