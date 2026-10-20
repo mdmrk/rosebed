@@ -64,7 +64,7 @@ damage_taken: i32 = 0,
 damage_remainder: i32 = 0,
 fall_distance: f32 = 0,
 distance_fallen: f32 = 0,
-earned: std.EnumSet(achievements.Id) = .initEmpty(),
+earned: std.EnumSet(achievements.Id) = .empty,
 minecart_start: ?[3]i32 = null,
 y_size: f64 = 0,
 prev_y_size: f64 = 0,
@@ -76,7 +76,7 @@ pub fn earn(self: *Player, id: achievements.Id) void {
 
 pub fn takeEarned(self: *Player) std.EnumSet(achievements.Id) {
     const claimed = self.earned;
-    self.earned = .initEmpty();
+    self.earned = .empty;
     return claimed;
 }
 
@@ -2038,7 +2038,7 @@ test "a player's name is kept, clipped to what the protocol allows" {
     try std.testing.expect(player.name.eql("Notch"));
     try std.testing.expect(!player.name.eql("notch"));
 
-    player.name.set("a" ** (max_name + 4));
+    player.name.set(&@as([max_name + 4]u8, @splat('a')));
     try std.testing.expectEqual(@as(usize, max_name), player.name.text().len);
 }
 

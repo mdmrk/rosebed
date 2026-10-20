@@ -9,7 +9,7 @@ const gui = @import("../gui.zig");
 pub const Backdrop = gui.Backdrop;
 const MeshBuilder = @import("../MeshBuilder.zig");
 
-const touch = builtin.abi == .android or builtin.abi == .androideabi or builtin.os.tag == .ios;
+const touch = builtin.target.abi == .android or builtin.target.abi == .androideabi or builtin.target.os.tag == .ios;
 const extra_controls: usize = if (touch) 2 else 0;
 
 const gui_texture_size: f32 = 256;

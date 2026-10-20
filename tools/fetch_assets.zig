@@ -113,7 +113,7 @@ fn fetchResource(
 ) !void {
     if (upToDate(io, dir, resource)) return;
 
-    const url = try std.fmt.allocPrint(gpa, "{s}{s}/{s}", .{ resource_url, resource.hash[0..2], resource.hash });
+    const url = try gpa.print("{s}{s}/{s}", .{ resource_url, resource.hash[0..2], resource.hash });
     defer gpa.free(url);
 
     const bytes = try fetchAlloc(gpa, client, url);
@@ -208,7 +208,7 @@ fn insertSound(
     decl_path: []const u8,
     embed_path: []const u8,
 ) !void {
-    const tree_path = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ sound_namespace, key });
+    const tree_path = try alloc.print("{s}/{s}", .{ sound_namespace, key });
     std.mem.replaceScalar(u8, tree_path, '.', '/');
     const leaf = try reach(alloc, root, tree_path);
     leaf.sound_key = key;
@@ -221,7 +221,7 @@ fn identFor(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
         buf[i] = if (std.ascii.isAlphanumeric(c) or c == '_') c else '_';
     }
     if (std.zig.isValidId(buf) and !std.zig.primitives.isPrimitive(buf)) return buf;
-    return std.fmt.allocPrint(alloc, "@\"{s}\"", .{buf});
+    return alloc.print("@\"{s}\"", .{buf});
 }
 
 fn lessThanName(_: void, a: []const u8, b: []const u8) bool {

@@ -16,7 +16,7 @@ const sdl3 = @import("sdl3");
 const world = @import("world");
 const BlockPos = world.BlockPos;
 
-const Link = if (builtin.cpu.arch.isWasm()) @import("WebLink.zig") else @import("Link.zig");
+const Link = if (builtin.target.cpu.arch.isWasm()) @import("WebLink.zig") else @import("Link.zig");
 
 const ticks_per_second = 20.0;
 const screen_width = 854;
@@ -28,9 +28,9 @@ const far_plane = 1000.0;
 const chunk_load_budget_ns = 8 * std.time.ns_per_ms;
 const chunk_stream_budget_ns = 4 * std.time.ns_per_ms;
 const spawn_position = math.Vec3.init(8, 90, 8);
-const wasm = builtin.cpu.arch.isWasm();
-const android = builtin.abi == .android or builtin.abi == .androideabi;
-const ios = builtin.os.tag == .ios;
+const wasm = builtin.target.cpu.arch.isWasm();
+const android = builtin.target.abi == .android or builtin.target.abi == .androideabi;
+const ios = builtin.target.os.tag == .ios;
 const gles = wasm or android or ios;
 const touch_ui = android or ios;
 const touch_dig_delay_ms = 180;
@@ -60,7 +60,7 @@ fn pickSplash(rand: *world.JavaRandom) []const u8 {
     return chosen;
 }
 
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+var debug_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 var frame_arena: std.heap.ArenaAllocator = undefined;
 var io_threaded: std.Io.Threaded = undefined;
 
@@ -435,7 +435,7 @@ pub fn init(
 
     const gpa = if (wasm)
         std.heap.c_allocator
-    else if (builtin.mode == .Debug)
+    else if (builtin.mode == .debug)
         debug_allocator.allocator()
     else
         std.heap.smp_allocator;
@@ -1792,7 +1792,7 @@ fn texturePacksClick(app_state: *AppState) !void {
 }
 
 fn openTexturePackFolder(app_state: *AppState) void {
-    const url = std.fmt.allocPrintSentinel(app_state.frame, "file://{s}{s}", .{ app_state.base_path, render.texture_pack.folder_name }, 0) catch return;
+    const url = app_state.frame.printSentinel("file://{s}{s}", .{ app_state.base_path, render.texture_pack.folder_name }, 0) catch return;
     sdl3.openURL(url) catch {};
 }
 
@@ -5129,7 +5129,7 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
 }
 
 fn touchHeld(app_state: *const AppState) render.touch.Held {
-    var held: render.touch.Held = .initEmpty();
+    var held: render.touch.Held = .empty;
     for (app_state.touches) |touch| {
         if (touch.role == .button) held.insert(touch.control);
         if (touch.role == .world and touch.digging) held.insert(.attack);
@@ -5449,7 +5449,7 @@ pub fn quit(
     }
     sdl3.quit(init_flags);
     sdl3.shutdown();
-    if (builtin.mode == .Debug and !wasm) _ = debug_allocator.deinit();
+    if (builtin.mode == .debug and !wasm) _ = debug_allocator.deinit();
 }
 
 test "a sound outside the fade distance never reaches the sound system" {

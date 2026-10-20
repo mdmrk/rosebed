@@ -139,7 +139,7 @@ pub fn unusedFolderName(gpa: std.mem.Allocator, io: std.Io, saves_dir: std.Io.Di
     errdefer gpa.free(candidate);
 
     while (folderTaken(io, saves_dir, candidate)) {
-        const grown = try std.fmt.allocPrint(gpa, "{s}-", .{candidate});
+        const grown = try gpa.print("{s}-", .{candidate});
         gpa.free(candidate);
         candidate = grown;
     }

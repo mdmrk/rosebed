@@ -44,8 +44,8 @@ pub const Art = enum {
     };
 
     pub fn byTitle(title: []const u8) ?Art {
-        inline for (@typeInfo(Art).@"enum".fields) |field| {
-            const art: Art = @enumFromInt(field.value);
+        inline for (@typeInfo(Art).@"enum".field_values) |value| {
+            const art: Art = @enumFromInt(value);
             if (std.mem.eql(u8, art.info().title, title)) return art;
         }
         return null;

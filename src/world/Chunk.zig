@@ -10,13 +10,13 @@ const Chunk = @This();
 
 x: i32,
 z: i32,
-blocks: [volume]Block = [_]Block{.air} ** volume,
+blocks: [volume]Block = @splat(.air),
 metadata: NibbleArray = .{},
 sky_light: NibbleArray = .{},
 block_light: NibbleArray = .{},
-height_map: [width * width]u8 = [_]u8{0} ** (width * width),
-temperature: [width * width]f32 = [_]f32{0.5} ** (width * width),
-humidity: [width * width]f32 = [_]f32{0.5} ** (width * width),
+height_map: [width * width]u8 = @splat(0),
+temperature: [width * width]f32 = @splat(0.5),
+humidity: [width * width]f32 = @splat(0.5),
 modified: bool = false,
 stored_entities: bool = false,
 

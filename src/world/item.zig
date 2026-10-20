@@ -229,9 +229,10 @@ const vanilla_keys: [def_capacity][]const u8 = keysFromEnum();
 
 fn keysFromEnum() [def_capacity][]const u8 {
     var out: [def_capacity][]const u8 = @splat("");
-    for (@typeInfo(Item).@"enum".fields) |entry| {
-        if (entry.value < first_item_id or entry.value - first_item_id >= def_capacity) continue;
-        out[entry.value - first_item_id] = entry.name;
+    const info = @typeInfo(Item).@"enum";
+    for (info.field_names, info.field_values) |name, value| {
+        if (value < first_item_id or value - first_item_id >= def_capacity) continue;
+        out[value - first_item_id] = name;
     }
     return out;
 }

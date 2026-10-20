@@ -119,8 +119,8 @@ pub fn deinit(self: *Manager, gpa: std.mem.Allocator) void {
 fn collectGroups(comptime namespace: type) []const assets.Sound {
     comptime {
         var found: []const assets.Sound = &.{};
-        for (@typeInfo(namespace).@"struct".decls) |decl| {
-            const entry = @field(namespace, decl.name);
+        for (@typeInfo(namespace).@"struct".decl_names) |decl_name| {
+            const entry = @field(namespace, decl_name);
             const Entry = @TypeOf(entry);
             if (Entry == assets.Sound) {
                 found = found ++ [_]assets.Sound{entry};

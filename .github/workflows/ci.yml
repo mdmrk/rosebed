@@ -31,7 +31,7 @@ jobs:
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - name: seed freetype tarball
         run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
       - name: fetch assets
@@ -41,9 +41,9 @@ jobs:
       - name: build
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            zig build -Doptimize=ReleaseFast
+            zig build -Doptimize=fast
           else
-            zig build -Doptimize=ReleaseFast -Dcpu=x86_64_v3
+            zig build -Doptimize=fast -Dcpu=x86_64_v3
           fi
       - name: package
         run: |
@@ -67,7 +67,7 @@ jobs:
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - name: setup emsdk
         uses: emscripten-core/setup-emsdk@v16
         with:
@@ -87,8 +87,9 @@ jobs:
         run: |
           zig build \
             -Dtarget=wasm32-emscripten \
-            -Doptimize=ReleaseFast \
+            -Doptimize=fast \
             --sysroot "$(em-config CACHE)/sysroot" \
+            -Demscripten-sysroot="$(em-config CACHE)/sysroot" \
             --zig-lib-dir ziglib
       - name: package
         run: |
@@ -112,7 +113,7 @@ jobs:
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - name: seed freetype tarball
         run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
       - name: fetch assets
@@ -123,7 +124,7 @@ jobs:
         run: |
           zig build \
             -Dtarget=aarch64-linux-android \
-            -Doptimize=ReleaseFast \
+            -Doptimize=fast \
             -Dandroid-ndk="$ANDROID_NDK_ROOT" \
             -Dandroid-sdk="$ANDROID_HOME" \
             -Dandroid-build-tools="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)" \
@@ -146,7 +147,7 @@ jobs:
       - name: setup zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - name: seed freetype tarball
         run: zig fetch https://downloads.sourceforge.net/project/freetype/freetype2/2.14.3/freetype-2.14.3.tar.xz
       - name: fetch assets
@@ -157,7 +158,7 @@ jobs:
         run: |
           zig build \
             -Dtarget=aarch64-ios \
-            -Doptimize=ReleaseFast \
+            -Doptimize=fast \
             -Dios-sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
       - name: package
         run: |

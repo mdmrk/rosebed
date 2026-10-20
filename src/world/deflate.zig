@@ -33,7 +33,7 @@ pub fn decompressAlloc(gpa: std.mem.Allocator, container: Container, data: []con
 
 test "zlib and gzip round-trip" {
     const gpa = std.testing.allocator;
-    const payload = "Rosebed" ** 400;
+    const payload = std.mem.asBytes(&@as([400]["Rosebed".len]u8, @splat("Rosebed".*)));
 
     for ([_]Container{ .zlib, .gzip, .raw }) |container| {
         const packed_bytes = try compressAlloc(gpa, container, payload);

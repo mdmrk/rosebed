@@ -91,8 +91,8 @@ pub const AuxSfx = enum(i32) {
     block_break = 2001,
 
     pub fn fromId(id: i32) ?AuxSfx {
-        inline for (@typeInfo(AuxSfx).@"enum".fields) |field| {
-            if (field.value == id) return @enumFromInt(field.value);
+        inline for (@typeInfo(AuxSfx).@"enum".field_values) |value| {
+            if (value == id) return @enumFromInt(value);
         }
         return null;
     }

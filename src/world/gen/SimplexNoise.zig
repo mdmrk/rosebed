@@ -124,7 +124,7 @@ test "addBatch matches a real Minecraft SimplexNoise(seed 42) 3x3 grid" {
     var rand = JavaRandom.init(42);
     const gen = SimplexNoise.init(&rand);
 
-    var out = [_]f64{0} ** 9;
+    var out: [9]f64 = @splat(0);
     gen.addBatch(&out, .{ .x = 5.0, .y = -3.0 }, .{ .x = 3, .y = 3 }, .{ .x = 0.05, .y = 0.05 }, 1.0);
 
     const expected = [9]f64{

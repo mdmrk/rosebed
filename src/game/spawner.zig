@@ -587,7 +587,7 @@ test "every kind we can make finds its way into a grassy world" {
 
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, surface + 1, 0);
-    var seen = [_]bool{false} ** std.enums.values(Kind).len;
+    var seen: [std.enums.values(Kind).len]bool = @splat(false);
 
     for (0..4000) |_| {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
@@ -960,7 +960,7 @@ test "the population cap follows the vanilla per-chunk allowance" {
 
 test "the biome's creature list picks each kind by its own weight" {
     var rand = world.JavaRandom.init(4);
-    var rolls = [_]u32{0} ** std.enums.values(Kind).len;
+    var rolls: [std.enums.values(Kind).len]u32 = @splat(0);
     const total = 4000;
     for (0..total) |_| {
         rolls[@intFromEnum(pickWeighted(Creature, creatureList(.plains), &rand).kind)] += 1;

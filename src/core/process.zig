@@ -10,12 +10,12 @@ pub const Usage = struct {
 const unknown: Usage = .{ .used = 0, .allocated = 0, .max = 1 };
 
 pub fn sample() Usage {
-    return switch (builtin.os.tag) {
+    return switch (builtin.target.os.tag) {
         .linux => sampleLinux(),
         .windows => sampleWindows(),
         .freebsd => sampleFreebsd(),
         .emscripten => sampleEmscripten(),
-        else => if (builtin.os.tag.isDarwin()) sampleDarwin() else unknown,
+        else => if (builtin.target.os.tag.isDarwin()) sampleDarwin() else unknown,
     };
 }
 

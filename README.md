@@ -101,12 +101,12 @@ The short list of things b1.7.3 does not have. Everything else is meant to match
 
 ## Build
 
-Requires [Zig 0.16.0](https://ziglang.org/download/).
+Requires [Zig 0.17.0](https://ziglang.org/download/).
 
 ```sh
 # Build
 zig build fetch-assets            # once, before anything else
-zig build -Doptimize=ReleaseFast  # binaries into zig-out/bin
+zig build -Doptimize=fast         # binaries into zig-out/bin
 
 # Other useful commands
 zig build                         # debug build may be too slow to play
@@ -129,8 +129,9 @@ cp -r "$lib_dir" ziglib
 chmod -R u+w ziglib
 patch -p1 -d ziglib < .github/zig-emscripten.patch
 
-zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast \
-  --sysroot "$(em-config CACHE)/sysroot" --zig-lib-dir ziglib
+zig build -Dtarget=wasm32-emscripten -Doptimize=fast \
+  --sysroot "$(em-config CACHE)/sysroot" -Demscripten-sysroot="$(em-config CACHE)/sysroot" \
+  --zig-lib-dir ziglib
 ```
 
 Output is a static site in `zig-out/www`. You can serve it with `python -m http.server`.
@@ -141,7 +142,7 @@ Needs the [Android NDK](https://developer.android.com/ndk/downloads) and an Andr
 
 ```sh
 zig build fetch-android-sdl # once, unpacks SDL3 and its Java glue into android/sdl
-zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast \
+zig build -Dtarget=aarch64-linux-android -Doptimize=fast \
   -Dandroid-ndk="$ANDROID_NDK_HOME" -Dandroid-sdk="$ANDROID_HOME"
 ```
 
@@ -153,7 +154,7 @@ Needs macOS with Xcode installed, plus `zip` on `PATH`. SDL3 itself is the offic
 
 ```sh
 zig build fetch-ios-sdl # once, unpacks SDL3.framework into ios/sdl
-zig build -Dtarget=aarch64-ios -Doptimize=ReleaseFast
+zig build -Dtarget=aarch64-ios -Doptimize=fast
 ```
 
 The iPhoneOS SDK comes from `xcrun --sdk iphoneos --show-sdk-path` unless `-Dios-sdk` names one.

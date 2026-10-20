@@ -174,6 +174,6 @@ test "the render yaw walks from the previous angle to the current one" {
 
 test "a mob name longer than the buffer is cut rather than overrunning it" {
     var state: MobSpawner = .{};
-    state.setMobName("A" ** (max_mob_name + 8));
+    state.setMobName(&@as([max_mob_name + 8]u8, @splat('A')));
     try std.testing.expectEqual(@as(usize, max_mob_name), state.mobName().len);
 }

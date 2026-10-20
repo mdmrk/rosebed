@@ -50,7 +50,7 @@ pub const State = struct {
     blink: u32 = 0,
 
     history: [max_lines][max_message_length]u8 = undefined,
-    history_lengths: [max_lines]usize = [_]usize{0} ** max_lines,
+    history_lengths: [max_lines]usize = @splat(0),
     history_line_count: usize = 0,
     history_pointer: usize = 0,
 
@@ -334,11 +334,11 @@ test "the newest message sits at index zero" {
 
 test "a message wider than 320 pixels splits, head first" {
     var state: State = .{};
-    state.addMessage(test_font, "x" ** 60);
+    state.addMessage(test_font, &@as([60]u8, @splat('x')));
 
     try std.testing.expectEqual(@as(usize, 2), state.line_count);
-    try std.testing.expectEqualStrings("x" ** 53, state.lines[1].text());
-    try std.testing.expectEqualStrings("x" ** 7, state.lines[0].text());
+    try std.testing.expectEqualStrings(&@as([53]u8, @splat('x')), state.lines[1].text());
+    try std.testing.expectEqualStrings(&@as([7]u8, @splat('x')), state.lines[0].text());
     try std.testing.expect(test_font.stringWidth(state.lines[1].text()) <= wrap_width);
 }
 
@@ -363,7 +363,7 @@ test "typing keeps only characters the font sheet lists" {
 
 test "a message never grows past a hundred characters" {
     var state: State = .{};
-    state.typeText("y" ** (max_message_length * 2));
+    state.typeText(&@as([max_message_length * 2]u8, @splat('y')));
     try std.testing.expectEqual(max_message_length, state.message().len);
 }
 

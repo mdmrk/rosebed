@@ -178,8 +178,8 @@ fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource, des
 
 pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8, desaturate: bool) !Textures {
     var loaded: Textures = undefined;
-    inline for (@typeInfo(Textures).@"struct".fields) |field| {
-        @field(loaded, field.name) = try loadOne(gpa, archive, resourceFor(field.name), desaturate);
+    inline for (@typeInfo(Textures).@"struct".field_names) |name| {
+        @field(loaded, name) = try loadOne(gpa, archive, resourceFor(name), desaturate);
     }
     return loaded;
 }
@@ -205,14 +205,14 @@ pub fn armor(self: Textures, material: world.item.ArmorMaterial, second_texture:
 }
 
 pub fn deinit(self: Textures) void {
-    inline for (@typeInfo(Textures).@"struct".fields) |field| {
-        @field(self, field.name).deinit();
+    inline for (@typeInfo(Textures).@"struct".field_names) |name| {
+        @field(self, name).deinit();
     }
 }
 
 test "every atlas names the jar path a texture pack would override it with" {
-    inline for (@typeInfo(Textures).@"struct".fields) |field| {
-        const resource = resourceFor(field.name);
+    inline for (@typeInfo(Textures).@"struct".field_names) |name| {
+        const resource = resourceFor(name);
         try std.testing.expect(resource.path.len > 0);
         try std.testing.expect(resource.bytes.len > 0);
         try std.testing.expect(!std.mem.startsWith(u8, resource.path, "/"));
@@ -222,11 +222,11 @@ test "every atlas names the jar path a texture pack would override it with" {
 
 test "the paths are the ones the original reads, and none is claimed twice" {
     @setEvalBranchQuota(10000);
-    const fields = @typeInfo(Textures).@"struct".fields;
-    inline for (fields, 0..) |field, index| {
-        inline for (fields, 0..) |other, other_index| {
+    const names = @typeInfo(Textures).@"struct".field_names;
+    inline for (names, 0..) |name, index| {
+        inline for (names, 0..) |other, other_index| {
             if (index != other_index) {
-                try std.testing.expect(!std.mem.eql(u8, resourceFor(field.name).path, resourceFor(other.name).path));
+                try std.testing.expect(!std.mem.eql(u8, resourceFor(name).path, resourceFor(other).path));
             }
         }
     }
@@ -248,10 +248,10 @@ test "only the tiling atlases ask for repeat wrapping" {
 test "the pumpkin overlay is the one texture the original smooths" {
     @setEvalBranchQuota(10000);
     var blurring: usize = 0;
-    inline for (@typeInfo(Textures).@"struct".fields) |field| {
-        if (resourceFor(field.name).filter == .blur) {
+    inline for (@typeInfo(Textures).@"struct".field_names) |name| {
+        if (resourceFor(name).filter == .blur) {
             blurring += 1;
-            try std.testing.expectEqualStrings("misc/pumpkinblur.png", resourceFor(field.name).path);
+            try std.testing.expectEqualStrings("misc/pumpkinblur.png", resourceFor(name).path);
         }
     }
     try std.testing.expectEqual(@as(usize, 1), blurring);

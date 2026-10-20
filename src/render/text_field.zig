@@ -134,7 +134,7 @@ test "backspace removes the last character and stops at empty" {
 
 test "a field never takes more than its maximum length" {
     var field: TextField = .{};
-    field.insert("x" ** (max_length * 2));
+    field.insert(&@as([max_length * 2]u8, @splat('x')));
     try std.testing.expectEqual(Charset.name.limit(), field.text().len);
 }
 
@@ -142,7 +142,7 @@ test "setText replaces the contents and truncates overlong input" {
     var field: TextField = .{};
     field.setText("hello");
     try std.testing.expectEqualStrings("hello", field.text());
-    field.setText("y" ** (max_length + 5));
+    field.setText(&@as([max_length + 5]u8, @splat('y')));
     try std.testing.expectEqual(Charset.name.limit(), field.text().len);
 }
 
@@ -171,7 +171,7 @@ test "an address field takes a colon and a longer name than a world does" {
     try std.testing.expectEqualStrings("localhost:25565", field.text());
 
     field.setText("");
-    field.insert("h" ** 200);
+    field.insert(&@as([200]u8, @splat('h')));
     try std.testing.expectEqual(Charset.address.limit(), field.text().len);
 }
 

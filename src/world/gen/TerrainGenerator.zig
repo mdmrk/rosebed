@@ -368,7 +368,7 @@ fn grassPlateauWorld() !World {
 }
 
 fn uniformTemperatures(value: f64) [Climate.grid_size * Climate.grid_size]f64 {
-    return [_]f64{value} ** (Climate.grid_size * Climate.grid_size);
+    return @splat(value);
 }
 
 test "snow layers form on solid ground in cold climates but not warm ones" {

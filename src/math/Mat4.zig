@@ -31,7 +31,7 @@ pub fn mul(a: Mat4, b: Mat4) Mat4 {
 
 pub fn perspective(fov_y_radians: f32, aspect: f32, near: f32, far: f32) Mat4 {
     const f = 1.0 / @tan(fov_y_radians / 2.0);
-    var m = [_]f32{0} ** 16;
+    var m: [16]f32 = @splat(0);
     m[0] = f / aspect;
     m[5] = f;
     m[10] = (far + near) / (near - far);

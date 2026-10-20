@@ -660,8 +660,8 @@ fn takeBytes(gpa: std.mem.Allocator, r: *std.Io.Reader, length: usize) ![]u8 {
 
 pub fn readId(r: *std.Io.Reader) !Id {
     const raw = try r.takeInt(u8, .big);
-    inline for (@typeInfo(Id).@"enum".fields) |field| {
-        if (raw == field.value) return @enumFromInt(raw);
+    inline for (@typeInfo(Id).@"enum".field_values) |value| {
+        if (raw == value) return @enumFromInt(raw);
     }
     return error.UnknownPacketId;
 }
@@ -1841,17 +1841,17 @@ test "every packet decodes back out of the bytes vanilla wrote" {
 }
 
 test "every packet the protocol defines has a byte vector taken from vanilla" {
-    var seen: [@typeInfo(Id).@"enum".fields.len]bool = @splat(false);
+    var seen: [@typeInfo(Id).@"enum".field_names.len]bool = @splat(false);
 
     for (golden) |entry| {
-        inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
-            if (entry.packet.id() == @as(Id, @enumFromInt(field.value))) seen[index] = true;
+        inline for (@typeInfo(Id).@"enum".field_values, 0..) |value, index| {
+            if (entry.packet.id() == @as(Id, @enumFromInt(value))) seen[index] = true;
         }
     }
 
-    inline for (@typeInfo(Id).@"enum".fields, 0..) |field, index| {
+    inline for (@typeInfo(Id).@"enum".field_names, 0..) |name, index| {
         if (!seen[index]) {
-            std.debug.print("no golden vector for {s}\n", .{field.name});
+            std.debug.print("no golden vector for {s}\n", .{name});
             return error.TestExpectedEqual;
         }
     }
@@ -1918,7 +1918,7 @@ test "each packet is allowed in exactly the directions vanilla registers it for"
         .{ .id = .kick_disconnect, .to_client = true, .to_server = true },
     };
 
-    try std.testing.expectEqual(@typeInfo(Id).@"enum".fields.len, registered.len);
+    try std.testing.expectEqual(@typeInfo(Id).@"enum".field_names.len, registered.len);
     for (registered) |entry| {
         const allowed = direction(entry.id);
         try std.testing.expectEqual(entry.to_client, allowed.to_client);
@@ -1948,7 +1948,7 @@ test "a packet arriving from the wrong side is refused" {
 test "a string longer than its packet allows is refused both ways" {
     const gpa = std.testing.allocator;
 
-    const long_login = "a" ** (max_username + 1);
+    const long_login = &@as([max_username + 1]u8, @splat('a'));
     try std.testing.expectError(error.StringTooLong, encodeAlloc(gpa, .{ .login = .{
         .protocol_version = protocol_version,
         .username = long_login,
@@ -1956,7 +1956,7 @@ test "a string longer than its packet allows is refused both ways" {
         .dimension = 0,
     } }));
 
-    const long_handshake = "a" ** (max_handshake_name + 1);
+    const long_handshake = &@as([max_handshake_name + 1]u8, @splat('a'));
     try std.testing.expectError(error.StringTooLong, encodeAlloc(gpa, .{ .handshake = .{ .username = long_handshake } }));
 
     var claimed: [4]u8 = .{ 0x02, 0x00, max_handshake_name + 1, 0 };
@@ -1976,7 +1976,7 @@ test "a packet cut short is refused rather than read past its end" {
 test "a string that fills its whole allowance still fits" {
     const gpa = std.testing.allocator;
 
-    const full = "b" ** max_chat;
+    const full = &@as([max_chat]u8, @splat('b'));
     const encoded = try encodeAlloc(gpa, .{ .chat = .{ .message = full } });
     defer gpa.free(encoded);
 

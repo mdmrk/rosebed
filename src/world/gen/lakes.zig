@@ -37,7 +37,7 @@ pub fn generate(world_map: *World, rand: *JavaRandom, x_in: i32, y_in: i32, z_in
     while (oy > 0 and world_map.getBlock(.init(ox, oy, oz)) == .air) : (oy -= 1) {}
     oy -= 4;
 
-    var flags: [flag_count]bool = [_]bool{false} ** flag_count;
+    var flags: [flag_count]bool = @splat(false);
 
     const blob_count = rand.nextIntBound(4) + 4;
     for (0..@intCast(blob_count)) |_| {

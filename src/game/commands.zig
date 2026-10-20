@@ -155,8 +155,8 @@ pub const help_lines: []const []const u8 = blk: {
     var lines: [verbs.len + 1][]const u8 = undefined;
     lines[0] = "Commands:";
     for (verbs, 1..) |verb, index| {
-        const padding = " " ** (widest - signature(verb).len + help_gap);
-        lines[index] = help_indent ++ signature(verb) ++ padding ++ verb.description();
+        const padding: [widest - signature(verb).len + help_gap]u8 = @splat(' ');
+        lines[index] = help_indent ++ signature(verb) ++ &padding ++ verb.description();
     }
 
     const frozen = lines;
@@ -422,7 +422,7 @@ test "spawn names a mob and defaults to one" {
 }
 
 test "spawn rejects a mob it cannot build" {
-    try std.testing.expectEqualStrings("a" ** 20, parse("/spawn " ++ "a" ** 20).missing_mob);
+    try std.testing.expectEqualStrings(&@as([20]u8, @splat('a')), parse("/spawn " ++ &@as([20]u8, @splat('a'))).missing_mob);
     try std.testing.expectEqual(Result.nothing, parse("/spawn"));
 }
 

@@ -194,7 +194,7 @@ pub fn moveAt(gx: f32, gy: f32, scheme: Scheme, res: gui.Scaled) [2]f32 {
 pub const State = struct {
     scheme: Scheme = .joystick,
     move: ?[2]f32 = null,
-    held: Held = .initEmpty(),
+    held: Held = .empty,
 };
 
 fn appendStick(sprites: *MeshBuilder, ui: gui.Ui, state: State) !void {

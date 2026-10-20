@@ -87,7 +87,7 @@ pub fn main(init: std.process.Init) !void {
         defer dest.close(io);
 
         for (bundle_files) |name| {
-            const to = try std.fmt.allocPrint(gpa, "SDL3.framework/{s}", .{name});
+            const to = try gpa.print("SDL3.framework/{s}", .{name});
             defer gpa.free(to);
             try framework.copyFile(name, dest, to, io, .{ .make_path = true });
         }
@@ -100,7 +100,7 @@ pub fn main(init: std.process.Init) !void {
         var count: usize = 0;
         while (try it.next(io)) |entry| {
             if (entry.kind != .file) continue;
-            const to = try std.fmt.allocPrint(gpa, "include/SDL3/{s}", .{entry.name});
+            const to = try gpa.print("include/SDL3/{s}", .{entry.name});
             defer gpa.free(to);
             try headers.copyFile(entry.name, dest, to, io, .{ .make_path = true });
             count += 1;

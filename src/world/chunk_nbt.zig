@@ -37,7 +37,7 @@ fn bytesField(compound: nbt.Compound, key: []const u8, expected: usize) ![]u8 {
 pub const palette_key = "BlockPalette";
 
 fn moddedPalette(gpa: std.mem.Allocator, chunk: *const Chunk) !?nbt.Tag {
-    var used = std.StaticBitSet(256).initEmpty();
+    var used = std.bit_set.Static(256).empty;
     for (chunk.blocks) |id| used.set(@intFromEnum(id));
 
     var entries: std.ArrayList(nbt.Tag) = .empty;

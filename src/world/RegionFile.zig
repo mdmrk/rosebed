@@ -211,7 +211,7 @@ test "a chunk written to a region file reads back byte for byte" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    const payload = "chunk payload" ** 100;
+    const payload = std.mem.asBytes(&@as([100]["chunk payload".len]u8, @splat("chunk payload".*)));
 
     var region = try open(gpa, io, tmp.dir, 0, 0);
     defer region.close(gpa, io);

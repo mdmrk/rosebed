@@ -12,10 +12,10 @@ pub const tile_pixels = 16;
 pub const tile_count = tiles_per_row * tiles_per_row;
 pub const tile_bytes = tile_pixels * tile_pixels * 4;
 
-pub const TileSet = std.StaticBitSet(tile_count);
+pub const TileSet = std.bit_set.Static(tile_count);
 
 texture: gl.uint,
-free_tiles: TileSet = TileSet.initEmpty(),
+free_tiles: TileSet = TileSet.empty,
 
 pub fn load(data: []const u8, desaturate: bool) !Atlas {
     return loadWrapped(data, gl.CLAMP_TO_EDGE, gl.NEAREST, desaturate);
@@ -30,7 +30,7 @@ pub fn loadBlurred(data: []const u8, desaturate: bool) !Atlas {
 }
 
 pub fn unusedTiles(pixels: []const u8, width: usize, height: usize) TileSet {
-    var free = TileSet.initEmpty();
+    var free = TileSet.empty;
     if (width != tiles_per_row * tile_pixels or height != tiles_per_row * tile_pixels) return free;
 
     for (0..tile_count) |index| {

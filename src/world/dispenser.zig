@@ -121,7 +121,7 @@ test "every filled slot is reachable and empty ones are never picked" {
     state.slot(5).* = .{ .id = .{ .block = .dirt }, .count = 64 };
     state.slot(8).* = .{ .id = .{ .block = .sand }, .count = 64 };
 
-    var seen = [_]bool{false} ** 3;
+    var seen: [3]bool = @splat(false);
     for (0..64) |seed| {
         var rand = JavaRandom.init(@intCast(seed));
         var copy = state;

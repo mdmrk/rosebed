@@ -21,10 +21,10 @@ const Modules = struct {
 pub fn setupModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     sysroot_include_path: ?std.Build.LazyPath,
 ) Modules {
-    const debug = optimize == .Debug;
+    const debug = optimize == .debug;
     const linux = target.result.os.tag == .linux;
     const emscripten = target.result.os.tag == .emscripten;
     const android = androidTarget(target);
@@ -176,7 +176,7 @@ pub fn setupModules(
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const debug = optimize == .Debug;
+    const debug = optimize == .debug;
     const linux = target.result.os.tag == .linux;
     const lto: std.zig.LtoMode = if (!debug and linux) .full else .none;
 
@@ -225,9 +225,7 @@ pub fn build(b: *std.Build) void {
 
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const server = b.addExecutable(.{
         .name = "rosebed-server",
@@ -252,7 +250,7 @@ pub fn build(b: *std.Build) void {
     const run_server_cmd = b.addRunArtifact(server);
     run_server_step.dependOn(&run_server_cmd.step);
     run_server_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_server_cmd.addArgs(args);
+    run_server_cmd.addPassthruArgs();
 
     const fetch_assets = b.addExecutable(.{
         .name = "fetch-assets",
@@ -262,7 +260,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const fetch_assets_run = b.addRunArtifact(fetch_assets);
-    fetch_assets_run.addArg(b.getInstallPath(.bin, "resources"));
+    fetch_assets_run.addDirectoryArg2(.{ .relative = .{ .base = .install_bin, .sub_path = "resources" } }, .{});
     const fetch_assets_step = b.step("fetch-assets", "Download the official Beta 1.7.3 client jar and extract its assets");
     fetch_assets_step.dependOn(&fetch_assets_run.step);
 
@@ -309,20 +307,21 @@ pub fn build(b: *std.Build) void {
 }
 
 fn webBuildId(b: *std.Build) []const u8 {
-    var code: u8 = undefined;
-    const revision = b.runAllowFail(&.{ "git", "rev-parse", "--short", "HEAD" }, &code, .ignore) catch return "dev";
-    return std.mem.trim(u8, revision, " \r\n");
+    return switch (b.runFallible(&.{ "git", "rev-parse", "--short", "HEAD" }, .{ .stderr_behavior = .ignore })) {
+        .success => |revision| std.mem.trim(u8, revision, " \r\n"),
+        else => "dev",
+    };
 }
 
-fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
-    const debug = optimize == .Debug;
+fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) void {
+    const debug = optimize == .debug;
     const lto: std.zig.LtoMode = if (!debug) .full else .none;
 
-    const sysroot = b.sysroot orelse {
-        std.log.err("'--sysroot' is required when building for Emscripten", .{});
+    const sysroot = b.option([]const u8, "emscripten-sysroot", "Path to the Emscripten sysroot (pass the same path to --sysroot)") orelse {
+        std.log.err("'-Demscripten-sysroot' and '--sysroot' are required when building for Emscripten", .{});
         std.process.exit(1);
     };
-    const sysroot_include_path: std.Build.LazyPath = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) };
+    const sysroot_include_path = b.graph.cwdRelativePath(b.pathJoin(&.{ sysroot, "include" }));
     const modules = setupModules(b, target, optimize, sysroot_include_path);
 
     const client_mod = b.createModule(.{
@@ -363,7 +362,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
 
     for (client_lib.getCompileDependencies(false)) |artifact| {
         if (artifact.isStaticLibrary() or artifact.kind == .obj) {
-            run_emcc.addArtifactArg(artifact);
+            run_emcc.addArtifactArg2(artifact, .{});
         }
     }
 
@@ -372,25 +371,25 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     }
 
     run_emcc.addArgs(switch (optimize) {
-        .Debug => &.{
+        .debug => &.{
             "-O0",
             "-g",
             "-fsanitize=undefined",
         },
-        .ReleaseSafe => &.{
+        .safe => &.{
             "-O3",
             "-fsanitize=undefined",
             "-fsanitize-minimal-runtime",
         },
-        .ReleaseFast => &.{
+        .fast => &.{
             "-O3",
         },
-        .ReleaseSmall => &.{
+        .small => &.{
             "-Oz",
         },
     });
 
-    if (optimize != .Debug) {
+    if (optimize != .debug) {
         run_emcc.addArgs(&.{ "--closure", "1" });
     }
     run_emcc.addArg("-sFULL_ES3");
@@ -435,7 +434,7 @@ fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
 
     run_emcc.addArg("-o");
 
-    const app_html = run_emcc.addOutputFileArg("index.html");
+    const app_html = run_emcc.addOutputFileArg2("index.html", .{});
 
     b.getInstallStep().dependOn(&b.addInstallDirectory(.{
         .source_dir = app_html.dirname(),
@@ -499,7 +498,7 @@ fn androidPath(b: *std.Build, option_name: []const u8, description: []const u8, 
     std.process.exit(1);
 }
 
-fn androidLibC(b: *std.Build, ndk: []const u8, arch: std.Target.Cpu.Arch, api: u32) []const u8 {
+fn androidLibC(b: *std.Build, ndk: []const u8, arch: std.Target.Cpu.Arch, api: u32) std.Build.LazyPath {
     const sysroot = b.pathJoin(&.{ ndk, "toolchains/llvm/prebuilt", androidHostTag(b.graph.host.result), "sysroot" });
     const contents = b.fmt(
         \\include_dir={s}/usr/include
@@ -512,31 +511,42 @@ fn androidLibC(b: *std.Build, ndk: []const u8, arch: std.Target.Cpu.Arch, api: u
     , .{ sysroot, sysroot, androidTriple(arch), sysroot, androidTriple(arch), api });
 
     const name = b.fmt("android-libc-{s}-{d}.txt", .{ androidTriple(arch), api });
-    b.cache_root.handle.writeFile(b.graph.io, .{ .sub_path = name, .data = contents }) catch |err| {
-        std.log.err("unable to write {s}: {t}", .{ name, err });
-        std.process.exit(1);
-    };
-    return b.cache_root.join(b.allocator, &.{name}) catch @panic("OOM");
+    return b.addWriteFiles().add(name, contents);
 }
 
-fn androidPatchSdl(module: *std.Build.Module) void {
+fn sdlTranslateRuns(module: *std.Build.Module) [2]?*std.Build.Step.Run {
+    var runs: [2]?*std.Build.Step.Run = @splat(null);
+    for (&runs, [_][]const u8{ "c", "sdl_main" }) |*run, import_name| {
+        const c_module = module.import_table.get(import_name) orelse continue;
+        const root = c_module.root_source_file orelse continue;
+        const generated = switch (root) {
+            .generated => |generated| generated,
+            else => continue,
+        };
+        const step = module.owner.graph.generated_files.items[@backingInt(generated.index)];
+        if (step.tag != .run) continue;
+        run.* = @fieldParentPtr("step", step);
+    }
+    return runs;
+}
+
+fn androidPatchSdl(module: *std.Build.Module, libc_file: std.Build.LazyPath) void {
     module.addCMacro("_Nonnull", "");
     module.addCMacro("_Nullable", "");
     module.addCMacro("_Null_unspecified", "");
 
-    const c_module = module.import_table.get("c") orelse return;
-    const root = c_module.root_source_file orelse return;
-    const generated = switch (root) {
-        .generated => |generated| generated,
-        else => return,
-    };
-    if (generated.file.step.id != .translate_c) return;
-    const translate: *std.Build.Step.TranslateC = @fieldParentPtr("step", generated.file.step);
-
-    translate.system_libs.clearRetainingCapacity();
-    translate.defineCMacroRaw("_Nonnull=");
-    translate.defineCMacroRaw("_Nullable=");
-    translate.defineCMacroRaw("_Null_unspecified=");
+    for (sdlTranslateRuns(module)) |maybe_run| {
+        const run = maybe_run orelse continue;
+        const graph = module.owner.graph;
+        run.argv.insert(graph.arena, 1, .{ .lazy_path = .{
+            .prefix = "--libc=",
+            .lazy_path = libc_file.dupe(graph),
+            .suffix = "",
+            .make_absolute = false,
+        } }) catch @panic("OOM");
+        libc_file.addStepDependencies(&run.step);
+        run.addArgs(&.{ "-D_Nonnull=", "-D_Nullable=", "-D_Null_unspecified=" });
+    }
 }
 
 fn systemLibsWithoutPkgConfig(module: *std.Build.Module) void {
@@ -555,8 +565,8 @@ fn linkedLibrary(module: *std.Build.Module, name: []const u8) *std.Build.Step.Co
     std.process.exit(1);
 }
 
-fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
-    const debug = optimize == .Debug;
+fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) void {
+    const debug = optimize == .debug;
     const arch = target.result.cpu.arch;
     const abi_name = androidAbiName(arch);
     const api = b.option(u32, "android-api", "Minimum Android API level (default: 21)") orelse android_min_api;
@@ -566,9 +576,7 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     const platform = b.option([]const u8, "android-platform", "Android platform to link against (default: android-35)") orelse b.fmt("android-{d}", .{android_target_api});
 
     const libc_file = androidLibC(b, ndk, arch, api);
-    b.libc_file = libc_file;
-    b.graph.environ_map.put("ZIG_LIBC", libc_file) catch @panic("OOM");
-    b.graph.system_library_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
+    b.graph.system_integration_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
 
     const sdl_lib_dir = b.path(b.fmt("{s}/lib/{s}", .{ android_sdl_root, abi_name }));
     const modules = setupModules(b, target, optimize, b.path(android_sdl_root ++ "/include"));
@@ -610,7 +618,7 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         .root_module = client_mod,
     });
 
-    androidPatchSdl(modules.sdl3_mod);
+    androidPatchSdl(modules.sdl3_mod, libc_file);
 
     systemLibsWithoutPkgConfig(modules.sdl3_mod);
 
@@ -619,9 +627,8 @@ fn buildAndroid(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     systemLibsWithoutPkgConfig(mixer.root_module);
     mixer.version = null;
     mixer.out_filename = "libSDL3_mixer.so";
-    mixer.out_lib_filename = mixer.out_filename;
-    mixer.major_only_filename = null;
-    mixer.name_only_filename = null;
+
+    for (client.getCompileDependencies(true)) |compile| compile.setLibCFile(libc_file);
 
     const apk = androidApk(b, .{
         .sdk = sdk,
@@ -672,9 +679,9 @@ fn androidApk(b: *std.Build, options: AndroidApkOptions) std.Build.LazyPath {
     _ = res.addCopyFile(b.path("web/favicon-96x96.png"), "mipmap/icon.png");
 
     const compile_res = b.addSystemCommand(&.{ aapt2, "compile", "--dir" });
-    compile_res.addDirectoryArg(res.getDirectory());
+    compile_res.addDirectoryArg2(res.getDirectory(), .{});
     compile_res.addArg("-o");
-    const compiled_res = compile_res.addOutputFileArg("resources.zip");
+    const compiled_res = compile_res.addOutputFileArg2("resources.zip", .{});
 
     const link_res = b.addSystemCommand(&.{ aapt2, "link", "--manifest" });
     link_res.addFileArg(b.path("android/AndroidManifest.xml"));
@@ -684,11 +691,11 @@ fn androidApk(b: *std.Build, options: AndroidApkOptions) std.Build.LazyPath {
         "--target-sdk-version", b.fmt("{d}", .{android_target_api}),
         "--output-to-dir",      "-o",
     });
-    const linked_res = link_res.addOutputDirectoryArg("resources");
+    const linked_res = link_res.addOutputDirectoryArg2("resources", .{});
     link_res.addFileArg(compiled_res);
 
     const dex = b.addSystemCommand(&.{ b.pathJoin(&.{ tools, "d8" }), "--min-api", min_api, "--lib", android_jar, "--output" });
-    const dex_dir = dex.addOutputDirectoryArg("dex");
+    const dex_dir = dex.addOutputDirectoryArg2("dex", .{});
     dex.addFileArg(b.path(android_sdl_root ++ "/classes.jar"));
 
     const staging = b.addWriteFiles();
@@ -702,25 +709,25 @@ fn androidApk(b: *std.Build, options: AndroidApkOptions) std.Build.LazyPath {
     );
 
     const zip = b.addSystemCommand(&.{ "zip", "-q", "-X", "-r", "-n", ".arsc" });
-    const unsigned = zip.addOutputFileArg("unsigned.apk");
+    const unsigned = zip.addOutputFileArg2("unsigned.apk", .{});
     zip.addArg(".");
     zip.setCwd(staging.getDirectory());
 
     const aligned_step = b.addSystemCommand(&.{ b.pathJoin(&.{ tools, "zipalign" }), "-p", "-f", "4" });
     aligned_step.addFileArg(unsigned);
-    const aligned = aligned_step.addOutputFileArg("aligned.apk");
+    const aligned = aligned_step.addOutputFileArg2("aligned.apk", .{});
 
     const keytool = b.addSystemCommand(&.{
         "keytool",    "-genkeypair", "-keyalg",  "RSA",     "-keysize",  "2048",
         "-validity",  "10000",       "-alias",   "rosebed", "-dname",    "CN=rosebed",
         "-storepass", "android",     "-keypass", "android", "-keystore",
     });
-    const keystore = keytool.addOutputFileArg("debug.keystore");
+    const keystore = keytool.addOutputFileArg2("debug.keystore", .{});
 
     const sign = b.addSystemCommand(&.{ b.pathJoin(&.{ tools, "apksigner" }), "sign", "--ks" });
     sign.addFileArg(keystore);
     sign.addArgs(&.{ "--ks-pass", "pass:android", "--key-pass", "pass:android", "--out" });
-    const signed = sign.addOutputFileArg("rosebed.apk");
+    const signed = sign.addOutputFileArg2("rosebed.apk", .{});
     sign.addFileArg(aligned);
 
     return signed;
@@ -749,10 +756,12 @@ const ios_app_dir = "Payload/rosebed.app";
 
 fn iosSdk(b: *std.Build) []const u8 {
     if (b.option([]const u8, "ios-sdk", "Path to the iPhoneOS SDK")) |value| return value;
-    var code: u8 = undefined;
-    const output = b.runAllowFail(&.{ "xcrun", "--sdk", "iphoneos", "--show-sdk-path" }, &code, .ignore) catch {
-        std.log.err("'-Dios-sdk' is required when 'xcrun' cannot locate the iPhoneOS SDK", .{});
-        std.process.exit(1);
+    const output = switch (b.runFallible(&.{ "xcrun", "--sdk", "iphoneos", "--show-sdk-path" }, .{ .stderr_behavior = .ignore })) {
+        .success => |stdout| stdout,
+        else => {
+            std.log.err("'-Dios-sdk' is required when 'xcrun' cannot locate the iPhoneOS SDK", .{});
+            std.process.exit(1);
+        },
     };
     return b.dupe(std.mem.trim(u8, output, " \r\n"));
 }
@@ -768,34 +777,23 @@ fn iosLibC(b: *std.Build, sdk: []const u8) std.Build.LazyPath {
         \\
     , .{ sdk, sdk, sdk });
 
-    const name = "ios-libc.txt";
-    b.cache_root.handle.writeFile(b.graph.io, .{ .sub_path = name, .data = contents }) catch |err| {
-        std.log.err("unable to write {s}: {t}", .{ name, err });
-        std.process.exit(1);
-    };
-    return .{ .cwd_relative = b.cache_root.join(b.allocator, &.{name}) catch @panic("OOM") };
+    return b.addWriteFiles().add("ios-libc.txt", contents);
 }
 
 fn iosPatchSdl(module: *std.Build.Module, sdk_include: std.Build.LazyPath) void {
-    const c_module = module.import_table.get("c") orelse return;
-    const root = c_module.root_source_file orelse return;
-    const generated = switch (root) {
-        .generated => |generated| generated,
-        else => return,
-    };
-    if (generated.file.step.id != .translate_c) return;
-    const translate: *std.Build.Step.TranslateC = @fieldParentPtr("step", generated.file.step);
-
-    translate.system_libs.clearRetainingCapacity();
-    translate.addSystemIncludePath(sdk_include);
+    for (sdlTranslateRuns(module)) |maybe_run| {
+        const run = maybe_run orelse continue;
+        run.addArg("-isystem");
+        run.addDirectoryArg2(sdk_include, .{});
+    }
 }
 
-fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
-    const debug = optimize == .Debug;
+fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) void {
+    const debug = optimize == .debug;
     const sdk = iosSdk(b);
     const libc_file = iosLibC(b, sdk);
 
-    b.graph.system_library_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
+    b.graph.system_integration_options.put(b.allocator, "sdl", .user_enabled) catch @panic("OOM");
 
     const sdl_lib_dir = b.path(ios_sdl_root ++ "/lib");
     const modules = setupModules(b, target, optimize, b.path(ios_sdl_root ++ "/include"));
@@ -838,7 +836,7 @@ fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     });
     client.setLibCFile(libc_file);
 
-    iosPatchSdl(modules.sdl3_mod, .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+    iosPatchSdl(modules.sdl3_mod, b.graph.cwdRelativePath(b.pathJoin(&.{ sdk, "usr/include" })));
 
     systemLibsWithoutPkgConfig(modules.sdl3_mod);
 
@@ -848,9 +846,6 @@ fn buildIos(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     systemLibsWithoutPkgConfig(mixer.root_module);
     mixer.version = null;
     mixer.out_filename = "libSDL3_mixer.dylib";
-    mixer.out_lib_filename = mixer.out_filename;
-    mixer.major_only_filename = null;
-    mixer.name_only_filename = null;
 
     const ipa = iosIpa(b, client, mixer);
 
@@ -871,7 +866,7 @@ fn iosIpa(b: *std.Build, client: *std.Build.Step.Compile, mixer: *std.Build.Step
     );
 
     const zip = b.addSystemCommand(&.{ "zip", "-q", "-X", "-r" });
-    const ipa = zip.addOutputFileArg("rosebed.ipa");
+    const ipa = zip.addOutputFileArg2("rosebed.ipa", .{});
     zip.addArg("Payload");
     zip.setCwd(staging.getDirectory());
 

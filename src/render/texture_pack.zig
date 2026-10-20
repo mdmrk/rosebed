@@ -324,7 +324,7 @@ test "pack.txt gives up to two lines, each cut to the width the slot has" {
     try std.testing.expectEqualStrings("only one", one[0]);
     try std.testing.expectEqualStrings("", one[1]);
 
-    const long = "a" ** 40;
+    const long = &@as([40]u8, @splat('a'));
     const cut = try descriptionLines(gpa, long);
     defer for (cut) |line| gpa.free(line);
     try std.testing.expectEqual(@as(usize, max_line_len), cut[0].len);

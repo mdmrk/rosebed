@@ -263,7 +263,8 @@ const vanilla_keys: [256][]const u8 = keysFromEnum();
 
 fn keysFromEnum() [256][]const u8 {
     var out: [256][]const u8 = @splat("");
-    for (@typeInfo(Block).@"enum".fields) |entry| out[entry.value] = entry.name;
+    const info = @typeInfo(Block).@"enum";
+    for (info.field_names, info.field_values) |name, value| out[value] = name;
     return out;
 }
 

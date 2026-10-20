@@ -107,13 +107,13 @@ pub fn main(init: std.process.Init) !void {
     try staging.rename("classes.jar", dest, "classes.jar", io);
 
     for (abis) |abi| {
-        const from = try std.fmt.allocPrint(gpa, "{s}{s}/{s}", .{ lib_prefix, abi, lib_name });
+        const from = try gpa.print("{s}{s}/{s}", .{ lib_prefix, abi, lib_name });
         defer gpa.free(from);
-        const into = try std.fmt.allocPrint(gpa, "lib/{s}", .{abi});
+        const into = try gpa.print("lib/{s}", .{abi});
         defer gpa.free(into);
-        const to = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ into, lib_name });
+        const to = try gpa.print("{s}/{s}", .{ into, lib_name });
         defer gpa.free(to);
-        const link = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ into, link_name });
+        const link = try gpa.print("{s}/{s}", .{ into, link_name });
         defer gpa.free(link);
 
         try dest.createDirPath(io, into);

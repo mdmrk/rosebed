@@ -201,7 +201,7 @@ test "a sheep that dies with its fleece on drops a single wool of its colour" {
 
 test "fleece colours come out at the rates EntitySheep rolls them" {
     var rand = world.JavaRandom.init(11);
-    var counts = [_]u32{0} ** 16;
+    var counts: [16]u32 = @splat(0);
     const rolls = 20000;
     for (0..rolls) |_| counts[randomFleeceColor(&rand)] += 1;
 

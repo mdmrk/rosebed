@@ -9,8 +9,8 @@ const MeshBuilder = @import("../MeshBuilder.zig");
 const options_screen = @import("options.zig");
 pub const Backdrop = options_screen.Backdrop;
 
-const wasm = builtin.cpu.arch.isWasm();
-const android = builtin.abi == .android or builtin.abi == .androideabi or builtin.os.tag == .ios;
+const wasm = builtin.target.cpu.arch.isWasm();
+const android = builtin.target.abi == .android or builtin.target.abi == .androideabi or builtin.target.os.tag == .ios;
 
 const opt_width: f32 = 150;
 const title_color: [4]u8 = .{ 255, 255, 255, 255 };

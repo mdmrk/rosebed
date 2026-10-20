@@ -22,7 +22,7 @@ pub const Uniform = enum {
     u_view_proj,
 };
 
-const uniform_count = @typeInfo(Uniform).@"enum".fields.len;
+const uniform_count = @typeInfo(Uniform).@"enum".field_names.len;
 
 program: gl.uint,
 locations: [uniform_count]gl.int,
@@ -67,8 +67,8 @@ pub fn init(vertex_source: [:0]const u8, fragment_source: [:0]const u8) !Shader 
     }
 
     var locations: [uniform_count]gl.int = undefined;
-    inline for (@typeInfo(Uniform).@"enum".fields, 0..) |field, index| {
-        locations[index] = gl.GetUniformLocation(program, field.name);
+    inline for (@typeInfo(Uniform).@"enum".field_names, 0..) |name, index| {
+        locations[index] = gl.GetUniformLocation(program, name);
     }
 
     return .{ .program = program, .locations = locations };

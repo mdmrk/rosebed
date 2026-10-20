@@ -8,7 +8,7 @@ const button = @import("../button.zig");
 const gui = @import("../gui.zig");
 const MeshBuilder = @import("../MeshBuilder.zig");
 
-const wasm = builtin.cpu.arch.isWasm();
+const wasm = builtin.target.cpu.arch.isWasm();
 
 const logo_texture_size: f32 = 256;
 const logo_piece_width: f32 = 155;

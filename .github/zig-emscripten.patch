@@ -1,17 +1,6 @@
---- a/std/os/emscripten.zig
-+++ b/std/os/emscripten.zig
-@@ -211,7 +211,7 @@
-     pub fn TERMSIG(s: u32) SIG {
-         return @enumFromInt(s & 0x7f);
-     }
--    pub fn STOPSIG(s: u32) u32 {
-+    pub fn STOPSIG(s: u32) SIG {
-         return @enumFromInt(EXITSTATUS(s));
-     }
-     pub fn IFEXITED(s: u32) bool {
 --- a/std/Io/Threaded.zig
 +++ b/std/Io/Threaded.zig
-@@ -5440,6 +5440,7 @@
+@@ -5567,6 +5567,7 @@
      .haiku => dirReadHaiku,
      .windows => dirReadWindows,
      .wasi => dirReadWasi,
@@ -19,10 +8,11 @@
      else => dirReadUnimplemented,
  };
  
-@@ -5538,6 +5539,92 @@
+@@ -6290,6 +6291,92 @@
+             .inode = entry.ino,
          };
          buffer_index += 1;
-     }
++    }
 +    return buffer_index;
 +}
 +
@@ -108,7 +98,6 @@
 +            .inode = entry.ino,
 +        };
 +        buffer_index += 1;
-+    }
+     }
      return buffer_index;
  }
- 
