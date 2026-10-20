@@ -506,9 +506,10 @@ fn androidLibC(b: *std.Build, ndk: []const u8, arch: std.Target.Cpu.Arch, api: u
         \\crt_dir={s}/usr/lib/{s}/{d}
         \\msvc_lib_dir=
         \\kernel32_lib_dir=
-        \\gcc_dir=
+        \\cc_dir={s}/usr/lib/{s}/{d}
+        \\darwin_sdk_dir=
         \\
-    , .{ sysroot, sysroot, androidTriple(arch), sysroot, androidTriple(arch), api });
+    , .{ sysroot, sysroot, androidTriple(arch), sysroot, androidTriple(arch), api, sysroot, androidTriple(arch), api });
 
     const name = b.fmt("android-libc-{s}-{d}.txt", .{ androidTriple(arch), api });
     return b.addWriteFiles().add(name, contents);
@@ -773,9 +774,10 @@ fn iosLibC(b: *std.Build, sdk: []const u8) std.Build.LazyPath {
         \\crt_dir={s}/usr/lib
         \\msvc_lib_dir=
         \\kernel32_lib_dir=
-        \\gcc_dir=
+        \\cc_dir=
+        \\darwin_sdk_dir={s}
         \\
-    , .{ sdk, sdk, sdk });
+    , .{ sdk, sdk, sdk, sdk });
 
     return b.addWriteFiles().add("ios-libc.txt", contents);
 }
