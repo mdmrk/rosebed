@@ -8,6 +8,16 @@ Minecraft Beta 1.7.3 rewritten from scratch in Zig, with a client and a dedicate
 > [!IMPORTANT]
 > Most of the game is playable. Anything that behaves differently from the real b1.7.3 is a bug. If you find one, [open an issue](https://github.com/mdmrk/rosebed/issues) saying what you did and what the original does instead.
 
+## Index
+
+- [Play](#play)
+  - [Extras not in b1.7.3](#extras-not-in-b173)
+- [Build](#build)
+  - [Web](#web)
+  - [Android](#android)
+  - [iOS](#ios)
+- [License](#license)
+
 ## Play
 
 **[Play in the browser](https://mdmrk.github.io/rosebed/)**
