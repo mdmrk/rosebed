@@ -86,9 +86,9 @@ fn loopback(host: []const u8) bool {
 
 fn url(buffer: []u8, host: []const u8, port: u16) ![:0]u8 {
     const scheme = if (!loopback(host) and rosebed_page_is_secure() != 0) "wss" else "ws";
-    if (std.mem.indexOfScalar(u8, host, ':') != null)
-        return std.fmt.bufPrintZ(buffer, "{s}://[{s}]:{d}", .{ scheme, host, port });
-    return std.fmt.bufPrintZ(buffer, "{s}://{s}:{d}", .{ scheme, host, port });
+    if (std.mem.findScalar(u8, host, ':') != null)
+        return std.mem.printSentinel(buffer, "{s}://[{s}]:{d}", .{ scheme, host, port }, 0);
+    return std.mem.printSentinel(buffer, "{s}://{s}:{d}", .{ scheme, host, port }, 0);
 }
 
 pub fn connect(
