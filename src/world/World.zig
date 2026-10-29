@@ -154,6 +154,8 @@ pub const Difficulty = enum(u2) {
 
 allocator: std.mem.Allocator,
 chunks: std.AutoHashMapUnmanaged(ChunkCoord, *Chunk) = .{},
+last_coord: ChunkCoord = .{ .x = 0, .z = 0 },
+last_chunk: ?*Chunk = null,
 decorated: std.AutoHashMapUnmanaged(ChunkCoord, void) = .{},
 scheduled: std.ArrayList(ScheduledTick) = .empty,
 scheduled_keys: std.AutoHashMapUnmanaged(ScheduledTick.Key, void) = .{},
@@ -317,7 +319,15 @@ pub fn deinit(self: *World) void {
 }
 
 pub fn getChunk(self: *const World, chunk_x: i32, chunk_z: i32) ?*Chunk {
-    return self.chunks.get(.{ .x = chunk_x, .z = chunk_z });
+    const coord: ChunkCoord = .{ .x = chunk_x, .z = chunk_z };
+    if (self.last_chunk) |last| {
+        if (self.last_coord.x == chunk_x and self.last_coord.z == chunk_z) return last;
+    }
+    const chunk = self.chunks.get(coord) orelse return null;
+    const mutable = @constCast(self);
+    mutable.last_coord = coord;
+    mutable.last_chunk = chunk;
+    return chunk;
 }
 
 pub fn createChunk(self: *World, chunk_x: i32, chunk_z: i32) !*Chunk {
@@ -544,7 +554,10 @@ pub fn markDecorated(self: *World, chunk_x: i32, chunk_z: i32) !void {
 
 pub fn forgetChunk(self: *World, chunk_x: i32, chunk_z: i32) void {
     const coord: ChunkCoord = .{ .x = chunk_x, .z = chunk_z };
-    if (self.chunks.fetchRemove(coord)) |entry| self.allocator.destroy(entry.value);
+    if (self.chunks.fetchRemove(coord)) |entry| {
+        if (self.last_chunk == entry.value) self.last_chunk = null;
+        self.allocator.destroy(entry.value);
+    }
     _ = self.decorated.remove(coord);
 }
 

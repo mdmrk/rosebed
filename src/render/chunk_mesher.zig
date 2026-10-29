@@ -107,12 +107,12 @@ fn offsetBy(cell: [3]i32, step: [3]i32) [3]i32 {
     return .{ cell[0] + step[0], cell[1] + step[1], cell[2] + step[2] };
 }
 
-fn brightnessOf(world_map: *const world.ChunkView, cell: [3]i32, minimum: u4) f32 {
-    return world.light.brightnessAt(world_map, .init(cell[0], cell[1], cell[2]), minimum);
+fn cellLight(world_map: *const world.ChunkView, cell: [3]i32) world.ChunkView.CellLight {
+    return world_map.cellLight(.init(cell[0], cell[1], cell[2]));
 }
 
-fn blocksGrass(world_map: *const world.ChunkView, cell: [3]i32) bool {
-    return world_map.getBlock(.init(cell[0], cell[1], cell[2])).isOpaque();
+fn brightnessOf(world_map: *const world.ChunkView, cell_light: world.ChunkView.CellLight, minimum: u4) f32 {
+    return world_map.brightness[@max(cell_light.level, minimum)];
 }
 
 fn smoothBrightness(
@@ -122,20 +122,21 @@ fn smoothBrightness(
     minimum: u4,
 ) [4]f32 {
     const cell = offsetBy(.{ pos.x, pos.y, pos.z }, face.normal);
-    const center = brightnessOf(world_map, cell, minimum);
+    const center = brightnessOf(world_map, cellLight(world_map, cell), minimum);
 
     var result: [4]f32 = undefined;
     for (face.corners, 0..) |corner, i| {
         const step_u = stepAlong(face.axis_u, corner);
         const step_v = stepAlong(face.axis_v, corner);
         const cell_u = offsetBy(cell, step_u);
-        const cell_v = offsetBy(cell, step_v);
-        const edge_u = brightnessOf(world_map, cell_u, minimum);
-        const edge_v = brightnessOf(world_map, cell_v, minimum);
-        const diagonal = if (blocksGrass(world_map, cell_u) and blocksGrass(world_map, cell_v))
+        const light_u = cellLight(world_map, cell_u);
+        const light_v = cellLight(world_map, offsetBy(cell, step_v));
+        const edge_u = brightnessOf(world_map, light_u, minimum);
+        const edge_v = brightnessOf(world_map, light_v, minimum);
+        const diagonal = if (light_u.is_opaque and light_v.is_opaque)
             edge_u
         else
-            brightnessOf(world_map, offsetBy(cell_u, step_v), minimum);
+            brightnessOf(world_map, cellLight(world_map, offsetBy(cell_u, step_v)), minimum);
         result[i] = (center + edge_u + edge_v + diagonal) / 4.0;
     }
     return result;
@@ -1921,7 +1922,13 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
 pub fn buildInto(gpa: std.mem.Allocator, mesh: *Mesh, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !void {
     mesh.clearRetainingCapacity();
 
-    const view = world.ChunkView.around(world_map, chunk.x, chunk.z);
+    var view = world.ChunkView.around(world_map, chunk.x, chunk.z);
+    const light_cache = if (options.smooth) try gpa.create(world.ChunkView.LightCache) else null;
+    defer if (light_cache) |cache| gpa.destroy(cache);
+    if (light_cache) |cache| {
+        cache.reset();
+        view.light_cache = cache;
+    }
 
     const base_x = chunk.x * world.Chunk.width;
     const base_z = chunk.z * world.Chunk.width;
