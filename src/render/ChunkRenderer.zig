@@ -37,12 +37,14 @@ const ChunkMeshes = struct {
 
 meshes: MeshMap = .{},
 dirty: CoordSet = .{},
+scratch: chunk_mesher.Mesh = .{},
 
 pub fn deinit(self: *ChunkRenderer, gpa: std.mem.Allocator) void {
     var it = self.meshes.valueIterator();
     while (it.next()) |mesh| mesh.deinit();
     self.meshes.deinit(gpa);
     self.dirty.deinit(gpa);
+    self.scratch.deinit(gpa);
 }
 
 pub fn loadedCount(self: *const ChunkRenderer) usize {
@@ -142,8 +144,7 @@ pub fn flush(
 
         const chunk = world_map.getChunk(entry.coord.x, entry.coord.z) orelse continue;
 
-        var mesh = try chunk_mesher.build(gpa, world_map, chunk, colorizer, options);
-        defer mesh.deinit(gpa);
+        try chunk_mesher.buildInto(gpa, &self.scratch, world_map, chunk, colorizer, options);
 
         const slot = try self.meshes.getOrPut(gpa, entry.coord);
         if (slot.found_existing) {
@@ -152,8 +153,8 @@ pub fn flush(
         } else {
             slot.value_ptr.* = .{ .solid = undefined, .translucent = undefined };
         }
-        slot.value_ptr.solid = GpuMesh.upload(&mesh.solid);
-        slot.value_ptr.translucent = GpuMesh.upload(&mesh.translucent);
+        slot.value_ptr.solid = GpuMesh.upload(&self.scratch.solid);
+        slot.value_ptr.translucent = GpuMesh.upload(&self.scratch.translucent);
         rebuilt += 1;
     }
 

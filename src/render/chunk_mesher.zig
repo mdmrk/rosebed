@@ -201,6 +201,11 @@ pub const Mesh = struct {
         self.solid.deinit(gpa);
         self.translucent.deinit(gpa);
     }
+
+    pub fn clearRetainingCapacity(self: *Mesh) void {
+        self.solid.clearRetainingCapacity();
+        self.translucent.clearRetainingCapacity();
+    }
 };
 
 fn pulledInward(coordinate: f32, normal: i32, inset: f32) f32 {
@@ -1680,15 +1685,16 @@ pub fn buildBlockAt(
     const bz = origin[2];
 
     const emitted = world.light.emission(id);
-    const own_brightness = world.light.brightnessAt(world_map, pos, emitted);
 
     if (id.isCross()) {
+        const own_brightness = world.light.brightnessAt(world_map, pos, emitted);
         const tint = anaglyph.tint(options.anaglyph, blockTint(colorizer, id, metadata, world.Side.up, climate.temperature, climate.humidity));
         try buildCross(target, gpa, tileFor(options, id.crossTile(metadata)), tint, own_brightness, bx, by, bz);
         return;
     }
 
     if (id.shape() == .fire) {
+        const own_brightness = world.light.brightnessAt(world_map, pos, emitted);
         try buildFire(target, gpa, world_map, tileFor(options, id.faceTextures().get(.down)), own_brightness, pos, origin);
         return;
     }
@@ -1715,6 +1721,7 @@ pub fn buildBlockAt(
     }
 
     if (id.shape() == .crops) {
+        const own_brightness = world.light.brightnessAt(world_map, pos, emitted);
         try buildCrops(target, gpa, tileFor(options, world.block.cropsTile(metadata)), own_brightness, bx, by, bz);
         return;
     }
@@ -1725,6 +1732,7 @@ pub fn buildBlockAt(
     }
 
     if (id.shape() == .ladder) {
+        const own_brightness = world.light.brightnessAt(world_map, pos, emitted);
         try buildLadder(target, gpa, tileFor(options, id.faceTextures().get(.down)), metadata, own_brightness, bx, by, bz);
         return;
     }
@@ -1866,8 +1874,6 @@ pub fn buildBlockAt(
 
         const tint = anaglyph.tint(options.anaglyph, blockTint(colorizer, id, metadata, face.side, climate.temperature, climate.humidity));
         const overlaid = options.fancy and id == .grass and tile == world.block.grass_side_tile;
-        const overlay_uvs = faceUvs(world.block.grass_side_overlay_tile, face.side, height_scale);
-        const overlay_tint = anaglyph.tint(options.anaglyph, colorizer.grassColor(climate.temperature, climate.humidity));
 
         if (options.smooth) {
             const corner_brightness = smoothBrightness(world_map, face, pos, emitted);
@@ -1878,6 +1884,8 @@ pub fn buildBlockAt(
             try target.quadShaded(gpa, positions, uvs, colors);
 
             if (overlaid) {
+                const overlay_uvs = faceUvs(world.block.grass_side_overlay_tile, face.side, height_scale);
+                const overlay_tint = anaglyph.tint(options.anaglyph, colorizer.grassColor(climate.temperature, climate.humidity));
                 var overlay_colors: [4][4]u8 = undefined;
                 for (corner_brightness, 0..) |brightness, i| {
                     overlay_colors[i] = shadeColor(face.shade * brightness, overlay_tint);
@@ -1889,13 +1897,15 @@ pub fn buildBlockAt(
 
         const partial_top = face.side == world.Side.up and height_scale != 1.0 and !id.isLiquid();
         const brightness = if (partial_top)
-            own_brightness
+            world.light.brightnessAt(world_map, pos, emitted)
         else
             world.light.brightnessAt(world_map, .init(nx, ny, nz), emitted);
 
         try target.quad(gpa, positions, uvs, shadeColor(face.shade * brightness, tint));
 
         if (overlaid) {
+            const overlay_uvs = faceUvs(world.block.grass_side_overlay_tile, face.side, height_scale);
+            const overlay_tint = anaglyph.tint(options.anaglyph, colorizer.grassColor(climate.temperature, climate.humidity));
             try target.quad(gpa, positions, overlay_uvs, shadeColor(face.shade * brightness, overlay_tint));
         }
     }
@@ -1904,6 +1914,12 @@ pub fn buildBlockAt(
 pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !Mesh {
     var mesh: Mesh = .{};
     errdefer mesh.deinit(gpa);
+    try buildInto(gpa, &mesh, world_map, chunk, colorizer, options);
+    return mesh;
+}
+
+pub fn buildInto(gpa: std.mem.Allocator, mesh: *Mesh, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !void {
+    mesh.clearRetainingCapacity();
 
     const view = world.ChunkView.around(world_map, chunk.x, chunk.z);
 
@@ -1942,8 +1958,6 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
             }
         }
     }
-
-    return mesh;
 }
 
 test "a chunk far from the origin keeps full precision block geometry" {

@@ -41,9 +41,11 @@ pub fn quadShaded(
     uvs: [4][2]f32,
     colors: [4][4]u8,
 ) !void {
+    try self.vertices.ensureUnusedCapacity(gpa, 4);
+    try self.indices.ensureUnusedCapacity(gpa, 6);
     const base: u32 = @intCast(self.vertices.items.len);
     for (positions, uvs, colors) |p, uv, color| {
-        try self.vertices.append(gpa, .{
+        self.vertices.appendAssumeCapacity(.{
             .x = p[0],
             .y = p[1],
             .z = p[2],
@@ -52,10 +54,15 @@ pub fn quadShaded(
             .color = color,
         });
     }
-    try self.indices.appendSlice(gpa, &.{
+    self.indices.appendSliceAssumeCapacity(&.{
         base, base + 1, base + 2,
         base, base + 2, base + 3,
     });
+}
+
+pub fn clearRetainingCapacity(self: *MeshBuilder) void {
+    self.vertices.clearRetainingCapacity();
+    self.indices.clearRetainingCapacity();
 }
 
 pub fn scaleColors(self: *MeshBuilder, first_vertex: usize, factor: f32) void {
