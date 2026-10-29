@@ -21,7 +21,7 @@ const Link = if (builtin.target.cpu.arch.isWasm()) @import("WebLink.zig") else @
 const ticks_per_second = 20.0;
 const screen_width = 854;
 const screen_height = 480;
-const init_flags = sdl3.InitFlags{ .video = true, .audio = true };
+const init_flags = sdl3.InitFlags{ .video = true, .audio = true, .gamepad = true };
 const fov_y_radians = 70.0 * std.math.pi / 180.0;
 const near_plane = 0.05;
 const far_plane = 1000.0;
@@ -36,6 +36,12 @@ const touch_ui = android or ios;
 const touch_dig_delay_ms = 180;
 const touch_drag_slop = 12.0;
 const max_touches = 4;
+const pad_dead_zone = 0.25;
+const pad_trigger_press = 0.5;
+const pad_trigger_release = 0.3;
+const pad_look_speed = 1000.0;
+const pad_cursor_speed = 1.2;
+const pad_scroll_speed = 8.0;
 
 const splashes: []const []const u8 = blk: {
     @setEvalBranchQuota(100_000);
@@ -105,6 +111,7 @@ pub const AppState = struct {
     player: game.Player = playerAtSpawn(),
     touches: [max_touches]Touch = @splat(.{}),
     touch_move: ?[2]f32 = null,
+    pad: Pad = .{},
     keys: struct {
         forward: bool = false,
         back: bool = false,
@@ -4668,6 +4675,8 @@ pub fn iterate(
     const dt = app_state.fps_capper.delay();
     _ = dt;
 
+    if (try padFrame(app_state) == .success) return .success;
+
     app_state.frame_started_ns = sdl3.timer.getNanosecondsSinceInit();
     app_state.chunk_stream_deadline_ns = app_state.frame_started_ns +% chunk_stream_budget_ns;
     app_state.chunk_streamed_this_frame = false;
@@ -4770,7 +4779,7 @@ pub fn iterate(
         }
         if (!app_state.hide_gui or !worldFocused(app_state)) {
             try render.hud.draw(ui, app_state.player.inventory, app_state.player, cameraSubmerged(app_state), @truncate(@as(i64, @bitCast(app_state.level.tick_count))));
-            if (touch_ui and worldFocused(app_state)) {
+            if (touch_ui and worldFocused(app_state) and !app_state.pad.active) {
                 if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
                     .scheme = app_state.settings.touch_scheme,
                     .move = app_state.touch_move,
@@ -4899,6 +4908,10 @@ pub fn iterate(
         @floatFromInt(sdl3.timer.getMillisecondsSinceInit()),
         inventoryKeyName(app_state),
     );
+
+    if (app_state.pad.active and app_state.screen != .loading and !worldFocused(app_state)) {
+        try render.hud.drawCursor(uiContext(app_state, gui));
+    }
 
     if (app_state.screenshot_pending) {
         app_state.screenshot_pending = false;
@@ -5158,6 +5171,267 @@ fn touchTick(app_state: *AppState) !void {
     }
 }
 
+const PadMove = struct {
+    forward: bool = false,
+    back: bool = false,
+    left: bool = false,
+    right: bool = false,
+};
+
+const Pad = struct {
+    device: ?sdl3.gamepad.Gamepad = null,
+    active: bool = false,
+    move: PadMove = .{},
+    attacking: bool = false,
+    using: bool = false,
+    clicking: ?sdl3.mouse.Button = null,
+    scroll: f32 = 0,
+    last_frame_ns: u64 = 0,
+};
+
+fn padAxis(device: sdl3.gamepad.Gamepad, axis: sdl3.gamepad.Axis) f32 {
+    return std.math.clamp(@as(f32, @floatFromInt(device.getAxis(axis))) / 32767.0, -1.0, 1.0);
+}
+
+fn padStick(value: f32) f32 {
+    const magnitude = @abs(value);
+    if (magnitude < pad_dead_zone) return 0;
+    const t = (magnitude - pad_dead_zone) / (1.0 - pad_dead_zone);
+    return std.math.copysign(t * t, value);
+}
+
+fn setPadActive(app_state: *AppState, active: bool) void {
+    if (app_state.pad.active == active) return;
+    app_state.pad.active = active;
+    if (touch_ui) return;
+    if (active) sdl3.mouse.hide() catch {} else sdl3.mouse.show() catch {};
+}
+
+fn isActivePad(app_state: *const AppState, id: sdl3.joystick.Id) bool {
+    const device = app_state.pad.device orelse return false;
+    const active_id = device.getJoystickId() catch return false;
+    return active_id.value == id.value;
+}
+
+fn padAdded(app_state: *AppState, id: sdl3.joystick.Id) void {
+    if (app_state.pad.device != null) return;
+    app_state.pad.device = sdl3.gamepad.Gamepad.init(id) catch |err| {
+        std.log.warn("could not open the gamepad: {t}", .{err});
+        return;
+    };
+}
+
+fn padRemoved(app_state: *AppState, id: sdl3.joystick.Id) !void {
+    if (!isActivePad(app_state, id)) return;
+    try releasePad(app_state);
+    app_state.pad.device.?.deinit();
+    app_state.pad.device = null;
+    setPadActive(app_state, false);
+
+    const ids = sdl3.gamepad.getGamepads() catch return;
+    defer sdl3.free(ids);
+    for (ids) |other| {
+        if (other.value == id.value) continue;
+        padAdded(app_state, other);
+        if (app_state.pad.device != null) return;
+    }
+}
+
+fn releasePad(app_state: *AppState) !void {
+    padMove(app_state, 0, 0);
+    app_state.keys.jump = false;
+    app_state.keys.sneak = false;
+    if (app_state.pad.attacking) _ = try padClick(app_state, .left, false);
+    if (app_state.pad.clicking) |button| _ = try padClick(app_state, button, false);
+    app_state.pad.attacking = false;
+    app_state.pad.using = false;
+    app_state.pad.clicking = null;
+}
+
+fn padMove(app_state: *AppState, x: f32, y: f32) void {
+    const next: PadMove = .{ .forward = y < 0, .back = y > 0, .left = x < 0, .right = x > 0 };
+    const prev = app_state.pad.move;
+    if (next.forward != prev.forward) app_state.keys.forward = next.forward;
+    if (next.back != prev.back) app_state.keys.back = next.back;
+    if (next.left != prev.left) app_state.keys.left = next.left;
+    if (next.right != prev.right) app_state.keys.right = next.right;
+    app_state.pad.move = next;
+}
+
+fn boundKey(app_state: *const AppState, binding: game.Settings.Binding) sdl3.keycode.Keycode {
+    return @fromBackingInt(app_state.settings.keys.get(binding));
+}
+
+fn padKey(app_state: *AppState, key: sdl3.keycode.Keycode) !sdl3.AppResult {
+    var press: sdl3.events.Keyboard = .{
+        .common = .{ .timestamp = sdl3.timer.getNanosecondsSinceInit() },
+        .id = null,
+        .scancode = null,
+        .key = key,
+        .mod = .{},
+        .raw = 0,
+        .down = true,
+        .repeat = false,
+    };
+    const result = try dispatch(app_state, .{ .key_down = press });
+    press.down = false;
+    _ = try dispatch(app_state, .{ .key_up = press });
+    return result;
+}
+
+fn padClick(app_state: *AppState, button: sdl3.mouse.Button, down: bool) !sdl3.AppResult {
+    const click: sdl3.events.MouseButton = .{
+        .common = .{ .timestamp = sdl3.timer.getNanosecondsSinceInit() },
+        .button = button,
+        .down = down,
+        .clicks = 1,
+        .x = app_state.mouse_x,
+        .y = app_state.mouse_y,
+    };
+    return dispatch(app_state, if (down) .{ .mouse_button_down = click } else .{ .mouse_button_up = click });
+}
+
+fn padEscape(app_state: *AppState) !sdl3.AppResult {
+    if (app_state.rebinding != null) {
+        app_state.rebinding = null;
+        return .run;
+    }
+    return padKey(app_state, .escape);
+}
+
+fn padButtonDown(app_state: *AppState, button: sdl3.gamepad.Button) !sdl3.AppResult {
+    if (worldFocused(app_state)) return switch (button) {
+        .south => blk: {
+            app_state.keys.jump = true;
+            break :blk .run;
+        },
+        .east => blk: {
+            app_state.keys.sneak = true;
+            break :blk .run;
+        },
+        .west => padKey(app_state, boundKey(app_state, .drop)),
+        .north => padKey(app_state, boundKey(app_state, .inventory)),
+        .dpad_up => padKey(app_state, boundKey(app_state, .chat)),
+        .left_shoulder, .dpad_left => blk: {
+            app_state.player.inventory.cycleHotbar(1);
+            break :blk .run;
+        },
+        .right_shoulder, .dpad_right => blk: {
+            app_state.player.inventory.cycleHotbar(-1);
+            break :blk .run;
+        },
+        .back => padKey(app_state, .func5),
+        .start => padKey(app_state, .escape),
+        else => .run,
+    };
+    return switch (button) {
+        .south, .west => blk: {
+            if (app_state.pad.clicking != null) break :blk .run;
+            const mouse_button: sdl3.mouse.Button = if (button == .south) .left else .right;
+            app_state.pad.clicking = mouse_button;
+            break :blk padClick(app_state, mouse_button, true);
+        },
+        .east, .start => padEscape(app_state),
+        .north => padKey(app_state, boundKey(app_state, .inventory)),
+        else => .run,
+    };
+}
+
+fn padButtonUp(app_state: *AppState, button: sdl3.gamepad.Button) !sdl3.AppResult {
+    switch (button) {
+        .south, .west => {
+            if (button == .south) app_state.keys.jump = false;
+            const mouse_button: sdl3.mouse.Button = if (button == .south) .left else .right;
+            if (app_state.pad.clicking == mouse_button) {
+                app_state.pad.clicking = null;
+                return padClick(app_state, mouse_button, false);
+            }
+        },
+        .east => app_state.keys.sneak = false,
+        else => {},
+    }
+    return .run;
+}
+
+fn padTrigger(app_state: *AppState, held: *bool, button: sdl3.mouse.Button, value: f32) !sdl3.AppResult {
+    if (!held.* and value >= pad_trigger_press and worldFocused(app_state)) {
+        held.* = true;
+        setPadActive(app_state, true);
+        return padClick(app_state, button, true);
+    }
+    if (held.* and value <= pad_trigger_release) {
+        held.* = false;
+        return padClick(app_state, button, false);
+    }
+    return .run;
+}
+
+fn padCursor(app_state: *AppState, dx: f32, dy: f32) !sdl3.AppResult {
+    const px = drawableSize(app_state);
+    const x = std.math.clamp(app_state.mouse_x + dx, 0, @as(f32, @floatFromInt(px.w - 1)));
+    const y = std.math.clamp(app_state.mouse_y + dy, 0, @as(f32, @floatFromInt(px.h - 1)));
+    return dispatch(app_state, .{ .mouse_motion = .{
+        .common = .{ .timestamp = sdl3.timer.getNanosecondsSinceInit() },
+        .state = .{ .left = app_state.pad.clicking == .left, .middle = false, .right = app_state.pad.clicking == .right, .side1 = false, .side2 = false },
+        .x = x,
+        .y = y,
+        .x_rel = x - app_state.mouse_x,
+        .y_rel = y - app_state.mouse_y,
+    } });
+}
+
+fn padFrame(app_state: *AppState) !sdl3.AppResult {
+    const now = sdl3.timer.getNanosecondsSinceInit();
+    const seconds = @min(@as(f32, @floatFromInt(now -% app_state.pad.last_frame_ns)) / std.time.ns_per_s, 0.1);
+    app_state.pad.last_frame_ns = now;
+    const device = app_state.pad.device orelse return .run;
+
+    const lx = padStick(padAxis(device, .left_x));
+    const ly = padStick(padAxis(device, .left_y));
+    const rx = padStick(padAxis(device, .right_x));
+    const ry = padStick(padAxis(device, .right_y));
+    if (lx != 0 or ly != 0 or rx != 0 or ry != 0) setPadActive(app_state, true);
+
+    if (try padTrigger(app_state, &app_state.pad.attacking, .left, padAxis(device, .right_trigger)) == .success) return .success;
+    if (try padTrigger(app_state, &app_state.pad.using, .right, padAxis(device, .left_trigger)) == .success) return .success;
+
+    if (worldFocused(app_state)) {
+        padMove(app_state, lx, ly);
+        app_state.pad.scroll = 0;
+        if (rx == 0 and ry == 0) return .run;
+        const dx = rx * pad_look_speed * seconds;
+        const dy = ry * pad_look_speed * seconds;
+        if (app_state.freecam.active) {
+            app_state.freecam.turn(dx, dy, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+        } else {
+            app_state.player.turn(dx, dy, app_state.settings.sensitivity, app_state.settings.invert_mouse);
+        }
+        return .run;
+    }
+
+    padMove(app_state, 0, 0);
+    if (lx != 0 or ly != 0) {
+        const speed = pad_cursor_speed * @as(f32, @floatFromInt(drawableSize(app_state).h)) * seconds;
+        if (try padCursor(app_state, lx * speed, ly * speed) == .success) return .success;
+    }
+    if (ry == 0) {
+        app_state.pad.scroll = 0;
+        return .run;
+    }
+    app_state.pad.scroll -= ry * pad_scroll_speed * seconds;
+    const notches = @trunc(app_state.pad.scroll);
+    if (notches == 0) return .run;
+    app_state.pad.scroll -= notches;
+    return dispatch(app_state, .{ .mouse_wheel = .{
+        .common = .{ .timestamp = now },
+        .scroll_x = 0,
+        .scroll_y = notches,
+        .direction = .normal,
+        .x = app_state.mouse_x,
+        .y = app_state.mouse_y,
+    } });
+}
+
 fn backAsEscape(current: *sdl3.events.Event) void {
     switch (current.*) {
         .key_down, .key_up => |*k| if (k.key == .ac_back) {
@@ -5181,7 +5455,26 @@ pub fn event(
     curr_event: sdl3.events.Event,
 ) !sdl3.AppResult {
     gl.makeProcTableCurrent(&app_state.gl_procs);
+    switch (curr_event) {
+        .gamepad_added => |d| padAdded(app_state, d.id),
+        .gamepad_removed => |d| try padRemoved(app_state, d.id),
+        .gamepad_button_down => |b| if (isActivePad(app_state, b.id)) {
+            setPadActive(app_state, true);
+            return padButtonDown(app_state, b.button);
+        },
+        .gamepad_button_up => |b| if (isActivePad(app_state, b.id)) return padButtonUp(app_state, b.button),
+        .mouse_motion => |m| if (m.x_rel != 0 or m.y_rel != 0) setPadActive(app_state, false),
+        .finger_down => setPadActive(app_state, false),
+        else => {},
+    }
     if (touch_ui and worldFocused(app_state) and fromTouchMouse(curr_event)) return .run;
+    return dispatch(app_state, curr_event);
+}
+
+fn dispatch(
+    app_state: *AppState,
+    curr_event: sdl3.events.Event,
+) !sdl3.AppResult {
     var current = curr_event;
     // Without a keyboard the back gesture is the only way off a screen.
     if (touch_ui) backAsEscape(&current);
@@ -5436,6 +5729,7 @@ pub fn quit(
         state.chunks.deinit(state.gpa);
         state.level.deinit(state.gpa);
         if (state.sound) |*sound| sound.deinit(state.gpa);
+        if (state.pad.device) |device| device.deinit();
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();

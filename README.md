@@ -24,14 +24,14 @@ Minecraft Beta 1.7.3 rewritten from scratch in Zig, with a client and a dedicate
 
 Or download a build:
 
-| Platform | Stable | Nightly |
-| --- | --- | --- |
-| Linux (x86_64) | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-linux.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-linux.tar.gz) |
-| Windows (x86_64) | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-windows.zip) | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-windows.zip) |
-| macOS (arm64) | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-macos.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-macos.tar.gz) |
-| Web | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
-| Android (arm64) | [apk](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-linux-android.apk) | [apk](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-linux-android.apk) |
-| iOS (arm64) | [ipa](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-ios.ipa) | [ipa](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-ios.ipa) |
+| Platform         | Stable                                                                                               | Nightly                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Linux (x86_64)   | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-linux.tar.gz)      | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-linux.tar.gz)      |
+| Windows (x86_64) | [zip](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-x86_64-windows.zip)          | [zip](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-x86_64-windows.zip)          |
+| macOS (arm64)    | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-macos.tar.gz)     | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-macos.tar.gz)     |
+| Web              | [tar.gz](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-wasm32-emscripten.tar.gz) | [tar.gz](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-wasm32-emscripten.tar.gz) |
+| Android (arm64)  | [apk](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-linux-android.apk)   | [apk](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-linux-android.apk)   |
+| iOS (arm64)      | [ipa](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-ios.ipa)             | [ipa](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-ios.ipa)             |
 
 ```sh
 ./rosebed                                                              # client
@@ -44,6 +44,7 @@ Or download a build:
 - Chat input editing: history, ctrl+backspace, paste.
 - A fullscreen option in Video Settings (vanilla only has F11).
 - Touch controls and auto-jump on Android and iOS.
+- Gamepad support on every platform:
 
 ## Build
 

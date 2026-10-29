@@ -92,16 +92,7 @@ pub fn draw(
     try gui.appendRect(&chrome, ui.gpa, highlight_x, hotbar_y - 1.0, highlight_width, highlight_height, gui.pixelUv(0, 22, highlight_width, highlight_height, gui.gui_texture_size, gui.gui_texture_size), ui.res);
     try gui.drawTexturedMesh(&chrome, ui.shader, ui.textures.gui);
 
-    var crosshair: MeshBuilder = .{};
-    defer crosshair.deinit(ui.gpa);
-    const crosshair_x = @floor(ui.res.width / 2.0) - 7.0;
-    const crosshair_y = @floor(ui.res.height / 2.0) - 7.0;
-    try gui.appendRect(&crosshair, ui.gpa, crosshair_x, crosshair_y, crosshair_size, crosshair_size, gui.pixelUv(0, 0, crosshair_size, crosshair_size, gui.gui_texture_size, gui.gui_texture_size), ui.res);
-    gl.BlendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE_MINUS_SRC_COLOR);
-    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.FALSE);
-    try gui.drawTexturedMesh(&crosshair, ui.shader, ui.textures.icons);
-    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
-    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    try drawCrosshair(ui, @floor(ui.res.width / 2.0), @floor(ui.res.height / 2.0));
 
     var hearts: MeshBuilder = .{};
     defer hearts.deinit(ui.gpa);
@@ -182,6 +173,23 @@ pub fn draw(
     }
 
     gui.endOverlay();
+}
+
+fn drawCrosshair(ui: gui.Ui, centre_x: f32, centre_y: f32) !void {
+    var crosshair: MeshBuilder = .{};
+    defer crosshair.deinit(ui.gpa);
+    try gui.appendRect(&crosshair, ui.gpa, centre_x - 7.0, centre_y - 7.0, crosshair_size, crosshair_size, gui.pixelUv(0, 0, crosshair_size, crosshair_size, gui.gui_texture_size, gui.gui_texture_size), ui.res);
+    gl.BlendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE_MINUS_SRC_COLOR);
+    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.FALSE);
+    try gui.drawTexturedMesh(&crosshair, ui.shader, ui.textures.icons);
+    gl.ColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
+    gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+}
+
+pub fn drawCursor(ui: gui.Ui) !void {
+    gui.beginOverlay();
+    defer gui.endOverlay();
+    try drawCrosshair(ui, @floor(ui.mouse_x / ui.res.factor), @floor(ui.mouse_y / ui.res.factor));
 }
 
 test "a full lungful shows ten whole bubbles and none popping" {
