@@ -44,7 +44,7 @@ Or download a build:
 - Chat input editing: history, ctrl+backspace, paste.
 - A fullscreen option in Video Settings (vanilla only has F11).
 - Touch controls and auto-jump on Android and iOS.
-- Gamepad support on every platform:
+- Gamepad support on every platform.
 
 ## Build
 
