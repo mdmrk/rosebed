@@ -252,6 +252,25 @@ pub fn build(b: *std.Build) void {
     run_server_cmd.step.dependOn(b.getInstallStep());
     run_server_cmd.addPassthruArgs();
 
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bench.zig"),
+            .target = target,
+            .optimize = if (debug) .ReleaseFast else optimize,
+            .imports = &.{
+                .{ .name = "math", .module = modules.math_mod },
+                .{ .name = "world", .module = modules.world_mod },
+                .{ .name = "game", .module = modules.game_mod },
+                .{ .name = "render", .module = modules.render_mod },
+            },
+        }),
+    });
+    const bench_step = b.step("bench", "Time world generation, chunk meshing and level ticks");
+    const bench_cmd = b.addRunArtifact(bench);
+    bench_cmd.addPassthruArgs();
+    bench_step.dependOn(&bench_cmd.step);
+
     const fetch_assets = b.addExecutable(.{
         .name = "fetch-assets",
         .root_module = b.createModule(.{

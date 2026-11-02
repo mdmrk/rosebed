@@ -1919,6 +1919,24 @@ pub fn build(gpa: std.mem.Allocator, world_map: *const world.World, chunk: *cons
     return mesh;
 }
 
+fn buriedCube(view: *const world.ChunkView, chunk: *const world.Chunk, id: world.Block, lx: usize, ly: usize, lz: usize) bool {
+    if (!id.isOpaqueCube() or id.shape() != .cube or id == .slab_double) return false;
+    if (ly == 0 or ly + 1 >= world.Chunk.height) return false;
+    const x: u32 = @intCast(lx);
+    const y: u32 = @intCast(ly);
+    const z: u32 = @intCast(lz);
+    if (!chunk.getBlock(x, y + 1, z).isOpaqueCube() or !chunk.getBlock(x, y - 1, z).isOpaqueCube()) return false;
+    if (lx > 0 and lx + 1 < world.Chunk.width and lz > 0 and lz + 1 < world.Chunk.width) {
+        return chunk.getBlock(x + 1, y, z).isOpaqueCube() and chunk.getBlock(x - 1, y, z).isOpaqueCube() and
+            chunk.getBlock(x, y, z + 1).isOpaqueCube() and chunk.getBlock(x, y, z - 1).isOpaqueCube();
+    }
+    const wx = chunk.x * world.Chunk.width + @as(i32, @intCast(lx));
+    const wz = chunk.z * world.Chunk.width + @as(i32, @intCast(lz));
+    const wy: i32 = @intCast(ly);
+    return view.getBlock(.init(wx + 1, wy, wz)).isOpaqueCube() and view.getBlock(.init(wx - 1, wy, wz)).isOpaqueCube() and
+        view.getBlock(.init(wx, wy, wz + 1)).isOpaqueCube() and view.getBlock(.init(wx, wy, wz - 1)).isOpaqueCube();
+}
+
 pub fn buildInto(gpa: std.mem.Allocator, mesh: *Mesh, world_map: *const world.World, chunk: *const world.Chunk, colorizer: Colorizer, options: Options) !void {
     mesh.clearRetainingCapacity();
 
@@ -1942,6 +1960,7 @@ pub fn buildInto(gpa: std.mem.Allocator, mesh: *Mesh, world_map: *const world.Wo
             for (0..world.Chunk.height) |ly| {
                 const id = chunk.getBlock(@intCast(lx), @intCast(ly), @intCast(lz));
                 if (id == .air) continue;
+                if (!options.all_faces and buriedCube(&view, chunk, id, lx, ly, lz)) continue;
 
                 const bx: f32 = @floatFromInt(lx);
                 const by: f32 = @floatFromInt(ly);

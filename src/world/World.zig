@@ -1434,6 +1434,14 @@ pub fn tickRandomBlocks(self: *World, center_chunk_x: i32, center_chunk_z: i32) 
                 try self.settleFrost(chunk, base_x + @as(i32, @intCast(local_x)), base_z + @as(i32, @intCast(local_z)), local_x, local_z);
             }
 
+            var ahead = self.update_lcg;
+            for (0..random_tick_samples) |_| {
+                ahead = ahead *% 3 +% 1013904223;
+                const bits = ahead >> 2;
+                const index = ((bits & 15) << 11) | (((bits >> 8) & 15) << 7) | ((bits >> 16) & 127);
+                @prefetch(&chunk.blocks[@intCast(index)], .{});
+            }
+
             for (0..random_tick_samples) |_| {
                 self.update_lcg = self.update_lcg *% 3 +% 1013904223;
                 const bits = self.update_lcg >> 2;
