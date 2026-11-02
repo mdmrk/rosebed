@@ -5601,6 +5601,8 @@ fn dispatch(
         },
         .mouse_wheel => |w| if (worldFocused(app_state)) {
             app_state.player.inventory.cycleHotbar(if (w.scroll_y > 0) 1 else if (w.scroll_y < 0) -1 else 0);
+        } else if (app_state.chat.open) {
+            app_state.chat.scrollBy(@as(i32, @intFromFloat(w.scroll_y)) * 3);
         } else if (app_state.stats_open) {
             const view = &app_state.stats_view;
             const step = render.screen.stats.scrollStep(view.tab);

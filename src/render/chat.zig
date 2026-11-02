@@ -44,6 +44,7 @@ pub const State = struct {
     lines: [max_lines]Line = @splat(.{}),
     line_count: usize = 0,
     open: bool = false,
+    scroll: usize = 0,
 
     message_bytes: [max_message_length]u8 = undefined,
     message_len: usize = 0,
@@ -60,6 +61,7 @@ pub const State = struct {
 
     pub fn openInput(self: *State) void {
         self.open = true;
+        self.scroll = 0;
         self.message_len = 0;
         self.blink = 0;
         self.history_pointer = 0;
@@ -67,6 +69,7 @@ pub const State = struct {
 
     pub fn closeInput(self: *State) void {
         self.open = false;
+        self.scroll = 0;
         self.message_len = 0;
         self.history_pointer = 0;
     }
@@ -130,6 +133,13 @@ pub const State = struct {
 
     pub fn clear(self: *State) void {
         self.line_count = 0;
+        self.scroll = 0;
+    }
+
+    pub fn scrollBy(self: *State, lines: i32) void {
+        const max_scroll = self.line_count -| open_line_limit;
+        const next = @as(i64, @intCast(self.scroll)) + lines;
+        self.scroll = @intCast(std.math.clamp(next, 0, @as(i64, @intCast(max_scroll))));
     }
 
     pub fn addMessage(self: *State, font: Font, text: []const u8) void {
@@ -150,6 +160,7 @@ pub const State = struct {
 
     fn pushLine(self: *State, text: []const u8) void {
         if (self.line_count < max_lines) self.line_count += 1;
+        if (self.scroll > 0) self.scroll = @min(self.scroll + 1, self.line_count -| open_line_limit);
 
         var i = self.line_count - 1;
         while (i > 0) : (i -= 1) self.lines[i] = self.lines[i - 1];
@@ -203,7 +214,9 @@ pub fn draw(ui: gui.Ui, state: *const State) !void {
 
     const limit: usize = if (state.open) open_line_limit else closed_line_limit;
     const base_y = ui.res.height - 48;
-    for (state.lines[0..@min(state.line_count, limit)], 0..) |line, i| {
+    const first = if (state.open) state.scroll else 0;
+    const last = @min(state.line_count, first + limit);
+    for (state.lines[first..last], 0..) |line, i| {
         const alpha = lineAlpha(line.age, state.open);
         if (alpha == 0) continue;
 
