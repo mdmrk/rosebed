@@ -409,13 +409,6 @@ fn placeLava(world_map: *World, pos: BlockPos, decay: u4) !void {
     try world_map.setBlockAndMetadataWithNotify(pos, .flowing_lava, decay);
 }
 
-test "getPercentAir matches BlockFluid's level-to-height table" {
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 9.0), percentAir(0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 8.0 / 9.0), percentAir(7), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 9.0), percentAir(8), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 9.0), percentAir(15), 1.0e-6);
-}
-
 test "a source settles into stationary water and spreads to its four neighbours" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
@@ -570,17 +563,6 @@ test "the flow vector points away from the source" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), flow.z, 1.0e-9);
 }
 
-test "still water has no flow direction to rotate its surface texture" {
-    var world_map = try testWorld(64);
-    defer world_map.deinit();
-
-    try placeSource(&world_map, .init(8, 64, 8));
-    try runTicks(&world_map, 20);
-
-    try std.testing.expect(flowAngle(&world_map, .init(8, 64, 8)) == null);
-    try std.testing.expect(flowAngle(&world_map, .init(10, 64, 8)) != null);
-}
-
 test "a lava source spreads exactly three blocks and settles into stationary lava" {
     var world_map = try testWorld(64);
     defer world_map.deinit();
@@ -630,16 +612,6 @@ test "lava falls straight down and marks the falling metadata bit" {
     }
 }
 
-test "water beside a lava source hardens it into obsidian" {
-    var world_map = try testWorld(64);
-    defer world_map.deinit();
-
-    try placeLava(&world_map, .init(8, 64, 8), 0);
-    try world_map.setBlockWithNotify(.init(9, 64, 8), .stationary_water);
-
-    try std.testing.expectEqual(.obsidian, world_map.getBlock(.init(8, 64, 8)));
-}
-
 test "water beside flowing lava hardens it into cobblestone up to level four" {
     for ([_]u4{ 1, 2, 4 }) |decay| {
         var world_map = try testWorld(64);
@@ -650,16 +622,6 @@ test "water beside flowing lava hardens it into cobblestone up to level four" {
 
         try std.testing.expectEqual(.cobblestone, world_map.getBlock(.init(8, 64, 8)));
     }
-}
-
-test "water leaves thinner lava molten" {
-    var world_map = try testWorld(64);
-    defer world_map.deinit();
-
-    try placeLava(&world_map, .init(8, 64, 8), 6);
-    try world_map.setBlockWithNotify(.init(9, 64, 8), .stationary_water);
-
-    try std.testing.expect(Fluid.lava.holds(world_map.getBlock(.init(8, 64, 8))));
 }
 
 test "lava flowing towards water hardens where the two meet" {

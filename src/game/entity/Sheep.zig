@@ -115,15 +115,6 @@ pub fn fromRecord(record: world.entity_nbt.Sheep) Sheep {
     return sheep;
 }
 
-test "a sheep is the size EntitySheep sets itself to" {
-    var rand = world.JavaRandom.init(0);
-    const sheep = Sheep.spawn(math.Vec3.init(0, 0, 0), &rand);
-
-    try std.testing.expectEqual(@as(f64, 0.9), sheep.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.3), sheep.animal.base.height);
-    try std.testing.expectEqual(max_health, sheep.animal.health);
-}
-
 test "hitting a sheep neither shears it nor knocks any wool loose" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();

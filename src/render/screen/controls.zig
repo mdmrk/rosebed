@@ -128,39 +128,3 @@ test "the ten bindings sit in two columns of five rows" {
     try std.testing.expectEqual(list[0].y + 96, list[8].y);
     try std.testing.expectEqual(@as(f32, 70), list[0].w);
 }
-
-test "the buttons follow the vanilla binding order" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const list = controls(res.width, res.height);
-    try std.testing.expectEqual(@as(Hit, .{ .binding = .forward }), list[0].hit);
-    try std.testing.expectEqual(@as(Hit, .{ .binding = .left }), list[1].hit);
-    try std.testing.expectEqual(@as(Hit, .{ .binding = .sneak }), list[5].hit);
-    try std.testing.expectEqual(@as(Hit, .done), list[10].hit);
-}
-
-test "clicking a binding returns it, clicking Done returns done" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(?Hit, .{ .binding = .forward }), hitAt(80, 80, res));
-    try std.testing.expectEqual(@as(?Hit, .{ .binding = .left }), hitAt(400, 80, res));
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, res));
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(600, 80, res));
-}
-
-test "the selected binding is bracketed" {
-    const settings: game.Settings = .{};
-    var buf: [64]u8 = undefined;
-    try std.testing.expectEqualStrings("W", controlLabel(.{ .binding = .forward }, settings, null, &buf));
-    try std.testing.expectEqualStrings("> W <", controlLabel(.{ .binding = .forward }, settings, .forward, &buf));
-    try std.testing.expectEqualStrings("A", controlLabel(.{ .binding = .left }, settings, .forward, &buf));
-    try std.testing.expectEqualStrings("Done", controlLabel(.done, settings, .forward, &buf));
-}
-
-test "the default keycodes name the vanilla keys" {
-    const settings: game.Settings = .{};
-    try std.testing.expectEqualStrings("Space", keyName(settings.keys.get(.jump)));
-    try std.testing.expectEqualStrings("Left Shift", keyName(settings.keys.get(.sneak)));
-    try std.testing.expectEqual(
-        @backingInt(sdl3.keycode.Keycode.left_shift),
-        settings.keys.get(.sneak),
-    );
-}

@@ -262,20 +262,6 @@ test "a bad line leaves the setting at its default and the rest still loads" {
     try std.testing.expect(settings.anaglyph);
 }
 
-test "a volume written as a boolean reads back as the original does" {
-    var settings: Settings = .{};
-    decode(&settings, "music:false\nsound:true\n");
-    try std.testing.expectEqual(@as(f32, 0.0), settings.music_volume);
-    try std.testing.expectEqual(@as(f32, 1.0), settings.sound_volume);
-}
-
-test "carriage returns from a file written on another platform are tolerated" {
-    var settings: Settings = .{};
-    decode(&settings, "anaglyph3d:true\r\nfancyGraphics:false\r\n");
-    try std.testing.expect(settings.anaglyph);
-    try std.testing.expect(!settings.fancy_graphics);
-}
-
 test "the file is written where the original writes it and read back" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;

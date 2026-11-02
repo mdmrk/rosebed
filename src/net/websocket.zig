@@ -39,9 +39,6 @@ pub fn acceptKey(key: []const u8) [accept_length]u8 {
     return accept;
 }
 
-// One byte, not the whole "GET ": a vanilla handshake for an empty username is only three
-// bytes long, so peeking further would block a client that is waiting for its reply. No
-// packet a client may send starts with 'G'.
 pub fn isUpgrade(r: *std.Io.Reader) !bool {
     return try r.peekByte() == 'G';
 }

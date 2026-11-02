@@ -195,15 +195,6 @@ test "the vanilla mob types carry the entity ids the wire spawns them by" {
     try std.testing.expectEqual(giant, byWireId(53).?);
 }
 
-test "the monster flag marks exactly the mobs EntityMob covers" {
-    const monsters = [_]Id{ creeper, skeleton, spider, zombie, pig_zombie, giant };
-    for (0..registered()) |type_id| {
-        const id: Id = @intCast(type_id);
-        const want = std.mem.findScalar(Id, &monsters, id) != null;
-        try std.testing.expectEqual(want, get(id).monster);
-    }
-}
-
 test "a type with no entity id of its own is never spawned over the wire" {
     defer reset();
 

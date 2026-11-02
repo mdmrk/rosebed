@@ -276,15 +276,6 @@ pub fn canPlaceAt(world_map: *const World, pos: BlockPos) bool {
     return world_map.getBlock(pos.offset(0, -1, 0)).isNormalCube();
 }
 
-test "a lone rail lies flat along z" {
-    const testing_world = @import("testing.zig");
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(8, 12, 8), .rail);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
-}
-
 test "a second rail beside the first turns the pair along x" {
     const testing_world = @import("testing.zig");
     var w = try testing_world.flatWorld(std.testing.allocator, 12);

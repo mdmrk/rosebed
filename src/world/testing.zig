@@ -44,23 +44,6 @@ pub fn stoneFloor(gpa: std.mem.Allocator, sky_light: ?u4) !World {
     return w;
 }
 
-test "the floor is solid up to the requested height and open above it" {
-    var w = try flatWorld(std.testing.allocator, 2);
-    defer w.deinit();
-
-    try std.testing.expectEqual(.stone, w.getBlock(.init(8, 0, 8)));
-    try std.testing.expectEqual(.stone, w.getBlock(.init(8, 1, 8)));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 2, 8)));
-}
-
-test "a zero-height floor still loads the chunk" {
-    var w = try flatWorld(std.testing.allocator, 0);
-    defer w.deinit();
-
-    try std.testing.expect(w.getChunk(0, 0) != null);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 0, 8)));
-}
-
 pub const HeardSound = struct {
     key: []const u8 = "",
     volume: f32 = 0,

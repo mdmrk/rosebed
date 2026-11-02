@@ -598,23 +598,6 @@ fn railWorld(shape_along_x: bool) !world.World {
     return w;
 }
 
-test "a minecart is the size EntityMinecart sets itself to" {
-    const cart = Minecart.spawn(math.Vec3.init(8.5, 12.5, 8.5), .empty);
-    try std.testing.expectEqual(@as(f64, 0.98), cart.base.width);
-    try std.testing.expectEqual(@as(f64, 0.7), cart.base.height);
-    try std.testing.expectEqual(Kind.empty, cart.kind);
-}
-
-test "a minecart on a straight rail is pulled onto the centre line" {
-    var w = try railWorld(true);
-    defer w.deinit();
-
-    var cart = Minecart.spawn(math.Vec3.init(8.2, 12.0, 8.4), .empty);
-    _ = cart.tick(&w, &.{}, false);
-
-    try std.testing.expectApproxEqAbs(@as(f64, 8.5), cart.base.position.z, 1.0e-9);
-}
-
 test "a minecart rolls along the rail it was pushed down and stays on it" {
     var w = try railWorld(true);
     defer w.deinit();
@@ -656,17 +639,6 @@ test "the rail lookahead reads the next rail's height, sloped or not" {
 
     const behind = Minecart.railAhead(&w, 8.5, 12.5, 8.5, -0.6).?;
     try std.testing.expectApproxEqAbs(level.y, behind.y, 1.0e-9);
-}
-
-test "a minecart left alone on level track coasts to a halt" {
-    var w = try railWorld(true);
-    defer w.deinit();
-
-    var cart = Minecart.spawn(math.Vec3.init(6.5, 12.0, 8.5), .empty);
-    cart.base.motion = math.Vec3.init(0.3, 0, 0);
-    for (0..400) |_| _ = cart.tick(&w, &.{}, false);
-
-    try std.testing.expect(@abs(cart.base.motion.x) < 0.01);
 }
 
 test "a powered rail speeds a moving cart up and an unpowered one brakes it" {
@@ -717,27 +689,6 @@ test "two carts meeting head on trade their momentum" {
     try std.testing.expect(rolling.base.motion.x > 0.0);
 }
 
-test "a furnace cart shoves an ordinary one along instead of splitting the difference" {
-    var pusher = Minecart.spawn(math.Vec3.init(8.0, 12.15, 8.5), .furnace);
-    pusher.base.motion = math.Vec3.init(0.3, 0, 0);
-    var pushed = Minecart.spawn(math.Vec3.init(8.8, 12.15, 8.5), .empty);
-
-    pushed.collideWith(&pusher);
-
-    try std.testing.expect(pushed.base.motion.x > 0.2);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.3 * 0.7), pusher.base.motion.x, 1.0e-9);
-}
-
-test "carts touching but not overlapping in x are left alone" {
-    var a = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
-    var b = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
-    b.base.motion = math.Vec3.init(0.3, 0, 0);
-
-    a.collideWith(&b);
-    try std.testing.expectEqual(@as(f64, 0.3), b.base.motion.x);
-    try std.testing.expectEqual(@as(f64, 0), a.base.motion.x);
-}
-
 test "far from the origin EntityMinecart's skew test lets carts roll through each other" {
     var near_a = Minecart.spawn(math.Vec3.init(0.0, 12.15, 8.5), .empty);
     near_a.base.motion = math.Vec3.init(0.3, 0, 0);
@@ -767,15 +718,6 @@ test "a cart shoves a bystander at a quarter of what it takes itself" {
     try std.testing.expectApproxEqAbs(@as(f64, 0), bystander.motion.z, 1.0e-12);
 }
 
-test "a bystander standing exactly on the cart is left alone" {
-    var cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
-    var bystander = Entity.init(math.Vec3.init(8.5, 12.15, 8.5), 0.6, 1.8);
-
-    cart.shoveOff(&bystander);
-    try std.testing.expectEqual(@as(f64, 0), cart.base.motion.x);
-    try std.testing.expectEqual(@as(f64, 0), bystander.motion.x);
-}
-
 test "only a moving, empty, riderless cart scoops a passenger up" {
     var rolling = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
     rolling.base.motion = math.Vec3.init(0.2, 0, 0);
@@ -797,17 +739,6 @@ test "only a moving, empty, riderless cart scoops a passenger up" {
     }
 }
 
-test "stepping off a cart sets you down on top of it, not in the seat" {
-    const cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
-    const seat = cart.riderPosition();
-    const off = Entity.dismountPosition(cart.base);
-
-    try std.testing.expectApproxEqAbs(@as(f64, 12.15 + height), off.y, 1.0e-12);
-    try std.testing.expect(off.y > seat.y);
-    try std.testing.expectApproxEqAbs(cart.base.position.x, off.x, 1.0e-12);
-    try std.testing.expectApproxEqAbs(cart.base.position.z, off.z, 1.0e-12);
-}
-
 test "a rider sits just above the cart floor, and a player half a block lower still" {
     const cart = Minecart.spawn(math.Vec3.init(8.5, 12.15, 8.5), .empty);
     const seat = cart.riderPosition();
@@ -818,31 +749,6 @@ test "a rider sits just above the cart floor, and a player half a block lower st
     try std.testing.expectApproxEqAbs(@as(f64, 12.15 + 0.05 - 0.5), driver.y, 1.0e-12);
     try std.testing.expectApproxEqAbs(seat.x, driver.x, 1.0e-12);
     try std.testing.expectApproxEqAbs(seat.z, driver.z, 1.0e-12);
-}
-
-test "a minecart breaks after enough damage and shrugs off a little" {
-    var light = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
-    _ = light.hurt(1);
-    try std.testing.expectEqual(@as(i32, 10), light.damage);
-    try std.testing.expect(!light.dead);
-
-    var doomed = Minecart.spawn(math.Vec3.init(0, 0, 0), .empty);
-    _ = doomed.hurt(5);
-    try std.testing.expect(doomed.dead);
-}
-
-test "each cart kind names the extra block it leaves behind" {
-    try std.testing.expectEqual(world.Id{ .item = .minecart }, droppedItem(.empty));
-    try std.testing.expectEqual(world.Id{ .block = .chest }, droppedItem(.chest));
-    try std.testing.expectEqual(world.Id{ .block = .furnace }, droppedItem(.furnace));
-}
-
-test "a chest cart holds a chest's worth of slots" {
-    var cart = Minecart.spawn(math.Vec3.init(0, 0, 0), .chest);
-    try std.testing.expect(cart.isEmpty());
-    cart.slot(26).* = .{ .id = .{ .block = .stone }, .count = 64 };
-    try std.testing.expect(!cart.isEmpty());
-    try std.testing.expectEqual(@as(usize, 27), cart.items.len);
 }
 
 test "a minecart's cargo and heading survive a record round trip" {

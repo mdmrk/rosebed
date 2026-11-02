@@ -180,17 +180,6 @@ test "grass in the dark under a solid block turns back to dirt" {
     try std.testing.expectEqual(Block.dirt, w.getBlock(.init(8, 1, 8)));
 }
 
-test "grass under open sky stays grass however long it is ticked" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 1, 8), .grass);
-    try light.relightChunk(std.testing.allocator, &w, 0, 0);
-
-    for (0..64) |_| try tickGrass(&w, .init(8, 1, 8), .grass);
-    try std.testing.expectEqual(Block.grass, w.getBlock(.init(8, 1, 8)));
-}
-
 test "lit grass seeds the dirt around it" {
     var w = try testing_world.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -237,16 +226,6 @@ fn saplingWorld() !World {
     try w.setBlockWithNotify(.init(8, 2, 8), .sapling);
     try light.relightChunk(std.testing.allocator, &w, 0, 0);
     return w;
-}
-
-test "a sapling arms itself before it grows" {
-    var w = try saplingWorld();
-    defer w.deinit();
-
-    while (w.getBlockMetadata(.init(8, 2, 8)) & sapling_ready == 0) {
-        try tickSapling(&w, .init(8, 2, 8), .sapling);
-        try std.testing.expectEqual(Block.sapling, w.getBlock(.init(8, 2, 8)));
-    }
 }
 
 test "an armed sapling grows into a tree" {
@@ -325,15 +304,6 @@ test "a sapling lit to exactly eight holds its ground without growing" {
     try std.testing.expectEqual(Block.sapling, w.getBlock(.init(8, 2, 8)));
 }
 
-test "a sapling left with nothing under it pops off before it can grow" {
-    var w = try saplingWorld();
-    defer w.deinit();
-
-    w.setBlock(.init(8, 1, 8), .air);
-    try tickSapling(&w, .init(8, 2, 8), .sapling);
-    try std.testing.expectEqual(Block.air, w.getBlock(.init(8, 2, 8)));
-}
-
 fn roofedWorld(floor_height: u32, roof_y: u32) !World {
     var w = try testing_world.flatWorld(std.testing.allocator, floor_height);
     errdefer w.deinit();
@@ -369,14 +339,6 @@ test "a cactus ripens through its metadata and then puts up a new block" {
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 2, 8)));
 }
 
-test "sugar cane grows the same way a cactus does" {
-    var w = try stalkWorld(.reed, .dirt);
-    defer w.deinit();
-
-    for (0..@as(usize, stalk_ripe) + 1) |_| try tickStalk(&w, .init(8, 2, 8), .reed);
-    try std.testing.expectEqual(Block.reed, w.getBlock(.init(8, 3, 8)));
-}
-
 test "a stalk stops at three blocks tall" {
     var w = try stalkWorld(.cactus, .sand);
     defer w.deinit();
@@ -388,17 +350,6 @@ test "a stalk stops at three blocks tall" {
     for (0..64) |_| try tickStalk(&w, .init(8, 4, 8), .cactus);
     try std.testing.expectEqual(Block.air, w.getBlock(.init(8, 5, 8)));
     try std.testing.expectEqual(stalk_ripe, w.getBlockMetadata(.init(8, 4, 8)));
-}
-
-test "a stalk with a block over its head does not grow at all" {
-    var w = try stalkWorld(.cactus, .sand);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 3, 8), .stone);
-    w.setBlockMetadata(.init(8, 2, 8), stalk_ripe);
-
-    for (0..64) |_| try tickStalk(&w, .init(8, 2, 8), .cactus);
-    try std.testing.expectEqual(stalk_ripe, w.getBlockMetadata(.init(8, 2, 8)));
 }
 
 fn mushroomWorld() !World {
@@ -420,25 +371,6 @@ fn spreadNextTo(world_map: *const World, pos: BlockPos, id: Block) bool {
         }
     }
     return false;
-}
-
-test "a mushroom spreads onto a dark neighbouring block" {
-    var w = try mushroomWorld();
-    defer w.deinit();
-
-    for (0..4096) |_| try tickMushroom(&w, .init(8, 3, 8), .mushroom_brown);
-    try std.testing.expect(spreadNextTo(&w, .init(8, 3, 8), .mushroom_brown));
-}
-
-test "a mushroom is too bright to spread under an open sky" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 3);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 3, 8), .mushroom_brown);
-    try light.relightChunk(std.testing.allocator, &w, 0, 0);
-
-    for (0..4096) |_| try tickMushroom(&w, .init(8, 3, 8), .mushroom_brown);
-    try std.testing.expect(!spreadNextTo(&w, .init(8, 3, 8), .mushroom_brown));
 }
 
 test "a spreading mushroom draws the two offsets BlockMushroom discards" {

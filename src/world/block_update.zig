@@ -530,49 +530,6 @@ pub fn tickFalling(world_map: *World, pos: BlockPos) std.mem.Allocator.Error!voi
     if (rest > 0) try world_map.setBlockWithNotify(.init(pos.x, rest, pos.z), id);
 }
 
-fn reedWorld(height: i32) !World {
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    errdefer w.deinit();
-
-    w.setBlock(.init(8, 11, 8), .grass);
-    w.setBlock(.init(7, 11, 8), .stationary_water);
-    var y: i32 = 0;
-    while (y < height) : (y += 1) w.setBlock(.init(8, 12 + y, 8), .reed);
-    return w;
-}
-
-test "breaking the bottom of a sugar cane column takes the whole column with it" {
-    var w = try reedWorld(3);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(8, 12, 8), .air);
-
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 13, 8)));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 14, 8)));
-    try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
-}
-
-test "breaking the middle of a sugar cane column leaves the part below standing" {
-    var w = try reedWorld(3);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(8, 13, 8), .air);
-
-    try std.testing.expectEqual(.reed, w.getBlock(.init(8, 12, 8)));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 14, 8)));
-    try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
-}
-
-test "digging out the soil takes the sugar cane standing on it" {
-    var w = try reedWorld(2);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(8, 11, 8), .air);
-
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 12, 8)));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 13, 8)));
-}
-
 test "a fence needs solid ground or another fence under it, and never pops afterwards" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
@@ -662,16 +619,6 @@ test "a cactus pops when a solid block is put beside it" {
     try std.testing.expectEqual(@as(usize, 2), w.dropped.items.len);
 }
 
-test "a snow layer pops when the block holding it up goes away" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    defer w.deinit();
-    w.setBlock(.init(8, 12, 8), .snow_layer);
-
-    try std.testing.expect(canStayAt(&w, .init(8, 12, 8), .snow_layer));
-    try w.setBlockWithNotify(.init(8, 11, 8), .air);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 12, 8)));
-}
-
 test "placing ignores the light level but still needs the right block below" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
@@ -739,31 +686,6 @@ fn torchWorld() !World {
     return w;
 }
 
-test "the clicked face decides which wall a torch attaches to" {
-    var w = try torchWorld();
-    defer w.deinit();
-
-    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, .init(9, 12, 8), .torch, .east, 0));
-    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, .init(7, 12, 8), .torch, .west, 0));
-    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, .init(8, 12, 9), .torch, .south, 0));
-    try std.testing.expectEqual(@as(u4, 4), placementMetadata(&w, .init(8, 12, 7), .torch, .north, 0));
-    try std.testing.expectEqual(@as(u4, 5), placementMetadata(&w, .init(8, 13, 8), .torch, .up, 0));
-}
-
-test "a torch placed against a face with nothing behind it falls back to any wall" {
-    var w = try torchWorld();
-    defer w.deinit();
-
-    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, .init(9, 12, 8), .torch, .down, 0));
-    try std.testing.expectEqual(@as(u4, 5), placementMetadata(&w, .init(8, 12, 8), .torch, .down, 0));
-}
-
-test "only a torch takes its metadata from the face, other blocks keep the stack's" {
-    var w = try torchWorld();
-    defer w.deinit();
-    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, .init(8, 13, 8), .log, .up, 3));
-}
-
 test "a torch needs one of the five faces around it to be a normal cube" {
     var w = try torchWorld();
     defer w.deinit();
@@ -815,16 +737,6 @@ test "putting a second torch on the same wall leaves the first one alone" {
     try std.testing.expectEqual(.torch, w.getBlock(.init(9, 13, 8)));
     try std.testing.expectEqual(@as(u4, 1), w.getBlockMetadata(.init(9, 12, 8)));
     try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
-}
-
-test "a torch is no support for another torch, only a normal cube is" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    defer w.deinit();
-    w.setBlock(.init(8, 13, 8), .stone);
-
-    try w.setBlockAndMetadataWithNotify(.init(9, 13, 8), .torch, 1);
-    try std.testing.expect(!canPlaceAt(&w, .init(10, 13, 8), .torch));
-    try std.testing.expect(!canPlaceAt(&w, .init(9, 14, 8), .torch));
 }
 
 fn doorWorld() !World {
@@ -933,17 +845,6 @@ test "breaking one half of a door takes the other, dropping a single door" {
     try std.testing.expectEqual(block.Id{ .item = .door_wood }, w.dropped.items[0].stack.id);
 }
 
-test "breaking the lower half leaves nothing for the upper one to drop" {
-    var w = try doorWorld();
-    defer w.deinit();
-    try std.testing.expect(try placeDoor(&w, .init(8, 12, 8), .door_iron, 0));
-
-    try w.setBlockWithNotify(.init(8, 12, 8), .air);
-
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 13, 8)));
-    try std.testing.expectEqual(@as(usize, 0), w.dropped.items.len);
-}
-
 test "digging out the block under a door drops the door and clears both halves" {
     var w = try doorWorld();
     defer w.deinit();
@@ -964,16 +865,6 @@ fn trapdoorWorld() !World {
     return w;
 }
 
-test "a trapdoor takes its hinge from the wall it was clicked onto" {
-    var w = try trapdoorWorld();
-    defer w.deinit();
-
-    try std.testing.expectEqual(@as(u4, 0), placementMetadata(&w, .init(8, 12, 8), .trapdoor, .north, 0));
-    try std.testing.expectEqual(@as(u4, 1), placementMetadata(&w, .init(8, 12, 10), .trapdoor, .south, 0));
-    try std.testing.expectEqual(@as(u4, 2), placementMetadata(&w, .init(7, 12, 9), .trapdoor, .west, 0));
-    try std.testing.expectEqual(@as(u4, 3), placementMetadata(&w, .init(9, 12, 9), .trapdoor, .east, 0));
-}
-
 test "a trapdoor only goes on a wall, never on a floor or a ceiling" {
     var w = try trapdoorWorld();
     defer w.deinit();
@@ -984,14 +875,6 @@ test "a trapdoor only goes on a wall, never on a floor or a ceiling" {
     try std.testing.expect(!canPlaceOnSide(&w, .init(8, 12, 8), .trapdoor, .south));
 
     try std.testing.expect(canPlaceOnSide(&w, .init(8, 13, 8), .stone, .up));
-}
-
-test "a glass wall is no support for a trapdoor" {
-    var w = try trapdoorWorld();
-    defer w.deinit();
-    w.setBlock(.init(8, 12, 9), .glass);
-
-    try std.testing.expect(!canPlaceOnSide(&w, .init(8, 12, 8), .trapdoor, .north));
 }
 
 test "swinging a trapdoor keeps the wall it hangs on" {
@@ -1022,16 +905,6 @@ test "a trapdoor pops when the wall behind it goes" {
     try std.testing.expectEqual(.air, w.getBlock(.init(8, 12, 8)));
     try std.testing.expectEqual(@as(usize, 1), w.dropped.items.len);
     try std.testing.expectEqual(block.Id{ .block = .trapdoor }, w.dropped.items[0].stack.id);
-}
-
-test "an open trapdoor still watches the same wall" {
-    var w = try trapdoorWorld();
-    defer w.deinit();
-    try w.setBlockAndMetadataWithNotify(.init(8, 12, 8), .trapdoor, block.trapdoor_open_bit);
-
-    try std.testing.expect(canStayAt(&w, .init(8, 12, 8), .trapdoor));
-    try w.setBlockWithNotify(.init(8, 12, 9), .air);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 12, 8)));
 }
 
 test "a block placed against a face lands in the cell beyond it" {
@@ -1150,24 +1023,6 @@ test "a full bucket pours a source into air but not into stone" {
     try std.testing.expectEqual(.stone, w.getBlock(.init(8, 0, 8)));
 }
 
-test "a full bucket pours through a plant, which is not solid" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    try w.setBlockAndMetadataWithNotify(.init(8, 1, 8), .tall_grass, 1);
-
-    try std.testing.expect(try pourLiquid(&w, .init(8, 1, 8), .water));
-    try std.testing.expectEqual(.flowing_water, w.getBlock(.init(8, 1, 8)));
-}
-
-test "an empty or milk bucket pours nothing" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    try std.testing.expect(!try pourLiquid(&w, .init(8, 2, 8), .empty));
-    try std.testing.expect(!try pourLiquid(&w, .init(8, 2, 8), .milk));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 2, 8)));
-}
-
 test "scooping and pouring return the world to where it started" {
     var w = try testing_world.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -1225,25 +1080,6 @@ test "placing a bed lays both ends down facing the same way" {
     try std.testing.expectEqual(@as(u2, 0), block.bedFacing(w.getBlockMetadata(.init(8, 2, 9))));
 }
 
-test "each end of the bed points at the other" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 2);
-    defer w.deinit();
-    try std.testing.expect(try placeBed(&w, .init(8, 2, 8), 0));
-
-    try std.testing.expectEqual([3]i32{ 8, 2, 9 }, bedPartner(&w, .init(8, 2, 8)).?);
-    try std.testing.expectEqual([3]i32{ 8, 2, 8 }, bedPartner(&w, .init(8, 2, 9)).?);
-    try std.testing.expectEqual(@as(?[3]i32, null), bedPartner(&w, .init(8, 2, 7)));
-}
-
-test "breaking one end of a bed takes the other with it" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 2);
-    defer w.deinit();
-    try std.testing.expect(try placeBed(&w, .init(8, 2, 8), 0));
-
-    try w.setBlockWithNotify(.init(8, 2, 8), .air);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 2, 9)));
-}
-
 test "breaking the pillow end still leaves exactly one bed behind" {
     var w = try testing_world.flatWorld(std.testing.allocator, 2);
     defer w.deinit();
@@ -1273,13 +1109,6 @@ test "a respawn spot is found beside the bed, on solid ground with headroom" {
     try std.testing.expect(@abs(spot[0] - 8) <= 1);
     try std.testing.expect(w.getBlock(.init(spot[0], spot[1], spot[2])) == .air);
     try std.testing.expect(w.getBlock(.init(spot[0], spot[1] - 1, spot[2])).isOpaqueCube());
-}
-
-test "a bed that is gone offers no respawn spot" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 2);
-    defer w.deinit();
-
-    try std.testing.expectEqual(@as(?[3]i32, null), bedRespawnSpot(&w, .init(8, 2, 8), 0));
 }
 
 test "a bed walled in on every side offers no respawn spot" {

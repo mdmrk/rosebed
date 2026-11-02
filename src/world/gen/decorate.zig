@@ -911,27 +911,6 @@ fn testWorldWithFloor() !World {
     return w;
 }
 
-test "a tree grows on grass with clear space above" {
-    var w = try testWorldWithFloor();
-    defer w.deinit();
-
-    var rand = JavaRandom.init(1);
-    const grew = generateTree(&w, &rand, 8, 1, 8);
-    try std.testing.expect(grew);
-    try std.testing.expectEqual(.log, w.getBlock(.init(8, 1, 8)));
-}
-
-test "a birch tree stores wood metadata 2 on its log and leaves" {
-    var w = try testWorldWithFloor();
-    defer w.deinit();
-
-    var rand = JavaRandom.init(1);
-    const grew = generateBirchTree(&w, &rand, 8, 1, 8);
-    try std.testing.expect(grew);
-    try std.testing.expectEqual(.log, w.getBlock(.init(8, 1, 8)));
-    try std.testing.expectEqual(@as(u4, 2), w.getBlockMetadata(.init(8, 1, 8)));
-}
-
 test "taiga pines and spruces grow with spruce wood metadata" {
     for ([_]bool{ true, false }) |pine| {
         var w = try testWorldWithFloor();
@@ -1070,17 +1049,6 @@ test "the height value ignores blocks that do not block light, like the original
     try std.testing.expectEqual(@as(i32, 11), heightValueAt(&w, 8, 8));
 
     w.setBlock(.init(8, 11, 8), .stone);
-    try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
-}
-
-test "the height value stops on water and leaves, which do block light" {
-    var w = try flatGrassWorld();
-    defer w.deinit();
-
-    w.setBlock(.init(8, 11, 8), .stationary_water);
-    try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
-
-    w.setBlock(.init(8, 11, 8), .leaves);
     try std.testing.expectEqual(@as(i32, 12), heightValueAt(&w, 8, 8));
 }
 

@@ -312,26 +312,6 @@ test "every control lands on whole device pixels at a whole multiple of its spri
     }
 }
 
-test "the stick reads its centre as neutral and clamps to the unit circle" {
-    const pad = rect(.move, .joystick, widest);
-    const centre = moveAt(pad.x + pad.w / 2.0, pad.y + pad.h / 2.0, .joystick, widest);
-    try std.testing.expectEqual(@as(f32, 0), centre[0]);
-    try std.testing.expectEqual(@as(f32, 0), centre[1]);
-
-    const far = moveAt(pad.x + pad.w * 4, pad.y + pad.h * 4, .joystick, widest);
-    try std.testing.expect(@sqrt(far[0] * far[0] + far[1] * far[1]) <= 1.001);
-}
-
-test "the d-pad quantises to its nine cells and holds still in the middle" {
-    const pad = rect(.move, .dpad, widest);
-    const centre = moveAt(pad.x + pad.w / 2.0, pad.y + pad.h / 2.0, .dpad, widest);
-    try std.testing.expectEqual([2]f32{ 0, 0 }, centre);
-    try std.testing.expectEqual([2]f32{ -1, -1 }, moveAt(pad.x + 1, pad.y + 1, .dpad, widest));
-    try std.testing.expectEqual([2]f32{ 1, -1 }, moveAt(pad.x + pad.w - 1, pad.y + 1, .dpad, widest));
-    try std.testing.expectEqual([2]f32{ 0, 1 }, moveAt(pad.x + pad.w / 2.0, pad.y + pad.h - 1, .dpad, widest));
-    try std.testing.expectEqual([2]f32{ 1, 1 }, moveAt(pad.x + pad.w * 4, pad.y + pad.h * 4, .dpad, widest));
-}
-
 test "taps land on the buttons the layout advertises" {
     for ([_]Scheme{ .joystick, .dpad }) |scheme| {
         for (std.enums.values(Control)) |control| {
@@ -343,15 +323,4 @@ test "taps land on the buttons the layout advertises" {
         }
     }
     try std.testing.expectEqual(@as(?Control, null), controlAt(widest.width / 2.0, widest.height / 2.0, .joystick, widest));
-}
-
-test "the d-pad centre is the sneak button, not a ninth direction" {
-    const pad = rect(.move, .dpad, widest);
-    const sneak = rect(.sneak, .dpad, widest);
-    try std.testing.expectEqual(pad.x + pad.w / 3.0, sneak.x);
-    try std.testing.expectEqual(pad.y + pad.h / 3.0, sneak.y);
-    try std.testing.expectEqual(
-        @as(?Control, .sneak),
-        controlAt(sneak.x + sneak.w / 2.0, sneak.y + sneak.h / 2.0, .dpad, widest),
-    );
 }

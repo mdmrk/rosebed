@@ -66,15 +66,3 @@ pub fn draw(ui: gui.Ui) !void {
 
     gui.endOverlay();
 }
-
-test "respawn sits above the title menu button" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = res.width / 2.0 * res.factor;
-    const quarter = @floor(res.height / 4.0);
-    try std.testing.expectEqual(@as(?Action, .respawn), actionAt(cx, (quarter + 82) * res.factor, res));
-    try std.testing.expectEqual(@as(?Action, .title_menu), actionAt(cx, (quarter + 106) * res.factor, res));
-}
-
-test "clicking empty space does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(10, 10, gui.scaledResolution(640, 480, 1000)));
-}

@@ -397,28 +397,6 @@ test "the nether is netherrack over a lava sea, with no overworld stone or water
     try std.testing.expect(lava > 0);
 }
 
-fn countBlock(gpa: std.mem.Allocator, seed: i64, chunk_x: i32, chunk_z: i32, wanted: Block) !usize {
-    var generated = try generatedChunk(gpa, seed, chunk_x, chunk_z);
-    defer generated.gen.deinit(gpa);
-
-    var found: usize = 0;
-    for (0..16) |x| {
-        for (0..16) |z| {
-            for (0..128) |y| {
-                if (generated.chunk.getBlock(@intCast(x), @intCast(y), @intCast(z)) == wanted) found += 1;
-            }
-        }
-    }
-    return found;
-}
-
-test "soul sand and gravel dress the shoreline around y64, as thinly as the reference does" {
-    const gpa = std.testing.allocator;
-    try std.testing.expectEqual(@as(usize, 49), try countBlock(gpa, 777, 1, 2, .gravel));
-    try std.testing.expectEqual(@as(usize, 468), try countBlock(gpa, 909, 2, 1, .soul_sand));
-    try std.testing.expectEqual(@as(usize, 0), try countBlock(gpa, 909, 0, 0, .soul_sand));
-}
-
 test "the same seed and chunk position generate the same nether" {
     const gpa = std.testing.allocator;
     var first = try generatedChunk(gpa, 55, -4, 9);

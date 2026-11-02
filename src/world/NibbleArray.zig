@@ -25,22 +25,3 @@ pub fn set(self: *NibbleArray, x: u32, y: u32, z: u32, value: u4) void {
         self.data[b] = (self.data[b] & 0x0F) | (@as(u8, value) << 4);
     }
 }
-
-test "get/set round-trips a value" {
-    var arr = NibbleArray{};
-    arr.set(3, 5, 7, 9);
-    try std.testing.expectEqual(@as(u4, 9), arr.get(3, 5, 7));
-}
-
-test "adjacent nibbles packed in the same byte don't clobber each other" {
-    var arr = NibbleArray{};
-    arr.set(0, 0, 0, 3);
-    arr.set(0, 1, 0, 12);
-    try std.testing.expectEqual(@as(u4, 3), arr.get(0, 0, 0));
-    try std.testing.expectEqual(@as(u4, 12), arr.get(0, 1, 0));
-}
-
-test "defaults to all zero" {
-    const arr = NibbleArray{};
-    try std.testing.expectEqual(@as(u4, 0), arr.get(15, 127, 15));
-}

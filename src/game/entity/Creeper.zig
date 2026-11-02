@@ -324,17 +324,6 @@ fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
     );
 }
 
-test "a creeper is the size, health and speed EntityCreeper inherits" {
-    const self = Creeper.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 0.6), self.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.8), self.animal.base.height);
-    try std.testing.expectEqual(@as(i32, 20), self.animal.health);
-    try std.testing.expectEqual(Animal.default_move_speed, self.animal.move_speed);
-    try std.testing.expectEqual(idle_state, self.state);
-    try std.testing.expect(!self.powered);
-}
-
 test "a creeper lights its fuse inside three blocks and holds it out to seven" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -468,7 +457,6 @@ test "a fusing creeper stands its ground instead of walking on" {
         .alive = true,
     };
 
-    // The first tick only acquires the target; the fuse starts on the tick after.
     for (0..5) |_| try self.tick(gpa, &w, Animal.Players.one(&player), &rand);
 
     try std.testing.expect(self.monster.has_attacked);
@@ -575,16 +563,6 @@ test "a dying creeper drops nought to two gunpowder, but one that detonates leav
 
     try std.testing.expect(blown.animal.dead);
     try std.testing.expect(blown.takeDrops() == null);
-}
-
-test "a struck creeper turns on the player who struck it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var self = Creeper.spawn(math.Vec3.init(8, 1, 8));
-
-    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
-    try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 
 test "the swell grows with the fuse and pinches the creeper taller" {

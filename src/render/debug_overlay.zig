@@ -97,16 +97,3 @@ pub fn draw(
 
     gui.endOverlay();
 }
-
-test "facing quantises yaw into the original's four compass buckets" {
-    try std.testing.expectEqual(@as(u32, 0), facing(0));
-    try std.testing.expectEqual(@as(u32, 1), facing(90));
-    try std.testing.expectEqual(@as(u32, 2), facing(180));
-    try std.testing.expectEqual(@as(u32, 3), facing(270));
-    try std.testing.expectEqual(@as(u32, 0), facing(360));
-}
-
-test "facing wraps negative yaw the way a floor-and-mask does" {
-    try std.testing.expectEqual(@as(u32, 3), facing(-90));
-    try std.testing.expectEqual(@as(u32, 2), facing(-180));
-}

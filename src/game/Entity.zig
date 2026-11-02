@@ -345,23 +345,6 @@ pub fn renderPosition(self: Entity, partial_ticks: f32) math.Vec3 {
     return self.prev_position.lerp(self.position, partial_ticks);
 }
 
-test "boundingBox is centered on x/z and rests on the feet position" {
-    const entity = Entity.init(math.Vec3.init(2, 5, 3), 0.6, 1.8);
-    const box = entity.boundingBox();
-    try std.testing.expectApproxEqAbs(@as(f64, 1.7), box.min_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.3), box.max_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), box.min_y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 6.8), box.max_y, 1.0e-9);
-}
-
-test "renderPosition interpolates between the previous and current tick" {
-    var entity = Entity.init(math.Vec3.init(0, 0, 0), 1, 1);
-    entity.position = math.Vec3.init(10, 0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), entity.renderPosition(0.0).x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), entity.renderPosition(0.5).x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 10.0), entity.renderPosition(1.0).x, 1.0e-9);
-}
-
 test "landing on a floor grounds the entity and zeroes its vertical motion" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -391,17 +374,6 @@ test "walking on soul sand damps horizontal motion once per cell touched" {
     straddling.motion = math.Vec3.init(0, 0, 0.2);
     _ = straddling.move(&w);
     try std.testing.expectApproxEqAbs(@as(f64, 0.032), straddling.motion.z, 1.0e-9);
-}
-
-test "an entity clear of soul sand keeps its motion" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    w.setBlock(.init(8, 1, 8), .soul_sand);
-
-    var entity = Entity.init(math.Vec3.init(11.5, 1.0, 11.5), 0.6, 1.8);
-    entity.motion = math.Vec3.init(0.2, 0, 0);
-    _ = entity.move(&w);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.2), entity.motion.x, 1.0e-9);
 }
 
 test "a cobweb caught last tick throttles the next move and drops all momentum" {

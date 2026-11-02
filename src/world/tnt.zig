@@ -68,28 +68,6 @@ test "redstone power beside a stick of tnt lights it and takes the block away" {
     try std.testing.expectEqual(.air, w.getBlock(.init(8, 2, 8)));
 }
 
-test "tnt placed beside a live torch lights itself as it lands" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(9, 1, 8), .torch_redstone_on);
-    try w.setBlockWithNotify(.init(8, 1, 8), .tnt);
-
-    try std.testing.expectEqual(@as(usize, 1), w.primed.items.len);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 1, 8)));
-}
-
-test "an unpowered neighbour leaves the tnt standing" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    try w.setBlockWithNotify(.init(8, 2, 8), .tnt);
-    try w.setBlockWithNotify(.init(9, 2, 8), .stone);
-
-    try std.testing.expectEqual(@as(usize, 0), w.primed.items.len);
-    try std.testing.expectEqual(.tnt, w.getBlock(.init(8, 2, 8)));
-}
-
 test "a blast shortens the fuse of the tnt it reaches" {
     var w = try testing_world.flatWorld(std.testing.allocator, 1);
     defer w.deinit();

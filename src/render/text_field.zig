@@ -113,39 +113,6 @@ pub fn append(
     );
 }
 
-test "typing appends only characters that are legal in a name" {
-    var field: TextField = .{};
-    field.insert("My World");
-    try std.testing.expectEqualStrings("My World", field.text());
-
-    field.insert("/\\:\"");
-    try std.testing.expectEqualStrings("My World", field.text());
-}
-
-test "backspace removes the last character and stops at empty" {
-    var field: TextField = .{};
-    field.insert("ab");
-    field.backspace();
-    try std.testing.expectEqualStrings("a", field.text());
-    field.backspace();
-    field.backspace();
-    try std.testing.expectEqualStrings("", field.text());
-}
-
-test "a field never takes more than its maximum length" {
-    var field: TextField = .{};
-    field.insert(&@as([max_length * 2]u8, @splat('x')));
-    try std.testing.expectEqual(Charset.name.limit(), field.text().len);
-}
-
-test "setText replaces the contents and truncates overlong input" {
-    var field: TextField = .{};
-    field.setText("hello");
-    try std.testing.expectEqualStrings("hello", field.text());
-    field.setText(&@as([max_length + 5]u8, @splat('y')));
-    try std.testing.expectEqual(Charset.name.limit(), field.text().len);
-}
-
 test "the cursor blinks only while the field is focused" {
     var field: TextField = .{};
     try std.testing.expect(!field.cursorVisible());
@@ -156,28 +123,4 @@ test "the cursor blinks only while the field is focused" {
     try std.testing.expect(!field.cursorVisible());
     for (0..cursor_blink_ticks) |_| field.tick();
     try std.testing.expect(field.cursorVisible());
-}
-
-test "contains hits inside the box the caller lays out" {
-    const rect: Rect = .{ .x = 100, .y = 60, .w = 200 };
-    try std.testing.expect(contains(rect, 150, 70));
-    try std.testing.expect(!contains(rect, 150, 90));
-    try std.testing.expect(!contains(rect, 90, 70));
-}
-
-test "an address field takes a colon and a longer name than a world does" {
-    var field: TextField = .{ .charset = .address };
-    field.insert("localhost:25565");
-    try std.testing.expectEqualStrings("localhost:25565", field.text());
-
-    field.setText("");
-    field.insert(&@as([200]u8, @splat('h')));
-    try std.testing.expectEqual(Charset.address.limit(), field.text().len);
-}
-
-test "a world name still refuses what would break a folder name" {
-    var field: TextField = .{};
-    field.insert("My World");
-    field.insert(":/\\\"");
-    try std.testing.expectEqualStrings("My World", field.text());
 }

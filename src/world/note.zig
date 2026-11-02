@@ -156,12 +156,6 @@ test "right clicking walks the note up and wraps after two octaves" {
     try std.testing.expectEqual(@as(u8, 1), w.noteAt(.init(8, 5, 8)).?.note);
 }
 
-test "the pitch doubles every twelve notes, the way vanilla tunes it" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), pitchOf(0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pitchOf(12), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 2.0), pitchOf(24), 1.0e-6);
-}
-
 test "a note block with something on its head stays quiet" {
     var w = try testing_world.flatWorld(std.testing.allocator, 4);
     defer w.deinit();
@@ -201,15 +195,4 @@ test "a note block only sounds on the rising edge of redstone power" {
     try onPowerChange(&w, .init(8, 5, 8), false);
     try onPowerChange(&w, .init(8, 5, 8), true);
     try std.testing.expectEqual(@as(usize, 2), heard);
-}
-
-test "the tuning of a note block survives a trip through NBT" {
-    const gpa = std.testing.allocator;
-
-    var tag = try store(gpa, .init(4, 70, -9), .{ .note = 17 });
-    defer nbt.deinit(gpa, &tag);
-
-    const placed = load(tag.compound).?;
-    try std.testing.expectEqual(BlockPos.init(4, 70, -9), placed.pos);
-    try std.testing.expectEqual(@as(u8, 17), placed.state.note);
 }

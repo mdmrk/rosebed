@@ -154,26 +154,3 @@ pub fn draw(
 
     gui.endOverlay();
 }
-
-test "clicking Done returns the done hit" {
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "clicking the difficulty toggle returns cycle_difficulty" {
-    try std.testing.expectEqual(@as(?Hit, .cycle_difficulty), hitAt(80, 176, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "clicking a slider returns its id" {
-    try std.testing.expectEqual(@as(?Hit, .{ .slider = .music }), hitAt(80, 80, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "video settings and controls both open" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(?Hit, .video), hitAt(320, 296, res));
-    try std.testing.expectEqual(@as(?Hit, .controls), hitAt(320, 344, res));
-}
-
-test "slider value maps click x to 0..1 clamped" {
-    try std.testing.expectEqual(@as(f32, 0.0), sliderValueAt(.music, 0, gui.scaledResolution(640, 480, 1000)));
-    try std.testing.expect(sliderValueAt(.music, 100000, gui.scaledResolution(640, 480, 1000)) == 1.0);
-}

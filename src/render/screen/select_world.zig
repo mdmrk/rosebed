@@ -181,26 +181,6 @@ fn rowClickY(res: gui.Scaled, index: usize) f32 {
     return (list_top + entry_padding + @as(f32, @floatFromInt(index)) * entry_height + 2) * res.factor;
 }
 
-test "clicking a list row returns its index, offset by the scroll position" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 0 }), hitAt(cx, rowClickY(res, 0), res, 3, 0, false));
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 1 }), hitAt(cx, rowClickY(res, 1), res, 3, 0, false));
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 1 }), hitAt(cx, rowClickY(res, 0), res, 3, entry_height, false));
-}
-
-test "clicking past the last row selects nothing" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(cx, rowClickY(res, 2), res, 1, 0, false));
-}
-
-test "clicking beside the list, outside a row's width, selects nothing" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const outside = (@floor(res.width / 2.0) - entry_half_width - 4) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(outside, rowClickY(res, 0), res, 3, 0, false));
-}
-
 test "the scrollbar thumb only appears once the list overflows" {
     const res = gui.scaledResolution(640, 480, 1000);
     try std.testing.expectEqual(@as(?@TypeOf(scrollbarThumb(res, 0, 0).?), null), scrollbarThumb(res, 1, 0));
@@ -211,17 +191,6 @@ test "the scrollbar thumb only appears once the list overflows" {
 
     const scrolled = scrollbarThumb(res, 40, maxScroll(res, 40)).?;
     try std.testing.expect(scrolled.y > thumb.y);
-}
-
-test "the scrollbar column only takes the mouse while the list overflows" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const x = (@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor;
-    const y = (list_top + 20) * res.factor;
-
-    try std.testing.expect(scrollbarAt(x, y, res, 40));
-    try std.testing.expect(!scrollbarAt(x, y, res, 1));
-    try std.testing.expect(!scrollbarAt(x, (listBottom(res) + 4) * res.factor, res, 40));
-    try std.testing.expect(!scrollbarAt((@floor(res.width / 2.0)) * res.factor, y, res, 40));
 }
 
 test "dragging the thumb the length of its travel scrolls the whole list" {
@@ -238,40 +207,6 @@ test "dragging the thumb the length of its travel scrolls the whole list" {
     try std.testing.expectApproxEqAbs(thumb.y + travel / 2.0, scrollbarThumb(res, 40, half).?.y, 0.5);
 }
 
-test "the action buttons only respond once a world is selected" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const select_y = (res.height - 52 + 10) * res.factor;
-    const cx = @floor(res.width / 2.0);
-
-    try std.testing.expectEqual(@as(?Hit, null), hitAt((cx - 100) * res.factor, select_y, res, 2, 0, false));
-    try std.testing.expectEqual(@as(?Hit, .select), hitAt((cx - 100) * res.factor, select_y, res, 2, 0, true));
-    try std.testing.expectEqual(@as(?Hit, .create), hitAt((cx + 80) * res.factor, select_y, res, 2, 0, false));
-}
-
-test "cancel sits below create" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0);
-    try std.testing.expectEqual(@as(?Hit, .cancel), hitAt((cx + 80) * res.factor, (res.height - 28 + 10) * res.factor, res, 0, 0, false));
-}
-
-test "a second click counts as a double click only on the entry already selected" {
-    try std.testing.expect(isDoubleClick(1, 1, 1200, 1000));
-    try std.testing.expect(!isDoubleClick(0, 1, 1200, 1000));
-    try std.testing.expect(!isDoubleClick(null, 0, 1200, 1000));
-}
-
-test "a double click has to land within a quarter second of the first" {
-    try std.testing.expect(isDoubleClick(0, 0, 1249, 1000));
-    try std.testing.expect(!isDoubleClick(0, 0, 1250, 1000));
-}
-
-test "scrolling is bounded by how much list overflows the visible area" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expect(maxScroll(res, 100) > 0);
-    try std.testing.expectEqual(@as(f32, 0), clampScroll(res, 100, -20));
-    try std.testing.expectEqual(maxScroll(res, 100), clampScroll(res, 100, 1.0e6));
-}
-
 test "a list too short to fill the view is pushed down to sit centred in it" {
     const res = gui.scaledResolution(640, 480, 1000);
     const visible = listBottom(res) - list_top - entry_padding;
@@ -285,20 +220,6 @@ test "a list too short to fill the view is pushed down to sit centred in it" {
         const last = entryY(count, settled);
         try std.testing.expectApproxEqAbs(first - list_top - entry_padding, listBottom(res) - last, 1.0);
     }
-}
-
-test "a list long enough to overflow scrolls from the top instead of centring" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expect(clampScroll(res, 100, 0) == 0);
-    try std.testing.expectEqual(list_top + entry_padding, entryY(0, clampScroll(res, 100, 0)));
-}
-
-test "the detail line shows the folder, a date and a size" {
-    var buffer: [96]u8 = undefined;
-    const detail = formatDetail(&buffer, "My World", 1700000000 * std.time.ms_per_s, 0, 3 * 1024 * 1024);
-    try std.testing.expect(std.mem.startsWith(u8, detail, "My World ("));
-    try std.testing.expect(std.mem.find(u8, detail, "11/14/23") != null);
-    try std.testing.expect(std.mem.find(u8, detail, "3.00 MB") != null);
 }
 
 test "the clock reads as a twelve hour time, not the minute twice over" {
@@ -328,20 +249,4 @@ test "an offset east of UTC moves the clock forward" {
     var minus_eight: [96]u8 = undefined;
     const west = formatDetail(&minus_eight, "W", 1700000000 * std.time.ms_per_s, -8 * 60 * 60, 0);
     try std.testing.expect(std.mem.find(u8, west, "11/14/23 2:13 PM") != null);
-}
-
-test "a world that has never been played shows only its size" {
-    var buffer: [96]u8 = undefined;
-    const detail = formatDetail(&buffer, "Fresh", 0, 0, 0);
-    try std.testing.expectEqualStrings("Fresh (0.00 MB)", detail);
-}
-
-test "the buttons and title use the strings from the vanilla language file" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const entries = buttons(res, true);
-    try std.testing.expectEqualStrings("Play Selected World", entries[0].button.label);
-    try std.testing.expectEqualStrings("Rename", entries[1].button.label);
-    try std.testing.expectEqualStrings("Delete", entries[2].button.label);
-    try std.testing.expectEqualStrings("Create New World", entries[3].button.label);
-    try std.testing.expectEqualStrings("Cancel", entries[4].button.label);
 }

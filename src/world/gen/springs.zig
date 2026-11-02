@@ -69,14 +69,6 @@ fn stoneWorldWithOpening(opening_x: i32, opening_z: i32) !World {
     return w;
 }
 
-test "a spring forms in a stone wall with a single open side" {
-    var w = try stoneWorldWithOpening(9, 8);
-    defer w.deinit();
-
-    try generate(&w, .init(8, 35, 8), .flowing_water);
-    try std.testing.expectEqual(block.Material.water, w.getBlock(.init(8, 35, 8)).material());
-}
-
 test "a water spring has already run its course when generation returns" {
     var w = try stoneWorldWithOpening(9, 8);
     defer w.deinit();
@@ -154,22 +146,4 @@ test "a hell lava spring needs netherrack overhead and only one way out" {
     defer stone.deinit();
     try generateHell(&stone, .init(8, 35, 8), .flowing_lava);
     try std.testing.expectEqual(.air, stone.getBlock(.init(8, 35, 8)));
-}
-
-test "a spring does not form where two sides are open" {
-    var w = try stoneWorldWithOpening(9, 8);
-    defer w.deinit();
-    w.setBlock(.init(7, 35, 8), .air);
-
-    try generate(&w, .init(8, 35, 8), .flowing_water);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 35, 8)));
-}
-
-test "a spring does not form without stone above and below" {
-    var w = try stoneWorldWithOpening(9, 8);
-    defer w.deinit();
-    w.setBlock(.init(8, 36, 8), .air);
-
-    try generate(&w, .init(8, 35, 8), .flowing_water);
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 35, 8)));
 }

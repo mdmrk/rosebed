@@ -244,13 +244,6 @@ fn playerAtSpawn() game.Player {
 
 fn starterInventory() game.Inventory {
     const inv: game.Inventory = .{};
-    // inv.slots[0] = .{ .id = .{ .block = .stone }, .count = 64 };
-    // inv.slots[1] = .{ .id = .{ .item = .coal }, .count = 64 };
-    // inv.slots[2] = .{ .id = .{ .block = .cobblestone }, .count = 64 };
-    // inv.slots[3] = .{ .id = .{ .item = .stick }, .count = 64 };
-    // inv.slots[4] = .{ .id = .{ .block = .workbench }, .count = 64 };
-    // inv.slots[5] = .{ .id = .{ .block = .log }, .count = 64 };
-    // inv.slots[6] = .{ .id = .{ .item = .ingot_iron }, .count = 64 };
     return inv;
 }
 
@@ -1300,7 +1293,6 @@ fn killPlayer(app_state: *AppState) !void {
     app_state.digging = null;
     try updateMouseMode(app_state);
 
-    // The server empties the pockets and keeps the tally in multiplayer.
     if (app_state.link != null) return;
     try dropInventoryOnDeath(app_state);
     try app_state.stats.add(app_state.gpa, .{ .general = .deaths }, 1);
@@ -5476,7 +5468,6 @@ fn dispatch(
     curr_event: sdl3.events.Event,
 ) !sdl3.AppResult {
     var current = curr_event;
-    // Without a keyboard the back gesture is the only way off a screen.
     if (touch_ui) backAsEscape(&current);
     switch (current) {
         .quit, .terminating => return .success,
@@ -5556,9 +5547,7 @@ fn dispatch(
                 if (editedSign(app_state)) |state| state.backspace(app_state.sign_edit.?.line);
             }
         } else if (app_state.screen == .playing) {
-            if (app_state.dead) {
-                // the game over screen swallows keys until a button is clicked
-            } else if (app_state.chat.open) {
+            if (app_state.dead) {} else if (app_state.chat.open) {
                 if (k.key == .escape) {
                     try closeChat(app_state);
                 } else if (k.key == .return_key or k.key == .kp_enter) {
@@ -5659,9 +5648,7 @@ fn dispatch(
                 try texturePacksClick(app_state);
             } else if (app_state.screen == .confirm_delete) {
                 try confirmDeleteClick(app_state);
-            } else if (app_state.screen == .loading) {
-                // the loading screen swallows clicks until the spawn area is ready
-            } else if (app_state.dead) {
+            } else if (app_state.screen == .loading) {} else if (app_state.dead) {
                 try deathScreenClick(app_state);
             } else if (app_state.paused) {
                 try pauseMenuClick(app_state);

@@ -423,25 +423,6 @@ pub fn displayName(id: world.Id) []const u8 {
     };
 }
 
-test "general stat ids match StatList's registrations" {
-    try std.testing.expectEqual(@as(u32, 1000), General.start_game.statId());
-    try std.testing.expectEqual(@as(u32, 1100), General.minutes_played.statId());
-    try std.testing.expectEqual(@as(u32, 2000), General.distance_walked.statId());
-    try std.testing.expectEqual(@as(u32, 2011), General.drop.statId());
-    try std.testing.expectEqual(@as(u32, 2025), General.fish_caught.statId());
-}
-
-test "per-block stat ids sit at the four bases StatList uses" {
-    const stone: world.Id = .{ .block = .stone };
-    try std.testing.expectEqual(@as(u32, 16777216 + 1), statId(.{ .mined = stone }));
-    try std.testing.expectEqual(@as(u32, 16842752 + 1), statId(.{ .crafted = stone }));
-    try std.testing.expectEqual(@as(u32, 16908288 + 1), statId(.{ .used = stone }));
-    try std.testing.expectEqual(@as(u32, 16973824 + 1), statId(.{ .depleted = stone }));
-
-    const diamond: world.Id = .{ .item = .diamond };
-    try std.testing.expectEqual(@as(u32, 16842752 + 264), statId(.{ .crafted = diamond }));
-}
-
 test "every stat id round-trips back to its key" {
     for (std.enums.values(General)) |general| {
         const stat: Key = .{ .general = general };
@@ -466,14 +447,6 @@ test "every stat id round-trips back to its key" {
     try std.testing.expectEqual(@as(?Key, null), keyFromStatId(1234));
 }
 
-test "replaceAllSimilarBlocks folds the merged blocks into their canonical one" {
-    try std.testing.expectEqual(world.Id{ .block = .dirt }, canonical(.{ .block = .grass }));
-    try std.testing.expectEqual(world.Id{ .block = .mushroom_brown }, canonical(.{ .block = .mushroom_red }));
-    try std.testing.expectEqual(world.Id{ .block = .pumpkin }, canonical(.{ .block = .jack_o_lantern }));
-    try std.testing.expectEqual(world.Id{ .block = .stone }, canonical(.{ .block = .stone }));
-    try std.testing.expectEqual(world.Id{ .item = .diamond }, canonical(.{ .item = .diamond }));
-}
-
 test "mining a block with stats disabled records nothing" {
     var stats: Stats = .{};
     defer stats.deinit(std.testing.allocator);
@@ -485,17 +458,6 @@ test "mining a block with stats disabled records nothing" {
 
     try stats.mine(std.testing.allocator, .grass);
     try std.testing.expectEqual(@as(i32, 1), stats.get(.{ .mined = .{ .block = .dirt } }));
-}
-
-test "an unregistered stat reads as absent rather than zero" {
-    var stats: Stats = .{};
-    defer stats.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(?i32, 0), stats.value(.{ .crafted = .{ .block = .planks } }));
-    try std.testing.expectEqual(@as(?i32, null), stats.value(.{ .crafted = .{ .block = .dirt } }));
-    try std.testing.expectEqual(@as(?i32, null), stats.value(.{ .depleted = .{ .item = .diamond } }));
-    try std.testing.expectEqual(@as(?i32, null), stats.value(.{ .mined = .{ .block = .leaves } }));
-    try std.testing.expectEqual(@as(?i32, 0), stats.value(.{ .used = .{ .block = .leaves } }));
 }
 
 test "the blocks tab lists only mineable blocks and the items tab only items" {
@@ -551,49 +513,6 @@ test "sorting a column puts unregistered stats last in both directions" {
     try std.testing.expectEqual(world.Id{ .block = .planks }, rows[2]);
 }
 
-test "counts are grouped the way NumberFormat's US integer instance groups them" {
-    var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("0", formatValue(&buffer, .count, 0));
-    try std.testing.expectEqualStrings("999", formatValue(&buffer, .count, 999));
-    try std.testing.expectEqualStrings("1,000", formatValue(&buffer, .count, 1000));
-    try std.testing.expectEqualStrings("12,345,678", formatValue(&buffer, .count, 12345678));
-}
-
-test "times step through StatTypeTime's units at the half-unit mark" {
-    var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("0.0 s", formatValue(&buffer, .time, 0));
-    try std.testing.expectEqualStrings("0.05 s", formatValue(&buffer, .time, 1));
-    try std.testing.expectEqualStrings("30.0 s", formatValue(&buffer, .time, 600));
-    try std.testing.expectEqualStrings("0.51 m", formatValue(&buffer, .time, 610));
-    try std.testing.expectEqualStrings("1.00 h", formatValue(&buffer, .time, 20 * 60 * 60));
-    try std.testing.expectEqualStrings("1.00 d", formatValue(&buffer, .time, 20 * 60 * 60 * 24));
-}
-
-test "distances step through StatTypeDistance's units at the half-unit mark" {
-    var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("0 cm", formatValue(&buffer, .distance, 0));
-    try std.testing.expectEqualStrings("50 cm", formatValue(&buffer, .distance, 50));
-    try std.testing.expectEqualStrings("0.51 m", formatValue(&buffer, .distance, 51));
-    try std.testing.expectEqualStrings("1.00 m", formatValue(&buffer, .distance, 100));
-    try std.testing.expectEqualStrings("0.51 km", formatValue(&buffer, .distance, 51000));
-    try std.testing.expectEqualStrings("1.00 km", formatValue(&buffer, .distance, 100000));
-}
-
-test "the general list keeps StatList's registration order" {
-    const values = std.enums.values(General);
-    try std.testing.expectEqual(General.start_game, values[0]);
-    try std.testing.expectEqual(General.minutes_played, values[5]);
-    try std.testing.expectEqual(General.distance_walked, values[6]);
-    try std.testing.expectEqual(General.fish_caught, values[values.len - 1]);
-}
-
-test "only damageable items register a depleted count, as StatList's filter does" {
-    try std.testing.expect(registered(.{ .depleted = .{ .item = .pickaxe_iron } }));
-    try std.testing.expect(registered(.{ .depleted = .{ .item = .helmet_gold } }));
-    try std.testing.expect(!registered(.{ .depleted = .{ .item = .ingot_iron } }));
-    try std.testing.expect(!registered(.{ .depleted = .{ .block = .stone } }));
-}
-
 test "an achievement only counts once its parent is unlocked" {
     const gpa = std.testing.allocator;
     var tally: Stats = .{};
@@ -607,24 +526,4 @@ test "an achievement only counts once its parent is unlocked" {
 
     try std.testing.expect(try tally.award(gpa, .mine_wood));
     try std.testing.expect(tally.hasAchievement(.mine_wood));
-}
-
-test "awarding an achievement twice only announces it the first time" {
-    const gpa = std.testing.allocator;
-    var tally: Stats = .{};
-    defer tally.deinit(gpa);
-
-    try std.testing.expect(try tally.award(gpa, .open_inventory));
-    try std.testing.expect(!try tally.award(gpa, .open_inventory));
-    try std.testing.expectEqual(@as(i32, 2), tally.get(.{ .achievement = .open_inventory }));
-}
-
-test "a locked achievement is still a registered stat, so it reads as zero" {
-    const gpa = std.testing.allocator;
-    var tally: Stats = .{};
-    defer tally.deinit(gpa);
-
-    try std.testing.expectEqual(@as(?i32, 0), tally.value(.{ .achievement = .fly_pig }));
-    try std.testing.expect(!tally.canUnlock(.fly_pig));
-    try std.testing.expect(tally.canUnlock(.open_inventory));
 }

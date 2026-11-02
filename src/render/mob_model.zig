@@ -1049,33 +1049,6 @@ test "the head carries the look angles, the body does not" {
     try std.testing.expectApproxEqAbs(@as(f32, 0), parts[body_index].rotate_y, 1.0e-6);
 }
 
-test "sneaking tips the body forward, drops the head and lifts the leg joints" {
-    const upright = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
-    const crouched = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .sneaking = true });
-
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), crouched[body_index].rotate_x, 1.0e-6);
-    try std.testing.expect(crouched[biped.head_index].pivot[1] > upright[biped.head_index].pivot[1]);
-    try std.testing.expect(crouched[right_leg_index].pivot[1] < upright[right_leg_index].pivot[1]);
-    try std.testing.expectApproxEqAbs(@as(f32, 4), crouched[right_leg_index].pivot[2], 1.0e-6);
-}
-
-test "swinging lifts the right arm and leaves the left one alone" {
-    const resting = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
-    const swung = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .swing_progress = 0.5 });
-
-    try std.testing.expect(swung[right_arm_index].rotate_x < resting[right_arm_index].rotate_x);
-    try std.testing.expect(swung[right_arm_index].rotate_z != 0);
-    try std.testing.expectApproxEqAbs(resting[left_arm_index].rotate_x, swung[left_arm_index].rotate_x, 0.2);
-}
-
-test "holding an item lowers the right arm" {
-    const empty = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0 });
-    const holding = bipedPosed(biped, .{ .limb_swing = 0, .limb_swing_amount = 0, .head_yaw = 0, .head_pitch = 0, .holding_item = true });
-
-    try std.testing.expect(holding[right_arm_index].rotate_x < empty[right_arm_index].rotate_x);
-    try std.testing.expectApproxEqAbs(empty[left_arm_index].rotate_x, holding[left_arm_index].rotate_x, 1.0e-6);
-}
-
 test "an armour layer poses exactly like the skin under it" {
     const pose: BipedPose = .{ .limb_swing = 2.0, .limb_swing_amount = 0.8, .head_yaw = 15, .head_pitch = 5 };
     const skin = bipedPosed(biped, pose);

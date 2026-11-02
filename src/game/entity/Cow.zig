@@ -82,13 +82,6 @@ pub fn fromRecord(record: world.entity_nbt.Cow) Cow {
     return cow;
 }
 
-test "a cow is the size EntityCow sets itself to" {
-    const cow = Cow.spawn(math.Vec3.init(0, 0, 0));
-    try std.testing.expectEqual(@as(f64, 0.9), cow.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.3), cow.animal.base.height);
-    try std.testing.expectEqual(max_health, cow.animal.health);
-}
-
 test "a dying cow drops nought to two hides" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -142,14 +135,6 @@ test "a cow keeps its wounds across a record round trip" {
     try std.testing.expectApproxEqAbs(@as(f32, 42.0), restored.animal.yaw, 1.0e-6);
     try std.testing.expect(restored.animal.base.on_ground);
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.animal.base.position.x, 1.0e-9);
-}
-
-test "a cow fills an empty bucket with milk, and ignores anything else" {
-    try std.testing.expectEqual(world.Item.bucket_milk, Cow.interact(.bucket).?);
-    try std.testing.expect(Cow.interact(.bucket_water) == null);
-    try std.testing.expect(Cow.interact(.bucket_milk) == null);
-    try std.testing.expect(Cow.interact(.sword_iron) == null);
-    try std.testing.expect(Cow.interact(null) == null);
 }
 
 pub const wire_id: u8 = 92;

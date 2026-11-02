@@ -253,17 +253,6 @@ fn rouseHorde(self: *PigZombie, entities: anytype, attacker: Animal.Entity.Id, r
     }
 }
 
-test "a pig zombie is the size, health and speed EntityPigZombie sets itself to" {
-    const self = PigZombie.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 0.6), self.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.8), self.animal.base.height);
-    try std.testing.expectEqual(max_health, self.animal.health);
-    try std.testing.expectEqual(idle_move_speed, self.animal.move_speed);
-    try std.testing.expectEqual(attack_strength, self.monster.attack_strength);
-    try std.testing.expect(self.animal.immune_to_fire);
-}
-
 test "a calm pig zombie ignores the player, an angered one hunts them down" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);

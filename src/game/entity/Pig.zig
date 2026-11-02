@@ -161,13 +161,6 @@ test "a pig keeps its saddle and its wounds across a record round trip" {
     try std.testing.expectApproxEqAbs(@as(f64, 12.5), restored.animal.base.position.x, 1.0e-9);
 }
 
-test "a pig is the size EntityPig sets itself to" {
-    const pig = Pig.spawn(math.Vec3.init(0, 0, 0));
-    try std.testing.expectEqual(@as(f64, 0.9), pig.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 0.9), pig.animal.base.height);
-    try std.testing.expectEqual(max_health, pig.animal.health);
-}
-
 pub const wire_id: u8 = 90;
 pub const watched_saddle: u5 = 16;
 

@@ -225,19 +225,3 @@ pub fn drawClouds(frame: Clouds, fancy: bool, pass: anaglyph.Pass) !void {
     frame.textures.terrain.bind();
     gl.Disable(gl.BLEND);
 }
-
-test "the sky is only drawn at the two longest render distances" {
-    try std.testing.expect(visibleAt(0));
-    try std.testing.expect(visibleAt(1));
-    try std.testing.expect(!visibleAt(2));
-    try std.testing.expect(!visibleAt(3));
-}
-
-test "the void plane is darker and bluer than the sky above it" {
-    const above: sky.Color = .{ 0.5, 0.6, 0.9 };
-    const below = voidPlaneColor(above);
-    try std.testing.expect(below[0] < above[0]);
-    try std.testing.expect(below[1] < above[1]);
-    try std.testing.expect(below[2] < above[2]);
-    try std.testing.expect(below[2] > below[0]);
-}

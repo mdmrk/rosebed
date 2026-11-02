@@ -155,7 +155,6 @@ test "a fireball speeds up along its aim and never falls" {
         try std.testing.expect(speed > last_speed);
         last_speed = speed;
 
-        // Nothing pulls it down: the only vertical motion is the aim it was given.
         try std.testing.expect(ball.base.motion.y * ball.acceleration.y >= 0.0);
     }
 

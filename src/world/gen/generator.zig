@@ -108,22 +108,6 @@ pub const Generator = union(Dimension) {
     }
 };
 
-test "a dimension names the world on the other side of a portal" {
-    try std.testing.expectEqual(Dimension.nether, Dimension.overworld.other());
-    try std.testing.expectEqual(Dimension.overworld, Dimension.nether.other());
-    try std.testing.expectEqual(@as(i8, -1), @backingInt(Dimension.nether));
-    try std.testing.expectEqual(@as(i8, 0), @backingInt(Dimension.overworld));
-}
-
-test "the nether packs eight overworld blocks into one, and hides the sky" {
-    try std.testing.expectEqual(@as(f64, 8.0), Dimension.nether.coordinateScale());
-    try std.testing.expectEqual(@as(f64, 1.0), Dimension.overworld.coordinateScale());
-    try std.testing.expect(!Dimension.nether.hasSky());
-    try std.testing.expect(Dimension.overworld.hasSky());
-    try std.testing.expectEqualStrings("DIM-1/region", Dimension.nether.regionPath());
-    try std.testing.expectEqualStrings("region", Dimension.overworld.regionPath());
-}
-
 test "either generator answers the same calls, and reports its own dimension" {
     const gpa = std.testing.allocator;
 

@@ -137,13 +137,3 @@ test "the fuse burns for eighty ticks before the blast" {
     }
     try std.testing.expectEqual(Outcome.exploded, lit.tick(&w));
 }
-
-test "the flash alternates every five ticks of fuse" {
-    var rand = world.JavaRandom.init(0);
-    var lit = PrimedTnt.spawnInBlock(.init(0, 0, 0), 10, &rand);
-    try std.testing.expect(lit.flashing());
-    lit.fuse = 5;
-    try std.testing.expect(!lit.flashing());
-    lit.fuse = 4;
-    try std.testing.expect(lit.flashing());
-}

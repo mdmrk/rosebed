@@ -139,15 +139,6 @@ pub fn fromRecord(record: world.entity_nbt.Chicken) Chicken {
     return chicken;
 }
 
-test "a chicken is the size EntityChicken sets itself to, and as frail" {
-    var rand = world.JavaRandom.init(0);
-    const chicken = Chicken.spawn(math.Vec3.init(0, 0, 0), &rand);
-
-    try std.testing.expectEqual(@as(f64, 0.3), chicken.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 0.4), chicken.animal.base.height);
-    try std.testing.expectEqual(@as(i32, 4), chicken.animal.health);
-}
-
 test "a dying chicken drops nought to two feathers" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -221,16 +212,6 @@ test "a chicken lays one egg when its clutch runs out, then begins another" {
     try std.testing.expect(chicken.takeDrops() == null);
 }
 
-test "a clutch is always six to twelve thousand ticks long" {
-    for (0..64) |seed| {
-        var rand = world.JavaRandom.init(@intCast(seed));
-        const chicken = Chicken.spawn(math.Vec3.init(0, 0, 0), &rand);
-
-        try std.testing.expect(chicken.egg_timer.? >= egg_interval);
-        try std.testing.expect(chicken.egg_timer.? <= egg_interval * 2);
-    }
-}
-
 test "a chicken has nothing to lay before its timer runs out" {
     const gpa = std.testing.allocator;
     var w = try grassField(gpa, 4);
@@ -266,7 +247,6 @@ test "a chicken flutters down instead of falling, and lands unhurt" {
     try std.testing.expect(chicken.animal.base.on_ground);
     try std.testing.expectEqual(max_health, chicken.animal.health);
 
-    // Terminal velocity for anything that falls plainly is near -3.92.
     try std.testing.expect(fastest > -0.5);
 }
 

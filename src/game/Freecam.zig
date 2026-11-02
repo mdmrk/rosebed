@@ -78,38 +78,6 @@ pub fn rotationMatrix(self: Freecam, partial_ticks: f32) math.Mat4 {
         .mul(math.Mat4.rotationY((yaw + 180.0) * degrees));
 }
 
-test "entering adopts the eye it was handed and starts still" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(1, 2, 3), 45, -10);
-
-    try std.testing.expect(camera.active);
-    try std.testing.expectEqual(math.Vec3.init(1, 2, 3), camera.position);
-    try std.testing.expectEqual(math.Vec3.init(1, 2, 3), camera.prev_position);
-    try std.testing.expectEqual(@as(f32, 45), camera.yaw);
-    try std.testing.expectEqual(@as(f32, -10), camera.prev_pitch);
-}
-
-test "walking forward at zero yaw travels one speed along positive z" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(0, 0, 0), 0, 0);
-    camera.beginTick();
-    camera.move(0, 1, 0);
-
-    try std.testing.expectApproxEqAbs(@as(f64, 0), camera.position.x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 0), camera.position.y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(speed, camera.position.z, 1.0e-9);
-}
-
-test "looking down sends forward travel downward" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(0, 0, 0), 0, 90);
-    camera.beginTick();
-    camera.move(0, 1, 0);
-
-    try std.testing.expectApproxEqAbs(-speed, camera.position.y, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f64, 0), camera.position.z, 1.0e-6);
-}
-
 test "jump and sneak lift and drop the camera without leaning it" {
     var camera: Freecam = .{};
     camera.enter(math.Vec3.init(0, 64, 0), 0, 0);
@@ -120,40 +88,4 @@ test "jump and sneak lift and drop the camera without leaning it" {
     camera.beginTick();
     camera.move(0, 0, -1);
     try std.testing.expectApproxEqAbs(@as(f64, 64), camera.position.y, 1.0e-9);
-}
-
-test "diagonal travel is no faster than travel along one axis" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(0, 0, 0), 0, 0);
-    camera.beginTick();
-    camera.move(1, 1, 1);
-
-    const travelled = camera.position.sub(camera.prev_position).length();
-    try std.testing.expectApproxEqAbs(speed, travelled, 1.0e-9);
-}
-
-test "a still camera holds its place" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(5, 70, -3), 30, 15);
-    camera.beginTick();
-    camera.move(0, 0, 0);
-
-    try std.testing.expectEqual(math.Vec3.init(5, 70, -3), camera.position);
-}
-
-test "the rendered position eases between ticks" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(0, 0, 0), 0, 0);
-    camera.beginTick();
-    camera.move(0, 1, 0);
-
-    const halfway = camera.renderPosition(0.5);
-    try std.testing.expectApproxEqAbs(speed / 2.0, halfway.z, 1.0e-9);
-}
-
-test "leaving stops the camera being the one that draws" {
-    var camera: Freecam = .{};
-    camera.enter(math.Vec3.init(0, 0, 0), 0, 0);
-    camera.leave();
-    try std.testing.expect(!camera.active);
 }

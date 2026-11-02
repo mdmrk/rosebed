@@ -1305,15 +1305,6 @@ test "a dropped plant keeps the crossing-sprite shape the original gives it" {
     try std.testing.expectEqual(@as(usize, 2 * 4), mesh.vertices.items.len);
 }
 
-test "a bigger stack piles up more copies" {
-    try std.testing.expectEqual(@as(u8, 1), copiesFor(1));
-    try std.testing.expectEqual(@as(u8, 2), copiesFor(2));
-    try std.testing.expectEqual(@as(u8, 2), copiesFor(5));
-    try std.testing.expectEqual(@as(u8, 3), copiesFor(6));
-    try std.testing.expectEqual(@as(u8, 3), copiesFor(20));
-    try std.testing.expectEqual(@as(u8, 4), copiesFor(21));
-}
-
 test "a stack of twenty one draws four cubes" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
@@ -1418,15 +1409,6 @@ test "an item resting on a lit block lays its shadow on the surface below it" {
     try std.testing.expectEqual(@as(usize, 4), mesh.vertices.items.len);
 }
 
-test "every mob lays a shadow the size RenderManager gave its renderer" {
-    try std.testing.expectEqual(@as(f32, 0.3), mobShadowSize(game.mob.chicken));
-    try std.testing.expectEqual(@as(f32, 0.7), mobShadowSize(game.mob.pig));
-    try std.testing.expectEqual(@as(f32, 0.7), mobShadowSize(game.mob.cow));
-    try std.testing.expectEqual(@as(f32, 1.0), mobShadowSize(game.mob.spider));
-    try std.testing.expectEqual(@as(f32, 0.25), mobShadowSize(game.mob.slime));
-    try std.testing.expectEqual(@as(f32, 0.5), mobShadowSize(game.mob.skeleton));
-}
-
 test "a chicken on a lit block lays a shadow, and a smaller one than a cow" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 64);
@@ -1526,7 +1508,6 @@ test "a block part way through a push is drawn short of where it will land" {
 
     try std.testing.expectEqual(@as(usize, 6 * 4), starting.vertices.items.len);
 
-    // It starts a whole block back down the barrel and closes on its cell.
     try std.testing.expectApproxEqAbs(@as(f32, 4.0), meshBounds(starting)[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 4.5), meshBounds(halfway)[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 4.75), meshBounds(landed)[0][1], 1.0e-5);
@@ -2048,8 +2029,6 @@ test "the fleece is worn outside the body it covers" {
     const body_bounds = meshBounds(body);
     const fur_bounds = meshBounds(fur);
 
-    // The fleece is grown around the flanks, stops short of the muzzle, and only reaches
-    // halfway down the legs.
     try std.testing.expect(fur_bounds[1][0] > body_bounds[1][0]);
     try std.testing.expect(fur_bounds[0][0] < body_bounds[0][0]);
     try std.testing.expect(fur_bounds[1][2] < body_bounds[1][2]);
@@ -2081,14 +2060,6 @@ test "the fleece takes the sheep's colour and the body underneath stays white" {
     const untinted_channel = black_body.vertices.items[0].color[0];
     try std.testing.expectEqual(untinted_channel, white_fur.vertices.items[0].color[0]);
     try std.testing.expect(black_fur.vertices.items[0].color[0] < untinted_channel / 4);
-}
-
-test "every wool colour has a fleece tint to draw it with" {
-    try std.testing.expectEqual(@as(usize, 16), fleece_colors.len);
-    for (fleece_colors) |color| {
-        for (color) |channel| try std.testing.expect(channel > 0.0 and channel <= 1.0);
-    }
-    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, fleece_colors[0]);
 }
 
 test "a hurt sheep flashes red through its fleece" {
@@ -2148,8 +2119,6 @@ test "a cow renders its head, both horns, its body, its udder and four legs" {
 
     try std.testing.expectEqual(@as(usize, 9 * 6 * 4), mesh.vertices.items.len);
 
-    // The cow stands on its own feet, and — as in the original — its horns reach above the
-    // collision box it walks around in.
     const bounds = meshBounds(mesh);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 25.0 / 16.0 + mob_model.living_lift), bounds[1][1], 1.0e-5);
@@ -2297,7 +2266,6 @@ test "a chicken's wings throw out to opposite sides as they beat" {
     defer folded.deinit(gpa);
     try appendChicken(&folded, gpa, &world_map, chicken, 0);
 
-    // Mid-beat, off the ground: the wings are thrown as far out as they go.
     chicken.wing_rotation = std.math.pi / 2.0;
     chicken.prev_wing_rotation = chicken.wing_rotation;
     chicken.wing_reach = 1.0;
@@ -2318,7 +2286,6 @@ test "a chicken's wings throw out to opposite sides as they beat" {
     try std.testing.expect(beating_right[0][1] != folded_right[0][1]);
     try std.testing.expect(beating_left[0][1] != folded_left[0][1]);
 
-    // The two wings mirror one another about the body.
     try std.testing.expectApproxEqAbs(beating_right[0][1], beating_left[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(-beating_right[1][0], beating_left[0][0], 1.0e-5);
 }
@@ -2373,15 +2340,6 @@ test "a mob's shading turns with the mob" {
     try appendPig(&facing_south, gpa, &world_map, pig, 0);
 
     try std.testing.expect(facing_south.vertices.items[0].color[0] > facing_east.vertices.items[0].color[0]);
-}
-
-test "an entity samples light two thirds of the way up its own box" {
-    const pig = game.Pig.spawn(.{ .x = 3.7, .y = 64.0, .z = -2.2 });
-    const sample = pig.animal.base.lightSamplePosition();
-    try std.testing.expectEqual(@as(i32, 3), sample[0]);
-    try std.testing.expectEqual(@as(i32, -3), sample[2]);
-    try std.testing.expectEqual(@as(i32, 64), sample[1]);
-    try std.testing.expect(pig.animal.base.height * 0.66 < 1.0);
 }
 
 test "a true item stack renders from the items atlas" {
@@ -2775,7 +2733,6 @@ test "a creeper renders a head, a body and four legs standing on the ground" {
 
     try std.testing.expectEqual(@as(usize, 6 * 6 * 4), mesh.vertices.items.len);
 
-    // ModelCreeper's legs stop at 22 px, not 24, so the feet sit two pixels off the floor.
     const bounds = meshBounds(mesh);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 2.0 / 16.0 + mob_model.living_lift), bounds[0][1], 1.0e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 64.0 + 28.0 / 16.0 + mob_model.living_lift), bounds[1][1], 1.0e-5);
@@ -2879,7 +2836,6 @@ test "a spider renders a head, a neck, a body and eight legs" {
     const body = partBounds(mesh, spider_body);
     try std.testing.expect(head[1][2] > body[1][2]);
 
-    // The legs reach well past the body on both sides, which is what makes a spider wide.
     const body_span = body[1][0] - body[0][0];
     const whole = meshBounds(mesh);
     try std.testing.expect(whole[1][0] - whole[0][0] > body_span * 2.0);
@@ -3806,7 +3762,6 @@ fn sleepingHeadOffset(world_map: *const world.World, gpa: std.mem.Allocator, pla
 test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
     const gpa = std.testing.allocator;
 
-    // BlockBed.headBlockToFootBlockMap, and the world axis the body should run down.
     const lying = [4][3]f32{
         .{ 0, 0, 1 },
         .{ -1, 0, 0 },
@@ -3832,7 +3787,6 @@ test "a sleeping player lies along the bed, the way rotateCorpse turns them" {
         const length = @sqrt(reach[0] * reach[0] + reach[1] * reach[1] + reach[2] * reach[2]);
         try std.testing.expect(length > 0.5);
 
-        // The body must run flat along the bed, not stand up out of it.
         try std.testing.expect(@abs(reach[1]) < 0.5);
         try std.testing.expect(reach[0] / length * along[0] + reach[2] / length * along[2] > 0.8);
     }

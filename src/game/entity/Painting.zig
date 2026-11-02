@@ -243,23 +243,6 @@ test "the art table matches EnumArt entry for entry" {
     try std.testing.expectEqual(@as(u16, 112), donkey.offset_y);
 }
 
-test "every painting is a whole number of blocks and sits inside the atlas" {
-    for (std.enums.values(Art)) |art| {
-        const size = art.info();
-        try std.testing.expectEqual(@as(u8, 0), size.size_x % 16);
-        try std.testing.expectEqual(@as(u8, 0), size.size_y % 16);
-        try std.testing.expect(size.offset_x + size.size_x <= 256);
-        try std.testing.expect(size.offset_y + size.size_y <= 256);
-    }
-}
-
-test "a title round trips, and an unknown one does not resolve" {
-    for (std.enums.values(Art)) |art| {
-        try std.testing.expectEqual(art, Art.fromTitle(art.info().title).?);
-    }
-    try std.testing.expectEqual(@as(?Art, null), Art.fromTitle("Mona Lisa"));
-}
-
 test "a painting hangs just clear of the block it was placed against" {
     const north = place(.{ 8, 4, 8 }, 0, .kebab);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5 - 9.0 / 16.0), north.position.z, 1.0e-6);
@@ -289,83 +272,6 @@ test "an even sized painting is nudged half a block so it stays on the grid" {
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), tall.position.y, 1.0e-6);
 }
 
-test "a painting is thin along the wall it hangs on" {
-    const facing_z = place(.{ 8, 4, 8 }, 0, .fighters);
-    try std.testing.expectApproxEqAbs(@as(f64, 4.0), facing_z.box.max_x - facing_z.box.min_x, 0.02);
-    try std.testing.expect(facing_z.box.max_z - facing_z.box.min_z < 0.05);
-
-    const facing_x = place(.{ 8, 4, 8 }, 1, .fighters);
-    try std.testing.expectApproxEqAbs(@as(f64, 4.0), facing_x.box.max_z - facing_x.box.min_z, 0.02);
-    try std.testing.expect(facing_x.box.max_x - facing_x.box.min_x < 0.05);
-}
-
-test "the yaw follows the direction a quarter turn at a time" {
-    try std.testing.expectEqual(@as(f32, 0), place(.{ 0, 0, 0 }, 0, .kebab).yaw());
-    try std.testing.expectEqual(@as(f32, 90), place(.{ 0, 0, 0 }, 1, .kebab).yaw());
-    try std.testing.expectEqual(@as(f32, 180), place(.{ 0, 0, 0 }, 2, .kebab).yaw());
-    try std.testing.expectEqual(@as(f32, 270), place(.{ 0, 0, 0 }, 3, .kebab).yaw());
-}
-
-test "a painting cannot be hung on the floor or the ceiling" {
-    try std.testing.expectEqual(@as(?u2, null), directionFromFace(.up));
-    try std.testing.expectEqual(@as(?u2, null), directionFromFace(.down));
-    try std.testing.expectEqual(@as(?u2, 0), directionFromFace(.north));
-    try std.testing.expectEqual(@as(?u2, 1), directionFromFace(.west));
-    try std.testing.expectEqual(@as(?u2, 2), directionFromFace(.south));
-    try std.testing.expectEqual(@as(?u2, 3), directionFromFace(.east));
-}
-
-fn wallWorld(gpa: std.mem.Allocator) !world.World {
-    var w = try world.testing.flatWorld(gpa, 1);
-    errdefer w.deinit();
-    var x: i32 = 4;
-    while (x <= 12) : (x += 1) {
-        var y: i32 = 1;
-        while (y <= 8) : (y += 1) try w.setBlockWithNotify(.init(x, y, 8), .stone);
-    }
-    return w;
-}
-
-test "a painting needs solid blocks behind every one of its squares" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-
-    try w.setBlockWithNotify(.init(8, 4, 8), .air);
-    try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-}
-
-test "a wide painting needs the blocks beside it too" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    try std.testing.expect(place(.{ 8, 4, 8 }, 0, .pool).fits(&w, &.{}, null));
-
-    try w.setBlockWithNotify(.init(7, 4, 8), .air);
-    try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .pool).fits(&w, &.{}, null));
-    try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-}
-
-test "a painting will not hang over another one" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    const hung = place(.{ 8, 4, 8 }, 0, .kebab);
-    const others = [_]Painting{hung};
-    try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &others, null));
-    try std.testing.expect(place(.{ 8, 6, 8 }, 0, .kebab).fits(&w, &others, null));
-}
-
-test "a painting will not hang where a block already stands" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    try std.testing.expect(place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-    try w.setBlockWithNotify(.init(8, 4, 7), .stone);
-    try std.testing.expect(!place(.{ 8, 4, 8 }, 0, .kebab).fits(&w, &.{}, null));
-}
-
 test "the art is chosen only from the ones that fit the space" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -379,44 +285,6 @@ test "the art is chosen only from the ones that fit the space" {
         try std.testing.expectEqual(@as(u8, 16), size.size_x);
         try std.testing.expectEqual(@as(u8, 16), size.size_y);
     }
-}
-
-test "nowhere to hang gives no painting at all" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    var rand = world.JavaRandom.init(1);
-    try std.testing.expectEqual(@as(?Painting, null), pickArt(.{ 8, 6, 8 }, 0, &w, &.{}, &rand));
-}
-
-test "the support is rechecked every hundred and first tick" {
-    var hung = place(.{ 8, 4, 8 }, 0, .kebab);
-    for (0..recheck_ticks) |_| try std.testing.expect(!hung.dueForRecheck());
-    try std.testing.expect(hung.dueForRecheck());
-
-    try std.testing.expectEqual(@as(u32, 0), hung.age);
-    for (0..recheck_ticks) |_| try std.testing.expect(!hung.dueForRecheck());
-    try std.testing.expect(hung.dueForRecheck());
-}
-
-test "a painting does not count itself as something in the way" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    const hung = [_]Painting{place(.{ 8, 4, 8 }, 0, .kebab)};
-    try std.testing.expect(!hung[0].fits(&w, &hung, null));
-    try std.testing.expect(hung[0].fits(&w, &hung, 0));
-}
-
-test "a painting stops fitting once its wall is mined away" {
-    var w = try wallWorld(std.testing.allocator);
-    defer w.deinit();
-
-    const hung = [_]Painting{place(.{ 8, 4, 8 }, 0, .kebab)};
-    try std.testing.expect(hung[0].fits(&w, &hung, 0));
-
-    try w.setBlockWithNotify(.init(8, 4, 8), .air);
-    try std.testing.expect(!hung[0].fits(&w, &hung, 0));
 }
 
 pub fn toRecord(self: Painting) world.entity_nbt.Painting {

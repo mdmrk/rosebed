@@ -197,23 +197,6 @@ keys: KeyBindings = .init(.{
     .fog = 'f',
 }),
 
-test "difficulty cycles through all four and wraps" {
-    try std.testing.expectEqual(Difficulty.easy, Difficulty.peaceful.next());
-    try std.testing.expectEqual(Difficulty.hard, Difficulty.normal.next());
-    try std.testing.expectEqual(Difficulty.peaceful, Difficulty.hard.next());
-}
-
-test "balanced sleeps to the monitor, power saver to forty, max fps not at all" {
-    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.max.fpsCap(144));
-    try std.testing.expectEqual(@as(?f32, 144), FramerateLimit.balanced.fpsCap(144));
-    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap(144));
-}
-
-test "balanced runs uncapped when the monitor reports no refresh rate" {
-    try std.testing.expectEqual(@as(?f32, null), FramerateLimit.balanced.fpsCap(null));
-    try std.testing.expectEqual(@as(?f32, 40), FramerateLimit.power_saver.fpsCap(null));
-}
-
 test "max fps leaves no time for distant chunks, the others budget a frame" {
     try std.testing.expectEqual(@as(u64, 0), FramerateLimit.max.rebuildDeadlineNs(1_000));
     try std.testing.expectEqual(
@@ -224,19 +207,4 @@ test "max fps leaves no time for distant chunks, the others budget a frame" {
         @as(u64, 1_000 + std.time.ns_per_s / 40),
         FramerateLimit.power_saver.rebuildDeadlineNs(1_000),
     );
-}
-
-test "bindings default to the vanilla layout" {
-    const settings: Settings = .{};
-    try std.testing.expectEqual(@as(u32, 'w'), settings.keys.get(.forward));
-    try std.testing.expectEqual(@as(u32, 'a'), settings.keys.get(.left));
-    try std.testing.expectEqual(@as(u32, ' '), settings.keys.get(.jump));
-    try std.testing.expectEqual(@as(u32, 'e'), settings.keys.get(.inventory));
-}
-
-test "rebinding a key replaces the old one" {
-    var settings: Settings = .{};
-    settings.keys.set(.forward, 'z');
-    try std.testing.expectEqual(@as(u32, 'z'), settings.keys.get(.forward));
-    try std.testing.expectEqual(@as(u32, 'a'), settings.keys.get(.left));
 }

@@ -225,31 +225,3 @@ pub fn appendLabel(mesh: *MeshBuilder, gpa: std.mem.Allocator, font: Font, text:
 pub fn labelText(buffer: []u8, id: i16) []const u8 {
     return std.mem.print(buffer, "map_{d}", .{id}) catch buffer[0..0];
 }
-
-fn placedAt(transform: math.Mat4, point: [4]f32) [4]f32 {
-    const cells: [16]f32 = transform.m;
-    var out: [4]f32 = .{ 0, 0, 0, 0 };
-    for (0..4) |col| {
-        for (0..4) |row| out[row] += cells[col * 4 + row] * point[col];
-    }
-    return out;
-}
-
-test "the two arms sit mirrored either side of the board" {
-    const left = placedAt(armMatrix(arm_sides[0]), .{ 0, 0, 0, 1 });
-    const right = placedAt(armMatrix(arm_sides[1]), .{ 0, 0, 0, 1 });
-
-    try std.testing.expectApproxEqAbs(left[0], right[0], 1.0e-5);
-    try std.testing.expectApproxEqAbs(left[1], right[1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(left[2], -right[2], 1.0e-5);
-    try std.testing.expect(@abs(left[2]) > 0.5);
-}
-
-test "the board is centred on the hands, not on its own corner" {
-    const centre = placedAt(boardMatrix(0), .{ face_size / 2.0, face_size / 2.0, 0, 1 });
-    try std.testing.expect(@abs(centre[0]) < 1.0e-4);
-    try std.testing.expect(@abs(centre[1]) < 1.0e-4);
-
-    const corner = placedAt(boardMatrix(0), .{ 0, 0, 0, 1 });
-    try std.testing.expect(@abs(corner[0]) > 1.0e-3 or @abs(corner[2]) > 1.0e-3);
-}

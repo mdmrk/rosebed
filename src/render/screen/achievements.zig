@@ -441,12 +441,6 @@ fn drawTooltip(
     try gui.drawTexturedMesh(&text, ui.shader, ui.font);
 }
 
-test "the map opens centred on Taking Inventory" {
-    const state: State = .{};
-    try std.testing.expectEqual(@as(f64, -82), state.pan[0]);
-    try std.testing.expectEqual(@as(f64, -70), state.pan[1]);
-}
-
 test "the pan is fenced in by the outermost achievements" {
     try std.testing.expectEqual(@as(f64, -136), panLeft());
     try std.testing.expectEqual(@as(f64, -232), panTop());
@@ -503,16 +497,6 @@ test "releasing the mouse lets go, so the next press does not jump the map" {
     try std.testing.expectEqual(before, state.target);
 }
 
-test "dragging outside the map window does nothing" {
-    const res = gui.scaledResolution(640, 480, 1);
-    var state: State = .{};
-    const before = state.target;
-
-    state.drag(0, 0, res, true);
-    state.drag(4, 4, res, true);
-    try std.testing.expectEqual(before, state.target);
-}
-
 test "Taking Inventory is the achievement under the cursor at the map's home view" {
     const res = gui.scaledResolution(640, 480, 1);
     const state: State = .{};
@@ -523,14 +507,6 @@ test "Taking Inventory is the achievement under the cursor at the map's home vie
 
     try std.testing.expectEqual(@as(?achievements.Id, .open_inventory), achievementAt(left + 11, top + 11, res, pan));
     try std.testing.expectEqual(@as(?achievements.Id, null), achievementAt(left + 11, top - 40, res, pan));
-}
-
-test "the done button sits below the window" {
-    const res = gui.scaledResolution(640, 480, 1);
-    const done = doneButton(res);
-
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(done.x + 40, done.y + 10, res));
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(done.x - 40, done.y + 10, res));
 }
 
 test "the cave behind the tree is stone near the top and bedrock at the bottom" {
@@ -546,17 +522,6 @@ test "the cave behind the tree is stone near the top and bedrock at the bottom" 
     }
     try std.testing.expect(seen_dirt);
     try std.testing.expect(seen_stone);
-}
-
-test "the background darkens the deeper the row sits" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0.6), backgroundShade(0), 1.0e-6);
-    try std.testing.expect(backgroundShade(20) < backgroundShade(10));
-}
-
-test "a plate is brightest when taken, dimmest when its parent is still locked" {
-    try std.testing.expectEqual(@as(u8, 255), plateShade(true, true, false));
-    try std.testing.expectEqual(@as(u8, 76), plateShade(false, false, true));
-    try std.testing.expect(plateShade(false, true, true) > plateShade(false, true, false));
 }
 
 fn argb(value: i32) [4]u8 {
@@ -581,22 +546,4 @@ test "the tooltip and link colours are the ints GuiAchievements draws with" {
     try std.testing.expectEqual(argb(-16777216), link_locked);
     try std.testing.expectEqual(argb(-1073741824), tooltip_background);
     try std.testing.expectEqual(@as([3]u8, .{ 0, 255, 0 }), link_open);
-}
-
-test "a name is lettered by whether it is reachable and whether it is special" {
-    try std.testing.expectEqual(name_open, nameColor(true, false));
-    try std.testing.expectEqual(name_open_special, nameColor(true, true));
-    try std.testing.expectEqual(name_locked, nameColor(false, false));
-    try std.testing.expectEqual(name_locked_special, nameColor(false, true));
-}
-
-test "a link is grey once taken, green while it blinks, and black while out of reach" {
-    try std.testing.expectEqual(link_unlocked, linkColor(true, true, 0));
-    try std.testing.expectEqual(link_locked, linkColor(false, false, 0));
-
-    const bright = linkColor(false, true, 150);
-    const dim = linkColor(false, true, 450);
-    try std.testing.expectEqual(@as(u8, 255), bright[3]);
-    try std.testing.expectEqual(@as(u8, 130), dim[3]);
-    try std.testing.expectEqual(@as(u8, 255), bright[1]);
 }

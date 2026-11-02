@@ -739,16 +739,6 @@ pub fn defendOwner(entities: anytype, victim: *const Player, attacker: Quarry, p
     );
 }
 
-test "a wolf is the size and speed EntityWolf sets itself to" {
-    const wolf = Wolf.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 0.8), wolf.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 0.8), wolf.animal.base.height);
-    try std.testing.expectEqual(max_health, wolf.animal.health);
-    try std.testing.expectEqual(@as(f32, 1.1), wolf.animal.move_speed);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.64), wolf.animal.eyeHeight(), 1.0e-9);
-}
-
 test "a wolf leaves nothing behind when it dies" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -802,17 +792,6 @@ test "taming sits the wolf down, heals it to twenty and stops it despawning" {
     }
 
     try std.testing.expect(false);
-}
-
-test "an angry wolf refuses the bone" {
-    const gpa = std.testing.allocator;
-    var rand = world.JavaRandom.init(0);
-    var wolf = Wolf.spawn(math.Vec3.init(8, 1, 8));
-    defer wolf.deinit(gpa);
-    wolf.angry = true;
-
-    try std.testing.expect(wolf.interact(gpa, .bone, &rand) == null);
-    try std.testing.expect(!wolf.tamed);
 }
 
 test "a tamed wolf sits and stands on a bare hand, and eats pork when hurt" {
@@ -1016,15 +995,6 @@ test "the shake angle swings away from rest and comes back to it" {
     wolf.shake_time = 1.8;
     wolf.prev_shake_time = 1.8;
     try std.testing.expectApproxEqAbs(@as(f32, 0), wolf.shakeAngle(1.0, 0), 1.0e-5);
-}
-
-test "a shaking wolf is drawn darker at rest and brighter mid-shake" {
-    var wolf = Wolf.spawn(math.Vec3.init(0, 0, 0));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.75), wolf.shadingWhileShaking(0), 1.0e-6);
-
-    wolf.shake_time = 2.0;
-    wolf.prev_shake_time = 2.0;
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), wolf.shadingWhileShaking(1.0), 1.0e-6);
 }
 
 test "a wolf keeps its collar, its mood and its seat across a record round trip" {

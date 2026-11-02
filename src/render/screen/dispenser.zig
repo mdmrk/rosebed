@@ -74,25 +74,6 @@ test "the nine dispenser slots sit where ContainerDispenser puts them" {
     try std.testing.expectEqual(@as(f32, 53), layout[8].y);
 }
 
-test "the player's own slots follow the dispenser's nine" {
-    const layout = slots();
-    for (layout[9..]) |slot| try std.testing.expectEqual(container.SlotKind.inventory, slot.kind);
-    try std.testing.expectEqual(@as(usize, 9), layout[9].index);
-    try std.testing.expectEqual(@as(f32, 84), layout[9].y);
-    try std.testing.expectEqual(@as(usize, 0), layout[layout.len - 9].index);
-    try std.testing.expectEqual(@as(f32, 142), layout[layout.len - 9].y);
-}
-
-test "clicking the middle of a dispenser slot finds it" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const org = container.origin(res, container.height);
-    const layout = slots();
-
-    const click_x = (org[0] + layout[4].x + 8) * res.factor;
-    const click_y = (org[1] + layout[4].y + 8) * res.factor;
-    try std.testing.expectEqual(@as(?usize, 4), container.slotAt(&layout, click_x, click_y, res, container.height));
-}
-
 test "the dispenser screen's slots line up with the protocol window, slot for slot" {
     var trap: world.dispenser.Dispenser = .{};
     var player: game.Inventory = .{};

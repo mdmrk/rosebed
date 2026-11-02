@@ -196,7 +196,6 @@ pub const max_sign_line = 15;
 pub const sign_lines = 4;
 pub const max_window_slots = 256;
 pub const max_explosion_blocks = 1 << 20;
-pub const max_map_bytes = 255;
 
 pub const Vehicle = enum(u8) {
     boat = 1,

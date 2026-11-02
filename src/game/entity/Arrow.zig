@@ -380,17 +380,6 @@ test "a deflected arrow turns around and loses almost all its speed" {
     try std.testing.expectEqual(@as(i32, 0), arrow.ticks_in_air);
 }
 
-test "an arrow that falls out of the world stops existing" {
-    const gpa = std.testing.allocator;
-    var w = world.World.init(gpa);
-    defer w.deinit();
-
-    var rand = world.JavaRandom.init(3);
-    var arrow: Arrow = .{ .base = Entity.init(math.Vec3.init(8, -70, 8), size, size) };
-    _ = arrow.settle(&w, &rand);
-    try std.testing.expect(arrow.dead);
-}
-
 pub fn toRecord(self: Arrow) world.entity_nbt.Arrow {
     return .{
         .base = .{

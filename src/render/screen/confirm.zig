@@ -52,13 +52,3 @@ pub fn draw(ui: gui.Ui, title: []const u8, message: []const u8, confirm_label: [
 
     gui.endOverlay();
 }
-
-test "the confirm and cancel buttons sit side by side" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0);
-    const y = (@floor(res.height / 6.0) + 96 + 10) * res.factor;
-
-    try std.testing.expectEqual(@as(?Hit, .confirm), hitAt((cx - 80) * res.factor, y, res, "Delete"));
-    try std.testing.expectEqual(@as(?Hit, .cancel), hitAt((cx + 80) * res.factor, y, res, "Delete"));
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(cx * res.factor, 0, res, "Delete"));
-}

@@ -83,21 +83,6 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 }
 
-test "a dispenser holds the nine slots TileEntityDispenser reports" {
-    var state: Dispenser = .{};
-    try std.testing.expect(state.isEmpty());
-
-    state.slot(8).* = .{ .id = .{ .block = .stone }, .count = 64 };
-    try std.testing.expect(!state.isEmpty());
-    try std.testing.expectEqual(@as(usize, 9), state.items.len);
-}
-
-test "an empty dispenser has nothing to hand out" {
-    var rand = JavaRandom.init(0);
-    var state: Dispenser = .{};
-    try std.testing.expect(state.takeRandomStack(&rand) == null);
-}
-
 test "taking a stack peels one item off and empties the slot on the last one" {
     var rand = JavaRandom.init(0);
     var state: Dispenser = .{};

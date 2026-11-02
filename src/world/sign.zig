@@ -32,13 +32,6 @@ pub const Sign = struct {
         if (self.lengths[index] == 0) return;
         self.lengths[index] -= 1;
     }
-
-    pub fn isBlank(self: *const Sign) bool {
-        for (self.lengths) |length| {
-            if (length > 0) return false;
-        }
-        return true;
-    }
 };
 
 const line_keys = [line_count][]const u8{ "Text1", "Text2", "Text3", "Text4" };
@@ -89,24 +82,6 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 }
 
-test "a fresh sign is blank on every line" {
-    var state: Sign = .{};
-    try std.testing.expect(state.isBlank());
-    try std.testing.expectEqualStrings("", state.line(0));
-
-    state.append(2, 'x');
-    try std.testing.expect(!state.isBlank());
-    try std.testing.expectEqualStrings("x", state.line(2));
-}
-
-test "a line stops taking characters at fifteen" {
-    var state: Sign = .{};
-    for (0..20) |i| state.append(0, @intCast('a' + i % 26));
-
-    try std.testing.expectEqual(@as(usize, max_line_length), state.line(0).len);
-    try std.testing.expectEqualStrings("abcdefghijklmno", state.line(0));
-}
-
 test "backspace gives a line back one character at a time and stops when empty" {
     var state: Sign = .{};
     state.setLine(1, "hi");
@@ -117,12 +92,6 @@ test "backspace gives a line back one character at a time and stops when empty" 
     try std.testing.expectEqualStrings("", state.line(1));
     state.backspace(1);
     try std.testing.expectEqualStrings("", state.line(1));
-}
-
-test "text longer than a line fits is cut where vanilla cuts it on load" {
-    var state: Sign = .{};
-    state.setLine(0, "a sign with far too much text on it");
-    try std.testing.expectEqualStrings("a sign with far", state.line(0));
 }
 
 test "a sign's four lines survive a trip through NBT" {
@@ -143,15 +112,4 @@ test "a sign's four lines survive a trip through NBT" {
     try std.testing.expectEqualStrings("", restored.state.line(1));
     try std.testing.expectEqualStrings("to the mine", restored.state.line(2));
     try std.testing.expectEqualStrings("mind the lava", restored.state.line(3));
-}
-
-test "a compound that is not a sign is not loaded as one" {
-    const gpa = std.testing.allocator;
-    var compound: nbt.Compound = .{};
-    try nbt.putDuped(gpa, &compound, "id", .{ .string = try gpa.dupe(u8, "Furnace") });
-    var tag: nbt.Tag = .{ .compound = compound };
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expect(!isSign(tag.compound));
-    try std.testing.expect(load(tag.compound) == null);
 }

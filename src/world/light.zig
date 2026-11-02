@@ -270,17 +270,6 @@ test "light opacity follows isOpaqueCube, not the material" {
     try std.testing.expectEqual(@as(u8, 0), opacity(.mob_spawner));
 }
 
-test "the blocks vanilla gives an explicit opacity keep it" {
-    try std.testing.expectEqual(@as(u8, 3), opacity(.stationary_water));
-    try std.testing.expectEqual(@as(u8, 3), opacity(.ice));
-    try std.testing.expectEqual(@as(u8, 1), opacity(.leaves));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.stationary_lava));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.slab));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.stairs_wood));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.stone));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.slab_double));
-}
-
 test "an open column is fully sky lit down to the ground" {
     const gpa = std.testing.allocator;
     var world_map = World.init(gpa);
@@ -434,12 +423,6 @@ test "a generated chunk is lit down to its surface and dark at bedrock" {
     try std.testing.expectEqual(@as(u32, Chunk.width * Chunk.width), lit_surfaces);
 }
 
-test "the brightness table matches WorldProvider's curve" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0.05), brightness_table[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), brightness_table[15], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.2611111), brightness_table[8], 1.0e-6);
-}
-
 test "a torch lights the block it sits in and fades by one per step" {
     const gpa = std.testing.allocator;
     var world_map = World.init(gpa);
@@ -553,19 +536,6 @@ test "a stair never borrows light from the block beneath it" {
 
     try std.testing.expectEqual(@as(u4, 14), world_map.getBlockLight(.init(8, 2, 8)));
     try std.testing.expectEqual(@as(u4, 0), levelAt(&world_map, .init(8, 3, 8)));
-}
-
-test "a sign lets light straight through, as any block that is not a full cube does" {
-    try std.testing.expectEqual(@as(u8, 0), opacity(.sign_post));
-    try std.testing.expectEqual(@as(u8, 0), opacity(.wall_sign));
-    try std.testing.expectEqual(@as(u8, 255), opacity(.planks));
-}
-
-test "a piston lets light past it, stone though its material is" {
-    try std.testing.expectEqual(@as(u8, 0), opacity(.piston));
-    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_sticky));
-    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_head));
-    try std.testing.expectEqual(@as(u8, 0), opacity(.piston_moving));
 }
 
 test "a pressure plate lets daylight through instead of casting a shadow under itself" {

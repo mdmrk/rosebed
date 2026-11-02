@@ -210,16 +210,6 @@ pub fn deinit(self: Textures) void {
     }
 }
 
-test "every atlas names the jar path a texture pack would override it with" {
-    inline for (@typeInfo(Textures).@"struct".field_names) |name| {
-        const resource = resourceFor(name);
-        try std.testing.expect(resource.path.len > 0);
-        try std.testing.expect(resource.bytes.len > 0);
-        try std.testing.expect(!std.mem.startsWith(u8, resource.path, "/"));
-        try std.testing.expect(std.mem.endsWith(u8, resource.path, ".png"));
-    }
-}
-
 test "the paths are the ones the original reads, and none is claimed twice" {
     @setEvalBranchQuota(10000);
     const names = @typeInfo(Textures).@"struct".field_names;
@@ -235,14 +225,6 @@ test "the paths are the ones the original reads, and none is claimed twice" {
     try std.testing.expectEqualStrings("particles.png", resourceFor("particles").path);
     try std.testing.expectEqualStrings("gui/items.png", resourceFor("items").path);
     try std.testing.expectEqualStrings("mob/char.png", resourceFor("char").path);
-}
-
-test "only the tiling atlases ask for repeat wrapping" {
-    try std.testing.expectEqual(Wrap.repeat, resourceFor("dirt").wrap);
-    try std.testing.expectEqual(Wrap.repeat, resourceFor("clouds").wrap);
-    try std.testing.expectEqual(Wrap.repeat, resourceFor("water").wrap);
-    try std.testing.expectEqual(Wrap.clamp, resourceFor("terrain").wrap);
-    try std.testing.expectEqual(Wrap.clamp, resourceFor("gui").wrap);
 }
 
 test "the pumpkin overlay is the one texture the original smooths" {

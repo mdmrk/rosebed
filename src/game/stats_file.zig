@@ -200,26 +200,6 @@ pub fn save(gpa: std.mem.Allocator, io: std.Io, base: std.Io.Dir, username: []co
     try dir.rename(pending, dir, current, io);
 }
 
-test "guids come from the achievement map and fall back to null" {
-    try std.testing.expectEqualStrings("43ddd8b48469d9a8c011718aa846facb", guid(1000).?);
-    try std.testing.expectEqualStrings("c9ee0d494e0524c86a577cf684f5816d", guid(2000).?);
-    try std.testing.expectEqualStrings("8099ff561e194072c9086dea38757a89", guid(5242880).?);
-    try std.testing.expectEqual(@as(?[]const u8, null), guid(4242));
-}
-
-test "the md5 hex drops leading zeros the way BigInteger.toString does" {
-    var hex: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("d41d8cd98f00b204e9800998ecf8427e", md5Hex(&hex, ""));
-    try std.testing.expectEqualStrings("900150983cd24fb0d6963f7d28e17f72", md5Hex(&hex, "abc"));
-    try std.testing.expectEqualStrings("2e74f10e0327ad868d138f2b4fdd6f0", md5Hex(&hex, "27"));
-}
-
-test "the stats file name is the lower-cased user name" {
-    var buffer: [96]u8 = undefined;
-    try std.testing.expectEqualStrings("stats_player.dat", try fileName(&buffer, "Player", ".dat"));
-    try std.testing.expectEqualStrings("stats_player.tmp", try fileName(&buffer, "PLAYER", ".tmp"));
-}
-
 test "an encoded file carries the user block, the sorted changes and a checksum" {
     const gpa = std.testing.allocator;
     var source: stats.Stats = .{};

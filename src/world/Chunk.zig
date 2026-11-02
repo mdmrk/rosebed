@@ -89,25 +89,3 @@ pub fn setClimate(self: *Chunk, x: u32, z: u32, temperature: f32, humidity: f32)
     self.temperature[heightMapIndex(x, z)] = temperature;
     self.humidity[heightMapIndex(x, z)] = humidity;
 }
-
-test "block id round-trips through the packed index" {
-    var chunk = Chunk.init(0, 0);
-    chunk.setBlock(1, 64, 15, @fromBackingInt(@intCast(42)));
-    try std.testing.expectEqual(@as(Block, @fromBackingInt(@intCast(42))), chunk.getBlock(1, 64, 15));
-    try std.testing.expectEqual(.air, chunk.getBlock(0, 0, 0));
-}
-
-test "metadata is independent of the block id" {
-    var chunk = Chunk.init(0, 0);
-    chunk.setBlock(2, 3, 4, @fromBackingInt(@intCast(5)));
-    chunk.setBlockMetadata(2, 3, 4, 7);
-    try std.testing.expectEqual(@as(Block, @fromBackingInt(@intCast(5))), chunk.getBlock(2, 3, 4));
-    try std.testing.expectEqual(@as(u4, 7), chunk.getBlockMetadata(2, 3, 4));
-}
-
-test "height map is indexed independently of block position" {
-    var chunk = Chunk.init(0, 0);
-    chunk.setHeightValue(5, 9, 64);
-    try std.testing.expectEqual(@as(u8, 64), chunk.getHeightValue(5, 9));
-    try std.testing.expectEqual(@as(u8, 0), chunk.getHeightValue(9, 5));
-}

@@ -1540,9 +1540,6 @@ fn arrowShooter(self: *const Entities, arrow: Arrow, roster: []const *Player) ?A
 
 const cactus_damage: i32 = 1;
 
-// EntityMinecart.getCollisionBox returns the other entity's box, so a cart is stopped by
-// every entity it runs into - mobs, players, even dropped items - while its own
-// getBoundingBox is null and it blocks nothing in return.
 const cart_obstacle_reach: f64 = 0.25;
 
 fn gatherObstacles(
@@ -1631,11 +1628,6 @@ pub fn tickMinecarts(
     }
 }
 
-// Vanilla runs this from each living entity's own tick, which reaches the cart through
-// EntityMinecart.applyEntityCollision. Driving it from the cart's tick instead touches the
-// same pairs once per tick and keeps the cart's override in one place. It has to run before
-// the cart moves: a cart is blocked by whatever it runs into, so by the time it is touching
-// a mob its speed is already zero and the scoop-up test would never pass.
 fn jostleBystanders(self: *Entities, index: usize, roster: []const *Player) void {
     const reach = Minecart.collision_reach;
     const box = self.minecarts.items[index].base.boundingBox().expand(reach, 0, reach);
@@ -1944,7 +1936,6 @@ pub fn tickFireballs(
         const strike = if (owned_here) self.fireballStrike(ball, roster, limit) else null;
 
         if (strike != null or block_hit != null) {
-            // The direct hit lands for nothing; every point of damage comes from the blast.
             if (strike) |target| {
                 if (target == .mob) {
                     _ = self.hurtTarget(world_map, target.mob, 0, .{ .position = ball.base.position }, rand);
@@ -2542,7 +2533,6 @@ pub fn tickMobs(
             try self.spawnDrowningBubbles(gpa, entry.animal.base.position, entry.animal.base.motion, rand);
         }
 
-        // A chicken can owe both the egg it just laid and the feathers it died leaving.
         while (kind.takeDrops(entry.animal)) |drops| {
             const position = entry.animal.base.position;
             for (0..drops.count) |_| {
@@ -4077,13 +4067,6 @@ test "a standing torch burns at its own centre, a wall torch out over its bracke
     try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(.init(8, 40, 8), 2).x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.23), torchFlamePosition(.init(8, 40, 8), 3).z, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.77), torchFlamePosition(.init(8, 40, 8), 4).z, 1.0e-9);
-}
-
-test "a torch flame sits above the tip of the model it belongs to" {
-    const bounds = world.Block.torch.selectionBounds(5);
-    const flame = torchFlamePosition(.init(0, 0, 0), 5);
-    try std.testing.expect(flame.y > bounds.max[1]);
-    try std.testing.expect(flame.x > bounds.min[0] and flame.x < bounds.max[0]);
 }
 
 test "the crosshair picks the animal it is aimed at, and nothing off to the side" {

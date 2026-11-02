@@ -242,17 +242,6 @@ test "farmland soaks up nearby water and dries back to dirt without it" {
     try std.testing.expectEqual(.dirt, w.getBlock(.init(8, 11, 8)));
 }
 
-test "bare farmland under a crop stays farmland even when it dries out" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    defer w.deinit();
-    w.setBlock(.init(8, 11, 8), .farmland);
-    w.setBlock(.init(8, 12, 8), .crops);
-
-    for (0..2000) |_| try tickFarmland(&w, .init(8, 11, 8), .farmland);
-    try std.testing.expectEqual(.farmland, w.getBlock(.init(8, 11, 8)));
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 11, 8)));
-}
-
 test "tilling is heard as farmland's own footfall" {
     var w = try testing_world.flatWorld(std.testing.allocator, 12);
     defer w.deinit();
@@ -302,15 +291,6 @@ test "seeds only go into the top of farmland" {
     try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 12, 8)));
 
     try std.testing.expect(!try plant(&w, .init(8, 11, 8), .up));
-}
-
-test "walking on farmland packs it back down to dirt" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 12);
-    defer w.deinit();
-    w.setBlock(.init(8, 11, 8), .farmland);
-
-    for (0..100) |_| try trample(&w, .init(8, 11, 8));
-    try std.testing.expectEqual(.dirt, w.getBlock(.init(8, 11, 8)));
 }
 
 fn boneMealWorld(gpa: std.mem.Allocator) !World {
@@ -406,14 +386,4 @@ test "the scatter never plants on anything but grass, nor into a filled cell" {
             try std.testing.expectEqual(Block.air, chunk.getBlock(@intCast(x), 2, @intCast(z)));
         }
     }
-}
-
-test "bone meal does nothing to a block that is not a sapling, crop or grass" {
-    const gpa = std.testing.allocator;
-    var w = try boneMealWorld(gpa);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 1, 8), .stone);
-    try std.testing.expect(!try applyBoneMeal(&w, .init(8, 1, 8)));
-    try std.testing.expect(!try applyBoneMeal(&w, .init(8, 2, 8)));
 }

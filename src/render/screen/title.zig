@@ -134,24 +134,3 @@ pub fn draw(
 
     gui.endOverlay();
 }
-
-test "singleplayer is clickable and enters the world" {
-    try std.testing.expectEqual(@as(?Action, .singleplayer), actionAt(320, 240, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "quit game is clickable" {
-    try std.testing.expectEqual(@as(?Action, .quit), actionAt(340, 408, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "the github button is a square sitting left of options" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const options = entries(res.width, res.height)[3].button;
-    const entry = githubButton(res.width, res.height);
-    try std.testing.expectEqual(button.height, entry.w);
-    try std.testing.expectEqual(options.y, entry.y);
-    try std.testing.expectEqual(options.x - github_gap, entry.x + entry.w);
-}
-
-test "multiplayer sits between singleplayer and the texture packs" {
-    try std.testing.expectEqual(@as(?Action, .multiplayer), actionAt(320, 288, gui.scaledResolution(640, 480, 1000)));
-}

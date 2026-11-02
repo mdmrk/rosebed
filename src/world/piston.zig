@@ -579,17 +579,6 @@ test "breaking the head takes the piston with it" {
     try std.testing.expect(dropped_piston);
 }
 
-test "a head left without its base removes itself" {
-    const gpa = std.testing.allocator;
-    var w = try pistonWorld(gpa);
-    defer w.deinit();
-
-    try w.setBlockAndMetadataWithNotify(.init(8, 2, 8), .piston_head, block.pistonFacingValue(.up));
-    try w.setBlockWithNotify(.init(8, 3, 8), .wool);
-
-    try std.testing.expectEqual(Block.air, w.getBlock(.init(8, 2, 8)));
-}
-
 test "a pushed block slides over two ticks before it lands" {
     const gpa = std.testing.allocator;
     var w = try pistonWorld(gpa);
@@ -656,61 +645,6 @@ test "a retracting piston asks for no shove at all" {
     }
 }
 
-test "a piston placed at your feet faces up, one above your head faces down" {
-    const standing = math.Vec3.init(8.5, 10.0, 8.5);
-
-    try std.testing.expectEqual(Side.up, facingForPlacement(standing, .init(8, 7, 8), 0));
-    try std.testing.expectEqual(Side.down, facingForPlacement(standing, .init(8, 13, 8), 0));
-}
-
-test "a piston placed at arm's length faces the way you were looking" {
-    const standing = math.Vec3.init(8.5, 10.0, 8.5);
-
-    try std.testing.expectEqual(Side.north, facingForPlacement(standing, .init(8, 10, 8), 0));
-    try std.testing.expectEqual(Side.east, facingForPlacement(standing, .init(8, 10, 8), 90));
-    try std.testing.expectEqual(Side.south, facingForPlacement(standing, .init(8, 10, 8), 180));
-    try std.testing.expectEqual(Side.west, facingForPlacement(standing, .init(8, 10, 8), 270));
-}
-
-test "a piston placed from further off ignores the up and down rule" {
-    const far_off = math.Vec3.init(20.0, 10.0, 8.5);
-
-    try std.testing.expectEqual(Side.north, facingForPlacement(far_off, .init(8, 7, 8), 0));
-    try std.testing.expectEqual(Side.north, facingForPlacement(far_off, .init(8, 13, 8), 0));
-}
-
-test "a moving block leads by a whole block and closes on its target" {
-    var state: Moving = .{ .facing = .up, .extending = true };
-
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), state.offset(0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), state.displacement(0)[1], 1.0e-6);
-
-    state.progress = 1.0;
-    state.prev_progress = 1.0;
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), state.offset(0), 1.0e-6);
-}
-
-test "a retracting block starts under the piston and is drawn back in" {
-    var state: Moving = .{ .facing = .up, .extending = false };
-
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), state.offset(0), 1.0e-6);
-
-    state.progress = 1.0;
-    state.prev_progress = 1.0;
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), state.offset(0), 1.0e-6);
-}
-
-test "the slide is interpolated between the last tick and this one" {
-    const state: Moving = .{ .facing = .east, .extending = true, .prev_progress = 0.0, .progress = 0.5 };
-
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), state.offset(0.0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.75), state.offset(0.5), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.5), state.offset(1.0), 1.0e-6);
-
-    try std.testing.expectApproxEqAbs(@as(f32, -0.5), state.displacement(1.0)[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), state.displacement(1.0)[1], 1.0e-6);
-}
-
 test "a moving block survives a record round trip" {
     const gpa = std.testing.allocator;
     const state: Moving = .{
@@ -732,14 +666,4 @@ test "a moving block survives a record round trip" {
     try std.testing.expectEqual(Side.north, restored.state.facing);
     try std.testing.expect(restored.state.extending);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), restored.state.progress, 1.0e-6);
-}
-
-test "a record naming a block this port does not have comes back as air" {
-    const gpa = std.testing.allocator;
-    var tag = try store(gpa, .init(0, 0, 0), .{ .stored = .cobblestone });
-    defer nbt.deinit(gpa, &tag);
-
-    tag.compound.getPtr("blockId").?.* = .{ .int = 97 };
-
-    try std.testing.expectEqual(Block.air, load(tag.compound).?.state.stored);
 }

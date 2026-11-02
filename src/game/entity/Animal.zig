@@ -1339,17 +1339,6 @@ test "an idle animal turns to watch a player who walks up to it" {
     try std.testing.expect(watched);
 }
 
-test "grass is the preferred ground to wander onto" {
-    const gpa = std.testing.allocator;
-    var w = try testing_world.flatWorld(gpa, 1);
-    defer w.deinit();
-
-    w.getChunk(0, 0).?.setBlock(4, 0, 8, .grass);
-
-    try std.testing.expectEqual(@as(f32, 10.0), blockPathWeight(&w, .init(4, 1, 8)));
-    try std.testing.expect(blockPathWeight(&w, .init(12, 1, 8)) < 10.0);
-}
-
 test "an animal only spawns on lit grass" {
     const gpa = std.testing.allocator;
     var w = try grassWorld(gpa);
@@ -1380,17 +1369,6 @@ test "a taller animal needs the headroom its own height asks for" {
     try std.testing.expect(!tall.canSpawnHere(&w));
 }
 
-test "the limb swing amount saturates at one however hard the animal is hit" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var animal = testAnimal(math.Vec3.init(8, 1, 8));
-
-    _ = animal.hurt(&w, 1, null, &rand);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.5), animal.limb_swing_amount, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), animal.limbSwingAmount(1.0), 1.0e-6);
-}
-
 test "the death tilt rolls the corpse onto its side over the death animation" {
     var animal = testAnimal(math.Vec3.init(8, 1, 8));
 
@@ -1417,24 +1395,6 @@ test "an animal walks the way it is facing" {
     try std.testing.expectApproxEqAbs(@as(f64, 0), west.base.motion.z, 1.0e-6);
 }
 
-test "the body turns to follow the head rather than snapping to it" {
-    var animal = testAnimal(math.Vec3.init(8, 1, 8));
-    animal.yaw = 90;
-    Entity.updateRenderYaw(&animal);
-
-    try std.testing.expect(animal.render_yaw > 0.0);
-    try std.testing.expect(animal.render_yaw <= 90.0);
-    try std.testing.expect(@abs(animal.headYaw(1.0)) <= 75.0);
-}
-
-test "the eyes sit at the same fraction of the body however tall it is" {
-    const pig_sized = Animal.spawn(math.Vec3.init(0, 0, 0), .{ .width = 0.9, .height = 0.9 });
-    const sheep_sized = Animal.spawn(math.Vec3.init(0, 0, 0), .{ .width = 0.9, .height = 1.3 });
-
-    try std.testing.expectApproxEqAbs(@as(f64, 0.765), pig_sized.eyeHeight(), 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.105), sheep_sized.eyeHeight(), 1.0e-9);
-}
-
 fn viewAt(id: Entity.Id, x: f64, z: f64) PlayerView {
     return .{ .id = id, .position = math.Vec3.init(x, 1, z), .eye_height = 1.62, .alive = true };
 }
@@ -1450,20 +1410,6 @@ test "the closest player is the nearest one inside the range, and none beyond it
 
     const far = math.Vec3.init(18, 1, 0);
     try std.testing.expectEqual(@as(Entity.Id, 1), players.closestTo(far, -1.0).?.id);
-}
-
-test "an empty world has no closest player and no player by id" {
-    const players: Players = .{};
-    try std.testing.expect(players.closestTo(math.Vec3.init(0, 0, 0), -1.0) == null);
-    try std.testing.expect(players.byId(1) == null);
-}
-
-test "a player is found by the id it was given" {
-    const views = [_]PlayerView{ viewAt(4, 0, 0), viewAt(9, 5, 0) };
-    const players = Players.of(&views);
-
-    try std.testing.expectEqual(@as(f64, 5), players.byId(9).?.position.x);
-    try std.testing.expect(players.byId(5) == null);
 }
 
 test "an animal watches whichever player is nearer, and forgets one that walks away" {

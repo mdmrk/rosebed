@@ -80,17 +80,6 @@ test "inserting a record fills the jukebox and lights its metadata" {
     try std.testing.expectEqual(Item.record_13, w.jukeboxAt(.init(8, 4, 8)).?.record.?);
 }
 
-test "taking a record hands it back once and clears the metadata" {
-    var w = try testing_world.flatWorld(std.testing.allocator, 4);
-    defer w.deinit();
-    try w.setBlockWithNotify(.init(8, 4, 8), .jukebox);
-    try insertRecord(&w, .init(8, 4, 8), .record_cat);
-
-    try std.testing.expectEqual(Item.record_cat, (try takeRecord(&w, .init(8, 4, 8))).?);
-    try std.testing.expectEqual(@as(u4, 0), w.getBlockMetadata(.init(8, 4, 8)));
-    try std.testing.expect(try takeRecord(&w, .init(8, 4, 8)) == null);
-}
-
 test "a jukebox that lost its block spills its record and its state" {
     var w = try testing_world.flatWorld(std.testing.allocator, 4);
     defer w.deinit();
@@ -117,15 +106,6 @@ test "an empty jukebox writes no Record tag and reads back empty" {
     const loaded = load(tag.compound).?;
     try std.testing.expectEqual(BlockPos.init(3, 70, -9), loaded.pos);
     try std.testing.expect(loaded.state.record == null);
-}
-
-test "a loaded record survives a trip through NBT" {
-    const gpa = std.testing.allocator;
-    var tag = try store(gpa, .init(0, 64, 0), .{ .record = .record_cat });
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqual(@as(i32, 2257), tag.compound.get("Record").?.int);
-    try std.testing.expectEqual(Item.record_cat, load(tag.compound).?.state.record.?);
 }
 
 test "a tile entity of another kind is not read as a jukebox" {

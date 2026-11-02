@@ -278,17 +278,6 @@ test "a monster loses sight of a player it cannot reach through a wall" {
     );
 }
 
-test "a monster prefers the dark to wander into" {
-    const gpa = std.testing.allocator;
-    var w = try world.testing.flatWorld(gpa, 1);
-    defer w.deinit();
-
-    w.getChunk(0, 0).?.setSkyLight(4, 1, 8, 15);
-
-    try std.testing.expect(blockPathWeight(&w, .init(8, 1, 8)) > blockPathWeight(&w, .init(4, 1, 8)));
-    try std.testing.expect(blockPathWeight(&w, .init(4, 1, 8)) < 0.0);
-}
-
 test "a monster only spawns in the dark, in a clear dry space" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);

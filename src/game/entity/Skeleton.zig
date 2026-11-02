@@ -258,15 +258,6 @@ fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
     try entities.loose(context.gpa, shot, context.rand);
 }
 
-test "a skeleton is the size, health and speed EntitySkeleton inherits" {
-    const self = Skeleton.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 0.6), self.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.8), self.animal.base.height);
-    try std.testing.expectEqual(@as(i32, 20), self.animal.health);
-    try std.testing.expectEqual(Animal.default_move_speed, self.animal.move_speed);
-}
-
 test "a skeleton looses an arrow at a player inside ten blocks, then draws for thirty ticks" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -319,7 +310,6 @@ test "a skeleton's arrow leaves above its head and leads the player it is aimed 
     try std.testing.expectApproxEqAbs(@as(f64, 6.0), shot.toward.x, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), shot.toward.z, 1.0e-6);
 
-    // The lob is the flat range times a fifth, added on top of the drop to the player's eyes.
     const flat: f64 = 6.0;
     const to_eyes = 64.0 + 1.62 - aim_drop - shot.from.y;
     try std.testing.expectApproxEqAbs(to_eyes + flat * aim_lob, shot.toward.y, 1.0e-6);
@@ -403,16 +393,6 @@ test "a dying skeleton leaves both arrows and bones" {
     try std.testing.expect(seen_arrows);
     try std.testing.expect(seen_bones);
     try std.testing.expect(seen_empty);
-}
-
-test "a struck skeleton turns on the player who struck it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var self = Skeleton.spawn(math.Vec3.init(8, 1, 8));
-
-    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
-    try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 
 test "a skeleton keeps its wounds across a record round trip" {

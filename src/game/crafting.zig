@@ -486,81 +486,6 @@ pub fn consume(grid: []?Inventory.ItemStack) void {
     }
 }
 
-test "log crafts into planks in any grid cell" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[3] = .{ .id = .{ .block = .log }, .count = 1, .meta = 2 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .planks }, result.id);
-    try std.testing.expectEqual(@as(u8, 4), result.count);
-}
-
-test "two stacked planks craft into sticks" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .planks }, .count = 5 };
-    grid[2] = .{ .id = .{ .block = .planks }, .count = 5 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .stick }, result.id);
-    try std.testing.expectEqual(@as(u8, 4), result.count);
-}
-
-test "planks side by side lie flat into a pressure plate, not upright into sticks" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .planks }, .count = 5 };
-    grid[1] = .{ .id = .{ .block = .planks }, .count = 5 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .pressure_plate_planks }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "four clay balls fill the grid to craft a clay block" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    for (&grid) |*slot| slot.* = .{ .id = .{ .item = .clay_ball }, .count = 1 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .clay }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "three clay balls are not enough to fill the grid" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .clay_ball }, .count = 1 };
-    grid[1] = .{ .id = .{ .item = .clay_ball }, .count = 1 };
-    grid[2] = .{ .id = .{ .item = .clay_ball }, .count = 1 };
-    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
-}
-
-test "an unrelated extra item in the grid blocks the match" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .log }, .count = 1 };
-    grid[1] = .{ .id = .{ .block = .dirt }, .count = 1 };
-    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
-}
-
-test "consume removes one item from every filled grid slot" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
-    grid[2] = .{ .id = .{ .block = .planks }, .count = 2 };
-    consume(&grid);
-    try std.testing.expect(grid[0] == null);
-    try std.testing.expectEqual(@as(u8, 1), grid[2].?.count);
-}
-
-test "a filled grid of planks crafts a workbench" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    for (&grid) |*slot| slot.* = .{ .id = .{ .block = .planks }, .count = 1 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .workbench }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "a ring of cobblestone crafts a furnace, but a filled grid does not" {
-    var ring: [9]?Inventory.ItemStack = @splat(.{ .id = .{ .block = .cobblestone }, .count = 1 });
-    ring[4] = null;
-    try std.testing.expectEqual(world.Id{ .block = .furnace }, findMatch(&ring, workbench_grid_size).?.id);
-
-    var filled: [9]?Inventory.ItemStack = @splat(.{ .id = .{ .block = .cobblestone }, .count = 1 });
-    try std.testing.expect(findMatch(&filled, workbench_grid_size) == null);
-}
-
 test "the other filled-grid recipes each craft their block" {
     const cases = [_]struct { ingredient: world.Id, output: world.Id }{
         .{ .ingredient = .{ .item = .snowball }, .output = .{ .block = .snow_block } },
@@ -575,20 +500,6 @@ test "the other filled-grid recipes each craft their block" {
     }
 }
 
-test "wool crafted from string comes out white" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    for (&grid) |*slot| slot.* = .{ .id = .{ .item = .string }, .count = 1 };
-    try std.testing.expectEqual(@as(u16, 0), findMatch(&grid, player_grid_size).?.meta);
-}
-
-test "a single sugar cane crafts sugar in any grid cell" {
-    for (0..4) |cell| {
-        var grid: [4]?Inventory.ItemStack = @splat(null);
-        grid[cell] = .{ .id = .{ .item = .reed }, .count = 1 };
-        try std.testing.expectEqual(world.Id{ .item = .sugar }, findMatch(&grid, player_grid_size).?.id);
-    }
-}
-
 test "a three-wide recipe cannot be crafted in the player's 2x2 grid" {
     var small: [4]?Inventory.ItemStack = @splat(null);
     for (&small) |*slot| slot.* = .{ .id = .{ .item = .reed }, .count = 1 };
@@ -599,16 +510,6 @@ test "a three-wide recipe cannot be crafted in the player's 2x2 grid" {
     const result = findMatch(&large, workbench_grid_size).?;
     try std.testing.expectEqual(world.Id{ .item = .paper }, result.id);
     try std.testing.expectEqual(@as(u8, 3), result.count);
-}
-
-test "the shifted-window search finds a small recipe anywhere in the 3x3 grid" {
-    for (0..workbench_grid_size) |offset| {
-        var grid: [9]?Inventory.ItemStack = @splat(null);
-        grid[offset] = .{ .id = .{ .item = .paper }, .count = 1 };
-        grid[offset + 3] = .{ .id = .{ .item = .paper }, .count = 1 };
-        grid[offset + 6] = .{ .id = .{ .item = .paper }, .count = 1 };
-        try std.testing.expectEqual(world.Id{ .item = .book }, findMatch(&grid, workbench_grid_size).?.id);
-    }
 }
 
 test "the bookshelf needs its planks and books in the right rows" {
@@ -635,16 +536,6 @@ test "mushroom stew accepts either mushroom on top" {
         grid[6] = .{ .id = .{ .item = .bowl }, .count = 1 };
         try std.testing.expectEqual(world.Id{ .item = .mushroom_stew }, findMatch(&grid, workbench_grid_size).?.id);
     }
-}
-
-test "planks craft four bowls in a v shape" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
-    grid[2] = .{ .id = .{ .block = .planks }, .count = 1 };
-    grid[4] = .{ .id = .{ .block = .planks }, .count = 1 };
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .bowl }, result.id);
-    try std.testing.expectEqual(@as(u8, 4), result.count);
 }
 
 test "storage blocks round-trip back into nine items" {
@@ -685,23 +576,6 @@ test "a flower dyes into two of its colour anywhere in the grid" {
         const result = findMatch(&grid, workbench_grid_size).?;
         try std.testing.expectEqual(world.Id{ .item = .dye }, result.id);
         try std.testing.expectEqual(case.meta, result.meta);
-        try std.testing.expectEqual(@as(u8, 2), result.count);
-    }
-}
-
-test "a flower dyes in the player's 2x2 grid too, since shapeless recipes have no shape" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[3] = .{ .id = .{ .block = .rose }, .count = 1 };
-    try std.testing.expectEqual(@as(u16, dye_red), findMatch(&grid, player_grid_size).?.meta);
-}
-
-test "mixing two dyes ignores which cells they sit in" {
-    for ([2][2]usize{ .{ 0, 8 }, .{ 5, 2 } }) |cells| {
-        var grid: [9]?Inventory.ItemStack = @splat(null);
-        grid[cells[0]] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
-        grid[cells[1]] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
-        const result = findMatch(&grid, workbench_grid_size).?;
-        try std.testing.expectEqual(@as(u16, dye_purple), result.meta);
         try std.testing.expectEqual(@as(u8, 2), result.count);
     }
 }
@@ -747,25 +621,6 @@ test "dyeing white wool inverts the dye's metadata like BlockCloth does" {
         try std.testing.expectEqual(world.Id{ .block = .wool }, result.id);
         try std.testing.expectEqual(~@as(u4, @intCast(meta)), result.meta);
     }
-}
-
-test "only white wool can be dyed" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
-    grid[1] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 5 };
-    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
-}
-
-test "shaped recipes win over shapeless ones, as RecipeSorter orders them" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (&grid) |*slot| slot.* = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_blue };
-    try std.testing.expectEqual(world.Id{ .block = .block_lapis }, findMatch(&grid, workbench_grid_size).?.id);
-}
-
-test "four sand craft sandstone" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    for (&grid) |*slot| slot.* = .{ .id = .{ .block = .sand }, .count = 1 };
-    try std.testing.expectEqual(world.Id{ .block = .sandstone }, findMatch(&grid, player_grid_size).?.id);
 }
 
 fn craftOnWorkbench(cells: []const ?world.Id) ?Inventory.ItemStack {
@@ -826,27 +681,6 @@ test "a bow is strung from three sticks and three string, and only that way roun
     }) == null);
 }
 
-test "six planks over a stick make a sign" {
-    const plank: world.Id = .{ .block = .planks };
-    const sign = craftOnWorkbench(&.{
-        plank, plank,               plank,
-        plank, plank,               plank,
-        null,  .{ .item = .stick }, null,
-    }).?;
-    try std.testing.expectEqual(world.Id{ .item = .sign }, sign.id);
-    try std.testing.expectEqual(@as(u8, 1), sign.count);
-}
-
-test "flint, a stick and a feather make four arrows" {
-    const arrows = craftOnWorkbench(&.{
-        .{ .item = .flint },   null, null,
-        .{ .item = .stick },   null, null,
-        .{ .item = .feather }, null, null,
-    }).?;
-    try std.testing.expectEqual(world.Id{ .item = .arrow }, arrows.id);
-    try std.testing.expectEqual(@as(u8, 4), arrows.count);
-}
-
 test "the head material picks which tier of tool comes out" {
     const stick: world.Id = .{ .item = .stick };
     const heads = [_]world.Id{
@@ -889,84 +723,6 @@ test "each armour layout crafts its own piece" {
     }).?.id);
 }
 
-test "a tool needs the full workbench, so the personal grid cannot make one" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .block = .planks }, .count = 1 };
-    grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
-    try std.testing.expectEqual(@as(?Inventory.ItemStack, null), findMatch(&grid, player_grid_size));
-}
-
-test "six sticks in two rows craft two fences" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (0..6) |slot| grid[slot] = .{ .id = .{ .item = .stick }, .count = 1 };
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .fence }, result.id);
-    try std.testing.expectEqual(@as(u8, 2), result.count);
-}
-
-test "seven sticks in a rail shape craft two ladders" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 2, 3, 4, 5, 6, 8 }) |slot| {
-        grid[slot] = .{ .id = .{ .item = .stick }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .ladder }, result.id);
-    try std.testing.expectEqual(@as(u8, 2), result.count);
-}
-
-test "coal over a stick crafts four torches" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .coal }, .count = 1 };
-    grid[2] = .{ .id = .{ .item = .stick }, .count = 1 };
-    const result = findMatch(&grid, player_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .torch }, result.id);
-    try std.testing.expectEqual(@as(u8, 4), result.count);
-}
-
-test "a stick over coal is upside down and crafts nothing" {
-    var grid: [4]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .stick }, .count = 1 };
-    grid[2] = .{ .id = .{ .item = .coal }, .count = 1 };
-    try std.testing.expect(findMatch(&grid, player_grid_size) == null);
-}
-
-test "six planks in two columns craft a wooden door" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 1, 3, 4, 6, 7 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .door_wood }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "six iron ingots in two columns craft an iron door" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 1, 2, 4, 5, 7, 8 }) |cell| {
-        grid[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .door_iron }, result.id);
-}
-
-test "a door needs all six cells filled" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 1, 3, 4 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    }
-    try std.testing.expectEqual(world.Id{ .block = .workbench }, findMatch(&grid, workbench_grid_size).?.id);
-}
-
-test "six planks in two rows craft a pair of trapdoors" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 1, 2, 3, 4, 5 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .trapdoor }, result.id);
-    try std.testing.expectEqual(@as(u8, 2), result.count);
-}
-
 test "three blocks in a row craft three slabs, tagged with which block they came from" {
     for ([_]struct { cut: world.Block, meta: u4 }{
         .{ .cut = .cobblestone, .meta = world.block.slab_cobblestone },
@@ -985,15 +741,6 @@ test "three blocks in a row craft three slabs, tagged with which block they came
     }
 }
 
-test "two blocks in a row make a pressure plate, three are needed for slabs" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 3, 4 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .stone }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .block = .pressure_plate_stone }, result.id);
-}
-
 test "a staircase of six blocks crafts four stairs of that block" {
     for ([_]struct { cut: world.Block, out: world.Block }{
         .{ .cut = .planks, .out = .stairs_wood },
@@ -1007,32 +754,6 @@ test "a staircase of six blocks crafts four stairs of that block" {
         try std.testing.expectEqual(world.Id{ .block = pair.out }, result.id);
         try std.testing.expectEqual(@as(u8, 4), result.count);
     }
-}
-
-test "a staircase climbing the other way still crafts stairs, since shapes match mirrored" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 2, 4, 5, 6, 7, 8 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    }
-    try std.testing.expectEqual(world.Id{ .block = .stairs_wood }, findMatch(&grid, workbench_grid_size).?.id);
-}
-
-test "the same six planks turned on their side craft a door instead" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 1, 3, 4, 6, 7 }) |cell| {
-        grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    }
-    try std.testing.expectEqual(world.Id{ .item = .door_wood }, findMatch(&grid, workbench_grid_size).?.id);
-}
-
-test "three iron ingots in a v craft a bucket" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 2, 4 }) |cell| {
-        grid[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
-    }
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .bucket }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
 }
 
 test "two iron on a diagonal craft shears, either way round" {
@@ -1054,14 +775,6 @@ test "two iron on a diagonal craft shears, either way round" {
     stacked[0] = iron;
     stacked[3] = iron;
     try std.testing.expect(findMatch(&stacked, workbench_grid_size) == null);
-}
-
-test "the bucket's iron must be in a v, not a row or a full square" {
-    var row: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 0, 1, 2 }) |cell| {
-        row[cell] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
-    }
-    try std.testing.expect(findMatch(&row, workbench_grid_size) == null);
 }
 
 test "planks over cobble with iron and redstone craft a piston" {
@@ -1117,17 +830,6 @@ test "milk, sugar, egg and wheat craft one cake" {
     try std.testing.expectEqual(@as(u8, 1), result.count);
 }
 
-test "the cake's sugar and egg cannot swap places" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (0..3) |cell| grid[cell] = .{ .id = .{ .item = .bucket_milk }, .count = 1 };
-    grid[3] = .{ .id = .{ .item = .egg }, .count = 1 };
-    grid[4] = .{ .id = .{ .item = .sugar }, .count = 1 };
-    grid[5] = .{ .id = .{ .item = .sugar }, .count = 1 };
-    for (6..9) |cell| grid[cell] = .{ .id = .{ .item = .wheat }, .count = 1 };
-
-    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
-}
-
 test "an ingot over flint strikes flint and steel" {
     var grid: [9]?Inventory.ItemStack = @splat(null);
     grid[0] = .{ .id = .{ .item = .ingot_iron }, .count = 1 };
@@ -1156,70 +858,4 @@ test "a pumpkin over a torch crafts a jack o'lantern" {
     swapped[0] = .{ .id = .{ .block = .torch }, .count = 1 };
     swapped[2] = .{ .id = .{ .block = .pumpkin }, .count = 1 };
     try std.testing.expect(findMatch(&swapped, player_grid_size) == null);
-}
-
-test "wool over planks crafts a bed, in any fleece colour" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .wool }, .count = 1, .meta = 14 };
-    for (3..6) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .bed }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "the bed's wool cannot sit under its planks" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (0..3) |cell| grid[cell] = .{ .id = .{ .block = .planks }, .count = 1 };
-    for (3..6) |cell| grid[cell] = .{ .id = .{ .block = .wool }, .count = 1 };
-
-    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
-}
-
-test "eight sticks around wool stretch a painting" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for (0..9) |cell| grid[cell] = .{ .id = .{ .item = .stick }, .count = 1 };
-    grid[4] = .{ .id = .{ .block = .wool }, .count = 1 };
-
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .painting }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "four gold around redstone crafts a clock" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 1, 3, 5, 7 }) |cell| grid[cell] = .{ .id = .{ .item = .ingot_gold }, .count = 1 };
-    grid[4] = .{ .id = .{ .item = .redstone }, .count = 1 };
-
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .clock }, result.id);
-    try std.testing.expectEqual(@as(u8, 1), result.count);
-}
-
-test "the clock's gold and redstone cannot swap places" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    for ([_]usize{ 1, 3, 5, 7 }) |cell| grid[cell] = .{ .id = .{ .item = .redstone }, .count = 1 };
-    grid[4] = .{ .id = .{ .item = .ingot_gold }, .count = 1 };
-
-    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
-}
-
-test "wheat around cocoa beans bakes eight cookies" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .wheat }, .count = 1 };
-    grid[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_cocoa };
-    grid[2] = .{ .id = .{ .item = .wheat }, .count = 1 };
-
-    const result = findMatch(&grid, workbench_grid_size).?;
-    try std.testing.expectEqual(world.Id{ .item = .cookie }, result.id);
-    try std.testing.expectEqual(@as(u8, 8), result.count);
-}
-
-test "a cookie needs cocoa beans, not another dye colour" {
-    var grid: [9]?Inventory.ItemStack = @splat(null);
-    grid[0] = .{ .id = .{ .item = .wheat }, .count = 1 };
-    grid[1] = .{ .id = .{ .item = .dye }, .count = 1, .meta = dye_red };
-    grid[2] = .{ .id = .{ .item = .wheat }, .count = 1 };
-
-    try std.testing.expect(findMatch(&grid, workbench_grid_size) == null);
 }

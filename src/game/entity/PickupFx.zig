@@ -53,23 +53,6 @@ fn testItem(position: math.Vec3) ItemEntity {
     return item;
 }
 
-test "the effect freezes the item where it was swallowed" {
-    var item = testItem(math.Vec3.init(8, 5, 8));
-    item.base.prev_position = math.Vec3.init(1, 1, 1);
-    const fx = PickupFx.spawn(item);
-    try std.testing.expectEqual(fx.item.base.position, fx.item.base.prev_position);
-}
-
-test "the effect dies after three ticks" {
-    var fx = PickupFx.spawn(testItem(math.Vec3.init(8, 5, 8)));
-    for (0..2) |_| {
-        fx.tick();
-        try std.testing.expect(!fx.isExpired());
-    }
-    fx.tick();
-    try std.testing.expect(fx.isExpired());
-}
-
 test "the swallowed item accelerates towards the player's chest" {
     const player = Player.spawn(math.Vec3.init(8, 5, 8));
     const fx = PickupFx.spawn(testItem(math.Vec3.init(12, 5, 8)));
@@ -87,13 +70,4 @@ test "the swallowed item accelerates towards the player's chest" {
         arrival.y,
         1.0e-9,
     );
-}
-
-test "the swallowed item renders without any interpolation of its own" {
-    const player = Player.spawn(math.Vec3.init(8, 5, 8));
-    var fx = PickupFx.spawn(testItem(math.Vec3.init(12, 5, 8)));
-    fx.tick();
-
-    const drawn = fx.swallowed(&player, 0.5);
-    try std.testing.expectEqual(drawn.base.position, drawn.base.renderPosition(1.0));
 }

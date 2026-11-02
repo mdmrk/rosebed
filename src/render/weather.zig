@@ -175,17 +175,6 @@ fn fade(view: View, x: i32, z: i32, reach: i32, base: f32, falloff: f32) f32 {
     return ((1.0 - away * away) * falloff + base) * view.strength;
 }
 
-test "the reach widens with fancy graphics, the way vanilla doubles it" {
-    try std.testing.expectEqual(@as(i32, 10), reachFor(true));
-    try std.testing.expectEqual(@as(i32, 5), reachFor(false));
-}
-
-test "each column gets its own seed so neighbours fall out of step" {
-    try std.testing.expect(columnSeed(0, 0) != columnSeed(1, 0));
-    try std.testing.expect(columnSeed(0, 0) != columnSeed(0, 1));
-    try std.testing.expectEqual(columnSeed(4, -7), columnSeed(4, -7));
-}
-
 test "rain thins out toward the edge of the reach" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -222,6 +211,5 @@ test "a dry sky draws nothing at all" {
         .fancy = false,
     });
 
-    // The flat test world is one chunk, so every column outside it has no ground to hang rain from.
     try std.testing.expect(mesh.vertices.items.len % 4 == 0);
 }

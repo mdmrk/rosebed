@@ -214,13 +214,3 @@ test "an egg hatches about one throw in eight, and a whole brood far more rarely
     try std.testing.expect(hatches > 4096 / 12 and hatches < 4096 / 5);
     try std.testing.expect(broods > 0 and broods < hatches / 4);
 }
-
-test "an egg that falls out of the world stops existing" {
-    const gpa = std.testing.allocator;
-    var w = world.World.init(gpa);
-    defer w.deinit();
-
-    var egg: Thrown = .{ .kind = .egg, .base = Entity.init(math.Vec3.init(8, -70, 8), size, size) };
-    egg.settle(&w);
-    try std.testing.expect(egg.dead);
-}

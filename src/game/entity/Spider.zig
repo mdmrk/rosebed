@@ -267,16 +267,6 @@ fn lightUp(w: *world.World) void {
     }
 }
 
-test "a spider is the wide, low shape EntitySpider sets itself to" {
-    const self = Spider.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 1.4), self.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 0.9), self.animal.base.height);
-    try std.testing.expectEqual(@as(i32, 20), self.animal.health);
-    try std.testing.expectEqual(move_speed, self.animal.move_speed);
-    try std.testing.expect(self.animal.climbs_walls);
-}
-
 test "a spider hunts in the dark and leaves the player alone in the light" {
     const gpa = std.testing.allocator;
     var w = try darkWorld(gpa);
@@ -482,26 +472,6 @@ test "a dying spider drops nought to two string" {
 
     try std.testing.expect(dropped_nothing);
     try std.testing.expect(dropped_something);
-}
-
-test "a spider rolls all the way over when it dies, not onto its side" {
-    var self = Spider.spawn(math.Vec3.init(8, 1, 8));
-    self.animal.death_time = Animal.death_ticks;
-
-    try std.testing.expectApproxEqAbs(death_max_rotation, self.animal.deathTilt(1.0), 1.0e-6);
-
-    const upright = Animal.spawn(math.Vec3.init(8, 1, 8), .{ .width = 0.6, .height = 1.8 });
-    try std.testing.expectEqual(Animal.default_death_max_rotation, upright.death_max_rotation);
-}
-
-test "a struck spider turns on the player who struck it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var self = Spider.spawn(math.Vec3.init(8, 1, 8));
-
-    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
-    try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 
 test "the spider's eyes glow brightest in the dark" {

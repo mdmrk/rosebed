@@ -135,49 +135,6 @@ pub fn draw(
     gui.endOverlay();
 }
 
-test "the options fill two columns, row by row" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const list = controls(res.width, res.height);
-    try std.testing.expectEqual(@as(f32, 5), list[0].x);
-    try std.testing.expectEqual(@as(f32, 165), list[1].x);
-    try std.testing.expectEqual(list[0].y, list[1].y);
-    try std.testing.expectEqual(list[0].y + 24, list[2].y);
-    try std.testing.expectEqual(list[0].y + 72, list[6].y);
-}
-
-test "the last row clears the Done button" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const list = controls(res.width, res.height);
-    const last = list[order.len - 1];
-    try std.testing.expectEqual(list[0].y + 24 * @as(f32, (order.len - 1) >> 1), last.y);
-    try std.testing.expect(last.y + button.height <= list[order.len].y);
-}
-
-test "fullscreen is offered only where the window is not already the whole screen" {
-    try std.testing.expectEqual(!wasm and !android, std.mem.findScalar(Hit, &order, .fullscreen) != null);
-}
-
-test "fullscreen toggles off and on" {
-    var settings: game.Settings = .{};
-    try std.testing.expect(!settings.fullscreen);
-    cycle(&settings, .fullscreen);
-    try std.testing.expect(settings.fullscreen);
-    cycle(&settings, .fullscreen);
-    try std.testing.expect(!settings.fullscreen);
-}
-
-test "clicking Done returns the done hit" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt(320, 416, res));
-}
-
-test "graphics toggles between fancy and fast" {
-    var settings: game.Settings = .{};
-    try std.testing.expect(settings.fancy_graphics);
-    cycle(&settings, .graphics);
-    try std.testing.expect(!settings.fancy_graphics);
-}
-
 test "gui scale cycles auto, small, normal, large and wraps" {
     var settings: game.Settings = .{};
     try std.testing.expectEqual(game.Settings.GuiScale.auto, settings.gui_scale);

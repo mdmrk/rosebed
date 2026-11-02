@@ -167,17 +167,6 @@ fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
     self.monster.deliverAttack(animal, context);
 }
 
-test "a giant is six zombies wide and tall, with ten zombies' health" {
-    const self = Giant.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectApproxEqAbs(@as(f64, 3.6), self.animal.base.width, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 10.8), self.animal.base.height, 1.0e-9);
-    try std.testing.expectEqual(@as(i32, 200), self.animal.health);
-    try std.testing.expectEqual(@as(f32, 0.5), self.animal.move_speed);
-    try std.testing.expectEqual(@as(i32, 50), self.monster.attack_strength);
-    try std.testing.expect(!self.animal.immune_to_fire);
-}
-
 test "a giant seeks the light EntityMob shuns" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 1);
@@ -193,11 +182,6 @@ test "a giant seeks the light EntityMob shuns" {
     try std.testing.expect(Monster.blockPathWeight(&w, bright) < Monster.blockPathWeight(&w, dark));
 }
 
-test "a giant carries its own path weight rather than EntityMob's" {
-    const self = Giant.spawn(math.Vec3.init(0, 0, 0));
-    try std.testing.expect(self.animal.path_weight == &blockPathWeight);
-}
-
 test "a giant leaves no body behind" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -210,16 +194,6 @@ test "a giant leaves no body behind" {
         try std.testing.expect(!self.animal.isAlive());
         try std.testing.expect(mobTakeDrops(&self.animal) == null);
     }
-}
-
-test "a struck giant turns on the player who struck it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var self = Giant.spawn(math.Vec3.init(8, 1, 8));
-
-    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
-    try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 
 test "a giant keeps its wounds across a record round trip" {

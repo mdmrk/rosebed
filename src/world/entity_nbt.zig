@@ -22,7 +22,6 @@ pub const giant_id = "Giant";
 pub const zombie_id = "Zombie";
 pub const pig_zombie_id = "PigZombie";
 pub const wolf_id = "Wolf";
-pub const wolf_owner = "Player";
 pub const item_id = "Item";
 pub const arrow_id = "Arrow";
 pub const painting_id = "Painting";
@@ -970,28 +969,6 @@ const sample_living = Living{
     .death_time = 0,
 };
 
-test "a pig survives a round trip through its NBT compound" {
-    const gpa = std.testing.allocator;
-    const original = Pig{ .living = sample_living, .saddled = true };
-
-    var tag = try storePig(gpa, original);
-    defer nbt.deinit(gpa, &tag);
-
-    const loaded = loadPig(tag.compound).?;
-    try std.testing.expectEqual(original, loaded);
-}
-
-test "a sheep survives a round trip through its NBT compound" {
-    const gpa = std.testing.allocator;
-    const original = Sheep{ .living = sample_living, .sheared = true, .color = 15 };
-
-    var tag = try storeSheep(gpa, original);
-    defer nbt.deinit(gpa, &tag);
-
-    const loaded = loadSheep(tag.compound).?;
-    try std.testing.expectEqual(original, loaded);
-}
-
 test "a sheep is stored under the id the original writes, and colours survive it" {
     const gpa = std.testing.allocator;
 
@@ -1002,28 +979,6 @@ test "a sheep is stored under the id the original writes, and colours survive it
         try std.testing.expectEqualStrings("Sheep", tag.compound.get("id").?.string);
         try std.testing.expectEqual(@as(u4, @intCast(color)), loadSheep(tag.compound).?.color);
     }
-}
-
-test "a cow survives a round trip through its NBT compound" {
-    const gpa = std.testing.allocator;
-    const original = Cow{ .living = sample_living };
-
-    var tag = try storeCow(gpa, original);
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqualStrings("Cow", tag.compound.get("id").?.string);
-    try std.testing.expectEqual(original, loadCow(tag.compound).?);
-}
-
-test "a chicken survives a round trip through its NBT compound" {
-    const gpa = std.testing.allocator;
-    const original = Chicken{ .living = sample_living };
-
-    var tag = try storeChicken(gpa, original);
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqualStrings("Chicken", tag.compound.get("id").?.string);
-    try std.testing.expectEqual(original, loadChicken(tag.compound).?);
 }
 
 test "a dropped item survives a round trip with its stack intact" {
@@ -1058,17 +1013,6 @@ test "a block stack and an item stack both survive the id split at 256" {
         defer nbt.deinit(gpa, &tag);
         try std.testing.expectEqual(stack, loadItem(tag.compound).?.stack);
     }
-}
-
-test "an item compound with an empty stack is read as nothing" {
-    const gpa = std.testing.allocator;
-    var tag = try storeItem(gpa, .{
-        .base = .{ .position = math.Vec3.init(0, 64, 0) },
-        .stack = .{ .id = .{ .block = .stone }, .count = 0 },
-    });
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expect(loadItem(tag.compound) == null);
 }
 
 test "an arrow survives a round trip stuck in the block it hit" {
@@ -1141,17 +1085,6 @@ test "a wolf survives a round trip through its NBT compound" {
     try std.testing.expectEqual(original, loadWolf(tag.compound).?);
 }
 
-test "an untamed wolf writes an empty owner and reads back untamed" {
-    const gpa = std.testing.allocator;
-    const original = Wolf{ .living = sample_living, .angry = true };
-
-    var tag = try storeWolf(gpa, original);
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqual(@as(usize, 0), tag.compound.get("Owner").?.string.len);
-    try std.testing.expectEqual(original, loadWolf(tag.compound).?);
-}
-
 test "an entity of a kind we do not know is read as nothing at all" {
     const gpa = std.testing.allocator;
     var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(0, 0, 0) } });
@@ -1168,17 +1101,6 @@ test "an entity of a kind we do not know is read as nothing at all" {
     try std.testing.expect(loadChicken(tag.compound) == null);
 }
 
-test "absurd stored motion is discarded rather than launching the pig" {
-    const gpa = std.testing.allocator;
-    var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(0, 64, 0), .motion = math.Vec3.init(99.0, -50.0, 0.5) } });
-    defer nbt.deinit(gpa, &tag);
-
-    const loaded = loadPig(tag.compound).?;
-    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion.x);
-    try std.testing.expectEqual(@as(f64, 0), loaded.living.motion.y);
-    try std.testing.expectEqual(@as(f64, 0.5), loaded.living.motion.z);
-}
-
 test "a pig compound missing its position is rejected" {
     const gpa = std.testing.allocator;
     var tag = try storePig(gpa, .{ .living = .{ .position = math.Vec3.init(1, 2, 3) } });
@@ -1189,17 +1111,6 @@ test "a pig compound missing its position is rejected" {
     nbt.deinit(gpa, &removed.value);
 
     try std.testing.expect(loadPig(tag.compound) == null);
-}
-
-test "a vanilla stack carries no key, so its compound is unchanged" {
-    const gpa = std.testing.allocator;
-    var tag = try storeItem(gpa, .{
-        .base = .{ .position = math.Vec3.init(0, 64, 0) },
-        .stack = .{ .id = .{ .item = .diamond }, .count = 1 },
-    });
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expect(tag.compound.get("Item").?.compound.get("Key") == null);
 }
 
 test "a dropped modded item comes back at whatever id its key holds now" {

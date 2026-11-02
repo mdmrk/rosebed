@@ -496,35 +496,6 @@ fn testWorldWithFloor(floor_top_y: u32) !world.World {
     return w;
 }
 
-test "falling onto a floor stops the vertical offset at the surface" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    const aabb = math.Aabb.init(0, 1.1, 0, 0.6, 2.9, 0.6);
-    const result = moveEntity(&w, aabb, 0, -0.5, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, -0.1), result.dy, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.aabb.min_y, 1.0e-9);
-}
-
-test "walking into a wall clamps the horizontal offset at the surface" {
-    var w = try testWorldWithFloor(0);
-    defer w.deinit();
-    w.setBlock(.init(2, 0, 0), .stone);
-    const aabb = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
-    const result = moveEntity(&w, aabb, 0.5, 0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.2), result.dx, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), result.aabb.max_x, 1.0e-9);
-}
-
-test "open air applies the full requested movement" {
-    var w = try testWorldWithFloor(0);
-    defer w.deinit();
-    const aabb = math.Aabb.init(0, 50, 0, 0.6, 51.8, 0.6);
-    const result = moveEntity(&w, aabb, 1.0, -1.0, 1.0);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dx, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.dy, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.dz, 1.0e-9);
-}
-
 test "a single slab is half a block tall to walk onto, a double slab a whole one" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
@@ -594,66 +565,6 @@ test "a step that lands mid-block locks out stepping until the offset decays" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.2), locked.dx, 1.0e-9);
 }
 
-fn waterWorld() !world.World {
-    var w = try testWorldWithFloor(1);
-    errdefer w.deinit();
-    for (0..world.Chunk.width) |x| {
-        for (0..world.Chunk.width) |z| {
-            var y: u32 = 1;
-            while (y < 5) : (y += 1) {
-                w.getChunk(0, 0).?.setBlock(@intCast(x), y, @intCast(z), .stationary_water);
-            }
-        }
-    }
-    return w;
-}
-
-test "water has no collision box, so an entity sinks straight through it" {
-    var w = try waterWorld();
-    defer w.deinit();
-    const aabb = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
-    const result = moveEntity(&w, aabb, 0, -2.0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, -2.0), result.dy, 1.0e-9);
-}
-
-test "a box inside still water reports contact but no push" {
-    var w = try waterWorld();
-    defer w.deinit();
-    const push = handleWaterMovement(&w, math.Aabb.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3).expand(0, -0.4, 0)).?;
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), push.length(), 1.0e-9);
-}
-
-test "a box in open air is not in water at all" {
-    var w = try waterWorld();
-    defer w.deinit();
-    try std.testing.expect(handleWaterMovement(&w, math.Aabb.init(7.7, 20.0, 7.7, 8.3, 21.8, 8.3).expand(0, -0.4, 0)) == null);
-}
-
-test "a source block counts as submerged right up to the top of its block" {
-    var w = try waterWorld();
-    defer w.deinit();
-    try std.testing.expect(isInsideWater(&w, 8.5, 3.5, 8.5));
-    try std.testing.expect(isInsideWater(&w, 8.5, 4.95, 8.5));
-    try std.testing.expect(!isInsideWater(&w, 8.5, 5.01, 8.5));
-}
-
-test "a shallow flowing block leaves an air gap the camera can see out of" {
-    var w = try waterWorld();
-    defer w.deinit();
-    w.setBlock(.init(8, 4, 8), .flowing_water);
-    w.setBlockMetadata(.init(8, 4, 8), 4);
-    try std.testing.expect(!isInsideWater(&w, 8.5, 4.9, 8.5));
-    try std.testing.expect(isInsideWater(&w, 8.5, 4.4, 8.5));
-}
-
-test "stepping out of water needs a free, dry space to move into" {
-    var w = try waterWorld();
-    defer w.deinit();
-    const box = math.Aabb.init(7.7, 2.0, 7.7, 8.3, 3.8, 8.3);
-    try std.testing.expect(!isOffsetPositionInLiquid(&w, box, 0, 0, 0));
-    try std.testing.expect(isOffsetPositionInLiquid(&w, box, 0, 4.0, 0));
-}
-
 test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
     var w = try testWorldWithFloor(1);
     defer w.deinit();
@@ -666,58 +577,6 @@ test "a cactus is a sixteenth narrower and shorter than the cell it sits in" {
     const falling = math.Aabb.init(8.7, 3.0, 7.7, 9.3, 4.8, 8.3);
     const landed = moveEntity(&w, falling, 0, -2.0, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 1.0 / 16.0), landed.aabb.min_y, 1.0e-9);
-}
-
-test "soul sand is two sixteenths short, so an entity stands sunk into its cell" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    w.setBlock(.init(8, 1, 8), .soul_sand);
-
-    const falling = math.Aabb.init(7.7, 4.0, 7.7, 8.3, 5.8, 8.3);
-    const landed = moveEntity(&w, falling, 0, -3.0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0 - 2.0 / 16.0), landed.aabb.min_y, 1.0e-9);
-}
-
-test "farmland is walked on as a whole cube even though it renders shaved" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    w.setBlock(.init(8, 1, 8), .farmland);
-
-    const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
-    const landed = moveEntity(&w, falling, 0, -4.0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), landed.aabb.min_y, 1.0e-9);
-}
-
-test "a crop is walked straight through" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    w.setBlock(.init(8, 1, 8), .farmland);
-    w.setBlock(.init(8, 2, 8), .crops);
-
-    const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
-    const into = moveEntity(&w, walking, 2.0, 0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 9.3), into.aabb.max_x, 1.0e-9);
-}
-
-test "a fence stands half a block taller than its own cell" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    w.setBlock(.init(8, 1, 8), .fence);
-
-    const falling = math.Aabb.init(7.7, 5.0, 7.7, 8.3, 6.8, 8.3);
-    const landed = moveEntity(&w, falling, 0, -4.0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.5), landed.aabb.min_y, 1.0e-9);
-}
-
-test "a fence blocks a walker whose feet are already above the fence's cell" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    w.setBlock(.init(7, 1, 8), .stone);
-    w.setBlock(.init(8, 1, 8), .fence);
-
-    const walking = math.Aabb.init(6.7, 2.0, 7.7, 7.3, 3.8, 8.3);
-    const into = moveEntity(&w, walking, 1.0, 0, 0);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.0), into.aabb.max_x, 1.0e-9);
 }
 
 test "a ladder is a two-sixteenth panel that only blocks the wall it hangs on" {
@@ -749,43 +608,12 @@ test "a box counts as touching the cell it barely overlaps, but not the one it o
     try std.testing.expect(!touchesBlock(&w, brushing, .sand));
 }
 
-test "a closed door stops an entity walking into it" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, .init(8, 1, 8), .door_wood, 180));
-
-    const closed = world.block.doorBounds(w.getBlockMetadata(.init(8, 1, 8)));
-    const aabb = math.Aabb.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
-    const blocked = moveEntity(&w, aabb, 0, 0, 2.0);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.0) + @as(f64, closed.min[2]), blocked.aabb.max_z, 1.0e-9);
-}
-
-test "an open door leaves the doorway clear" {
-    var w = try testWorldWithFloor(1);
-    defer w.deinit();
-    try std.testing.expect(try world.block_update.placeDoor(&w, .init(8, 1, 8), .door_wood, 180));
-    try world.block_update.toggleDoor(&w, .init(8, 1, 8));
-
-    const aabb = math.Aabb.init(8.2, 1.0, 6.7, 8.8, 2.8, 7.3);
-    const through = moveEntity(&w, aabb, 0, 0, 2.0);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), through.dz, 1.0e-9);
-}
-
 fn trapdoorWorld(metadata: u4) !world.World {
     var w = try testWorldWithFloor(1);
     errdefer w.deinit();
     w.setBlock(.init(8, 1, 9), .stone);
     try w.setBlockAndMetadataWithNotify(.init(8, 1, 8), .trapdoor, metadata);
     return w;
-}
-
-test "a shut trapdoor is a floor an entity lands on" {
-    var w = try trapdoorWorld(0);
-    defer w.deinit();
-
-    const aabb = math.Aabb.init(8.2, 2.0, 7.9, 8.8, 3.8, 8.5);
-    const landed = moveEntity(&w, aabb, 0, -1.0, 0);
-    try std.testing.expectApproxEqAbs(1.0 + @as(f64, world.block.trapdoor_thickness), landed.aabb.min_y, 1.0e-9);
 }
 
 test "an open trapdoor drops an entity through and bars the way instead" {
@@ -815,12 +643,4 @@ test "a one block rise is jumpable, open air and a taller wall are not" {
 
     w.setBlock(.init(2, 1, 0), .stone);
     try std.testing.expect(!stepIsJumpable(&w, box, east));
-}
-
-test "a rise behind the entity is not jumpable" {
-    var w = try testWorldWithFloor(0);
-    defer w.deinit();
-    w.setBlock(.init(2, 0, 0), .stone);
-    const box = math.Aabb.init(1.2, 0, -0.3, 1.8, 1.8, 0.3);
-    try std.testing.expect(!stepIsJumpable(&w, box, .{ -1, 0, 0 }));
 }

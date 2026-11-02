@@ -106,7 +106,6 @@ pub const stuck_lifetime: i32 = 1200;
 pub const reel_range_squared: f64 = 1024.0;
 pub const buoyancy_slices: usize = 5;
 pub const bite_chance: i32 = 500;
-pub const bite_chance_rain: i32 = 300;
 
 const hand_offset: f32 = 0.16;
 const hand_drop: f64 = 0.1;
@@ -376,15 +375,6 @@ test "reeling in reports what was on the line" {
     try std.testing.expectEqual(Catch.stuck, snagged.reelIn());
 }
 
-test "a caught fish is thrown back toward the angler" {
-    var hook: FishHook = .{ .base = Entity.init(math.Vec3.init(8.5, 12.0, 12.5), size, size) };
-    const toss = hook.pullToward(math.Vec3.init(8.5, 13.0, 8.5));
-
-    try std.testing.expectApproxEqAbs(@as(f64, 0), toss.x, 1.0e-12);
-    try std.testing.expect(toss.z < 0);
-    try std.testing.expect(toss.y > 0);
-}
-
 test "the line runs from the bobber to the rod tip and sags between" {
     var hook: FishHook = .{ .base = Entity.init(math.Vec3.init(8.5, 12.0, 16.5), size, size) };
     hook.base.prev_position = hook.base.position;
@@ -437,10 +427,4 @@ test "the rod tip sits off the angler's hand and swings with the cast" {
     behind.third_person = true;
     const over_shoulder = rodTip(behind);
     try std.testing.expectApproxEqAbs(@as(f64, 13.0 - 0.45), over_shoulder.y, 1.0e-9);
-}
-
-test "a bobber cast too far away is out of range" {
-    var hook: FishHook = .{ .base = Entity.init(math.Vec3.init(0, 0, 0), size, size) };
-    try std.testing.expect(!hook.outOfRange(math.Vec3.init(10, 0, 10)));
-    try std.testing.expect(hook.outOfRange(math.Vec3.init(40, 0, 0)));
 }

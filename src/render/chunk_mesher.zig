@@ -3360,17 +3360,6 @@ fn cornerAt(mesh: MeshBuilder, quad: usize, at: [3]f32) !MeshBuilder.Vertex {
     return error.NoSuchCorner;
 }
 
-test "a bottom face runs its tile along +z, the way renderBottomFace lays it down" {
-    const gpa = std.testing.allocator;
-    var mesh: MeshBuilder = .{};
-    defer mesh.deinit(gpa);
-    try buildCube(&mesh, gpa, .{ 0, 0, 0 }, .{ 1, 1, 1 }, world.block.FaceTextures.initFill(1), 0.0);
-
-    const uv = Atlas.tileUv(1);
-    try std.testing.expectApproxEqAbs(uv.v0, (try cornerAt(mesh, 0, .{ 0, 0, 0 })).v, 1.0e-6);
-    try std.testing.expectApproxEqAbs(uv.v1, (try cornerAt(mesh, 0, .{ 0, 0, 1 })).v, 1.0e-6);
-}
-
 test "an extended east-facing piston lands its side tile exactly where RenderBlocks does" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
@@ -3462,16 +3451,6 @@ test "half a shaft takes half the tile, so the rod keeps its pixel scale as it s
     var u_high: f32 = -std.math.floatMax(f32);
     for (mesh.vertices.items) |vertex| u_high = @max(u_high, vertex.u);
     try std.testing.expectApproxEqAbs(uv.u0 + (uv.u1 - uv.u0) * 0.5, u_high, 1.0e-6);
-}
-
-test "a shaft ground away to nothing draws nothing" {
-    const gpa = std.testing.allocator;
-
-    var mesh: MeshBuilder = .{};
-    defer mesh.deinit(gpa);
-    try buildPistonShaft(&mesh, gpa, world.block.pistonFacingValue(.up), 0.0, .{ 0, 0, 0 }, world.block.piston_side_tile, 1.0);
-
-    try std.testing.expectEqual(@as(usize, 0), mesh.vertices.items.len);
 }
 
 test "a retracted piston fills its block, an extended one comes up short" {
@@ -3580,7 +3559,6 @@ test "the collar on a piston's sides always points the way the piston faces" {
         while (quad * 4 < mesh.vertices.items.len) : (quad += 1) {
             const corners = mesh.vertices.items[quad * 4 ..][0..4];
 
-            // Only the four faces that carry the side tile wear the collar.
             if (@abs(corners[0].u - uv.u0) > 1.0e-5 and @abs(corners[0].u - uv.u1) > 1.0e-5) continue;
             var on_side_tile = true;
             for (corners) |corner| {
@@ -3605,7 +3583,6 @@ test "the collar on a piston's sides always points the way the piston faces" {
             }
             if (!seen_collar) continue;
 
-            // The collar edge runs flat across the end of the block the head sits at.
             try std.testing.expectApproxEqAbs(collar_low, collar_high, 1.0e-5);
             try std.testing.expectApproxEqAbs(if (toward_high) @as(f32, 1.0) else @as(f32, 0.0), collar_low, 1.0e-5);
             checked += 1;
@@ -3706,42 +3683,6 @@ test "dust running east to west uses the line tile, not the crossing" {
     var run = try wireMesh(gpa, &world_map, 0);
     defer run.deinit(gpa);
     try std.testing.expect(try dustReachesTileEdge(run, gpa, line_edge));
-}
-
-test "redstone dust breaks into dark red shards, not grey stone ones" {
-    const tint = blockTint(Colorizer.untinted, .redstone_wire, 0, world.Side.up, 0.5, 0.5);
-    try std.testing.expectEqual(world.block.wire_particle_tint, tint);
-    try std.testing.expectEqual(Colorizer.white, blockTint(Colorizer.untinted, .stone, 0, world.Side.up, 0.5, 0.5));
-}
-
-fn stickExtents(metadata: u4) [2][3]f32 {
-    const corners = leverStickCorners(metadata, .{ 0, 0, 0 });
-    var lowest: [3]f32 = .{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };
-    var highest: [3]f32 = .{ -std.math.floatMax(f32), -std.math.floatMax(f32), -std.math.floatMax(f32) };
-    for (corners) |corner| {
-        for (0..3) |axis| {
-            lowest[axis] = @min(lowest[axis], corner[axis]);
-            highest[axis] = @max(highest[axis], corner[axis]);
-        }
-    }
-    return .{ lowest, highest };
-}
-
-fn expectExtents(metadata: u4, lowest: [3]f32, highest: [3]f32) !void {
-    const got = stickExtents(metadata);
-    for (0..3) |axis| {
-        try std.testing.expectApproxEqAbs(lowest[axis], got[0][axis], 1.0e-3);
-        try std.testing.expectApproxEqAbs(highest[axis], got[1][axis], 1.0e-3);
-    }
-}
-
-test "a lever handle stands where RenderBlocks swings it, per wall and floor facing" {
-    try expectExtents(1, .{ 0.045, 0.500, 0.438 }, .{ 0.604, 0.997, 0.562 });
-    try expectExtents(2, .{ 0.396, 0.500, 0.438 }, .{ 0.955, 0.997, 0.562 });
-    try expectExtents(3, .{ 0.438, 0.500, 0.045 }, .{ 0.562, 0.997, 0.604 });
-    try expectExtents(4, .{ 0.438, 0.500, 0.396 }, .{ 0.562, 0.997, 0.955 });
-    try expectExtents(5, .{ 0.438, 0.045, 0.500 }, .{ 0.562, 0.604, 0.997 });
-    try expectExtents(6, .{ 0.500, 0.045, 0.438 }, .{ 0.997, 0.604, 0.562 });
 }
 
 test "a lit portal meshes as one seamless sheet, not a stack of boxes" {

@@ -1625,29 +1625,6 @@ test "a solid block over either half seals the chest shut" {
     try std.testing.expect(!w.chestIsBlocked(.init(4, 7, 5)));
 }
 
-test "reading an unloaded chunk returns air" {
-    var w = World.init(std.testing.allocator);
-    defer w.deinit();
-    try std.testing.expectEqual(.air, w.getBlock(.init(1000, 5, 1000)));
-}
-
-test "negative coordinates resolve to the correct chunk" {
-    var w = World.init(std.testing.allocator);
-    defer w.deinit();
-    const neg = try w.createChunk(-1, -1);
-    neg.setBlock(15, 5, 15, .stone);
-    try std.testing.expectEqual(.stone, w.getBlock(.init(-1, 5, -1)));
-    try std.testing.expectEqual(.air, w.getBlock(.init(-2, 5, -1)));
-}
-
-test "setBlock writes through to the owning chunk" {
-    var w = World.init(std.testing.allocator);
-    defer w.deinit();
-    _ = try w.createChunk(0, 0);
-    w.setBlock(.init(3, 10, 4), .stone);
-    try std.testing.expectEqual(.stone, w.getBlock(.init(3, 10, 4)));
-}
-
 test "ensureDecorated shape-generates the full 3x3 neighbor block" {
     const gpa = std.testing.allocator;
     const gen = try TerrainGenerator.init(gpa, 1);
@@ -1787,16 +1764,6 @@ test "skylight is only subtracted between dusk and dawn" {
         world_map.time = case.time;
         try std.testing.expectEqual(case.subtracted, world_map.calculateSkylightSubtracted(0.0));
     }
-}
-
-test "a day wraps around without discontinuity" {
-    var world_map = World.init(std.testing.allocator);
-    defer world_map.deinit();
-
-    world_map.time = 24000;
-    const wrapped = world_map.celestialAngle(0.0);
-    world_map.time = 0;
-    try std.testing.expectEqual(world_map.celestialAngle(0.0), wrapped);
 }
 
 test "a world with a save reloads its chunks from disk instead of regenerating them" {

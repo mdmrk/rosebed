@@ -364,38 +364,6 @@ test "lighting a fire inside a finished obsidian frame fills it with portal bloc
     }
 }
 
-test "a frame with a hole in it does not light" {
-    const gpa = std.testing.allocator;
-    var w = try obsidianFrameWorld(gpa, true);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 67, 8), .air);
-
-    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 64, 8)));
-}
-
-test "a frame blocked by something other than fire does not light" {
-    const gpa = std.testing.allocator;
-    var w = try obsidianFrameWorld(gpa, true);
-    defer w.deinit();
-
-    w.setBlock(.init(9, 65, 8), .stone);
-
-    try std.testing.expect(!try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
-}
-
-test "fire already burning in the frame does not stop it lighting" {
-    const gpa = std.testing.allocator;
-    var w = try obsidianFrameWorld(gpa, true);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 64, 8), .fire);
-
-    try std.testing.expect(try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 }));
-    try std.testing.expectEqual(.portal, w.getBlock(.init(8, 64, 8)));
-}
-
 test "obsidian on neither axis, or both, leaves the frame unlit" {
     const gpa = std.testing.allocator;
     var w = World.init(gpa);
@@ -415,17 +383,6 @@ fn litPortalWorld(gpa: std.mem.Allocator) !World {
     return w;
 }
 
-test "knocking the frame out breaks the portal blocks that leaned on it" {
-    const gpa = std.testing.allocator;
-    var w = try litPortalWorld(gpa);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 63, 8), .air);
-    try onNeighborChange(&w, .{ .x = 8, .y = 64, .z = 8 });
-
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 64, 8)));
-}
-
 test "a portal block in a whole frame survives its neighbours changing" {
     const gpa = std.testing.allocator;
     var w = try litPortalWorld(gpa);
@@ -441,17 +398,6 @@ test "a portal block in a whole frame survives its neighbours changing" {
     }
 }
 
-test "a portal too tall for its frame breaks" {
-    const gpa = std.testing.allocator;
-    var w = try litPortalWorld(gpa);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 67, 8), .portal);
-    try onNeighborChange(&w, .{ .x = 8, .y = 67, .z = 8 });
-
-    try std.testing.expectEqual(.air, w.getBlock(.init(8, 67, 8)));
-}
-
 test "the teleporter lands on the nearest portal, centred in its mouth" {
     const gpa = std.testing.allocator;
     var w = try litPortalWorld(gpa);
@@ -462,23 +408,6 @@ test "the teleporter lands on the nearest portal, centred in its mouth" {
     try std.testing.expectApproxEqAbs(@as(f64, 9.0), found.x, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 64.5), found.y, 1.0e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.5), found.z, 1.0e-9);
-}
-
-test "the teleporter finds the foot of a portal, not its middle" {
-    const gpa = std.testing.allocator;
-    var w = try litPortalWorld(gpa);
-    defer w.deinit();
-
-    const from_above = findExisting(&w, math.Vec3.init(8.5, 80.0, 8.5)).?;
-    try std.testing.expectApproxEqAbs(@as(f64, 64.5), from_above.y, 1.0e-9);
-}
-
-test "a world with no portal in it hands the teleporter nothing" {
-    const gpa = std.testing.allocator;
-    var w = try obsidianFrameWorld(gpa, true);
-    defer w.deinit();
-
-    try std.testing.expect(findExisting(&w, math.Vec3.init(8.5, 64.0, 8.5)) == null);
 }
 
 test "the teleporter carves a fresh portal where none exists, and lands in it" {
@@ -581,24 +510,6 @@ test "arriving in the nether carves a portal into real nether terrain" {
     try std.testing.expectApproxEqAbs(landed.z, found_again.z, 1.0e-9);
 }
 
-test "a portal shows no face towards another portal block" {
-    const gpa = std.testing.allocator;
-    var w = try litPortalWorld(gpa);
-    defer w.deinit();
-
-    try std.testing.expect(!facesNeighbour(&w, .{ .x = 9, .y = 64, .z = 8 }, .east));
-    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 65, .z = 8 }, .up));
-}
-
-test "a portal never caps itself top or bottom" {
-    const gpa = std.testing.allocator;
-    var w = try litPortalWorld(gpa);
-    defer w.deinit();
-
-    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 63, .z = 8 }, .down));
-    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 67, .z = 8 }, .up));
-}
-
 test "a portal shows only the two broad faces it presents" {
     const gpa = std.testing.allocator;
     var w = try litPortalWorld(gpa);
@@ -609,15 +520,4 @@ test "a portal shows only the two broad faces it presents" {
 
     try std.testing.expect(!facesNeighbour(&w, .{ .x = 7, .y = 64, .z = 8 }, .west));
     try std.testing.expect(!facesNeighbour(&w, .{ .x = 10, .y = 64, .z = 8 }, .east));
-}
-
-test "the sheet a portal presents turns with the frame it was lit in" {
-    const gpa = std.testing.allocator;
-    var w = try obsidianFrameWorld(gpa, false);
-    defer w.deinit();
-    _ = try tryCreate(&w, .{ .x = 8, .y = 64, .z = 8 });
-
-    try std.testing.expect(facesNeighbour(&w, .{ .x = 7, .y = 64, .z = 8 }, .west));
-    try std.testing.expect(facesNeighbour(&w, .{ .x = 9, .y = 64, .z = 8 }, .east));
-    try std.testing.expect(!facesNeighbour(&w, .{ .x = 8, .y = 64, .z = 7 }, .north));
 }

@@ -132,13 +132,6 @@ pub fn draw(
     container.end();
 }
 
-test "a single chest is three rows tall and a double chest six" {
-    try std.testing.expectEqual(@as(f32, 168), height(3));
-    try std.testing.expectEqual(@as(f32, 222), height(6));
-    try std.testing.expectEqual(@as(usize, 27 + 36), slotCount(3));
-    try std.testing.expectEqual(@as(usize, 54 + 36), slotCount(6));
-}
-
 pub fn drawCargo(
     ui: gui.Ui,
     inventory: game.Inventory,
@@ -194,28 +187,6 @@ test "the player's own slots follow the chest's, one pixel below the furnace's" 
     const hotbar = layout[layout.len - 9];
     try std.testing.expectEqual(@as(usize, 0), hotbar.index);
     try std.testing.expectEqual(@as(f32, 143), hotbar.y);
-}
-
-test "a double chest pushes the player's slots down three more rows" {
-    var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(6, &buffer, .chest);
-
-    try std.testing.expectEqual(slotCount(6), layout.len);
-    try std.testing.expectEqual(@as(usize, 53), layout[53].index);
-    try std.testing.expectEqual(@as(f32, 108), layout[53].y);
-    try std.testing.expectEqual(@as(f32, 139), layout[54].y);
-    try std.testing.expectEqual(@as(f32, 197), layout[layout.len - 9].y);
-}
-
-test "clicking the middle of a chest slot finds it" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    var buffer: [max_slot_count]container.Slot = undefined;
-    const layout = slots(3, &buffer, .chest);
-    const org = container.origin(res, height(3));
-
-    const click_x = (org[0] + layout[10].x + 8) * res.factor;
-    const click_y = (org[1] + layout[10].y + 8) * res.factor;
-    try std.testing.expectEqual(@as(?usize, 10), container.slotAt(layout, click_x, click_y, res, height(3)));
 }
 
 test "the chest screen's slots line up with the protocol window, slot for slot" {

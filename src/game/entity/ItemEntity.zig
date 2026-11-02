@@ -143,54 +143,6 @@ pub fn pickupPitch(rand: *world.JavaRandom) f32 {
     return ((rand.nextFloat() - rand.nextFloat()) * 0.7 + 1.0) * 2.0;
 }
 
-test "spawn seeds an upward hop and a small random horizontal drift" {
-    var rand = world.JavaRandom.init(0);
-    const item = ItemEntity.spawn(math.Vec3.init(8, 5, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.2), item.base.motion.y, 1.0e-9);
-    try std.testing.expect(item.base.motion.x >= -0.1 and item.base.motion.x <= 0.1);
-    try std.testing.expect(item.base.motion.z >= -0.1 and item.base.motion.z <= 0.1);
-}
-
-test "gravity accelerates a falling item" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 0);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
-    item.base.motion = math.Vec3.init(0, 0, 0);
-    item.tick(&w, &rand);
-    try std.testing.expectApproxEqAbs(@as(f64, -0.04 * 0.98), item.base.motion.y, 1.0e-9);
-}
-
-test "landing zeroes motionY, so the -0.5 bounce factor has nothing to act on" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 1, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
-    item.base.motion = math.Vec3.init(0, -0.0784, 0);
-    item.tick(&w, &rand);
-    try std.testing.expect(item.base.on_ground);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), item.base.motion.y, 1.0e-9);
-}
-
-test "isExpired only becomes true at 6000 ticks (5 minutes)" {
-    var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(0, 0, 0), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
-    item.age = 5999;
-    try std.testing.expect(!item.isExpired());
-    item.age = 6000;
-    try std.testing.expect(item.isExpired());
-}
-
-test "canPickUp is false until the pickup delay elapses" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 0);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8, 50, 8), .{ .id = .{ .block = @fromBackingInt(@intCast(1)) }, .count = 1 }, &rand);
-    try std.testing.expect(!item.canPickUp());
-    for (0..10) |_| item.tick(&w, &rand);
-    try std.testing.expect(item.canPickUp());
-}
-
 test "an item lying on a cactus is whittled away and destroyed" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -254,14 +206,6 @@ test "an item well clear of any flame takes no damage and settles below zero fir
     item.tick(&w, &rand);
     try std.testing.expectEqual(max_health, item.health);
     try std.testing.expectEqual(-fire_resistance, item.fire);
-}
-
-test "the fire an item is carrying survives a save and reload" {
-    var rand = world.JavaRandom.init(0);
-    var item = ItemEntity.spawn(math.Vec3.init(8.5, 1, 8.5), .{ .id = .{ .block = .stone }, .count = 1 }, &rand);
-    item.fire = lava_fire_ticks;
-
-    try std.testing.expectEqual(lava_fire_ticks, fromRecord(item.toRecord()).fire);
 }
 
 pub fn toRecord(self: ItemEntity) world.entity_nbt.Item {

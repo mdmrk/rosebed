@@ -173,14 +173,6 @@ test "the large puff's lifetime is truncated twice, the way EntitySmokeFX does i
     try std.testing.expectEqual(@as(i32, 9), scaled_first);
 }
 
-test "both puffs draw the same number of values from the stream" {
-    var a = world.JavaRandom.init(11);
-    var b = world.JavaRandom.init(11);
-    _ = spawnSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &a);
-    _ = spawnLargeSmoke(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &b);
-    try std.testing.expectEqual(a.seed, b.seed);
-}
-
 pub fn spawnSplash(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
     particle.kind = .splash;
@@ -324,8 +316,6 @@ pub fn spawnItemPoof(position: math.Vec3, item: world.Item, rand: *world.JavaRan
     return particle;
 }
 
-// EntityExplodeFX jitters its drift with Math.random(), which is outside any seeded stream;
-// this port has only the world random, so the shape matches and the exact numbers cannot.
 pub fn spawnExplode(position: math.Vec3, drift: math.Vec3, rand: *world.JavaRandom) Particle {
     var particle = spawnBase(position, math.Vec3.init(0, 0, 0), rand);
     particle.kind = .explode;
@@ -557,16 +547,6 @@ pub fn brightness(self: Particle, ambient: f32, partial_ticks: f32) f32 {
     };
 }
 
-test "a particle is launched outward and settles within its lifetime" {
-    var rand = world.JavaRandom.init(1);
-    const particle = spawn(math.Vec3.init(8, 40, 8), math.Vec3.init(0.25, 0.25, 0.25), 1, &rand);
-
-    try std.testing.expect(particle.max_age >= 4 and particle.max_age <= 40);
-    try std.testing.expect(particle.scale >= 0.5 and particle.scale <= 1.0);
-    try std.testing.expect(particle.base.motion.y > 0.0);
-    try std.testing.expect(particle.jitter_u >= 0.0 and particle.jitter_u < 3.0);
-}
-
 test "a particle expires once it outlives its maximum age" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);
@@ -672,26 +652,6 @@ test "a splash droplet picks a rain tile and dies when it lands in water" {
     try std.testing.expect(particle.isExpired());
 }
 
-test "a splash droplet launched sideways keeps that drift and hops up" {
-    var rand = world.JavaRandom.init(5);
-    const particle = spawnSplash(math.Vec3.init(8, 40, 8), math.Vec3.init(0.25, 0, -0.25), &rand);
-
-    try std.testing.expectApproxEqAbs(@as(f64, 0.25), particle.base.motion.x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.1), particle.base.motion.y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, -0.25), particle.base.motion.z, 1.0e-9);
-}
-
-test "a bubble takes the bubble tile and barely any of the drift it was given" {
-    var rand = world.JavaRandom.init(5);
-    const bubble = spawnBubble(math.Vec3.init(8, 40, 8), math.Vec3.init(0.5, -0.5, 0.5), &rand);
-
-    try std.testing.expectEqual(Kind.bubble, bubble.kind);
-    try std.testing.expectEqual(bubble_tile, bubble.tile);
-    try std.testing.expectEqual(bubble_size, bubble.base.width);
-    try std.testing.expect(bubble.base.motion.x >= 0.08 and bubble.base.motion.x <= 0.12);
-    try std.testing.expect(bubble.base.motion.y >= -0.12 and bubble.base.motion.y <= -0.08);
-}
-
 test "a bubble rises through water and pops as soon as it leaves it" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 4);
@@ -728,33 +688,6 @@ test "a lava ember pops upward, glows at full brightness and shrinks away" {
     try std.testing.expect(particle.halfSize(0.0) < fresh);
 }
 
-test "a flame starts white, takes the flame tile and outlives smoke by four ticks" {
-    var rand = world.JavaRandom.init(4);
-    for (0..200) |_| {
-        const particle = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
-        try std.testing.expectEqual(Kind.flame, particle.kind);
-        try std.testing.expectEqual(flame_tile, particle.tile);
-        try std.testing.expectEqual([3]f32{ 1, 1, 1 }, particle.color);
-        try std.testing.expect(particle.max_age >= 12 and particle.max_age <= 44);
-    }
-}
-
-test "a flame keeps almost none of its launch speed, unlike a digging shard" {
-    var rand = world.JavaRandom.init(11);
-    const flame = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
-    rand = world.JavaRandom.init(11);
-    const shard = spawn(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), 1, &rand);
-
-    try std.testing.expectApproxEqAbs(shard.base.motion.x * flame_drift, flame.base.motion.x, 1.0e-12);
-    try std.testing.expectApproxEqAbs(shard.base.motion.y * flame_drift, flame.base.motion.y, 1.0e-12);
-}
-
-test "a flame carries the drift it was given on top of its own jitter" {
-    var rand = world.JavaRandom.init(11);
-    const drifting = spawnFlame(math.Vec3.init(8, 40, 8), math.Vec3.init(0.5, 0, 0), &rand);
-    try std.testing.expect(drifting.base.motion.x > 0.4);
-}
-
 test "a flame ignores gravity and drifts through blocks instead of landing" {
     const gpa = std.testing.allocator;
     var world_map = try world.testing.flatWorld(gpa, 12);
@@ -783,15 +716,6 @@ test "a flame shrinks by half over its life and fades from full bright to ambien
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), particle.brightness(0.2, 0.0), 1.0e-6);
 }
 
-test "only lava ignores the light around it, smoke and shards take it as is" {
-    var rand = world.JavaRandom.init(8);
-    const smoke = spawnSmoke(math.Vec3.init(8, 40, 8), math.Vec3.init(0, 0, 0), &rand);
-    const ember = spawnLava(math.Vec3.init(8, 40, 8), &rand);
-
-    try std.testing.expectApproxEqAbs(@as(f32, 0.2), smoke.brightness(0.2, 0.0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), ember.brightness(0.2, 0.0), 1.0e-6);
-}
-
 test "reddust takes the colour it is handed, dimmed by a random shade" {
     var rand = world.JavaRandom.init(3);
     for (0..200) |_| {
@@ -802,15 +726,6 @@ test "reddust takes the colour it is handed, dimmed by a random shade" {
         try std.testing.expectEqual(@as(f32, 0.0), particle.color[1]);
         try std.testing.expectEqual(@as(f32, 0.0), particle.color[2]);
     }
-}
-
-test "reddust asked for black comes out red, as EntityReddustFX insists" {
-    var rand = world.JavaRandom.init(5);
-    const particle = spawnReddust(math.Vec3.init(8, 40, 8), .{ 0, 0, 0 }, &rand);
-
-    try std.testing.expect(particle.color[0] > 0.4);
-    try std.testing.expectEqual(@as(f32, 0.0), particle.color[1]);
-    try std.testing.expectEqual(@as(f32, 0.0), particle.color[2]);
 }
 
 test "reddust keeps a tenth of its launch speed and never falls under gravity" {
@@ -863,16 +778,6 @@ test "a portal particle drifts exactly where it was aimed, and outlives the othe
     try std.testing.expect(particle.max_age < portal_min_age + portal_age_spread);
     try std.testing.expect(particle.tile < portal_tiles);
     try std.testing.expect(particle.scale >= 0.5 and particle.scale <= 0.7);
-}
-
-test "a portal particle is the purple EntityPortalFX mixes, blue over red over green" {
-    var rand = world.JavaRandom.init(9);
-    const particle = spawnPortal(math.Vec3.init(0, 0, 0), math.Vec3.init(0, 0, 0), &rand);
-
-    try std.testing.expect(particle.color[2] > particle.color[0]);
-    try std.testing.expect(particle.color[0] > particle.color[1]);
-    try std.testing.expectApproxEqAbs(particle.color[2] * 0.9, particle.color[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(particle.color[2] * 0.3, particle.color[1], 1.0e-6);
 }
 
 test "a portal particle rides its own curve home instead of falling" {

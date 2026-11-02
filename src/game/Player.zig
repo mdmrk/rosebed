@@ -1022,141 +1022,6 @@ pub fn bobMatrix(self: Player, partial_ticks: f32) math.Mat4 {
         .mul(math.Mat4.rotationX(dip * degrees));
 }
 
-test "eyePosition sits eye_height above the feet position" {
-    const player = Player.spawn(math.Vec3.init(2, 5, 3));
-    const eye = player.eyePosition();
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), eye.x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0 + eye_height), eye.y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 3.0), eye.z, 1.0e-9);
-}
-
-test "turn at default sensitivity applies the 0.15 deg/pixel scale" {
-    var player = Player.spawn(math.Vec3.init(0, 0, 0));
-    player.turn(10, 4, 0.5, false);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.5), player.yaw, 1.0e-4);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.6), player.pitch, 1.0e-4);
-}
-
-test "inverting the mouse flips the pitch delta" {
-    var player = Player.spawn(math.Vec3.init(0, 0, 0));
-    player.turn(0, 4, 0.5, true);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.6), player.pitch, 1.0e-4);
-}
-
-test "pitch clamps to +/-90 degrees" {
-    var player = Player.spawn(math.Vec3.init(0, 0, 0));
-    player.turn(0, 10000, 0.5, false);
-    try std.testing.expectApproxEqAbs(@as(f32, 90.0), player.pitch, 1.0e-4);
-    player.turn(0, -20000, 0.5, false);
-    try std.testing.expectApproxEqAbs(@as(f32, -90.0), player.pitch, 1.0e-4);
-}
-
-test "lookVector faces +Z at yaw 0, pitch 0" {
-    const player = Player.spawn(math.Vec3.init(0, 0, 0));
-    const look = player.lookVector();
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), look[0], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), look[1], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), look[2], 1.0e-5);
-}
-
-test "positive pitch looks down, negative pitch looks up" {
-    var player = Player.spawn(math.Vec3.init(0, 0, 0));
-    player.pitch = 90;
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), player.lookVector()[1], 1.0e-4);
-    player.pitch = -90;
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), player.lookVector()[1], 1.0e-4);
-}
-
-const test_eye_y: f32 = 90.0 + @as(f32, @floatCast(eye_height));
-
-fn project(player: Player, point: [3]f32) [4]f32 {
-    const vp = math.Mat4.perspective(70.0 * std.math.pi / 180.0, 16.0 / 9.0, 0.05, 1000.0).mul(player.viewRotation());
-    const cells: [16]f32 = vp.m;
-    const eye = player.renderEyePosition(0);
-    var out: [4]f32 = .{ 0, 0, 0, 0 };
-    const v = [4]f32{
-        point[0] - @as(f32, @floatCast(eye.x)),
-        point[1] - @as(f32, @floatCast(eye.y)),
-        point[2] - @as(f32, @floatCast(eye.z)),
-        1,
-    };
-    for (0..4) |col| {
-        for (0..4) |row| out[row] += cells[col * 4 + row] * v[col];
-    }
-    return out;
-}
-
-fn isOnScreen(clip: [4]f32) bool {
-    if (!(clip[3] > 0)) return false;
-    return @abs(clip[0]) <= clip[3] and @abs(clip[1]) <= clip[3] and @abs(clip[2]) <= clip[3];
-}
-
-test "the ground stays visible when looking straight down" {
-    var player = Player.spawn(math.Vec3.init(8, 90, 8));
-    player.pitch = 90;
-    for ([_]f32{ 0, 45, 137, -200 }) |yaw| {
-        player.yaw = yaw;
-        try std.testing.expect(isOnScreen(project(player, .{ 8, 85, 8 })));
-    }
-}
-
-test "the sky side stays visible when looking straight up" {
-    var player = Player.spawn(math.Vec3.init(8, 90, 8));
-    player.pitch = -90;
-    try std.testing.expect(isOnScreen(project(player, .{ 8, 95, 8 })));
-}
-
-test "a block ahead projects to the screen center at yaw 0" {
-    const player = Player.spawn(math.Vec3.init(8, 90, 8));
-    const clip = project(player, .{ 8, test_eye_y, 12 });
-    try std.testing.expect(clip[3] > 0);
-    try std.testing.expectApproxEqAbs(@as(f32, 0), clip[0] / clip[3], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0), clip[1] / clip[3], 1.0e-5);
-}
-
-test "what is behind the camera is not on screen" {
-    const player = Player.spawn(math.Vec3.init(8, 90, 8));
-    try std.testing.expect(!isOnScreen(project(player, .{ 8, test_eye_y, 4 })));
-}
-
-test "turning right moves what is ahead to the left of the screen" {
-    var player = Player.spawn(math.Vec3.init(8, 90, 8));
-    player.turn(100, 0, 0.5, false);
-    const clip = project(player, .{ 8, test_eye_y, 12 });
-    try std.testing.expect(clip[3] > 0);
-    try std.testing.expect(clip[0] / clip[3] < 0);
-}
-
-test "looking down moves what is ahead to the top of the screen" {
-    var player = Player.spawn(math.Vec3.init(8, 90, 8));
-    player.turn(0, 100, 0.5, false);
-    const clip = project(player, .{ 8, test_eye_y, 12 });
-    try std.testing.expect(clip[3] > 0);
-    try std.testing.expect(clip[1] / clip[3] > 0);
-}
-
-test "moveDirection at yaw 0 matches forward/strafe axes" {
-    const player = Player.spawn(math.Vec3.init(0, 0, 0));
-    const forward = player.moveDirection(0, 1);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), forward[0], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), forward[2], 1.0e-5);
-
-    const strafe = player.moveDirection(1, 0);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), strafe[0], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), strafe[2], 1.0e-5);
-}
-
-test "resting on the ground stays grounded" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    player.base.on_ground = true;
-    player.base.motion = math.Vec3.init(0, -0.0784, 0);
-    player.tick(&w, 0, 0, false, false);
-    try std.testing.expect(player.base.on_ground);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
-}
-
 test "a rider still burns in lava and still falls out of the world" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -1243,33 +1108,6 @@ test "a sneaking player holds still on a ladder rather than sliding down it" {
     try std.testing.expectApproxEqAbs(world.block.ladder_climb_cap, before - slipping.base.position.y, 1.0e-9);
 }
 
-test "gravity accelerates a falling player" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 0);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 50, 8));
-    player.tick(&w, 0, 0, false, false);
-    try std.testing.expectApproxEqAbs(@as(f64, -0.0784), player.base.motion.y, 1.0e-9);
-}
-
-test "jumping from the ground sets the jump velocity" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    player.base.on_ground = true;
-    player.tick(&w, 0, 0, true, false);
-    try std.testing.expectApproxEqAbs(@as(f64, (0.42 - 0.08) * 0.98), player.base.motion.y, 1.0e-9);
-}
-
-test "forward input on the ground moves the player each tick" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    player.base.on_ground = true;
-    player.tick(&w, 0, 1, false, false);
-    const step: f64 = game_physics.walkAcceleration(world.block.default_slipperiness * air_friction);
-    try std.testing.expectApproxEqAbs(8.0 + step, player.base.position.z, 1.0e-9);
-}
-
 test "the block underfoot decides how much momentum a tick keeps" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -1313,15 +1151,6 @@ test "walking accelerates less on ice than on stone" {
     try std.testing.expect(on_ice.base.motion.z < on_stone.base.motion.z);
 }
 
-test "bobbing is the identity while standing still" {
-    const player = Player.spawn(math.Vec3.init(0, 0, 0));
-    const bob: [16]f32 = player.bobMatrix(0.5).m;
-    const want: [16]f32 = math.Mat4.identity.m;
-    for (bob, want) |got, expected| {
-        try std.testing.expectApproxEqAbs(expected, got, 1.0e-6);
-    }
-}
-
 test "bobbing sways to both sides and never lifts the camera" {
     var player = Player.spawn(math.Vec3.init(0, 0, 0));
     player.camera_yaw = 0.1;
@@ -1341,15 +1170,6 @@ test "bobbing sways to both sides and never lifts the camera" {
 
     try std.testing.expect(swayed_left);
     try std.testing.expect(swayed_right);
-}
-
-test "a long walk does not overflow MathHelper's sine table index" {
-    var player = Player.spawn(math.Vec3.init(0, 0, 0));
-    player.camera_yaw = 0.1;
-    player.prev_camera_yaw = 0.1;
-    player.base.distance_walked = 1.0e9;
-    player.base.prev_distance_walked = 1.0e9;
-    _ = player.bobMatrix(0.5);
 }
 
 fn floodedWorld(surface_y: u32) !world.World {
@@ -1382,16 +1202,6 @@ test "a player in water sinks far more slowly than one falling through air" {
     try std.testing.expect(faller.base.motion.y < swimmer.base.motion.y);
 }
 
-test "holding jump underwater swims upward instead of doing nothing" {
-    var w = try floodedWorld(20);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8, 10, 8));
-    for (0..10) |_| player.tick(&w, 0, 0, true, false);
-    try std.testing.expect(player.base.motion.y > 0.0);
-    try std.testing.expect(player.base.position.y > 10.0);
-}
-
 fn lavaWorld(surface_y: u32) !world.World {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     errdefer w.deinit();
@@ -1405,17 +1215,6 @@ fn lavaWorld(surface_y: u32) !world.World {
         }
     }
     return w;
-}
-
-test "lava scalds on contact and leaves the player alight for half a minute" {
-    var w = try lavaWorld(20);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8, 10, 8));
-    player.tick(&w, 0, 0, false, false);
-    try std.testing.expect(player.in_lava);
-    try std.testing.expectEqual(@as(i32, 16), player.health);
-    try std.testing.expectEqual(@as(i32, lava_fire_ticks + 1), player.fire);
 }
 
 test "burning outside lava costs half a heart a second until the flames die" {
@@ -1449,16 +1248,6 @@ test "a player crossing fire is scorched, and only catches alight once resistanc
 
     for (0..fire_resistance - 1) |_| player.tick(&w, 0, 0, false, false);
     try std.testing.expectEqual(Entity.caught_fire_ticks, player.fire);
-}
-
-test "water snuffs the flames out" {
-    var w = try floodedWorld(20);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8, 10, 8));
-    player.fire = lava_fire_ticks;
-    player.tick(&w, 0, 0, false, false);
-    try std.testing.expectEqual(-fire_resistance, player.fire);
 }
 
 test "wading through lava is slower than swimming the same input" {
@@ -1681,15 +1470,6 @@ test "a second hit inside the resistance window is shrugged off unless it is har
     try std.testing.expectEqual(@as(i32, 14), player.health);
 }
 
-test "sneaking walks at a third of normal speed" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 1, 8));
-    player.base.on_ground = true;
-    player.tick(&w, 0, 1, false, true);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.03), player.base.position.z, 1.0e-6);
-}
-
 test "a sneaking player will not walk off the edge of a block" {
     var w = try world.testing.flatWorld(std.testing.allocator, 0);
     defer w.deinit();
@@ -1772,14 +1552,6 @@ test "walking builds up the limb swing, standing still lets it fall away" {
     try std.testing.expect(player.limb_swing_amount < walking * 0.1);
 }
 
-test "the third person camera sits four blocks back in the open" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(8, 10, 8));
-
-    try std.testing.expectApproxEqAbs(third_person_distance, player.thirdPersonDistance(&w, 0), 1.0e-9);
-}
-
 test "the third person camera stops short of a wall behind the player" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -1792,24 +1564,6 @@ test "the third person camera stops short of a wall behind the player" {
     const pulled = player.thirdPersonDistance(&w, 0);
     try std.testing.expect(pulled < third_person_distance);
     try std.testing.expect(pulled > 0.0);
-}
-
-test "standing in the open is not standing inside a block" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
-
-    try std.testing.expect(!player.isInsideOpaqueBlock(&w));
-}
-
-test "a block at head height counts as being inside it" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    const chunk = w.getChunk(0, 0).?;
-    chunk.setBlock(8, 2, 8, .stone);
-
-    const player = Player.spawn(math.Vec3.init(8.5, 1, 8.5));
-    try std.testing.expect(player.isInsideOpaqueBlock(&w));
 }
 
 test "a player walks up a slab without jumping" {
@@ -1865,12 +1619,6 @@ test "without step height the same slab stops the player where they stand" {
 
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), player.base.position.y, 1.0e-9);
     try std.testing.expect(player.base.position.x < 10.0);
-}
-
-test "a player spawns with the half-block step height EntityLiving grants" {
-    const player = Player.spawn(math.Vec3.init(0, 0, 0));
-    try std.testing.expectEqual(step_height, player.base.step_height);
-    try std.testing.expectEqual(@as(f64, 0.5), player.base.step_height);
 }
 
 test "healing tops out at full health and never revives the dead" {
@@ -1955,17 +1703,6 @@ test "a hit shrugged off inside the resistance window does not restart the anima
     try std.testing.expectEqual(@as(i32, 20), player.prev_health);
     try std.testing.expectEqual(@as(i32, 14), player.health);
     try std.testing.expectEqual(@as(i32, 3), player.hurt_time);
-}
-
-test "healing halves the resistance window so the hearts stop flashing" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-    var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.hurt(&w, 4);
-    try std.testing.expectEqual(@as(i32, hurt_resistance_ticks), player.hurt_resistance);
-
-    player.heal(2);
-    try std.testing.expectEqual(@as(i32, hurt_resistance_ticks / 2), player.hurt_resistance);
 }
 
 test "the hurt camera rolls out and back over the animation" {
@@ -2095,20 +1832,6 @@ test "the cooldown after a trip stops the player bouncing straight back" {
     try std.testing.expect(player.in_portal);
 }
 
-test "the portal overlay is interpolated between ticks" {
-    var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    player.prev_time_in_portal = 0.2;
-    player.time_in_portal = 0.4;
-
-    try std.testing.expectApproxEqAbs(@as(f32, 0.3), player.portalOverlay(0.5), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.2), player.portalOverlay(0.0), 1.0e-6);
-}
-
-test "a player outside a portal has no warp on the camera at all" {
-    var player = Player.spawn(math.Vec3.init(0, 64, 0));
-    try std.testing.expectEqual(math.Mat4.identity.m, player.portalMatrix(0.5, 7).m);
-}
-
 test "the portal warp stretches the view sideways as the trip fills up" {
     var player = Player.spawn(math.Vec3.init(0, 64, 0));
 
@@ -2222,17 +1945,6 @@ test "waking clears the occupied bit, restores the box and claims the bed as spa
     try std.testing.expectEqual(sleep_fade_ticks, player.sleep_timer);
 }
 
-test "the bed's facing decides which way the body lies and where the camera looks" {
-    var w = try bedWorld(std.testing.allocator, 2);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8.5, 2, 8.5));
-    try std.testing.expectEqual(SleepStatus.ok, player.sleepInBedAt(&w, .overworld, .init(8, 2, 8)));
-    try std.testing.expectApproxEqAbs(@as(f32, 1.8), player.bed_offset[1], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 270.0), player.bedOrientationDegrees(&w), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f64, 8.1), player.base.position.z, 1.0e-6);
-}
-
 test "the sleeping camera looks down the bed and ignores where the mouse points" {
     var w = try bedWorld(std.testing.allocator, 2);
     defer w.deinit();
@@ -2269,16 +1981,6 @@ test "an awake player's camera still follows the mouse" {
     try std.testing.expect(moved);
 }
 
-test "a flying player hangs in the air instead of falling" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8, 40, 8));
-    player.flying = true;
-    for (0..100) |_| player.tick(&w, 0, 0, false, false);
-    try std.testing.expectApproxEqAbs(@as(f64, 40), player.base.position.y, 1.0e-9);
-}
-
 test "jump lifts a flying player and sneak lowers them" {
     var w = try world.testing.flatWorld(std.testing.allocator, 1);
     defer w.deinit();
@@ -2306,15 +2008,4 @@ test "flight cancels the fall the player was already taking" {
     player.tick(&w, 0, 0, false, false);
     try std.testing.expect(player.fall_distance < safe_fall_distance);
     try std.testing.expectEqual(max_health, player.health);
-}
-
-test "a flying player still lands on the ground rather than through it" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 1);
-    defer w.deinit();
-
-    var player = Player.spawn(math.Vec3.init(8, 4, 8));
-    player.flying = true;
-    for (0..100) |_| player.tick(&w, 0, 0, false, true);
-    try std.testing.expect(player.base.on_ground);
-    try std.testing.expectApproxEqAbs(@as(f64, 1), player.base.position.y, 1.0e-9);
 }

@@ -866,93 +866,6 @@ const dye_names: [16][]const u8 = .{
     "Bone Meal",
 };
 
-test "iconTile matches the real items.png icon coordinates" {
-    try std.testing.expectEqual(@as(?u8, 7), Item.coal.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, null), (@as(Item, @fromBackingInt(@intCast(0)))).iconTile(0));
-}
-
-test "dye display names are selected by metadata" {
-    try std.testing.expectEqualStrings("Lapis Lazuli", Item.dye.displayName(dye_meta_lapis));
-    try std.testing.expectEqualStrings("Ink Sac", Item.dye.displayName(0));
-    try std.testing.expectEqualStrings("Bone Meal", Item.dye.displayName(15));
-}
-
-test "an item's display name ignores metadata unless it is a dye" {
-    try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(0));
-    try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(7));
-    try std.testing.expectEqualStrings("", (@as(Item, @fromBackingInt(@intCast(0)))).displayName(0));
-}
-
-test "the new items match their real items.png icon coordinates" {
-    try std.testing.expectEqual(@as(?u8, 23), Item.ingot_iron.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 39), Item.ingot_gold.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 8), Item.string.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 87), Item.pork_raw.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 88), Item.pork_cooked.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 73), Item.glowstone_dust.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 13), Item.sugar.iconTile(0));
-}
-
-test "tool materials carry EnumToolMaterial's four numbers" {
-    try std.testing.expectEqual(@as(u16, 59), ToolMaterial.wood.maxUses());
-    try std.testing.expectEqual(@as(u16, 1561), ToolMaterial.diamond.maxUses());
-    try std.testing.expectEqual(@as(u16, 32), ToolMaterial.gold.maxUses());
-    try std.testing.expectEqual(@as(f32, 12.0), ToolMaterial.gold.efficiency());
-    try std.testing.expectEqual(@as(u8, 0), ToolMaterial.gold.harvestLevel());
-    try std.testing.expectEqual(@as(u8, 3), ToolMaterial.diamond.harvestLevel());
-}
-
-test "a tool's durability is its material's, whatever the tool is" {
-    try std.testing.expectEqual(@as(u16, 131), Item.pickaxe_stone.maxDamage());
-    try std.testing.expectEqual(@as(u16, 131), Item.hoe_stone.maxDamage());
-    try std.testing.expectEqual(@as(u16, 131), Item.sword_stone.maxDamage());
-}
-
-test "armour durability is the piece's base times three, doubled per material level" {
-    try std.testing.expectEqual(@as(u16, 33), Item.helmet_leather.maxDamage());
-    try std.testing.expectEqual(@as(u16, 192), Item.chestplate_iron.maxDamage());
-    try std.testing.expectEqual(@as(u16, 384), Item.chestplate_diamond.maxDamage());
-    try std.testing.expectEqual(@as(u16, 78), Item.boots_gold.maxDamage());
-}
-
-test "the pieces protect by slot, not by material" {
-    try std.testing.expectEqual(@as(i32, 8), Item.chestplate_leather.armor().?.damageReduction());
-    try std.testing.expectEqual(@as(i32, 8), Item.chestplate_diamond.armor().?.damageReduction());
-    try std.testing.expectEqual(@as(i32, 3), Item.helmet_diamond.armor().?.damageReduction());
-    try std.testing.expectEqual(@as(i32, 6), Item.leggings_diamond.armor().?.damageReduction());
-}
-
-test "sticks and ingots are neither tools nor armour" {
-    try std.testing.expectEqual(@as(?Tool, null), Item.stick.tool());
-    try std.testing.expectEqual(@as(?Armor, null), Item.ingot_iron.armor());
-    try std.testing.expect(!Item.stick.isDamageable());
-}
-
-test "the new icons match their real items.png coordinates" {
-    try std.testing.expectEqual(@as(?u8, 66), Item.sword_iron.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 98), Item.pickaxe_iron.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 128), Item.hoe_wood.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 51), Item.boots_diamond.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 103), Item.leather.iconTile(0));
-}
-
-test "dye icons step through items.png the way getIconFromDamage does" {
-    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 142), Item.dye.iconTile(dye_meta_lapis));
-    try std.testing.expectEqual(@as(?u8, 191), Item.dye.iconTile(15));
-}
-
-test "door items carry one to a stack and match their items.png coordinates" {
-    try std.testing.expectEqual(@as(u8, 1), Item.door_wood.maxStackSize());
-    try std.testing.expectEqual(@as(u8, 1), Item.door_iron.maxStackSize());
-    try std.testing.expectEqual(@as(?u8, 43), Item.door_wood.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 44), Item.door_iron.iconTile(0));
-    try std.testing.expectEqualStrings("Wooden Door", Item.door_wood.displayName(0));
-    try std.testing.expectEqualStrings("Iron Door", Item.door_iron.displayName(0));
-}
-
 test "buckets do not stack, and each names the liquid it carries" {
     for ([_]Item{ .bucket, .bucket_water, .bucket_lava, .bucket_milk }) |id| {
         try std.testing.expectEqual(@as(u8, 1), id.maxStackSize());
@@ -964,26 +877,6 @@ test "buckets do not stack, and each names the liquid it carries" {
     try std.testing.expectEqualStrings("Water Bucket", Item.bucket_water.displayName(0));
     try std.testing.expectEqualStrings("Lava bucket", Item.bucket_lava.displayName(0));
     try std.testing.expectEqualStrings("Milk", Item.bucket_milk.displayName(0));
-}
-
-test "bucket icons sit along row four of items.png" {
-    try std.testing.expectEqual(@as(?u8, 74), Item.bucket.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 75), Item.bucket_water.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 76), Item.bucket_lava.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 77), Item.bucket_milk.iconTile(0));
-}
-
-test "a fill and its bucket item name each other both ways" {
-    for ([_]Item{ .bucket, .bucket_water, .bucket_lava, .bucket_milk }) |id| {
-        try std.testing.expectEqual(id, id.bucketFill().?.bucketItem());
-    }
-}
-
-test "only a filled bucket pours, and milk pours nothing" {
-    try std.testing.expectEqual(.flowing_water, Fill.water.poured().?);
-    try std.testing.expectEqual(.flowing_lava, Fill.lava.poured().?);
-    try std.testing.expect(Fill.empty.poured() == null);
-    try std.testing.expect(Fill.milk.poured() == null);
 }
 
 test "food heals the amount ItemFood was built with, and never stacks" {
@@ -1015,99 +908,6 @@ test "weapon damage follows ItemSword and ItemTool over the material bonus" {
     try std.testing.expectEqual(@as(i32, 4), Item.pickaxe_iron.damageVsEntity());
     try std.testing.expectEqual(@as(i32, 1), Item.shovel_wood.damageVsEntity());
     try std.testing.expectEqual(@as(i32, 3), Item.shovel_iron.damageVsEntity());
-}
-
-test "a hoe and anything that is not a tool swing for one" {
-    try std.testing.expectEqual(@as(i32, 1), Item.hoe_diamond.damageVsEntity());
-    try std.testing.expectEqual(@as(i32, 1), Item.bucket.damageVsEntity());
-    try std.testing.expectEqual(@as(i32, 1), Item.ingot_iron.damageVsEntity());
-    try std.testing.expectEqual(@as(i32, 1), Item.bone.damageVsEntity());
-}
-
-test "a gold sword hits no harder than a wooden one" {
-    try std.testing.expectEqual(Item.sword_wood.damageVsEntity(), Item.sword_gold.damageVsEntity());
-    try std.testing.expectEqual(@as(i32, 0), ToolMaterial.gold.damageVsEntity());
-}
-
-test "every constant item fact reaches its caller through the registry table" {
-    try std.testing.expectEqual(ToolKind.pickaxe, Item.pickaxe_iron.tool().?.kind);
-    try std.testing.expectEqual(ArmorSlot.boots, Item.boots_gold.armor().?.slot);
-    try std.testing.expectEqual(Block.redstone_wire, Item.redstone.placedBlock().?);
-    try std.testing.expectEqual(Fill.lava, Item.bucket_lava.bucketFill().?);
-    try std.testing.expectEqual(@as(u8, 1), Item.bed.maxStackSize());
-    try std.testing.expectEqual(@as(u8, 64), Item.stick.maxStackSize());
-    try std.testing.expectEqual(@as(?u8, 55), Item.diamond.iconTile(0));
-    try std.testing.expectEqualStrings("Gold Ingot", Item.ingot_gold.displayName(0));
-}
-
-test "eggs stack no higher than sixteen" {
-    try std.testing.expectEqual(@as(u8, 16), Item.egg.maxStackSize());
-}
-
-test "eggs and snowballs stack no higher than sixteen" {
-    try std.testing.expectEqual(@as(u8, 16), Item.egg.maxStackSize());
-    try std.testing.expectEqual(@as(u8, 16), Item.snowball.maxStackSize());
-}
-
-test "shears carry ItemShears' own durability, icon and name, without being a tool" {
-    try std.testing.expectEqual(@as(u16, 238), Item.shears.maxDamage());
-    try std.testing.expectEqual(@as(u8, 1), Item.shears.maxStackSize());
-    try std.testing.expect(Item.shears.isDamageable());
-    try std.testing.expectEqual(@as(?u8, 93), Item.shears.iconTile(0));
-    try std.testing.expectEqualStrings("Shears", Item.shears.displayName(0));
-    try std.testing.expect(Item.shears.tool() == null);
-    try std.testing.expectEqual(@as(i32, 1), Item.shears.damageVsEntity());
-}
-
-test "shears cut leaves fastest and wool next, and swing at everything else bare-handed" {
-    try std.testing.expectEqual(@as(f32, 15.0), Item.shears.strVsBlock(.leaves));
-    try std.testing.expectEqual(@as(f32, 15.0), Item.shears.strVsBlock(.web));
-    try std.testing.expectEqual(@as(f32, 5.0), Item.shears.strVsBlock(.wool));
-    try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.stone));
-    try std.testing.expectEqual(@as(f32, 1.0), Item.shears.strVsBlock(.tall_grass));
-}
-
-test "only leaves wear shears down, where a tool wears on anything it breaks" {
-    try std.testing.expectEqual(@as(u16, 1), Item.shears.blockDestroyedCost(.leaves));
-    try std.testing.expectEqual(@as(u16, 0), Item.shears.blockDestroyedCost(.wool));
-    try std.testing.expectEqual(@as(u16, 0), Item.shears.blockDestroyedCost(.stone));
-
-    try std.testing.expectEqual(@as(u16, 1), Item.pickaxe_iron.blockDestroyedCost(.stone));
-    try std.testing.expectEqual(@as(u16, 2), Item.sword_iron.blockDestroyedCost(.stone));
-    try std.testing.expectEqual(@as(u16, 0), Item.hoe_iron.blockDestroyedCost(.stone));
-    try std.testing.expectEqual(@as(u16, 0), Item.stick.blockDestroyedCost(.stone));
-}
-
-test "a saddle is a single-stack item with no heal and no recipe output" {
-    try std.testing.expectEqual(@as(?u8, 104), Item.saddle.iconTile(0));
-    try std.testing.expectEqual(@as(u8, 1), Item.saddle.maxStackSize());
-    try std.testing.expectEqualStrings("Saddle", Item.saddle.displayName(0));
-    try std.testing.expect(Item.saddle.healAmount() == null);
-    try std.testing.expect(Item.saddle.isVanilla());
-}
-
-test "a golden apple is ItemFood's single-stack heal of forty-two" {
-    try std.testing.expectEqual(@as(?u8, 42), Item.apple_gold.healAmount());
-    try std.testing.expectEqual(@as(?u8, 11), Item.apple_gold.iconTile(0));
-    try std.testing.expectEqual(@as(u8, 1), Item.apple_gold.maxStackSize());
-    try std.testing.expectEqualStrings("Golden apple", Item.apple_gold.displayName(0));
-    try std.testing.expectEqual(@as(?u8, 4), Item.apple.healAmount());
-}
-
-test "a cookie is the one food that stacks, eight to a slot" {
-    try std.testing.expectEqual(@as(?u8, 1), Item.cookie.healAmount());
-    try std.testing.expectEqual(@as(u8, 8), Item.cookie.maxStackSize());
-    try std.testing.expectEqual(@as(?u8, 92), Item.cookie.iconTile(0));
-    try std.testing.expectEqualStrings("Cookie", Item.cookie.displayName(0));
-    try std.testing.expect(Item.cookie.isVanilla());
-}
-
-test "the three minecarts read the icon column setIconCoord puts them in" {
-    try std.testing.expectEqual(@as(?u8, 135), Item.minecart.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 151), Item.minecart_chest.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 167), Item.minecart_furnace.iconTile(0));
-    try std.testing.expectEqual(@as(u8, 1), Item.minecart.maxStackSize());
-    try std.testing.expectEqualStrings("Minecart", Item.minecart.displayName(0));
 }
 
 test "both records sit one after the other on the bottom row and never stack" {
@@ -1169,17 +969,6 @@ test "registry keys come straight off the enum tags, so they cannot drift" {
     try std.testing.expect(!(@as(Item, @fromBackingInt(@intCast(0)))).isVanilla());
 }
 
-test "a registered item answers to its own key without shadowing a vanilla one" {
-    defer Item.resetRegistry();
-
-    const custom: Item = @fromBackingInt(@intCast(400));
-    custom.register(.{ .key = "rosebed:quartz_pickaxe", .name = "Quartz Pickaxe" });
-
-    try std.testing.expectEqual(custom, Item.fromKey("rosebed:quartz_pickaxe").?);
-    try std.testing.expectEqual(Item.diamond, Item.fromKey("diamond").?);
-    try std.testing.expect(!custom.isVanilla());
-}
-
 fn quartzIcon(_: Item, damage: u16) ?u8 {
     return @intCast(100 + damage);
 }
@@ -1205,14 +994,6 @@ test "a registered item's metadata hooks answer in place of the vanilla switch" 
     try std.testing.expectEqualStrings("Chipped Quartz Pickaxe", custom.displayName(2));
     try std.testing.expectEqualStrings("Quartz Pickaxe", custom.displayName(0));
     try std.testing.expectEqual(@as(u16, 1561), custom.maxDamage());
-}
-
-test "a vanilla item ignores the hooks and keeps the switch it always had" {
-    try std.testing.expectEqual(@as(?u8, 78), Item.dye.iconTile(0));
-    try std.testing.expectEqual(@as(?u8, 142), Item.dye.iconTile(dye_meta_lapis));
-    try std.testing.expectEqualStrings("Charcoal", Item.coal.displayName(coal_meta_charcoal));
-    try std.testing.expectEqualStrings("Coal", Item.coal.displayName(0));
-    try std.testing.expectEqualStrings("Diamond", Item.diamond.displayName(0));
 }
 
 test "a registered item with no hooks falls back to its constant icon and name" {

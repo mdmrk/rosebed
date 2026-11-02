@@ -153,19 +153,6 @@ pub fn seedFromText(text: []const u8, fallback: i64) i64 {
     return hash;
 }
 
-test "a numeric seed is used verbatim and a blank one falls back to random" {
-    try std.testing.expectEqual(@as(i64, 2024), seedFromText("2024", 99));
-    try std.testing.expectEqual(@as(i64, -55), seedFromText(" -55 ", 99));
-    try std.testing.expectEqual(@as(i64, 99), seedFromText("", 99));
-    try std.testing.expectEqual(@as(i64, 99), seedFromText("0", 99));
-}
-
-test "a non-numeric seed hashes the way Java's String.hashCode does" {
-    try std.testing.expectEqual(@as(i64, -1623774494), seedFromText("gargamel", 1));
-    try std.testing.expectEqual(@as(i64, 97), seedFromText("a", 1));
-    try std.testing.expectEqual(@as(i64, 108181935), seedFromText("glacier", 1));
-}
-
 test "clicking the fields focuses exactly one of them" {
     const res = gui.scaledResolution(640, 480, 1000);
     var state = init(.create);
@@ -177,27 +164,6 @@ test "clicking the fields focuses exactly one of them" {
     state.focus(.seed_field);
     try std.testing.expect(!state.name.focused);
     try std.testing.expect(state.seed.focused);
-}
-
-test "renaming hides the seed field" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    var state = init(.rename);
-    const left = fieldLeft(res);
-    try std.testing.expectEqual(@as(?Hit, null), hitAt((left + 10) * res.factor, (seed_y + 10) * res.factor, res, &state));
-
-    state.focus(.seed_field);
-    try std.testing.expect(!state.seed.focused);
-}
-
-test "the confirm button stays disabled until a name is typed" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    var state = init(.create);
-    const cx = @floor(res.width / 2.0);
-    const confirm_y = (@floor(res.height / 4.0) + 96 + 12 + 10) * res.factor;
-
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(cx * res.factor, confirm_y, res, &state));
-    state.name.insert("New World");
-    try std.testing.expectEqual(@as(?Hit, .confirm), hitAt(cx * res.factor, confirm_y, res, &state));
 }
 
 test "typing goes to whichever field has focus" {

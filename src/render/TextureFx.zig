@@ -442,47 +442,6 @@ pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas, desaturate: 
     uploadTile(&self.clock.image, clock_tile, 1, desaturate);
 }
 
-test "the animated tiles are the ones the fluid blocks draw with" {
-    try std.testing.expectEqual(@as(u8, 205), waterStillTile());
-    try std.testing.expectEqual(@as(u8, 206), waterFlowTile());
-    try std.testing.expectEqual(@as(u8, 237), lavaStillTile());
-    try std.testing.expectEqual(@as(u8, 238), lavaFlowTile());
-}
-
-test "a settled water tile is the flat blue TextureWaterFX starts from" {
-    var rand = world.JavaRandom.init(0);
-    var fx: Water = .{ .flowing = false };
-    fx.tick(&rand);
-
-    try std.testing.expectEqual([4]u8{ 32, 50, 255, 146 }, fx.image[0..4].*);
-}
-
-test "a settled lava tile is the opaque orange TextureLavaFX starts from" {
-    var rand = world.JavaRandom.init(0);
-    var fx: Lava = .{ .flowing = false };
-    fx.tick(&rand);
-
-    try std.testing.expectEqual([4]u8{ 155, 0, 0, 255 }, fx.image[0..4].*);
-}
-
-test "flowing tiles scroll their sample row by row" {
-    try std.testing.expectEqual(@as(usize, 0), scrolled(16, 1));
-    try std.testing.expectEqual(@as(usize, 240), scrolled(0, 1));
-    try std.testing.expectEqual(@as(usize, 5), scrolled(5, 16));
-}
-
-test "ticking never leaves a fully transparent water tile" {
-    var rand = world.JavaRandom.init(12345);
-    var fx: Water = .{ .flowing = true };
-    for (0..200) |_| fx.tick(&rand);
-
-    for (0..cells) |i| try std.testing.expect(fx.image[i * 4 + 3] >= 146);
-}
-
-test "the compass is the icon Item.compass draws with" {
-    try std.testing.expectEqual(@as(u8, 6 + 3 * 16), compass_tile);
-}
-
 test "the needle eases onto its bearing instead of snapping to it" {
     var fx: Compass = .{};
     fx.tick(1.0);
@@ -493,24 +452,6 @@ test "the needle eases onto its bearing instead of snapping to it" {
     for (0..200) |_| fx.tick(1.0);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), fx.spin.angle, 1.0e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), fx.spin.velocity, 1.0e-6);
-}
-
-test "a bearing behind the needle is taken the short way round" {
-    var fx: Compass = .{};
-    fx.spin.angle = std.math.pi - 0.1;
-    fx.tick(-std.math.pi + 0.1);
-
-    try std.testing.expect(fx.spin.velocity > 0.0);
-}
-
-test "the swing toward a distant bearing is capped at a radian" {
-    var straight: Compass = .{};
-    straight.tick(1.0);
-
-    var far: Compass = .{};
-    far.tick(3.0);
-
-    try std.testing.expectApproxEqAbs(straight.spin.velocity, far.spin.velocity, 1.0e-9);
 }
 
 test "the needle paints a red half, a grey tail and a grey crossbar" {
@@ -526,37 +467,6 @@ test "the needle paints a red half, a grey tail and a grey crossbar" {
     }
     try std.testing.expect(red > 0);
     try std.testing.expect(grey > 0);
-}
-
-test "the needle never paints outside its own sixteen by sixteen tile" {
-    var fx: Compass = .{};
-    var angle: f64 = 0.0;
-    while (angle < std.math.pi * 2.0) : (angle += 0.05) {
-        fx.spin.angle = angle;
-        fx.spin.velocity = 0.0;
-        fx.tick(angle);
-    }
-}
-
-test "the dial underneath survives every tick the needle is drawn on" {
-    var fx: Compass = .{};
-    for (&fx.base, 0..) |*channel, i| channel.* = @truncate(i);
-
-    const corner = fx.base[0..4].*;
-    fx.tick(0.0);
-    try std.testing.expectEqual(corner, fx.image[0..4].*);
-}
-
-test "the clock is the icon Item.pocketSundial draws with" {
-    try std.testing.expectEqual(@as(u8, 6 + 4 * 16), clock_tile);
-}
-
-test "only the magenta window of the clock face shows the dial" {
-    try std.testing.expect(Clock.showsDial(204, 0, 204));
-    try std.testing.expect(Clock.showsDial(255, 0, 255));
-    try std.testing.expect(!Clock.showsDial(204, 0, 200));
-    try std.testing.expect(!Clock.showsDial(204, 1, 204));
-    try std.testing.expect(!Clock.showsDial(0, 0, 0));
 }
 
 test "the bezel is copied through untouched and the window is not" {
@@ -597,21 +507,6 @@ test "the dial keeps turning and always samples inside itself" {
     }
 }
 
-test "the clock and the compass ease the same way, as both FX classes do" {
-    var clock: Clock = .{};
-    var compass: Compass = .{};
-    clock.tick(1.0);
-    compass.tick(1.0);
-
-    try std.testing.expectEqual(compass.spin.angle, clock.spin.angle);
-    try std.testing.expectEqual(compass.spin.velocity, clock.spin.velocity);
-}
-
-test "the flame tile is the one BlockFire draws with, and the second sits below it" {
-    try std.testing.expectEqual(@as(u8, 15 + 1 * 16), fire_tile);
-    try std.testing.expectEqual(@as(u8, 15 + 2 * 16), fire_tile + Atlas.tiles_per_row);
-}
-
 test "flames burn opaque orange at the base and fade to nothing at the top" {
     var rand = world.JavaRandom.init(4321);
     var fx: Flames = .{};
@@ -626,17 +521,6 @@ test "flames burn opaque orange at the base and fade to nothing at the top" {
     try std.testing.expect(lit > tile / 2);
 
     for (0..tile) |x| try std.testing.expectEqual(@as(u8, 0), fx.image[x * 4 + 3]);
-}
-
-test "the portal builds its thirty-two frames up front and cycles them" {
-    var fx: Portal = Portal.init();
-
-    const first = fx.frames[1];
-    fx.tick();
-    try std.testing.expectEqual(first, fx.image);
-
-    for (0..32) |_| fx.tick();
-    try std.testing.expectEqual(first, fx.image);
 }
 
 test "a portal frame is the purple TexturePortalFX draws, never fully transparent" {

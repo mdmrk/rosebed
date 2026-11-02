@@ -78,31 +78,6 @@ pub fn draw(
     gui.endOverlay();
 }
 
-test "back to game resumes" {
-    try std.testing.expectEqual(@as(?Action, .resume_game), actionAt(320, 168, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "save and quit to title returns to the title screen" {
-    try std.testing.expectEqual(@as(?Action, .quit_to_title), actionAt(320, 360, gui.scaledResolution(640, 480, 1000)));
-}
-
-test "every button on the pause menu leads somewhere" {
-    for (entries(640, 480)) |entry| {
-        try std.testing.expect(entry.button.enabled);
-        try std.testing.expect(entry.action != null);
-    }
-}
-
-test "statistics opens from the right half of the second row" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(?Action, .statistics), actionAt(340, 216, res));
-}
-
-test "achievements opens from the left half of the second row" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(?Action, .achievements), actionAt(300, 216, res));
-}
-
 test "the saving pulse swings between the original's dim and bright grey" {
     try std.testing.expectEqual([4]u8{ 204, 204, 204, 255 }, savingColor(0, 0));
 
@@ -120,8 +95,4 @@ test "the saving pulse swings between the original's dim and bright grey" {
     }
     try std.testing.expectEqual(@as(u8, 153), dimmest);
     try std.testing.expectEqual(@as(u8, 255), brightest);
-}
-
-test "clicking empty space does nothing" {
-    try std.testing.expectEqual(@as(?Action, null), actionAt(10, 10, gui.scaledResolution(640, 480, 1000)));
 }

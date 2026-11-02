@@ -418,7 +418,6 @@ pub const Save = struct {
 };
 
 pub const data_dir_name = "data";
-pub const id_counts_file = "idcounts.dat";
 const max_data_bytes = 1 << 20;
 
 fn dataFileName(buffer: []u8, name: []const u8) ![]const u8 {

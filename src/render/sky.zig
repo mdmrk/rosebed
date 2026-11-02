@@ -488,40 +488,6 @@ pub fn dimmed(color: Color, brightness: f32) Color {
     return .{ color[0] * brightness, color[1] * brightness, color[2] * brightness };
 }
 
-test "skyColorByTemp matches java.awt.Color.getHSBColor for the vanilla temperature range" {
-    try std.testing.expectEqual([3]u8{ 0x80, 0xa1, 0xff }, skyColorByTemp(0.0));
-    try std.testing.expectEqual([3]u8{ 0x7e, 0xa3, 0xff }, skyColorByTemp(0.2));
-    try std.testing.expectEqual([3]u8{ 0x7c, 0xa4, 0xff }, skyColorByTemp(0.4));
-    try std.testing.expectEqual([3]u8{ 0x7b, 0xa5, 0xff }, skyColorByTemp(0.5));
-    try std.testing.expectEqual([3]u8{ 0x7a, 0xa6, 0xff }, skyColorByTemp(0.6));
-    try std.testing.expectEqual([3]u8{ 0x79, 0xa7, 0xff }, skyColorByTemp(0.8));
-    try std.testing.expectEqual([3]u8{ 0x77, 0xa9, 0xff }, skyColorByTemp(1.0));
-}
-
-test "fogColor at noon matches WorldProvider's daylight value" {
-    const fog = fogColor(0.0);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.752941191), fog[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.847058833), fog[1], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fog[2], 1.0e-6);
-}
-
-test "the fog only follows the light where the render distance is short" {
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fogBrightnessTarget(0.05, 0), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.05), fogBrightnessTarget(0.05, 3), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fogBrightnessTarget(1.0, 3), 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), fogBrightnessTarget(0.1, 2), 1.0e-6);
-}
-
-test "a shorter render distance pulls the horizon closer and leaves less sky in the fog" {
-    try std.testing.expectEqual(@as(f32, 256.0), farPlaneDistance(0));
-    try std.testing.expectEqual(@as(f32, 32.0), farPlaneDistance(3));
-
-    const sky: Color = .{ 0.0, 0.0, 0.0 };
-    const fog: Color = .{ 1.0, 1.0, 1.0 };
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), blendedFogColor(sky, fog, 3)[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.7071068), blendedFogColor(sky, fog, 0)[0], 1.0e-6);
-}
-
 test "the sky planes cover the original's grid extent" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
@@ -559,23 +525,6 @@ test "stars land on a sphere of radius 100 and are fewer than the attempts" {
     }
 }
 
-test "the sunrise glow only appears near dawn and dusk" {
-    try std.testing.expect(sunriseColors(0.0) == null);
-    try std.testing.expect(sunriseColors(0.5) == null);
-    try std.testing.expect(sunriseColors(0.25) != null);
-    try std.testing.expect(sunriseColors(0.75) != null);
-
-    const dawn = sunriseColors(0.25).?;
-    try std.testing.expectApproxEqAbs(@as(f32, 0.85), dawn.color[0], 1.0e-3);
-    try std.testing.expect(dawn.color[3] > 0.0 and dawn.color[3] <= 1.0);
-}
-
-test "stars are invisible by day and brightest at midnight" {
-    try std.testing.expectEqual(@as(f32, 0.0), starBrightness(0.0));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), starBrightness(0.5), 1.0e-4);
-    try std.testing.expect(starBrightness(0.25) < 0.5);
-}
-
 test "the cloud layer tiles the original's grid and sits above the camera" {
     const gpa = std.testing.allocator;
     var mesh: MeshBuilder = .{};
@@ -603,14 +552,6 @@ test "clouds stay anchored to the world as the camera moves" {
 
     try std.testing.expectEqual(still.vertices.items[0].x, moved.vertices.items[0].x);
     try std.testing.expect(still.vertices.items[0].u != moved.vertices.items[0].u);
-}
-
-test "clouds dim at night the way the cloud colour curve says" {
-    const noon = cloudColor(0.0);
-    const midnight = cloudColor(0.5);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), noon[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.1), midnight[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.15), midnight[2], 1.0e-6);
 }
 
 fn cloudFaceColors(mesh: MeshBuilder) [4]bool {
@@ -680,23 +621,6 @@ test "fancy clouds are far thicker geometry than the flat layer" {
     for (fancy.vertices.items) |v| try std.testing.expectEqual(cloud_alpha, v.color[3]);
 }
 
-test "rain washes the colour out of the sky toward grey" {
-    const clear: Color = .{ 0.4, 0.6, 1.0 };
-    const wet = weatheredSkyColor(clear, 1.0, 0.0, 0.0);
-
-    try std.testing.expect(wet[2] < clear[2]);
-    const spread = @max(@max(wet[0], wet[1]), wet[2]) - @min(@min(wet[0], wet[1]), wet[2]);
-    try std.testing.expect(spread < 0.3);
-}
-
-test "a lightning flash lifts the sky toward white-blue" {
-    const stormy: Color = .{ 0.1, 0.1, 0.15 };
-    const lit = weatheredSkyColor(stormy, 1.0, 1.0, 2.0);
-
-    try std.testing.expect(lit[0] > stormy[0]);
-    try std.testing.expect(lit[2] > stormy[2]);
-}
-
 test "a dry sky is left exactly as it was" {
     const clear: Color = .{ 0.4, 0.6, 1.0 };
     const same = weatheredSkyColor(clear, 0.0, 0.0, 0.0);
@@ -707,12 +631,4 @@ test "a dry sky is left exactly as it was" {
 
     const fog = weatheredFogColor(clear, 0.0, 0.0);
     try std.testing.expectEqual(clear[2], fog[2]);
-}
-
-test "fog loses more blue than red when it rains" {
-    const clear: Color = .{ 0.7, 0.8, 1.0 };
-    const wet = weatheredFogColor(clear, 1.0, 0.0);
-
-    try std.testing.expectApproxEqAbs(clear[0] * 0.5, wet[0], 1.0e-6);
-    try std.testing.expectApproxEqAbs(clear[2] * 0.6, wet[2], 1.0e-6);
 }

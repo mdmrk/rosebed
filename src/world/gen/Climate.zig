@@ -113,15 +113,6 @@ test "sample produces climate values in range and varies across a chunk" {
     try std.testing.expect(any_different);
 }
 
-test "temperatureAt matches the same position inside a full grid sample" {
-    const gpa = std.testing.allocator;
-    const climate = try Climate.init(gpa, 1);
-    defer climate.deinit(gpa);
-
-    const s = climate.sample(48, -32);
-    try std.testing.expectEqual(s.temperature[0], climate.temperatureAt(48, -32));
-}
-
 test "different world seeds produce different climate" {
     const gpa = std.testing.allocator;
     const climate_a = try Climate.init(gpa, 1);

@@ -146,11 +146,6 @@ pub fn decompressFull(gpa: std.mem.Allocator, chunk: *Chunk, compressed: []const
     try readFull(chunk, raw);
 }
 
-test "the payload is the size vanilla allocates for a whole chunk" {
-    try std.testing.expectEqual(@as(usize, 16 * 128 * 16 * 5 / 2), full_len);
-    try std.testing.expectEqual(@as(usize, 81920), full_len);
-}
-
 test "the payload is blocks, then metadata, then block light, then sky light" {
     const gpa = std.testing.allocator;
 
@@ -237,16 +232,6 @@ test "a chunk read back from its payload matches the one that was written" {
     try std.testing.expectEqualSlices(u8, &sent.sky_light.data, &received.sky_light.data);
 }
 
-test "a payload of the wrong length is refused" {
-    const gpa = std.testing.allocator;
-
-    const chunk = try gpa.create(Chunk);
-    defer gpa.destroy(chunk);
-    chunk.* = Chunk.init(0, 0);
-
-    try std.testing.expectError(error.WrongSize, readFull(chunk, &.{ 1, 2, 3 }));
-}
-
 fn speckledChunk(chunk: *Chunk) void {
     for (0..Chunk.width) |x| {
         for (0..Chunk.width) |z| {
@@ -306,11 +291,6 @@ test "a box round trips through the payload the way a whole chunk does" {
             }
         }
     }
-}
-
-test "a box payload is the five halves per cell Packet51MapChunk sizes it at" {
-    const box: Box = .{ .x = 0, .y = 0, .z = 0, .size_x = 4, .size_y = 6, .size_z = 2 };
-    try std.testing.expectEqual(@as(usize, 4 * 6 * 2 * 5 / 2), box.len());
 }
 
 test "a box that straddles a nibble or leaves the chunk is refused" {

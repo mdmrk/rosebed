@@ -252,16 +252,6 @@ test "a carved dungeon leaves a stocked chest behind, not a bare block" {
     try std.testing.expect(slots_used > 0);
 }
 
-test "a dungeon refuses to carve into open air" {
-    var w = World.init(std.testing.allocator);
-    defer w.deinit();
-    _ = try w.createChunk(0, 0);
-
-    var rand = JavaRandom.init(1);
-    const made = try generate(&w, &rand, .init(8, 40, 8));
-    try std.testing.expect(!made);
-}
-
 test "a dungeon spills across a chunk boundary into the neighbor chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();

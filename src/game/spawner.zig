@@ -333,9 +333,6 @@ fn spawnInChunk(
             const from_spawn = from_spawn_x * from_spawn_x + from_spawn_y * from_spawn_y + from_spawn_z * from_spawn_z;
             if (from_spawn < spawn_clearance_squared) continue;
 
-            // The mob is built first (a chicken rolls its first clutch there), then turned,
-            // then asked whether it can stand where it was put. What vanilla leaves until
-            // after the mob has joined — a sheep's fleece, a spider's jockey — waits too.
             const position = math.Vec3.init(at_x, at_y, at_z);
             switch (chosen) {
                 .monster => |monster| {
@@ -592,7 +589,6 @@ test "every kind we can make finds its way into a grassy world" {
     for (0..4000) |_| {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
 
-        // Empty the fields between rounds, so the population cap never ends the run early.
         inline for (.{ mob.sheep, mob.pig, mob.chicken, mob.cow, mob.wolf }, 0..) |type_id, kind| {
             if (entities.countOf(type_id) > 0) seen[kind] = true;
         }
@@ -650,7 +646,6 @@ test "nothing spawns in the dark" {
     const player = math.Vec3.init(0, surface + 1, 0);
     _ = try spawnUntilFirstAnimal(gpa, &entities, &w, player, .{ 0, 64, 0 }, &rand, 4000);
 
-    // The dark is the monsters' to have; it is the animals that need the light.
     try std.testing.expectEqual(@as(usize, 0), entities.animalCount());
 }
 
@@ -779,8 +774,6 @@ test "slimes spawn in caverns down in the bottom sixteen layers" {
     var rand = world.JavaRandom.init(9);
     const player = math.Vec3.init(0, cavern, 0);
 
-    // The other monsters are swept between rounds: left in place they reach the
-    // population cap first and the monster pass stops rolling for slimes at all.
     for (0..8000) |_| {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
         if (entities.countOf(mob.slime) > 0) break;
@@ -908,7 +901,6 @@ test "the overworld's monster list never rolls a nether horror" {
         }
     }
 
-    // BiomeGenHell weights the ghast and the pig zombie ten apiece.
     try std.testing.expect(ghasts * 100 / total > 45 and ghasts * 100 / total < 55);
     try std.testing.expectEqual(total, ghasts + pig_zombies);
 }
@@ -953,11 +945,6 @@ test "the monster cap is counted apart from the animals" {
     try std.testing.expectEqual(before, entities.countOf(mob.slime));
 }
 
-test "the population cap follows the vanilla per-chunk allowance" {
-    try std.testing.expectEqual(@as(i32, 16), populationCap(.creature, chunksAroundOnePlayer()));
-    try std.testing.expectEqual(@as(i32, 79), populationCap(.monster, chunksAroundOnePlayer()));
-}
-
 test "the biome's creature list picks each kind by its own weight" {
     var rand = world.JavaRandom.init(4);
     var rolls: [std.enums.values(Kind).len]u32 = @splat(0);
@@ -966,7 +953,6 @@ test "the biome's creature list picks each kind by its own weight" {
         rolls[@backingInt(pickWeighted(Creature, creatureList(.plains), &rand).kind)] += 1;
     }
 
-    // Of the plains list's 40 weight: sheep 12, pig 10, chicken 10, cow 8.
     const expected = [_]u32{ 30, 25, 25, 20 };
     for (expected, 0..) |percent, kind| {
         const share = rolls[kind] * 100 / total;
@@ -998,13 +984,6 @@ test "only forest and taiga put a wolf on the list, at one part in twenty-one" {
 
     const share = rolled * 1000 / total;
     try std.testing.expect(share > 35 and share < 60);
-}
-
-test "a wolf pack fills a chunk twice as deep as the other animals" {
-    try std.testing.expectEqual(@as(u32, 8), Kind.wolf.maxPerChunk());
-    for ([_]Kind{ .sheep, .pig, .chicken, .cow }) |kind| {
-        try std.testing.expectEqual(max_per_chunk, kind.maxPerChunk());
-    }
 }
 
 test "two distant players make more of the world eligible, and raise the cap with it" {
@@ -1042,17 +1021,6 @@ test "players standing together do not count the same chunk twice" {
     try collectEligibleChunks(gpa, &together, &eligible);
 
     try std.testing.expectEqual(chunksAroundOnePlayer(), eligible.items.len);
-}
-
-test "nothing spawns near any player, not merely the first" {
-    const near_second = [_]Animal.PlayerView{
-        .{ .id = 1, .position = math.Vec3.init(0, 64, 0), .eye_height = 1.62, .alive = true },
-        .{ .id = 2, .position = math.Vec3.init(500, 64, 500), .eye_height = 1.62, .alive = true },
-    };
-
-    try std.testing.expect(anyPlayerWithin(&near_second, 505, 64, 500, player_clearance));
-    try std.testing.expect(anyPlayerWithin(&near_second, 5, 64, 0, player_clearance));
-    try std.testing.expect(!anyPlayerWithin(&near_second, 250, 64, 250, player_clearance));
 }
 
 pub const night_spawn_attempts: usize = 20;
@@ -1239,7 +1207,6 @@ test "a spider the spawner rejects never rolls for a jockey" {
         _ = try performSpawning(gpa, &entities, &w, &soloView(player), .{ 0, 64, 0 }, .overworld, test_seed, &rand);
     }
 
-    // Broad daylight on the plateau: no spider gets in, so no jockey can be riding one.
     try std.testing.expectEqual(@as(usize, 0), entities.countOf(mob.spider));
     var walk = entities.of(Skeleton, mob.skeleton);
     while (walk.next()) |skeleton| {

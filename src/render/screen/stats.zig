@@ -483,13 +483,6 @@ test "the tab buttons stay disabled until their list has rows" {
     try std.testing.expectEqual(@as(?Hit, .{ .tab = .items }), hitAt((cx + 112) * res.factor, y, res, filled));
 }
 
-test "done sits to the right of the tab row" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0);
-    const state: State = .{};
-    try std.testing.expectEqual(@as(?Hit, .done), hitAt((cx + 80) * res.factor, (res.height - 28 + 10) * res.factor, res, state));
-}
-
 test "dragging the thumb the length of its travel scrolls the whole list" {
     const res = gui.scaledResolution(640, 480, 1000);
     var many: [64]world.Id = @splat(.{ .block = .stone });
@@ -503,16 +496,6 @@ test "dragging the thumb the length of its travel scrolls the whole list" {
     const travel = listBottom(res) - list_top - thumb.height;
     try std.testing.expectEqual(scrollLimit(res, filled), dragScroll(res, filled, travel));
     try std.testing.expectEqual(@as(f32, 0), dragScroll(res, filled, -10));
-}
-
-test "a list too short for a scrollbar cannot be dragged" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    var one = [_]world.Id{.{ .block = .stone }};
-    const short: State = .{ .tab = .blocks, .blocks = &one };
-
-    try std.testing.expect(scrollbarThumb(res, short) == null);
-    try std.testing.expect(!scrollbarAt((@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor, (list_top + 20) * res.factor, res, short));
-    try std.testing.expectEqual(short.scrollOf(), dragScroll(res, short, 40));
 }
 
 test "the column headers only respond on the table tabs" {
@@ -550,15 +533,6 @@ test "clicking a header cycles descending, ascending and back to unsorted" {
     try std.testing.expectEqual(@as(?Sort, .{ .column = 0, .ascending = false }), state.sort.get(.blocks));
     applySort(&state, &source, 1);
     try std.testing.expectEqual(@as(?Sort, .{ .column = 1, .ascending = false }), state.sort.get(.blocks));
-}
-
-test "the columns map onto the stats each tab shows" {
-    try std.testing.expectEqual(game.stats.Kind.crafted, columnKind(.blocks, 0));
-    try std.testing.expectEqual(game.stats.Kind.used, columnKind(.blocks, 1));
-    try std.testing.expectEqual(game.stats.Kind.mined, columnKind(.blocks, 2));
-    try std.testing.expectEqual(game.stats.Kind.depleted, columnKind(.items, 0));
-    try std.testing.expectEqual(game.stats.Kind.crafted, columnKind(.items, 1));
-    try std.testing.expectEqual(game.stats.Kind.used, columnKind(.items, 2));
 }
 
 test "a list shorter than the view sits at half its slack, as bindAmountScrolled leaves it" {

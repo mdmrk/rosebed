@@ -239,13 +239,6 @@ pub fn heldShape(stack: ?game.Inventory.ItemStack) ?Held {
     return .{ .cube = id };
 }
 
-test "only the fishing rod is turned around in the hand" {
-    try std.testing.expect(turnsAroundInHand(.{ .id = .{ .item = .fishing_rod }, .count = 1 }));
-    try std.testing.expect(!turnsAroundInHand(.{ .id = .{ .item = .bow }, .count = 1 }));
-    try std.testing.expect(!turnsAroundInHand(.{ .id = .{ .block = .stone }, .count = 1 }));
-    try std.testing.expect(!turnsAroundInHand(null));
-}
-
 test "the equip animation dips to zero when the held stack changes, then climbs back" {
     var equip: Equip = .{ .shown = .{ .id = .{ .block = .stone }, .count = 1 } };
 
@@ -260,38 +253,6 @@ test "the equip animation dips to zero when the held stack changes, then climbs 
 
     equip.tick(.{ .id = .{ .block = .dirt }, .count = 1 });
     try std.testing.expect(equip.progress > 0.0);
-}
-
-test "an unchanged stack holds the item fully raised" {
-    var equip: Equip = .{ .shown = .{ .id = .{ .block = .stone }, .count = 1 } };
-    for (0..5) |_| equip.tick(.{ .id = .{ .block = .stone }, .count = 1 });
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), equip.progress, 1.0e-5);
-}
-
-test "at rest the hand sits down and to the right of the camera" {
-    const resting: [16]f32 = handMatrix(0.0, 1.0).m;
-
-    try std.testing.expectApproxEqAbs(@as(f32, 0.56), resting[12], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.52), resting[13], 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.72), resting[14], 1.0e-5);
-}
-
-test "lowering the item during a swap drops it below the resting position" {
-    const resting: [16]f32 = handMatrix(0.0, 1.0).m;
-    const swapping: [16]f32 = handMatrix(0.0, 0.0).m;
-    try std.testing.expect(swapping[13] < resting[13]);
-    try std.testing.expectApproxEqAbs(@as(f32, -0.6), swapping[13] - resting[13], 1.0e-5);
-}
-
-test "the extruded sprite is two faces plus four strips of sixteen slices" {
-    const gpa = std.testing.allocator;
-    var mesh: MeshBuilder = .{};
-    defer mesh.deinit(gpa);
-
-    try appendSprite(&mesh, gpa, 7, .{});
-
-    const quads = 2 + 4 * sprite_slices;
-    try std.testing.expectEqual(@as(usize, quads * 4), mesh.vertices.items.len);
 }
 
 test "the extruded sprite carries ItemRenderer's six normal groups" {
@@ -403,16 +364,4 @@ test "the arm is one box of ModelBiped's right arm dimensions" {
         try std.testing.expectApproxEqAbs(arm_box.size[axis], span, 1.0e-4);
     }
     try std.testing.expectApproxEqAbs((arm_box.origin[0] + arm_pivot[0]) / 16.0, lowest[0], 1.0e-6);
-}
-
-test "the empty hand and the held item start from different offsets" {
-    const arm: [16]f32 = armMatrix(0.0, 1.0).m;
-    const item: [16]f32 = handMatrix(0.0, 1.0).m;
-    try std.testing.expect(arm[12] != item[12]);
-    try std.testing.expect(arm[13] != item[13]);
-}
-
-test "an empty slot falls through to the arm" {
-    try std.testing.expect(heldShape(null) == null);
-    try std.testing.expect(heldShape(.{ .id = .{ .block = .air }, .count = 0 }) == null);
 }

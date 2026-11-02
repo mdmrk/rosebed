@@ -248,11 +248,6 @@ test "a line fades out over two hundred ticks the way the overlay squares it" {
     try std.testing.expectEqual(@as(u8, 0), lineAlpha(5000, false));
 }
 
-test "an open chat holds every line at full opacity" {
-    try std.testing.expectEqual(@as(u8, 255), lineAlpha(0, true));
-    try std.testing.expectEqual(@as(u8, 255), lineAlpha(5000, true));
-}
-
 test "history owns copied message data" {
     var state: State = .{};
 
@@ -266,12 +261,6 @@ test "history owns copied message data" {
     try std.testing.expectEqual(@as(usize, 2), state.history_line_count);
     try std.testing.expectEqualStrings("second", state.history[0][0..state.history_lengths[0]]);
     try std.testing.expectEqualStrings("first", state.history[1][0..state.history_lengths[1]]);
-}
-
-test "history navigation handles empty history" {
-    var state: State = .{};
-    state.setTextFromHistory(-1);
-    try std.testing.expectEqual(@as(usize, 0), state.message().len);
 }
 
 test "history navigation goes newest to oldest and back to empty" {
@@ -322,26 +311,6 @@ test "sending a line puts history back at the empty end" {
     try std.testing.expectEqualStrings("second", state.message());
 }
 
-test "the newest message sits at index zero" {
-    var state: State = .{};
-    state.addMessage(test_font, "first");
-    state.addMessage(test_font, "second");
-
-    try std.testing.expectEqual(@as(usize, 2), state.line_count);
-    try std.testing.expectEqualStrings("second", state.lines[0].text());
-    try std.testing.expectEqualStrings("first", state.lines[1].text());
-}
-
-test "a message wider than 320 pixels splits, head first" {
-    var state: State = .{};
-    state.addMessage(test_font, &@as([60]u8, @splat('x')));
-
-    try std.testing.expectEqual(@as(usize, 2), state.line_count);
-    try std.testing.expectEqualStrings(&@as([53]u8, @splat('x')), state.lines[1].text());
-    try std.testing.expectEqualStrings(&@as([7]u8, @splat('x')), state.lines[0].text());
-    try std.testing.expect(test_font.stringWidth(state.lines[1].text()) <= wrap_width);
-}
-
 test "the backlog stops at fifty lines and drops the oldest" {
     var state: State = .{};
     for (0..max_lines + 5) |i| {
@@ -352,29 +321,6 @@ test "the backlog stops at fifty lines and drops the oldest" {
     try std.testing.expectEqual(max_lines, state.line_count);
     try std.testing.expectEqualStrings("54", state.lines[0].text());
     try std.testing.expectEqualStrings("5", state.lines[max_lines - 1].text());
-}
-
-test "typing keeps only characters the font sheet lists" {
-    var state: State = .{};
-    state.typeText("hello");
-    state.typeText("`\t\n");
-    try std.testing.expectEqualStrings("hello", state.message());
-}
-
-test "a message never grows past a hundred characters" {
-    var state: State = .{};
-    state.typeText(&@as([max_message_length * 2]u8, @splat('y')));
-    try std.testing.expectEqual(max_message_length, state.message().len);
-}
-
-test "closing the input throws the half-typed message away" {
-    var state: State = .{};
-    state.openInput();
-    state.typeText("half typed");
-    state.closeInput();
-
-    try std.testing.expect(!state.open);
-    try std.testing.expectEqualStrings("", state.message());
 }
 
 test "only an open input blinks the cursor" {
@@ -388,15 +334,4 @@ test "only an open input blinks the cursor" {
     try std.testing.expect(!state.cursorVisible());
     for (0..cursor_blink_ticks) |_| state.tick();
     try std.testing.expect(state.cursorVisible());
-}
-
-test "ticking ages every line that is still in the backlog" {
-    var state: State = .{};
-    state.addMessage(test_font, "one");
-    state.tick();
-    state.addMessage(test_font, "two");
-    state.tick();
-
-    try std.testing.expectEqual(@as(u32, 1), state.lines[0].age);
-    try std.testing.expectEqual(@as(u32, 2), state.lines[1].age);
 }

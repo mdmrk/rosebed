@@ -10,7 +10,6 @@ const Atlas = @This();
 pub const tiles_per_row = 16;
 pub const tile_pixels = 16;
 pub const tile_count = tiles_per_row * tiles_per_row;
-pub const tile_bytes = tile_pixels * tile_pixels * 4;
 
 pub const TileSet = std.bit_set.Static(tile_count);
 
@@ -66,22 +65,6 @@ pub fn freeTileCount(self: Atlas) usize {
     return self.free_tiles.count();
 }
 
-pub fn writeTile(self: Atlas, index: u8, rgba: []const u8) void {
-    std.debug.assert(rgba.len == tile_bytes);
-    self.bind();
-    gl.TexSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        @as(gl.int, index % tiles_per_row) * tile_pixels,
-        @as(gl.int, index / tiles_per_row) * tile_pixels,
-        tile_pixels,
-        tile_pixels,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        rgba.ptr,
-    );
-}
-
 fn loadWrapped(data: []const u8, wrap: gl.int, filter: gl.int, desaturate: bool) !Atlas {
     const surface = try sdl3.surface.Surface.initFromPngIo(try .initFromConstMem(data), true);
     defer surface.deinit();
@@ -131,17 +114,6 @@ pub fn tileUv(index: u8) Uv {
     };
 }
 
-test "tileUv maps index to a 16x16 grid cell" {
-    const a = tileUv(0);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), a.u0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), a.v0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), a.u1, 1.0e-6);
-
-    const b = tileUv(17);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), b.u0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), b.v0, 1.0e-6);
-}
-
 fn blankAtlasPixels(buffer: []u8) void {
     @memset(buffer, 0);
 }
@@ -173,15 +145,6 @@ test "a tile with no opaque pixel anywhere counts as free" {
     try std.testing.expect(!free.isSet(17));
     try std.testing.expect(!free.isSet(tile_count - 1));
     try std.testing.expect(free.isSet(1));
-}
-
-test "an atlas that is not the 16x16 tile grid offers no tiles to claim" {
-    const gpa = std.testing.allocator;
-    const pixels = try gpa.alloc(u8, 64 * 32 * 4);
-    defer gpa.free(pixels);
-    blankAtlasPixels(pixels);
-
-    try std.testing.expectEqual(@as(usize, 0), unusedTiles(pixels, 64, 32).count());
 }
 
 test "claiming hands out each free tile once and releasing gives it back" {

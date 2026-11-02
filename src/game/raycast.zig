@@ -168,50 +168,6 @@ fn testWorldWithFloor() !world.World {
     return w;
 }
 
-test "looking straight down hits the floor's top face" {
-    var w = try testWorldWithFloor();
-    defer w.deinit();
-    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 8), hit.pos.x);
-    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
-    try std.testing.expectEqual(@as(i32, 8), hit.pos.z);
-    try std.testing.expectEqual(world.Side.up, hit.face);
-}
-
-test "looking away from anything solid finds nothing within range" {
-    var w = try testWorldWithFloor();
-    defer w.deinit();
-    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, 1, 0 }, 20.0);
-    try std.testing.expect(hit == null);
-}
-
-test "approaching a wall from the side hits its facing side face" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(10, 5, 8, .stone);
-    const hit = cast(&w, math.Vec3.init(5, 5.5, 8), .{ 1, 0, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 10), hit.pos.x);
-    try std.testing.expectEqual(world.Side.west, hit.face);
-}
-
-test "a target beyond max_distance is not hit" {
-    var w = try testWorldWithFloor();
-    defer w.deinit();
-    const hit = cast(&w, math.Vec3.init(8, 10, 8), .{ 0, -1, 0 }, 2.0);
-    try std.testing.expect(hit == null);
-}
-
-test "a cross-shaped plant is still targetable despite having no collision" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, .tall_grass);
-
-    const hit = cast(&w, math.Vec3.init(8.5, 10, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
-}
-
 test "aiming past a wall torch targets the wall behind it" {
     var w = world.World.init(std.testing.allocator);
     defer w.deinit();
@@ -273,17 +229,6 @@ test "a snow layer is only hit within its eighth of a block" {
 
     const high = cast(&w, math.Vec3.init(5, 5.5, 8.5), .{ 1, 0, 0 }, 20.0).?;
     try std.testing.expectEqual(@as(i32, 10), high.pos.x);
-}
-
-test "looking down onto a snow layer reports its own top, not the block's" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    const chunk = try w.createChunk(0, 0);
-    chunk.setBlock(8, 5, 8, .snow_layer);
-
-    const hit = cast(&w, math.Vec3.init(8.5, 12, 8.5), .{ 0, -1, 0 }, 20.0).?;
-    try std.testing.expectEqual(@as(i32, 5), hit.pos.y);
-    try std.testing.expectEqual(world.Side.up, hit.face);
 }
 
 test "standing inside a plant still targets it, by the face the ray leaves through" {

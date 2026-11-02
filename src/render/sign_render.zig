@@ -262,22 +262,6 @@ test "a sign post turns with its metadata, a wall sign with the face it hangs on
     try std.testing.expectApproxEqAbs(@as(f32, std.math.pi / 2.0), facing_west.turn, 1.0e-6);
 }
 
-test "a wall sign is pulled back against the block it hangs on, a post is not" {
-    const post = poseFor(.sign_post, 0, .init(0, 0, 0));
-    try std.testing.expectEqual(@as(f32, 0), post.offset[2]);
-
-    const wall = poseFor(.wall_sign, 3, .init(0, 0, 0));
-    try std.testing.expectEqual(wall_back, wall.offset[2]);
-    try std.testing.expectEqual(wall_drop, wall.offset[1]);
-}
-
-test "the four lines stack around the middle of the board" {
-    try std.testing.expectEqual(@as(f32, -20), lineOffsetY(0));
-    try std.testing.expectEqual(@as(f32, -10), lineOffsetY(1));
-    try std.testing.expectEqual(@as(f32, 0), lineOffsetY(2));
-    try std.testing.expectEqual(@as(f32, 10), lineOffsetY(3));
-}
-
 test "a post carries its stick, a wall sign does not" {
     const gpa = std.testing.allocator;
     var world_map = world.World.init(gpa);

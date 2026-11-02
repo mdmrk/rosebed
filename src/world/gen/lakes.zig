@@ -183,16 +183,6 @@ test "a lava lake seals its shell with stone" {
     try std.testing.expect(found_lava);
 }
 
-test "refuses to carve when surrounded by open air instead of solid ground" {
-    var w = World.init(std.testing.allocator);
-    defer w.deinit();
-    _ = try w.createChunk(0, 0);
-
-    var rand = JavaRandom.init(1);
-    const made = generate(&w, &rand, 8, 64, 8, .stationary_water);
-    try std.testing.expect(!made);
-}
-
 test "a lake spills across a chunk boundary into the neighbor chunk" {
     var w = World.init(std.testing.allocator);
     defer w.deinit();

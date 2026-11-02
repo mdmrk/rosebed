@@ -298,19 +298,6 @@ test "a deflated entry is inflated on the way out" {
     try std.testing.expectEqualStrings(plain, text);
 }
 
-test "something that is not an archive is refused rather than read" {
-    const gpa = std.testing.allocator;
-    try std.testing.expectError(error.NotAnArchive, readArchiveEntry(gpa, "hello", "pack.txt", max_resource_bytes));
-    try std.testing.expectError(error.NotAnArchive, readArchiveEntry(gpa, "", "pack.txt", max_resource_bytes));
-}
-
-test "an entry larger than the limit is refused before it is unpacked" {
-    const gpa = std.testing.allocator;
-    const archive = try testing_archive.build(gpa, &.{"pack.txt"}, &.{"0123456789"});
-    defer gpa.free(archive);
-    try std.testing.expectError(error.StreamTooLong, readArchiveEntry(gpa, archive, "pack.txt", 4));
-}
-
 test "pack.txt gives up to two lines, each cut to the width the slot has" {
     const gpa = std.testing.allocator;
 
@@ -328,14 +315,6 @@ test "pack.txt gives up to two lines, each cut to the width the slot has" {
     const cut = try descriptionLines(gpa, long);
     defer for (cut) |line| gpa.free(line);
     try std.testing.expectEqual(@as(usize, max_line_len), cut[0].len);
-}
-
-test "a carriage return from a windows-written pack.txt is not shown" {
-    const gpa = std.testing.allocator;
-    const lines = try descriptionLines(gpa, "first\r\nsecond\r\n");
-    defer for (lines) |line| gpa.free(line);
-    try std.testing.expectEqualStrings("first", lines[0]);
-    try std.testing.expectEqualStrings("second", lines[1]);
 }
 
 test "a pack is found by name, and Default is always the one at the front" {

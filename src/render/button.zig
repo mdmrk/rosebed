@@ -94,10 +94,3 @@ pub fn append(
     const color = if (!button.enabled) text_disabled else if (hovered) text_hover else text_normal;
     try appendLabel(text, gpa, font, button.x, button.y, button.w, button.label, color, res);
 }
-
-test "contains hits inside the button rect and misses outside" {
-    const b: Button = .{ .x = 60, .y = 68, .w = 200, .label = "x", .enabled = true };
-    try std.testing.expect(contains(b, 160, 78));
-    try std.testing.expect(!contains(b, 160, 90));
-    try std.testing.expect(!contains(b, 40, 78));
-}

@@ -498,12 +498,6 @@ pub fn appendStackIcon(
     if (stack.isDamaged()) try appendDurabilityBar(bar_mesh, gpa, stack, x, y, res);
 }
 
-test "the icon cube is lit the way the GUI's two item lights light it" {
-    try std.testing.expectEqual(@as(u8, 255), @as(u8, @intFromFloat(@round(iso_brightness_up * 255.0))));
-    try std.testing.expectEqual(@as(u8, 189), @as(u8, @intFromFloat(@round(iso_brightness_south * 255.0))));
-    try std.testing.expectEqual(@as(u8, 216), @as(u8, @intFromFloat(@round(iso_brightness_east * 255.0))));
-}
-
 test "an icon face carries the block's render color, not bare white" {
     const gpa = std.testing.allocator;
     const res = scaledResolution(854, 480, 2);

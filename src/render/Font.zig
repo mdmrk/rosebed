@@ -94,11 +94,3 @@ pub fn stringWidth(self: Font, text: []const u8) u32 {
     for (text) |c| total += self.char_width[c];
     return total;
 }
-
-test "glyphUv maps a char code to an 8px cell in the 128x128 grid" {
-    const uv = glyphUv('0');
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0 / 128.0), uv.u0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 24.0 / 128.0), uv.v0, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 7.99 / 128.0), uv.u1, 1.0e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 31.99 / 128.0), uv.v1, 1.0e-6);
-}

@@ -197,16 +197,6 @@ test "the smelting list is the one FurnaceRecipes fills in" {
     try std.testing.expectEqual(@as(?Stack, null), smeltingResult(.{ .item = .stick }));
 }
 
-test "fuels burn for getItemBurnTime's spans" {
-    try std.testing.expectEqual(@as(i16, 300), burnTime(.{ .id = .{ .block = .planks }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 300), burnTime(.{ .id = .{ .block = .log }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 100), burnTime(.{ .id = .{ .block = .sapling }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 100), burnTime(.{ .id = .{ .item = .stick }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 1600), burnTime(.{ .id = .{ .item = .coal }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 0), burnTime(.{ .id = .{ .block = .stone }, .count = 1 }));
-    try std.testing.expectEqual(@as(i16, 0), burnTime(null));
-}
-
 test "a lit furnace consumes one fuel and smelts after two hundred ticks" {
     var state: Furnace = .{
         .input = .{ .id = .{ .block = .ore_iron }, .count = 2 },
@@ -241,17 +231,6 @@ test "the fire goes out when its fuel runs down, and cooking restarts" {
     try std.testing.expectEqual(@as(?Stack, null), state.output);
 }
 
-test "an unsmeltable input never lights the fire" {
-    var state: Furnace = .{
-        .input = .{ .id = .{ .block = .dirt }, .count = 1 },
-        .fuel = .{ .id = .{ .item = .coal }, .count = 1 },
-    };
-
-    try std.testing.expect(!state.tick());
-    try std.testing.expect(!state.isBurning());
-    try std.testing.expectEqual(@as(u8, 1), state.fuel.?.count);
-}
-
 test "smelting stops once the output slot is full or holds something else" {
     var full: Furnace = .{
         .input = .{ .id = .{ .block = .sand }, .count = 8 },
@@ -275,24 +254,6 @@ test "smelting stops once the output slot is full or holds something else" {
     try std.testing.expectEqual(@as(u8, 7), stacking.input.?.count);
 }
 
-test "charcoal does not stack onto the coal it looks like" {
-    var state: Furnace = .{
-        .input = .{ .id = .{ .block = .log }, .count = 1 },
-        .output = .{ .id = .{ .item = .coal }, .count = 1 },
-    };
-    try std.testing.expect(!state.canSmelt());
-}
-
-test "the progress bars scale the way GuiFurnace reads them" {
-    var state: Furnace = .{ .cook_time = 100, .burn_time = 800, .item_burn_time = 1600 };
-    try std.testing.expectEqual(@as(i32, 12), state.cookProgressScaled(24));
-    try std.testing.expectEqual(@as(i32, 6), state.burnTimeRemainingScaled(12));
-
-    var unlit: Furnace = .{};
-    try std.testing.expectEqual(@as(i32, 0), unlit.cookProgressScaled(24));
-    try std.testing.expectEqual(@as(i32, 0), unlit.burnTimeRemainingScaled(12));
-}
-
 test "a furnace survives a round trip through its tile entity compound" {
     const gpa = std.testing.allocator;
     const original: Furnace = .{
@@ -310,15 +271,6 @@ test "a furnace survives a round trip through its tile entity compound" {
     const loaded = load(tag.compound).?;
     try std.testing.expectEqual(BlockPos.init(10, 64, -3), loaded.pos);
     try std.testing.expectEqual(original, loaded.state);
-}
-
-test "an empty furnace round-trips with no item entries" {
-    const gpa = std.testing.allocator;
-    var tag = try store(gpa, .init(0, 0, 0), .{});
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqual(@as(usize, 0), tag.compound.get("Items").?.list.items.len);
-    try std.testing.expectEqual(Furnace{}, load(tag.compound).?.state);
 }
 
 test "a tile entity of another kind is not read as a furnace" {

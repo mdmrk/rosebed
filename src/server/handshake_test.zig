@@ -1433,7 +1433,6 @@ test "taking from an open chest moves the stack on the server" {
     try pair.connection.reportPlace(gpa, .init(x, y + 1, z), 1, null);
     try pair.settle(2);
 
-    // Shift-click slot 0 straight into the player's inventory.
     try pair.connection.reportWindowClick(gpa, 0, false, true, null);
     try pair.pumpToServer();
 
@@ -1577,11 +1576,9 @@ test "a player who walks through a portal is handed over to the other world" {
     try std.testing.expectEqual(@as(usize, 0), pair.server_level.roster.items.len);
     try std.testing.expectEqual(world.Dimension.nether, pair.connection.dimension);
 
-    // The client is asked to tear the old world down before it draws the new one.
     try std.testing.expectEqual(world.Dimension.nether, pair.connection.takeDimensionChange().?);
     try std.testing.expect(pair.connection.takeDimensionChange() == null);
 
-    // The server carves a way back in and stands the player in it.
     const landed = nether.roster.items[0].base.position;
     try std.testing.expect(@abs(landed.x - 8.0) < 32.0);
     try std.testing.expect(@abs(landed.z - -4.0) < 32.0);
@@ -1894,7 +1891,6 @@ test "the server tells the client when it starts and stops raining" {
     _ = try pair.pumpToClient();
     try std.testing.expect(pair.client_level.world_map.weather.raining);
 
-    // Saying it twice puts nothing more on the wire.
     try pair.session.sendRainState(gpa, true);
     const quiet = try pair.session.takeOutbox(gpa);
     defer gpa.free(quiet);

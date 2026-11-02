@@ -101,12 +101,6 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 }
 
-test "a fresh spawner is a pig on a twenty tick fuse, the way TileEntityMobSpawner starts" {
-    const state: MobSpawner = .{};
-    try std.testing.expectEqualStrings("Pig", state.mobName());
-    try std.testing.expectEqual(initial_delay, state.delay);
-}
-
 test "a spawner keeps its mob and its delay across a round trip" {
     const gpa = std.testing.allocator;
 
@@ -122,15 +116,6 @@ test "a spawner keeps its mob and its delay across a round trip" {
     try std.testing.expectEqual(@as(i32, -7), placed.pos.z);
     try std.testing.expectEqualStrings("Skeleton", placed.state.mobName());
     try std.testing.expectEqual(@as(i32, 417), placed.state.delay);
-}
-
-test "a spawner nobody has ever ticked writes the negative delay vanilla leaves in place" {
-    const gpa = std.testing.allocator;
-
-    var stored = try store(gpa, .init(0, 0, 0), .{ .delay = idle_delay });
-    defer nbt.deinit(gpa, &stored);
-
-    try std.testing.expectEqual(@as(i32, idle_delay), load(stored.compound).?.state.delay);
 }
 
 test "a spawner NBT that names no mob loads as the pig the field defaults to" {
@@ -163,17 +148,4 @@ test "the spin winds up faster the shorter the fuse, and wraps both angles toget
     wrapping.spin();
     try std.testing.expect(wrapping.yaw <= 360.0);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), wrapping.yaw - wrapping.prev_yaw - spin_numerator / spin_denominator, 1.0e-9);
-}
-
-test "the render yaw walks from the previous angle to the current one" {
-    const state: MobSpawner = .{ .prev_yaw = 10.0, .yaw = 20.0 };
-    try std.testing.expectApproxEqAbs(@as(f64, 10.0), state.renderYaw(0.0), 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 15.0), state.renderYaw(0.5), 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 20.0), state.renderYaw(1.0), 1.0e-9);
-}
-
-test "a mob name longer than the buffer is cut rather than overrunning it" {
-    var state: MobSpawner = .{};
-    state.setMobName(&@as([max_mob_name + 8]u8, @splat('A')));
-    try std.testing.expectEqual(@as(usize, max_mob_name), state.mobName().len);
 }

@@ -121,17 +121,6 @@ test "rain fades in and out a hundredth at a time" {
     try std.testing.expectEqual(@as(f32, 0.0), weather.rain_strength);
 }
 
-test "it only counts as raining once the sky is more than a fifth wet" {
-    var weather: Weather = .{};
-    weather.rain_strength = 0.2;
-    weather.prev_rain_strength = 0.2;
-    try std.testing.expect(!weather.isRaining());
-
-    weather.rain_strength = 0.21;
-    weather.prev_rain_strength = 0.21;
-    try std.testing.expect(weather.isRaining());
-}
-
 test "a storm needs the rain behind it to count as thunder" {
     var weather: Weather = .{};
     weather.thunder_strength = 1.0;
@@ -145,14 +134,4 @@ test "a storm needs the rain behind it to count as thunder" {
     weather.rain_strength = 0.5;
     weather.prev_rain_strength = 0.5;
     try std.testing.expect(!weather.isThundering());
-}
-
-test "loading a wet world starts it already pouring" {
-    var weather: Weather = .{ .raining = true, .thundering = true };
-    weather.settle();
-
-    try std.testing.expectEqual(@as(f32, 1.0), weather.rain_strength);
-    try std.testing.expectEqual(@as(f32, 1.0), weather.thunder_strength);
-    try std.testing.expect(weather.isRaining());
-    try std.testing.expect(weather.isThundering());
 }

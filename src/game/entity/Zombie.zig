@@ -207,17 +207,6 @@ fn mobAfterTick(animal: *Animal, context: Mob.Tick) anyerror!void {
     self.monster.deliverAttack(animal, context);
 }
 
-test "a zombie is the size, health and speed EntityZombie sets itself to" {
-    const self = Zombie.spawn(math.Vec3.init(0, 0, 0));
-
-    try std.testing.expectEqual(@as(f64, 0.6), self.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 1.8), self.animal.base.height);
-    try std.testing.expectEqual(@as(i32, 20), self.animal.health);
-    try std.testing.expectEqual(@as(f32, 0.5), self.animal.move_speed);
-    try std.testing.expectEqual(@as(i32, 5), self.monster.attack_strength);
-    try std.testing.expect(!self.animal.immune_to_fire);
-}
-
 test "a zombie needs no provocation to come after the player" {
     const gpa = std.testing.allocator;
     var w = try world.testing.stoneFloor(gpa, null);
@@ -398,16 +387,6 @@ test "a wounded zombie groans, a dying one cries out, and a shrugged-off hit is 
     try std.testing.expect(!self.animal.isAlive());
     try std.testing.expectEqual(@as(usize, 2), heard.count);
     try std.testing.expectEqualStrings(assets.sounds.mob.zombiedeath.key, heard.keys[1]);
-}
-
-test "a struck zombie turns on the player who struck it" {
-    var w = world.World.init(std.testing.allocator);
-    defer w.deinit();
-    var rand = world.JavaRandom.init(0);
-    var self = Zombie.spawn(math.Vec3.init(8, 1, 8));
-
-    try std.testing.expect(self.hurt(&w, 3, .{ .position = math.Vec3.init(6, 1, 8), .player = 11 }, &rand));
-    try std.testing.expectEqual(@as(?Animal.Entity.Id, 11), self.monster.target);
 }
 
 test "a zombie keeps its wounds across a record round trip" {

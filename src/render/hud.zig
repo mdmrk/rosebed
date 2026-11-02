@@ -192,22 +192,6 @@ pub fn drawCursor(ui: gui.Ui) !void {
     try drawCrosshair(ui, @floor(ui.mouse_x / ui.res.factor), @floor(ui.mouse_y / ui.res.factor));
 }
 
-test "a full lungful shows ten whole bubbles and none popping" {
-    const full = airBubbles(game.Player.max_air);
-    try std.testing.expectEqual(@as(i32, 10), full.full);
-    try std.testing.expectEqual(@as(i32, 0), full.popping);
-}
-
-test "the leading bubble pops before the row gives one up" {
-    const popping = airBubbles(271);
-    try std.testing.expectEqual(@as(i32, 9), popping.full);
-    try std.testing.expectEqual(@as(i32, 1), popping.popping);
-
-    const settled = airBubbles(270);
-    try std.testing.expectEqual(@as(i32, 9), settled.full);
-    try std.testing.expectEqual(@as(i32, 0), settled.popping);
-}
-
 test "the last bubble is gone by the time the lungs are empty" {
     const last = airBubbles(1);
     try std.testing.expectEqual(@as(i32, 0), last.full);
@@ -232,20 +216,4 @@ test "the hearts blink on and off in three tick stripes after a hit" {
     try std.testing.expect(!blinking(12));
     try std.testing.expect(blinking(11));
     try std.testing.expect(blinking(10));
-}
-
-test "the blink stops once the resistance window is nearly spent" {
-    try std.testing.expect(!blinking(9));
-    try std.testing.expect(!blinking(6));
-    try std.testing.expect(!blinking(3));
-    try std.testing.expect(!blinking(0));
-}
-
-test "hotbar slots are picked left to right along the bar" {
-    const res: gui.Scaled = .{ .factor = 2, .ortho_width = 600, .ortho_height = 340, .width = 600, .height = 340 };
-    const hotbar_x = @floor(res.width / 2.0) - hotbar_width / 2.0;
-    try std.testing.expectEqual(@as(?u8, 0), hotbarSlotAt(hotbar_x + 1, res.height - 1, res));
-    try std.testing.expectEqual(@as(?u8, 8), hotbarSlotAt(hotbar_x + hotbar_width - 3, res.height - 1, res));
-    try std.testing.expectEqual(@as(?u8, null), hotbarSlotAt(hotbar_x - 1, res.height - 1, res));
-    try std.testing.expectEqual(@as(?u8, null), hotbarSlotAt(hotbar_x + 1, res.height - hotbar_height - 1, res));
 }

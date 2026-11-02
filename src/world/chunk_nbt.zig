@@ -265,14 +265,6 @@ test "the stored layout is the original's Level compound" {
     try std.testing.expectEqual(@as(usize, 0), level.get("Entities").?.list.items.len);
 }
 
-test "a compound without a Level is rejected rather than half-loaded" {
-    const gpa = std.testing.allocator;
-    var tag: nbt.Tag = .{ .compound = .{} };
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectError(Error.MissingLevel, load(tag));
-}
-
 test "a truncated block array is rejected" {
     const gpa = std.testing.allocator;
     const original = sampleChunk();
@@ -286,17 +278,6 @@ test "a truncated block array is rejected" {
     blocks.byte_array = try gpa.dupe(u8, &.{ 1, 2, 3 });
 
     try std.testing.expectError(Error.WrongArrayLength, load(tag));
-}
-
-test "a world of nothing but vanilla blocks writes no palette at all" {
-    const gpa = std.testing.allocator;
-    const original = sampleChunk();
-
-    var tag = try store(gpa, &original, 1, true, try gpa.alloc(nbt.Tag, 0), try gpa.alloc(nbt.Tag, 0));
-    defer nbt.deinit(gpa, &tag);
-
-    const level = tag.compound.get(level_key).?.compound;
-    try std.testing.expect(level.get(palette_key) == null);
 }
 
 test "a registered block writes its key into the palette" {

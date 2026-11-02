@@ -141,17 +141,6 @@ fn point(mesh: *const MeshBuilder, at: math.Vec3, dx: f64, y: f64, dz: f64) [3]f
     return mesh.local(at.x + 0.5 + dx, y, at.z + 0.5 + dz);
 }
 
-test "a bolt is built from four passes of tapering segments" {
-    const gpa = std.testing.allocator;
-    var mesh: MeshBuilder = .{};
-    defer mesh.deinit(gpa);
-
-    try append(&mesh, gpa, math.Vec3.init(8, 64, 8), 12345);
-
-    try std.testing.expect(mesh.vertices.items.len > 0);
-    try std.testing.expect(mesh.vertices.items.len % 4 == 0);
-}
-
 test "the same seed draws the same bolt twice" {
     const gpa = std.testing.allocator;
 

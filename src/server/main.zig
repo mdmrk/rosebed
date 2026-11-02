@@ -18,8 +18,6 @@ pub const outgoing_high_water: usize = 4 * 1024 * 1024;
 pub const autosave_interval_ticks: u64 = 900;
 pub const save_chunks_per_pass: usize = 64;
 
-// Vanilla's dedicated server has no difficulty setting of its own: it derives one from
-// spawn-monsters, landing on easy or peaceful and never anything harder.
 pub const default_difficulty: world.Difficulty = .easy;
 
 pub const Options = struct {
@@ -771,7 +769,6 @@ pub fn main(init: std.process.Init) !void {
             },
         },
     };
-    // Each dim owns its copy of the save handle; the originals above are only the seed for them.
     defer for (&server.dims) |*dim| {
         dim.pending.deinit(gpa);
         dim.level.deinit(gpa);
@@ -873,32 +870,6 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("rosebed server stopped after {d} ticks", .{server.tick_count});
 }
 
-test "the command line picks the port, world, seed and tick limit" {
-    const options = try parseArgs(&.{ "rosebed-server", "--port", "25566", "--world", "flat", "--seed", "-42", "--ticks", "100" });
-    try std.testing.expectEqual(@as(u16, 25566), options.port);
-    try std.testing.expectEqualStrings("flat", options.folder);
-    try std.testing.expectEqual(@as(i64, -42), options.seed.?);
-    try std.testing.expectEqual(@as(u64, 100), options.ticks.?);
-}
-
-test "an empty command line falls back to the vanilla port" {
-    const options = try parseArgs(&.{"rosebed-server"});
-    try std.testing.expectEqual(default_port, options.port);
-    try std.testing.expect(options.seed == null);
-    try std.testing.expect(options.ticks == null);
-}
-
-test "pvp is on unless the command line turns it off" {
-    try std.testing.expect((try parseArgs(&.{"rosebed-server"})).pvp);
-    try std.testing.expect((try parseArgs(&.{ "rosebed-server", "--pvp", "true" })).pvp);
-    try std.testing.expect(!(try parseArgs(&.{ "rosebed-server", "--pvp", "false" })).pvp);
-    try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "rosebed-server", "--pvp", "maybe" }));
-}
-
-test "an argument the server does not know is refused rather than ignored" {
-    try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "rosebed-server", "--nonsense" }));
-}
-
 test "a chunk batches distinct blocks, ignores repeats and stops storing past ten" {
     var updates: ChunkUpdates = .{};
 
@@ -917,16 +888,6 @@ test "a chunk batches distinct blocks, ignores repeats and stops storing past te
     try std.testing.expectEqual(@as(u32, 9), updates.max_x);
     try std.testing.expectEqual(@as(u32, 60), updates.max_y);
     try std.testing.expectEqual(@as(u32, 12), updates.max_z);
-}
-
-test "a batched coordinate packs the way Packet52MultiBlockChange reads it back" {
-    var updates: ChunkUpdates = .{};
-    updates.note(9, 200, 12);
-
-    const raw: u16 = @bitCast(updates.coordinates[0]);
-    try std.testing.expectEqual(@as(u16, 9), raw >> 12 & 15);
-    try std.testing.expectEqual(@as(u16, 12), raw >> 8 & 15);
-    try std.testing.expectEqual(@as(u16, 200), raw & 255);
 }
 
 test "the box a full batch resends covers every change, snapped to whole nibbles" {

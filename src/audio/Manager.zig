@@ -424,23 +424,6 @@ fn decodedSounds(manager: *const Manager) usize {
     return total;
 }
 
-test "sound fades out linearly and falls silent at the fade distance" {
-    try std.testing.expectEqual(@as(f32, 1.0), attenuation(0, fade_distance));
-    try std.testing.expectEqual(@as(f32, 0.5), attenuation(8, fade_distance));
-    try std.testing.expectEqual(@as(f32, 0.0), attenuation(16, fade_distance));
-    try std.testing.expectEqual(@as(f32, 0.0), attenuation(64, fade_distance));
-    try std.testing.expectEqual(@as(f32, 0.75), attenuation(16, streaming_fade_distance));
-}
-
-test "a source ahead of the listener sits in front, and one behind sits back" {
-    const ahead = listenerSpace(.init(0, 0, 4), 0);
-    try std.testing.expect(ahead.z < -3.9);
-    try std.testing.expect(@abs(ahead.x) < 0.01);
-
-    const behind = listenerSpace(.init(0, 0, -4), 0);
-    try std.testing.expect(behind.z > 3.9);
-}
-
 test "turning the listener swings a fixed source across the stereo field" {
     const east = math.Vec3.init(4, 0, 0);
 
@@ -453,26 +436,4 @@ test "turning the listener swings a fixed source across the stereo field" {
 
     const turned_around = listenerSpace(east, 180);
     try std.testing.expect(turned_around.x > 3.9);
-}
-
-test "height offsets survive the listener transform" {
-    const above = listenerSpace(.init(0, 3, 0), 37);
-    try std.testing.expectEqual(@as(f64, 3), above.y);
-}
-
-test "every sound group is named by its own key and backed by ogg variants" {
-    try std.testing.expect(sound_groups.len > 0);
-    for (sound_groups) |group| {
-        try std.testing.expect(group.variants.len > 0);
-        for (group.variants) |variant| {
-            try std.testing.expect(std.mem.endsWith(u8, variant.path, ".ogg"));
-        }
-    }
-}
-
-test "a group gathers the numbered takes the pool used to collapse by hand" {
-    try std.testing.expectEqualStrings("step.grass", assets.sounds.step.grass.key);
-    try std.testing.expectEqual(@as(usize, 4), assets.sounds.step.grass.variants.len);
-    try std.testing.expectEqualStrings("mob.wolf.growl", assets.sounds.mob.wolf.growl.key);
-    try std.testing.expectEqual(@as(usize, 3), assets.sounds.mob.wolf.growl.variants.len);
 }

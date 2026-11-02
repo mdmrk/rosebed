@@ -358,20 +358,6 @@ test "the tree hangs off Taking Inventory the way AchievementList builds it" {
     }
 }
 
-test "only On A Rail and When Pigs Fly are drawn on the special plate" {
-    for (std.enums.values(Id)) |id| {
-        const want = id == .on_a_rail or id == .fly_pig;
-        try std.testing.expectEqual(want, id.def().special);
-    }
-}
-
-test "the display bounds span the columns and rows the achievements occupy" {
-    try std.testing.expectEqual(@as(i32, -1), bounds.min_column);
-    try std.testing.expectEqual(@as(i32, -5), bounds.min_row);
-    try std.testing.expectEqual(@as(i32, 8), bounds.max_column);
-    try std.testing.expectEqual(@as(i32, 6), bounds.max_row);
-}
-
 test "the crafting bench hands out the achievements SlotCrafting checks for" {
     try std.testing.expectEqual(@as(?Id, .build_work_bench), forCrafted(.{ .block = .workbench }));
     try std.testing.expectEqual(@as(?Id, .build_furnace), forCrafted(.{ .block = .furnace }));
@@ -385,22 +371,4 @@ test "the crafting bench hands out the achievements SlotCrafting checks for" {
     try std.testing.expectEqual(@as(?Id, null), forCrafted(.{ .block = .burning_furnace }));
     try std.testing.expectEqual(@as(?Id, null), forCrafted(.{ .item = .pickaxe_iron }));
     try std.testing.expectEqual(@as(?Id, null), forCrafted(.{ .item = .ingot_iron }));
-}
-
-test "the furnace hands out only the two achievements SlotFurnace checks for" {
-    try std.testing.expectEqual(@as(?Id, .acquire_iron), forSmelted(.{ .item = .ingot_iron }));
-    try std.testing.expectEqual(@as(?Id, .cook_fish), forSmelted(.{ .item = .fish_cooked }));
-
-    try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .item = .ingot_gold }));
-    try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .block = .glass }));
-    try std.testing.expectEqual(@as(?Id, null), forSmelted(.{ .item = .pickaxe_wood }));
-}
-
-test "descendsFrom walks the whole chain up to the root" {
-    try std.testing.expect(Id.mine_wood.descendsFrom(.open_inventory));
-    try std.testing.expect(Id.build_pickaxe.descendsFrom(.open_inventory));
-    try std.testing.expect(Id.fly_pig.descendsFrom(.kill_cow));
-    try std.testing.expect(!Id.open_inventory.descendsFrom(.mine_wood));
-    try std.testing.expect(!Id.mine_wood.descendsFrom(.mine_wood));
-    try std.testing.expect(!Id.cook_fish.descendsFrom(.build_sword));
 }

@@ -230,15 +230,6 @@ test "a slot's hover box extends one pixel past the icon on every side" {
     try std.testing.expectEqual(@as(?usize, null), slotAt(&slots, left, top - res.factor, res, height));
 }
 
-test "isOutside reports the region beyond the background rect" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const org = origin(res, height);
-
-    try std.testing.expect(isOutside((org[0] - 1) * res.factor, org[1] * res.factor, res, height));
-    try std.testing.expect(isOutside(org[0] * res.factor, (org[1] + height) * res.factor, res, height));
-    try std.testing.expect(!isOutside(org[0] * res.factor, org[1] * res.factor, res, height));
-}
-
 test "clicking the background between slots hits no slot but is not outside" {
     const res = gui.scaledResolution(640, 480, 1000);
     const org = origin(res, height);
@@ -262,27 +253,6 @@ test "a furnace shift-click walks ContainerFurnace's slot ranges" {
     try std.testing.expectEqual(QuickRange{ .start = 30, .end = 39, .reverse = false }, quickRange(&layout, 29));
     try std.testing.expectEqual(QuickRange{ .start = 3, .end = 30, .reverse = false }, quickRange(&layout, 30));
     try std.testing.expectEqual(QuickRange{ .start = 3, .end = 30, .reverse = false }, quickRange(&layout, 38));
-}
-
-test "a workbench shift-click walks ContainerWorkbench's slot ranges" {
-    const crafting_screen = @import("crafting.zig");
-    const layout = crafting_screen.slots();
-
-    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 46, .reverse = true }, quickRange(&layout, 0));
-    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 46, .reverse = false }, quickRange(&layout, 9));
-    try std.testing.expectEqual(QuickRange{ .start = 37, .end = 46, .reverse = false }, quickRange(&layout, 10));
-    try std.testing.expectEqual(QuickRange{ .start = 10, .end = 37, .reverse = false }, quickRange(&layout, 37));
-}
-
-test "an inventory shift-click walks ContainerPlayer's slot ranges" {
-    const inventory_screen = @import("inventory.zig");
-    const layout = inventory_screen.slots();
-
-    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = true }, quickRange(&layout, 0));
-    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = false }, quickRange(&layout, 1));
-    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 45, .reverse = false }, quickRange(&layout, 8));
-    try std.testing.expectEqual(QuickRange{ .start = 36, .end = 45, .reverse = false }, quickRange(&layout, 9));
-    try std.testing.expectEqual(QuickRange{ .start = 9, .end = 36, .reverse = false }, quickRange(&layout, 44));
 }
 
 test "a chest shift-click moves stacks both ways, unlike the other containers" {

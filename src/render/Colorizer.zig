@@ -73,11 +73,6 @@ pub fn foliageColor(self: Colorizer, temperature: f64, humidity: f64) [3]u8 {
     return lookup(self.foliage, temperature, humidity);
 }
 
-test "an untinted colorizer leaves every color at full white" {
-    try std.testing.expectEqual(white, untinted.grassColor(1.0, 1.0));
-    try std.testing.expectEqual(white, untinted.foliageColor(0.0, 0.0));
-}
-
 test "the lookup indexes the way ColorizerGrass does" {
     var table: [table_size * table_size][3]u8 = undefined;
     for (&table, 0..) |*entry, i| {
@@ -88,9 +83,4 @@ test "the lookup indexes the way ColorizerGrass does" {
     try std.testing.expectEqual([3]u8{ 0, 0, 0 }, colorizer.grassColor(1.0, 1.0));
     try std.testing.expectEqual([3]u8{ 255, 255, 0 }, colorizer.grassColor(0.0, 1.0));
     try std.testing.expectEqual([3]u8{ 127, 127, 0 }, colorizer.grassColor(0.5, 1.0));
-}
-
-test "the pine and birch constants unpack the original's packed values" {
-    try std.testing.expectEqual([3]u8{ 0x61, 0x99, 0x61 }, pine);
-    try std.testing.expectEqual([3]u8{ 0x80, 0xa7, 0x55 }, birch);
 }

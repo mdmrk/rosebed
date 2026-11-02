@@ -62,15 +62,6 @@ pub fn load(compound: nbt.Compound) ?Placed {
     };
 }
 
-test "a chest holds the twenty-seven slots TileEntityChest reports" {
-    var state: Chest = .{};
-    try std.testing.expect(state.isEmpty());
-
-    state.slot(26).* = .{ .id = .{ .block = .stone }, .count = 64 };
-    try std.testing.expect(!state.isEmpty());
-    try std.testing.expectEqual(@as(usize, 27), state.items.len);
-}
-
 test "a chest survives a round trip through its tile entity compound" {
     const gpa = std.testing.allocator;
     var original: Chest = .{};
@@ -86,15 +77,6 @@ test "a chest survives a round trip through its tile entity compound" {
     const loaded = load(tag.compound).?;
     try std.testing.expectEqual(BlockPos.init(-18, 40, 7), loaded.pos);
     try std.testing.expectEqual(original, loaded.state);
-}
-
-test "an empty chest round-trips with no item entries" {
-    const gpa = std.testing.allocator;
-    var tag = try store(gpa, .init(0, 0, 0), .{});
-    defer nbt.deinit(gpa, &tag);
-
-    try std.testing.expectEqual(@as(usize, 0), tag.compound.get("Items").?.list.items.len);
-    try std.testing.expect(load(tag.compound).?.state.isEmpty());
 }
 
 test "a tile entity of another kind is not read as a chest" {

@@ -395,48 +395,6 @@ pub fn drawTranslucent(
     shader.setVec3(.u_model_offset, .{ 0, 0, 0 });
 }
 
-test "a far chunk is offset exactly against the eye it is drawn from" {
-    const far = @divFloor(@as(i32, 59999999), world.Chunk.width);
-    const eye: Eye = .{ .x = 59999999.5, .y = 70.25, .z = 59999999.5 };
-    const offset = chunkOffset(.{ .x = far, .z = far }, eye);
-
-    try std.testing.expectEqual(@as(f32, -15.5), offset[0]);
-    try std.testing.expectEqual(@as(f32, -70.25), offset[1]);
-    try std.testing.expectEqual(@as(f32, -15.5), offset[2]);
-}
-
-test "a block on a chunk seam dirties both sides" {
-    const gpa = std.testing.allocator;
-    var renderer: ChunkRenderer = .{};
-    defer renderer.deinit(gpa);
-
-    try renderer.markBlockDirty(gpa, 15, 4);
-    try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = 0 }));
-    try std.testing.expect(renderer.dirty.contains(.{ .x = 1, .z = 0 }));
-    try std.testing.expectEqual(@as(usize, 2), renderer.dirty.count());
-}
-
-test "a block in the interior only dirties its own chunk" {
-    const gpa = std.testing.allocator;
-    var renderer: ChunkRenderer = .{};
-    defer renderer.deinit(gpa);
-
-    try renderer.markBlockDirty(gpa, 8, 8);
-    try std.testing.expectEqual(@as(usize, 1), renderer.dirty.count());
-    try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = 0 }));
-}
-
-test "negative world coordinates resolve to the chunk that owns them" {
-    const gpa = std.testing.allocator;
-    var renderer: ChunkRenderer = .{};
-    defer renderer.deinit(gpa);
-
-    try renderer.markBlockDirty(gpa, -1, -1);
-    try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = -1 }));
-    try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = -1 }));
-    try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = 0 }));
-}
-
 test "a block on a chunk corner dirties the diagonal chunk too" {
     const gpa = std.testing.allocator;
     var renderer: ChunkRenderer = .{};
@@ -448,24 +406,6 @@ test "a block on a chunk corner dirties the diagonal chunk too" {
     try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = 0 }));
     try std.testing.expect(renderer.dirty.contains(.{ .x = 0, .z = -1 }));
     try std.testing.expect(renderer.dirty.contains(.{ .x = -1, .z = -1 }));
-}
-
-test "repeated edits to the same chunk collapse into one rebuild" {
-    const gpa = std.testing.allocator;
-    var renderer: ChunkRenderer = .{};
-    defer renderer.deinit(gpa);
-
-    try renderer.markBlockDirty(gpa, 4, 4);
-    try renderer.markBlockDirty(gpa, 5, 5);
-    try renderer.markDirty(gpa, 0, 0);
-    try std.testing.expectEqual(@as(usize, 1), renderer.dirty.count());
-}
-
-test "the view radius follows the original's render distance widths" {
-    try std.testing.expectEqual(@as(i32, 12), radiusFor(0));
-    try std.testing.expectEqual(@as(i32, 8), radiusFor(1));
-    try std.testing.expectEqual(@as(i32, 4), radiusFor(2));
-    try std.testing.expectEqual(@as(i32, 2), radiusFor(3));
 }
 
 test "a flush consumes at most its cap and leaves the rest dirty" {

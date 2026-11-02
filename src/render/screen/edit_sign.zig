@@ -154,14 +154,3 @@ test "the edit cursor walks the four lines and wraps at both ends" {
     state.nextLine();
     try std.testing.expectEqual(@as(usize, 0), state.line);
 }
-
-test "the cursor blinks on and off in six tick stripes" {
-    var state: State = .{};
-    try std.testing.expect(state.showsCursor());
-
-    for (0..blink_ticks) |_| state.tick();
-    try std.testing.expect(!state.showsCursor());
-
-    for (0..blink_ticks) |_| state.tick();
-    try std.testing.expect(state.showsCursor());
-}

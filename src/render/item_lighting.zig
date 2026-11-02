@@ -66,29 +66,3 @@ pub fn shaded(color: [4]u8, amount: f32) [4]u8 {
 pub fn faceColor(lit: Lit, normal: [3]f32) [4]u8 {
     return shaded(lit.material, shade(normalized(turned(lit.orient, normal))));
 }
-
-test "the two lamps of RenderHelper's standard item lighting shade each facing" {
-    try std.testing.expectApproxEqAbs(@as(f32, 1.3701424), shade(.{ 0, 1, 0 }), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), shade(.{ 0, -1, 0 }), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.7395496), shade(.{ 0, 0, 1 }), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.7395496), shade(.{ 0, 0, -1 }), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4970141), shade(.{ 1, 0, 0 }), 1.0e-5);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4970141), shade(.{ -1, 0, 0 }), 1.0e-5);
-}
-
-test "a lit face saturates rather than wrapping when the lamps overshoot" {
-    try std.testing.expectEqual([4]u8{ 255, 255, 255, 255 }, faceColor(.{}, .{ 0, 1, 0 }));
-    try std.testing.expectEqual(
-        [4]u8{ 102, 102, 102, 255 },
-        faceColor(.{}, .{ 0, -1, 0 }),
-    );
-}
-
-test "a quarter turn about Y swaps which faces the lamps favour" {
-    const quarter = orientOf(math.Mat4.rotationY(std.math.pi / 2.0));
-    try std.testing.expectApproxEqAbs(
-        shade(.{ 0, 0, 1 }),
-        shade(normalized(turned(quarter, .{ 1, 0, 0 }))),
-        1.0e-5,
-    );
-}

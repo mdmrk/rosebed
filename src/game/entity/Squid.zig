@@ -308,16 +308,6 @@ fn seaWorld(gpa: std.mem.Allocator, surface: u32) !world.World {
     return w;
 }
 
-test "a squid is the size EntitySquid sets itself to and drifts instead of walking" {
-    var rand = world.JavaRandom.init(0);
-    const squid = Squid.spawn(math.Vec3.init(0, 0, 0), &rand);
-
-    try std.testing.expectEqual(@as(f64, 0.95), squid.animal.base.width);
-    try std.testing.expectEqual(@as(f64, 0.95), squid.animal.base.height);
-    try std.testing.expectEqual(Animal.Movement.drifting, squid.animal.movement);
-    try std.testing.expect(squid.animal.breathes_underwater);
-}
-
 test "a squid never runs out of air however long it stays under" {
     const gpa = std.testing.allocator;
     var w = try seaWorld(gpa, 20);

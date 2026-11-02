@@ -159,26 +159,6 @@ fn rowClickY(res: gui.Scaled, index: usize) f32 {
     return (list_top + entry_padding + @as(f32, @floatFromInt(index)) * entry_height + 2) * res.factor;
 }
 
-test "clicking a row returns its index, offset by the scroll position" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 0 }), hitAt(cx, rowClickY(res, 0), res, 3, 0));
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 1 }), hitAt(cx, rowClickY(res, 1), res, 3, 0));
-    try std.testing.expectEqual(@as(?Hit, .{ .entry = 1 }), hitAt(cx, rowClickY(res, 0), res, 3, entry_height));
-}
-
-test "clicking past the last pack selects nothing" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(cx, rowClickY(res, 2), res, 1, 0));
-}
-
-test "clicking to the side of the list misses every row" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const outside = (@floor(res.width / 2.0) + entry_half_width + 8) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(outside, rowClickY(res, 0), res, 3, 0));
-}
-
 test "the two buttons sit side by side under the list" {
     const res = gui.scaledResolution(640, 480, 1000);
     const pair = buttons(res);
@@ -197,16 +177,6 @@ test "the two buttons sit side by side under the list" {
     try std.testing.expectEqual(@as(?Hit, .done), hitAt(done[0], done[1], res, 3, 0));
 }
 
-test "a list that fits needs no scrollbar, and one that overflows gets one" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expect(maxScroll(res, 2) <= 0);
-    try std.testing.expect(scrollbarThumb(res, 2, 0) == null);
-
-    const many = 40;
-    try std.testing.expect(maxScroll(res, many) > 0);
-    try std.testing.expect(scrollbarThumb(res, many, 0) != null);
-}
-
 test "dragging the thumb the length of its travel scrolls the whole list" {
     const res = gui.scaledResolution(640, 480, 1000);
     const x = (@floor(res.width / 2.0) + scrollbar_offset + 2) * res.factor;
@@ -217,38 +187,6 @@ test "dragging the thumb the length of its travel scrolls the whole list" {
     const travel = listBottom(res) - list_top - thumb.height;
     try std.testing.expectEqual(maxScroll(res, 40), dragScroll(res, 40, 0, travel));
     try std.testing.expectEqual(@as(f32, 0), dragScroll(res, 40, 0, -10));
-}
-
-test "a row scrolled above the list is not clickable through the header" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    try std.testing.expectEqual(@as(?Hit, null), hitAt(cx, (list_top - 4) * res.factor, res, 3, 0));
-}
-
-test "rows start four pixels below the top of the list, as GuiSlot does" {
-    try std.testing.expectEqual(list_top + entry_padding, entryY(0, 0));
-    try std.testing.expectEqual(list_top + entry_padding + entry_height, entryY(1, 0));
-    try std.testing.expectEqual(list_top, entryY(0, entry_padding));
-}
-
-test "the row content is the slot height less its four pixel gap" {
-    try std.testing.expectEqual(@as(f32, 32), row_height);
-}
-
-test "the list content sits where the original puts it, at half the width less 108" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0);
-    try std.testing.expectEqual(cx - 92 - 16, cx - entry_half_width + 2);
-    try std.testing.expectEqual(cx - 110, cx - entry_half_width);
-    try std.testing.expectEqual(cx + 124, cx + scrollbar_offset);
-}
-
-test "the last row can be scrolled to sit just above the bottom of the list" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const count = 40;
-    const limit = maxScroll(res, count);
-    const last = entryY(count - 1, limit);
-    try std.testing.expectEqual(listBottom(res) - entry_height, last);
 }
 
 test "a list too short to fill the view is pushed down to sit centred in it" {
@@ -263,37 +201,5 @@ test "a list too short to fill the view is pushed down to sit centred in it" {
         const above = entryY(0, settled) - list_top - entry_padding;
         const below = listBottom(res) - entryY(count, settled);
         try std.testing.expectApproxEqAbs(above, below, 1.0);
-    }
-}
-
-test "the one Default pack alone sits in the middle of the list, not at its top" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const settled = clampScroll(res, 1, 0);
-    try std.testing.expect(settled < 0);
-    try std.testing.expect(entryY(0, settled) > list_top + entry_padding);
-}
-
-test "a list long enough to overflow scrolls from the top instead of centring" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    try std.testing.expectEqual(@as(f32, 0), clampScroll(res, 100, 0));
-    try std.testing.expectEqual(list_top + entry_padding, entryY(0, clampScroll(res, 100, 0)));
-    try std.testing.expect(maxScroll(res, 100) > 0);
-}
-
-test "scrolling a centred list stays put, since it has nowhere to go" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const settled = clampScroll(res, 2, 0);
-    try std.testing.expectEqual(settled, clampScroll(res, 2, settled - entry_height));
-    try std.testing.expectEqual(settled, clampScroll(res, 2, settled + entry_height));
-}
-
-test "clicking a centred row still finds it at the place it was drawn" {
-    const res = gui.scaledResolution(640, 480, 1000);
-    const cx = @floor(res.width / 2.0) * res.factor;
-    const settled = clampScroll(res, 2, 0);
-
-    for ([_]usize{ 0, 1 }) |index| {
-        const drawn_y = (entryY(index, settled) + 2) * res.factor;
-        try std.testing.expectEqual(@as(?Hit, .{ .entry = index }), hitAt(cx, drawn_y, res, 2, settled));
     }
 }

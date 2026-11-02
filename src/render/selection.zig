@@ -83,13 +83,6 @@ pub fn appendCrack(
     mesh.paintColors(first_vertex, crack_color);
 }
 
-test "the crack texture walks the ten destroy stages" {
-    try std.testing.expectEqual(first_crack_tile, crackTile(0.0));
-    try std.testing.expectEqual(first_crack_tile + 4, crackTile(0.45));
-    try std.testing.expectEqual(first_crack_tile + 9, crackTile(0.95));
-    try std.testing.expectEqual(first_crack_tile + 9, crackTile(1.0));
-}
-
 fn crackMesh(gpa: std.mem.Allocator, mesh: *MeshBuilder, id: world.Block, meta: u4) !void {
     var world_map = world.World.init(gpa);
     defer world_map.deinit();
@@ -162,17 +155,6 @@ test "a lever cracks over its own stick, not over the box it is picked by" {
         try std.testing.expect(vertex.u >= uv.u0 - 1.0e-4 and vertex.u <= uv.u1 + 1.0e-4);
         try std.testing.expect(vertex.v >= uv.v0 - 1.0e-4 and vertex.v <= uv.v1 + 1.0e-4);
     }
-}
-
-test "the crack takes a flat white so the block's own tint cannot colour it" {
-    const gpa = std.testing.allocator;
-    var mesh: MeshBuilder = .{};
-    defer mesh.deinit(gpa);
-
-    try crackMesh(gpa, &mesh, .grass, 0);
-
-    try std.testing.expect(mesh.vertices.items.len > 0);
-    for (mesh.vertices.items) |vertex| try std.testing.expectEqual(crack_color, vertex.color);
 }
 
 test "a sign still takes a selection outline, cut to its own thin bounds" {

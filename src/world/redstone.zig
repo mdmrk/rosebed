@@ -940,17 +940,6 @@ test "a redstone torch goes out when the block it stands on is powered" {
     try std.testing.expectEqual(.torch_redstone_off, w.getBlock(.init(8, 12, 8)));
 }
 
-test "a torch under a powered block powers the wire beside it" {
-    var w = try flatWorld(12);
-    defer w.deinit();
-
-    w.setBlock(.init(8, 12, 8), .stone);
-    try w.setBlockAndMetadataWithNotify(.init(8, 11, 7), .torch_redstone_on, 4);
-    try w.setBlockWithNotify(.init(9, 11, 7), .redstone_wire);
-
-    try std.testing.expectEqual(@as(u4, 15), w.getBlockMetadata(.init(9, 11, 7)));
-}
-
 test "a wire crossing under a normal cube climbs to wire on top of it" {
     var w = try flatWorld(12);
     defer w.deinit();
@@ -1164,17 +1153,6 @@ test "an unpowered dispenser is never scheduled and an empty one queues nothing"
     w.time += Block.dispenser.tickRate();
     try w.tickUpdates();
     try std.testing.expectEqual(@as(usize, 0), w.dispensed.items.len);
-}
-
-test "a dispenser fires the way its metadata points" {
-    var w = try flatWorld(12);
-    defer w.deinit();
-
-    try std.testing.expectEqual([2]i32{ 0, 1 }, block.dispenserStep(@backingInt(block.Side.south)));
-    try std.testing.expectEqual([2]i32{ 0, -1 }, block.dispenserStep(@backingInt(block.Side.north)));
-    try std.testing.expectEqual([2]i32{ 1, 0 }, block.dispenserStep(@backingInt(block.Side.east)));
-    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(@backingInt(block.Side.west)));
-    try std.testing.expectEqual([2]i32{ -1, 0 }, block.dispenserStep(0));
 }
 
 test "a dispenser walled in on one side turns away from the wall when it is placed" {

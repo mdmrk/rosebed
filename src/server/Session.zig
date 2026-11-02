@@ -271,7 +271,6 @@ pub fn deinit(self: *Session, gpa: std.mem.Allocator) void {
 }
 
 fn withinTrackRange(watcher: math.Vec3, peer: Peer) bool {
-    // Vanilla measures the two flat axes separately, not the diagonal.
     const reach = trackRange(peer);
     const at = peer.position();
     return @abs(watcher.x - at.x) <= reach and @abs(watcher.z - at.z) <= reach;
@@ -2082,8 +2081,6 @@ fn placeBlock(
     if (!withinReach(player, .init(x, hit_y, z))) return;
     if (try self.activateBlock(gpa, level, .init(x, hit_y, z))) return;
 
-    // Vanilla places whatever the server thinks is in hand; the stack on the wire is
-    // only the client's guess and is never trusted.
     const stack = player.inventory.selectedStack() orelse return;
     const placed = switch (stack.id) {
         .block => |id| id,
@@ -2504,7 +2501,6 @@ test "a quiet client is prodded with a keep alive, a talkative one is left alone
     try std.testing.expectEqual(@as(usize, 1), replies.items.len);
     try std.testing.expectEqual(net.packet.Id.keep_alive, replies.items[0].id());
 
-    // A client that keeps talking is never pinged; vanilla only prods a quiet one.
     for (0..keep_alive_period * 2) |_| {
         try session.handle(gpa, &level, .keep_alive);
         try session.pingIfQuiet(gpa);
@@ -2841,7 +2837,6 @@ test "a jockey riding its spider is attached to it on the wire" {
     defer peers.deinit(gpa);
     try mobPeers(gpa, &level, &peers);
 
-    // The first pass only introduces the pair; the attachment follows once both are known.
     try session.trackPeers(gpa, peers.items);
     const introductions = try session.takeOutbox(gpa);
     defer gpa.free(introductions);

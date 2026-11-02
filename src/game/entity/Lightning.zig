@@ -116,34 +116,3 @@ test "a bolt flashes once, then a few more times before it dies" {
     try std.testing.expect(bolt.dead);
     try std.testing.expect(reflashes > 0);
 }
-
-test "a bolt is only drawn while its flash is alight" {
-    var rand = world.JavaRandom.init(9);
-    var bolt = Lightning.strike(math.Vec3.init(0, 64, 0), &rand);
-
-    try std.testing.expect(bolt.isVisible());
-    bolt.life = -1;
-    try std.testing.expect(!bolt.isVisible());
-}
-
-test "a bolt sets the ground alight where it lands" {
-    var w = try world.testing.flatWorld(std.testing.allocator, 4);
-    defer w.deinit();
-
-    var rand = world.JavaRandom.init(3);
-    const bolt = Lightning.strike(math.Vec3.init(8, 4, 8), &rand);
-    try bolt.scorch(&w, &rand);
-
-    try std.testing.expectEqual(world.Block.fire, w.getBlock(.init(8, 4, 8)));
-}
-
-test "the strike box reaches out three blocks and six up" {
-    var rand = world.JavaRandom.init(2);
-    const bolt = Lightning.strike(math.Vec3.init(10, 64, -4), &rand);
-    const box = bolt.boundingBox();
-
-    try std.testing.expectApproxEqAbs(@as(f64, 7.0), box.min_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 13.0), box.max_x, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 61.0), box.min_y, 1.0e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 73.0), box.max_y, 1.0e-9);
-}

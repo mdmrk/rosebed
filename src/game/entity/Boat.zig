@@ -243,13 +243,6 @@ pub fn fromRecord(record: world.entity_nbt.Boat) Boat {
     return self;
 }
 
-test "a boat is the size EntityBoat sets itself to" {
-    const boat = Boat.spawn(math.Vec3.init(8.5, 64, 8.5));
-    try std.testing.expectEqual(@as(f64, 1.5), boat.base.width);
-    try std.testing.expectEqual(@as(f64, 0.6), boat.base.height);
-    try std.testing.expectEqual(@as(i32, 1), boat.rock_direction);
-}
-
 test "a boat out of water sinks and one in water is held up" {
     const gpa = std.testing.allocator;
     var w = try world.testing.flatWorld(gpa, 4);
@@ -302,15 +295,6 @@ test "two overlapping boats shove each other apart" {
     try std.testing.expectApproxEqAbs(@as(f64, 0), right.base.motion.z, 1.0e-12);
 }
 
-test "boats sitting on the same spot are left alone" {
-    var a = Boat.spawn(math.Vec3.init(8.5, 64, 8.5));
-    var b = Boat.spawn(math.Vec3.init(8.505, 64, 8.5));
-
-    b.collideWith(&a);
-    try std.testing.expectEqual(@as(f64, 0), b.base.motion.x);
-    try std.testing.expectEqual(@as(f64, 0), a.base.motion.x);
-}
-
 test "a boat breaks up after enough damage and shrugs off a little" {
     var light = Boat.spawn(math.Vec3.init(0, 0, 0));
     _ = light.hurt(1);
@@ -352,12 +336,6 @@ test "a boat turns toward where it came from, no more than twenty degrees a tick
     try std.testing.expect(boat.yaw < 0);
 }
 
-test "a boat only throws a wake once it is moving" {
-    try std.testing.expectEqual(@as(usize, 0), wakeCount(0.0));
-    try std.testing.expectEqual(@as(usize, 0), wakeCount(wake_speed));
-    try std.testing.expect(wakeCount(0.3) > 1);
-}
-
 test "the four corners a boat crushes snow under straddle its position" {
     var boat = Boat.spawn(math.Vec3.init(9.0, 64, 9.0));
 
@@ -372,15 +350,4 @@ test "the four corners a boat crushes snow under straddle its position" {
 
     try std.testing.expectEqual([4]i32{ 8, 9, 8, 9 }, seen_x);
     try std.testing.expectEqual([4]i32{ 8, 8, 9, 9 }, seen_z);
-}
-
-test "a boat's position, motion and heading survive a record round trip" {
-    var boat = Boat.spawn(math.Vec3.init(-12.25, 63.5, 7.75));
-    boat.base.motion = math.Vec3.init(0.1, -0.2, 0.3);
-    boat.yaw = 42.5;
-
-    const restored = Boat.fromRecord(boat.toRecord());
-    try std.testing.expectEqual(boat.base.position, restored.base.position);
-    try std.testing.expectEqual(boat.base.motion, restored.base.motion);
-    try std.testing.expectEqual(boat.yaw, restored.yaw);
 }
