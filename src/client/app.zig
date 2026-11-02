@@ -111,6 +111,7 @@ pub const AppState = struct {
     player: game.Player = playerAtSpawn(),
     touches: [max_touches]Touch = @splat(.{}),
     touch_move: ?[2]f32 = null,
+    touch_origin: ?[2]f32 = null,
     pad: Pad = .{},
     keys: struct {
         forward: bool = false,
@@ -2379,6 +2380,10 @@ fn optionsClick(app_state: *AppState) !void {
         },
         .cycle_touch_scheme => {
             app_state.settings.touch_scheme = app_state.settings.touch_scheme.next();
+            saveOptions(app_state);
+        },
+        .cycle_touch_buttons => {
+            app_state.settings.touch_buttons = app_state.settings.touch_buttons.next();
             saveOptions(app_state);
         },
         .cycle_difficulty => {
@@ -4774,6 +4779,8 @@ pub fn iterate(
             if (touch_ui and worldFocused(app_state) and !app_state.pad.active) {
                 if (app_state.touch_atlas) |atlas| try render.touch.draw(ui, .{
                     .scheme = app_state.settings.touch_scheme,
+                    .buttons = app_state.settings.touch_buttons,
+                    .origin = app_state.touch_origin,
                     .move = app_state.touch_move,
                     .held = touchHeld(app_state),
                 }, atlas);
@@ -4996,11 +5003,12 @@ fn applyMove(app_state: *AppState, move: ?[2]f32) void {
 }
 
 fn touchMoveAt(app_state: *AppState, gx: f32, gy: f32, res: render.gui.Scaled) [2]f32 {
-    return render.touch.moveAt(gx, gy, app_state.settings.touch_scheme, res);
+    return render.touch.moveAt(gx, gy, app_state.settings.touch_scheme, app_state.touch_origin, res);
 }
 
 fn releaseTouches(app_state: *AppState) void {
     app_state.touches = @splat(.{});
+    app_state.touch_origin = null;
     applyMove(app_state, null);
     app_state.keys.jump = false;
     app_state.keys.sneak = false;
@@ -5029,9 +5037,12 @@ fn touchDown(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     const gx = finger.x * res.width;
     const gy = finger.y * res.height;
 
-    if (render.touch.controlAt(gx, gy, app_state.settings.touch_scheme, res)) |control| {
+    if (render.touch.controlAt(gx, gy, app_state.settings.touch_scheme, app_state.settings.touch_buttons, res)) |control| {
         switch (control) {
-            .move => applyMove(app_state, touchMoveAt(app_state, gx, gy, res)),
+            .move => {
+                app_state.touch_origin = .{ gx, gy };
+                applyMove(app_state, touchMoveAt(app_state, gx, gy, res));
+            },
             .jump => app_state.keys.jump = true,
             .sneak => app_state.keys.sneak = true,
             .attack => {
@@ -5114,7 +5125,10 @@ fn touchUp(app_state: *AppState, finger: sdl3.events.TouchFinger) !void {
     slot.* = .{};
 
     switch (role) {
-        .move => applyMove(app_state, null),
+        .move => {
+            app_state.touch_origin = null;
+            applyMove(app_state, null);
+        },
         .button => switch (control) {
             .jump => app_state.keys.jump = false,
             .sneak => app_state.keys.sneak = false,
@@ -5155,6 +5169,7 @@ fn touchTick(app_state: *AppState) !void {
     const now = sdl3.timer.getMillisecondsSinceInit();
     for (&app_state.touches) |*touch| {
         if (touch.role != .world or touch.digging) continue;
+        if (touch.travel >= touch_drag_slop) continue;
         if (now - touch.still_since_ms < touch_dig_delay_ms) continue;
         touch.digging = true;
         app_state.mouse_left_down = true;

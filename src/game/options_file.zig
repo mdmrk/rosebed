@@ -67,6 +67,7 @@ pub fn encode(gpa: std.mem.Allocator, settings: *const Settings) ![]u8 {
     try out.print("fullscreen:{s}\n", .{boolText(settings.fullscreen)});
     try out.print("autoJump:{s}\n", .{boolText(settings.auto_jump)});
     try out.print("touchScheme:{d}\n", .{@backingInt(settings.touch_scheme)});
+    try out.print("touchButtons:{d}\n", .{@backingInt(settings.touch_buttons)});
     try out.print("fpsLimit:{d}\n", .{@backingInt(settings.framerate_limit)});
     try out.print("difficulty:{d}\n", .{@backingInt(settings.difficulty)});
     try out.print("fancyGraphics:{s}\n", .{boolText(settings.fancy_graphics)});
@@ -112,6 +113,8 @@ fn applyOption(settings: *Settings, name: []const u8, value: []const u8) void {
         settings.auto_jump = parseBool(value);
     } else if (std.mem.eql(u8, name, "touchScheme")) {
         settings.touch_scheme = parseChoice(Settings.TouchScheme, value) orelse return;
+    } else if (std.mem.eql(u8, name, "touchButtons")) {
+        settings.touch_buttons = parseChoice(Settings.TouchButtons, value) orelse return;
     } else if (std.mem.eql(u8, name, "advancedOpengl")) {
         settings.advanced_opengl = parseBool(value);
     } else if (std.mem.eql(u8, name, "fullscreen")) {
@@ -205,7 +208,8 @@ test "every field survives a round trip" {
         .advanced_opengl = true,
         .fullscreen = true,
         .auto_jump = !(Settings{}).auto_jump,
-        .touch_scheme = .dpad,
+        .touch_scheme = .floating,
+        .touch_buttons = .minimal,
         .skin = .init("Fancy Pack.zip"),
         .last_server = .init("localhost_25565"),
     };
@@ -234,6 +238,7 @@ test "every field survives a round trip" {
     try std.testing.expectEqual(written.fullscreen, read.fullscreen);
     try std.testing.expectEqual(written.auto_jump, read.auto_jump);
     try std.testing.expectEqual(written.touch_scheme, read.touch_scheme);
+    try std.testing.expectEqual(written.touch_buttons, read.touch_buttons);
     try std.testing.expectEqualStrings(written.skin.text(), read.skin.text());
     try std.testing.expectEqualStrings(written.last_server.text(), read.last_server.text());
     try std.testing.expectEqual(@as(u32, 1234), read.keys.get(.forward));

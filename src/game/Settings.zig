@@ -94,16 +94,38 @@ pub const GuiScale = enum(u2) {
 pub const TouchScheme = enum(u2) {
     joystick,
     dpad,
+    floating,
 
     pub fn label(self: TouchScheme) []const u8 {
         return switch (self) {
             .joystick => "Joystick",
             .dpad => "D-Pad",
+            .floating => "Floating",
         };
     }
 
     pub fn next(self: TouchScheme) TouchScheme {
-        return if (self == .joystick) .dpad else .joystick;
+        return switch (self) {
+            .joystick => .floating,
+            .floating => .dpad,
+            .dpad => .joystick,
+        };
+    }
+};
+
+pub const TouchButtons = enum(u1) {
+    full,
+    minimal,
+
+    pub fn label(self: TouchButtons) []const u8 {
+        return switch (self) {
+            .full => "Full",
+            .minimal => "Minimal",
+        };
+    }
+
+    pub fn next(self: TouchButtons) TouchButtons {
+        return if (self == .full) .minimal else .full;
     }
 };
 
@@ -182,6 +204,7 @@ advanced_opengl: bool = false,
 fullscreen: bool = false,
 auto_jump: bool = touch,
 touch_scheme: TouchScheme = .joystick,
+touch_buttons: TouchButtons = .full,
 skin: Name = .init(default_skin),
 last_server: Name = .{},
 keys: KeyBindings = .init(.{

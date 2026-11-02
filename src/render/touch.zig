@@ -2,6 +2,7 @@ const std = @import("std");
 
 const game = @import("game");
 pub const Scheme = game.Settings.TouchScheme;
+pub const Buttons = game.Settings.TouchButtons;
 
 const Atlas = @import("Atlas.zig");
 const gui = @import("gui.zig");
@@ -74,6 +75,10 @@ pub const Control = enum {
         };
     }
 
+    pub fn shown(control: Control, buttons: Buttons) bool {
+        return buttons == .full or (control != .attack and control != .interact);
+    }
+
     fn strip(control: Control) ?f32 {
         return switch (control) {
             .debug => 0,
@@ -87,7 +92,7 @@ pub const Control = enum {
 
     fn sizePx(control: Control, scheme: Scheme) f32 {
         if (control == .move) return switch (scheme) {
-            .joystick => pad_px,
+            .joystick, .floating => pad_px,
             .dpad => dpad_px,
         };
         return if (control.strip() != null) small_px else button_px;
@@ -140,7 +145,7 @@ pub fn rect(control: Control, scheme: Scheme, res: gui.Scaled) Rect {
         .move => .{ .x = margin, .y = floor - size, .w = size, .h = size },
         .jump => .{ .x = outer, .y = cluster, .w = size, .h = size },
         .sneak => switch (scheme) {
-            .joystick => .{ .x = outer, .y = cluster + pitch, .w = size, .h = size },
+            .joystick, .floating => .{ .x = outer, .y = cluster + pitch, .w = size, .h = size },
             .dpad => .{ .x = margin + button, .y = floor - 2.0 * button, .w = size, .h = size },
         },
         .interact => .{ .x = outer, .y = cluster + 2.0 * pitch, .w = size, .h = size },
@@ -150,13 +155,29 @@ pub fn rect(control: Control, scheme: Scheme, res: gui.Scaled) Rect {
     };
 }
 
-pub fn controlAt(gx: f32, gy: f32, scheme: Scheme, res: gui.Scaled) ?Control {
+pub fn floatingZone(res: gui.Scaled) Rect {
+    const u = unit(res);
+    const top = (margin_px + small_px + gap_px) * u;
+    const hotbar_left = @floor(res.width / 2.0) - 91.0;
+    const right = @min(@floor(res.width * 0.45), hotbar_left);
+    return .{ .x = 0, .y = top, .w = right, .h = res.height - top };
+}
+
+pub fn controlAt(gx: f32, gy: f32, scheme: Scheme, buttons: Buttons, res: gui.Scaled) ?Control {
     for (std.enums.values(Control)) |control| {
-        if (control == .move) continue;
+        if (control == .move or !control.shown(buttons)) continue;
         if (rect(control, scheme, res).contains(gx, gy)) return control;
     }
-    if (rect(.move, scheme, res).contains(gx, gy)) return .move;
+    const zone = if (scheme == .floating) floatingZone(res) else rect(.move, scheme, res);
+    if (zone.contains(gx, gy)) return .move;
     return null;
+}
+
+fn stickZone(scheme: Scheme, origin: ?[2]f32, res: gui.Scaled) Rect {
+    const zone = rect(.move, scheme, res);
+    if (scheme != .floating) return zone;
+    const at = origin orelse return zone;
+    return .{ .x = at[0] - zone.w / 2.0, .y = at[1] - zone.h / 2.0, .w = zone.w, .h = zone.h };
 }
 
 fn stickAt(gx: f32, gy: f32, zone: Rect) [2]f32 {
@@ -177,10 +198,10 @@ fn dpadCell(gx: f32, gy: f32, zone: Rect) [2]usize {
     return .{ @intFromFloat(col), @intFromFloat(row) };
 }
 
-pub fn moveAt(gx: f32, gy: f32, scheme: Scheme, res: gui.Scaled) [2]f32 {
-    const zone = rect(.move, scheme, res);
+pub fn moveAt(gx: f32, gy: f32, scheme: Scheme, origin: ?[2]f32, res: gui.Scaled) [2]f32 {
+    const zone = stickZone(scheme, origin, res);
     switch (scheme) {
-        .joystick => return stickAt(gx, gy, zone),
+        .joystick, .floating => return stickAt(gx, gy, zone),
         .dpad => {
             const cell = dpadCell(gx, gy, zone);
             return .{
@@ -193,12 +214,14 @@ pub fn moveAt(gx: f32, gy: f32, scheme: Scheme, res: gui.Scaled) [2]f32 {
 
 pub const State = struct {
     scheme: Scheme = .joystick,
+    buttons: Buttons = .full,
+    origin: ?[2]f32 = null,
     move: ?[2]f32 = null,
     held: Held = .empty,
 };
 
 fn appendStick(sprites: *MeshBuilder, ui: gui.Ui, state: State) !void {
-    const zone = rect(.move, .joystick, ui.res);
+    const zone = stickZone(state.scheme, if (state.move != null) state.origin else null, ui.res);
     try gui.appendRectColor(sprites, ui.gpa, zone.x, zone.y, zone.w, zone.h, pad_uv, tint_normal, ui.res);
 
     const u = unit(ui.res);
@@ -250,14 +273,14 @@ pub fn draw(ui: gui.Ui, state: State, atlas: Atlas) !void {
     defer sprites.deinit(ui.gpa);
 
     for (std.enums.values(Control)) |control| {
-        if (control == .move) continue;
+        if (control == .move or !control.shown(state.buttons)) continue;
         const box = rect(control, state.scheme, ui.res);
         const tint = if (state.held.contains(control)) tint_held else tint_normal;
         try gui.appendRectColor(&sprites, ui.gpa, box.x, box.y, box.w, box.h, control.uv(), tint, ui.res);
     }
 
     switch (state.scheme) {
-        .joystick => try appendStick(&sprites, ui, state),
+        .joystick, .floating => try appendStick(&sprites, ui, state),
         .dpad => try appendDpad(&sprites, ui, state),
     }
 
@@ -272,7 +295,7 @@ const unscaled: gui.Scaled = .{ .factor = 1, .ortho_width = 320, .ortho_height =
 test "controls sit on screen, clear of the hotbar, and never overlap" {
     const controls = std.enums.values(Control);
     for ([_]gui.Scaled{ smallest, widest, phone, unscaled }) |res| {
-        for ([_]Scheme{ .joystick, .dpad }) |scheme| {
+        for ([_]Scheme{ .joystick, .dpad, .floating }) |scheme| {
             const hotbar_x = @floor(res.width / 2.0) - 91.0;
             for (controls, 0..) |control, i| {
                 const box = rect(control, scheme, res);
@@ -299,7 +322,7 @@ test "every control lands on whole device pixels at a whole multiple of its spri
     for ([_]gui.Scaled{ smallest, widest, phone, unscaled }) |res| {
         const steps = unit(res) * res.factor;
         try std.testing.expectEqual(steps, @round(steps));
-        for ([_]Scheme{ .joystick, .dpad }) |scheme| {
+        for ([_]Scheme{ .joystick, .dpad, .floating }) |scheme| {
             for (std.enums.values(Control)) |control| {
                 const box = rect(control, scheme, res);
                 for ([_]f32{ box.x, box.y, box.w, box.h }) |value| {
@@ -313,14 +336,36 @@ test "every control lands on whole device pixels at a whole multiple of its spri
 }
 
 test "taps land on the buttons the layout advertises" {
-    for ([_]Scheme{ .joystick, .dpad }) |scheme| {
+    for ([_]Scheme{ .joystick, .dpad, .floating }) |scheme| {
         for (std.enums.values(Control)) |control| {
             const box = rect(control, scheme, widest);
             const fraction: f32 = if (control == .move) 6.0 else 2.0;
             const gx = box.x + box.w / fraction;
             const gy = box.y + box.h / fraction;
-            try std.testing.expectEqual(control, controlAt(gx, gy, scheme, widest).?);
+            try std.testing.expectEqual(control, controlAt(gx, gy, scheme, .full, widest).?);
         }
     }
-    try std.testing.expectEqual(@as(?Control, null), controlAt(widest.width / 2.0, widest.height / 2.0, .joystick, widest));
+    try std.testing.expectEqual(@as(?Control, null), controlAt(widest.width / 2.0, widest.height / 2.0, .joystick, .full, widest));
+}
+
+test "a floating stick starts wherever the thumb lands on the left and is centred on it" {
+    const gx = widest.width * 0.3;
+    const gy = widest.height * 0.4;
+    try std.testing.expectEqual(Control.move, controlAt(gx, gy, .floating, .full, widest).?);
+    try std.testing.expectEqual(@as(?Control, null), controlAt(gx, gy, .joystick, .full, widest));
+
+    const still = moveAt(gx, gy, .floating, .{ gx, gy }, widest);
+    try std.testing.expectEqual([2]f32{ 0, 0 }, still);
+    const pushed = moveAt(gx + 100, gy, .floating, .{ gx, gy }, widest);
+    try std.testing.expectEqual([2]f32{ 1, 0 }, pushed);
+}
+
+test "the minimal layout hands attack and use over to the open screen" {
+    for ([_]Control{ .attack, .interact }) |control| {
+        const box = rect(control, .joystick, widest);
+        const gx = box.x + box.w / 2.0;
+        const gy = box.y + box.h / 2.0;
+        try std.testing.expectEqual(control, controlAt(gx, gy, .joystick, .full, widest).?);
+        try std.testing.expectEqual(@as(?Control, null), controlAt(gx, gy, .joystick, .minimal, widest));
+    }
 }
