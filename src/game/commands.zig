@@ -139,24 +139,16 @@ pub const Result = union(enum) {
     unknown: []const u8,
 };
 
-const help_indent = "   ";
-const help_gap = 2;
-
 fn signature(comptime verb: Verb) []const u8 {
     return if (verb.usage().len == 0) @tagName(verb) else @tagName(verb) ++ " " ++ verb.usage();
 }
 
 pub const help_lines: []const []const u8 = blk: {
     const verbs = std.enums.values(Verb);
-
-    var widest: usize = 0;
-    for (verbs) |verb| widest = @max(widest, signature(verb).len);
-
     var lines: [verbs.len + 1][]const u8 = undefined;
     lines[0] = "Commands:";
     for (verbs, 1..) |verb, index| {
-        const padding: [widest - signature(verb).len + help_gap]u8 = @splat(' ');
-        lines[index] = help_indent ++ signature(verb) ++ &padding ++ verb.description();
+        lines[index] = "- " ++ signature(verb) ++ ": " ++ verb.description();
     }
 
     const frozen = lines;
@@ -394,14 +386,10 @@ test "weather names a sky, with or without a spell to hold it" {
     try std.testing.expectEqual(Weather.Sky.clear, parse("/weather clear").weather.sky);
 }
 
-test "help lines all break for their description in the same column" {
-    const column = std.mem.find(u8, help_lines[1], Verb.help.description()).?;
-    var tightest: usize = std.math.maxInt(usize);
+test "help lists every command as a dash, its signature and its description" {
     for (std.enums.values(Verb), help_lines[1..]) |verb, line| {
-        try std.testing.expectEqual(column, std.mem.find(u8, line, verb.description()).?);
-        const written = std.mem.trimEnd(u8, line[0..column], " ");
-        try std.testing.expect(std.mem.endsWith(u8, written, verb.usage()));
-        tightest = @min(tightest, column - written.len);
+        try std.testing.expect(std.mem.startsWith(u8, line, "- "));
+        try std.testing.expect(std.mem.find(u8, line, ": ") != null);
+        try std.testing.expect(std.mem.endsWith(u8, line, verb.description()));
     }
-    try std.testing.expectEqual(@as(usize, help_gap), tightest);
 }
