@@ -39,7 +39,7 @@ fn grad(hash: i32, x: f64, y: f64, z: f64) f64 {
     return (if (h & 1 == 0) u else -u) + (if (h & 2 == 0) v else -v);
 }
 
-pub fn noise(self: PerlinNoise, x_in: f64, y_in: f64, z_in: f64) f64 {
+pub fn noise(self: *const PerlinNoise, x_in: f64, y_in: f64, z_in: f64) f64 {
     const x0 = x_in + self.x_coord;
     const y0 = y_in + self.y_coord;
     const z0 = z_in + self.z_coord;
@@ -63,7 +63,7 @@ pub fn noise(self: PerlinNoise, x_in: f64, y_in: f64, z_in: f64) f64 {
     const v = y * y * y * (y * (y * 6.0 - 15.0) + 10.0);
     const w = z * z * z * (z * (z * 6.0 - 15.0) + 10.0);
 
-    const p = self.permutations;
+    const p = &self.permutations;
     const a: usize = @intCast(p[xi] + @as(i32, @intCast(yi)));
     const aa: usize = @intCast(p[a] + @as(i32, @intCast(zi)));
     const ab: usize = @intCast(p[a + 1] + @as(i32, @intCast(zi)));
@@ -89,14 +89,14 @@ pub const BatchOffset = struct { x: f64, y: f64, z: f64 };
 pub const BatchScale = struct { x: f64, y: f64, z: f64 };
 
 pub fn addBatch(
-    self: PerlinNoise,
+    self: *const PerlinNoise,
     out: []f64,
     offset: BatchOffset,
     size: BatchSize,
     scale: BatchScale,
     noise_scale: f64,
 ) void {
-    const p = self.permutations;
+    const p = &self.permutations;
     const inv_scale = 1.0 / noise_scale;
 
     if (size.y == 1) {
@@ -125,6 +125,18 @@ pub fn addBatch(
         return;
     }
 
+    const max_y = 128;
+    std.debug.assert(size.y <= max_y);
+    var y_idx: [max_y]i32 = undefined;
+    var y_frac: [max_y]f64 = undefined;
+    var y_fade: [max_y]f64 = undefined;
+    for (0..size.y) |iy| {
+        const yf = floorAndFrac((offset.y + @as(f64, @floatFromInt(iy))) * scale.y + self.y_coord);
+        y_idx[iy] = yf.i & 255;
+        y_frac[iy] = yf.frac;
+        y_fade[iy] = fade(yf.frac);
+    }
+
     var index: usize = 0;
     var cached_y_idx: i32 = -1;
     var corner_ll: f64 = 0;
@@ -142,25 +154,25 @@ pub fn addBatch(
             const fade_z = fade(zf.frac);
 
             for (0..size.y) |iy| {
-                const yf = floorAndFrac((offset.y + @as(f64, @floatFromInt(iy))) * scale.y + self.y_coord);
-                const y_idx: i32 = yf.i & 255;
-                const fade_y = fade(yf.frac);
+                const yi = y_idx[iy];
+                const yfrac = y_frac[iy];
 
-                if (iy == 0 or y_idx != cached_y_idx) {
-                    cached_y_idx = y_idx;
-                    const a: usize = @intCast(p[x_idx] + y_idx);
+                if (iy == 0 or yi != cached_y_idx) {
+                    cached_y_idx = yi;
+                    const a: usize = @intCast(p[x_idx] + yi);
                     const aa: usize = @intCast(p[a] + @as(i32, @intCast(z_idx)));
                     const ab: usize = @intCast(p[a + 1] + @as(i32, @intCast(z_idx)));
-                    const b: usize = @intCast(p[x_idx + 1] + y_idx);
+                    const b: usize = @intCast(p[x_idx + 1] + yi);
                     const ba: usize = @intCast(p[b] + @as(i32, @intCast(z_idx)));
                     const bb: usize = @intCast(p[b + 1] + @as(i32, @intCast(z_idx)));
 
-                    corner_ll = lerp(fade_x, grad(p[aa], xf.frac, yf.frac, zf.frac), grad(p[ba], xf.frac - 1.0, yf.frac, zf.frac));
-                    corner_lh = lerp(fade_x, grad(p[ab], xf.frac, yf.frac - 1.0, zf.frac), grad(p[bb], xf.frac - 1.0, yf.frac - 1.0, zf.frac));
-                    corner_hl = lerp(fade_x, grad(p[aa + 1], xf.frac, yf.frac, zf.frac - 1.0), grad(p[ba + 1], xf.frac - 1.0, yf.frac, zf.frac - 1.0));
-                    corner_hh = lerp(fade_x, grad(p[ab + 1], xf.frac, yf.frac - 1.0, zf.frac - 1.0), grad(p[bb + 1], xf.frac - 1.0, yf.frac - 1.0, zf.frac - 1.0));
+                    corner_ll = lerp(fade_x, grad(p[aa], xf.frac, yfrac, zf.frac), grad(p[ba], xf.frac - 1.0, yfrac, zf.frac));
+                    corner_lh = lerp(fade_x, grad(p[ab], xf.frac, yfrac - 1.0, zf.frac), grad(p[bb], xf.frac - 1.0, yfrac - 1.0, zf.frac));
+                    corner_hl = lerp(fade_x, grad(p[aa + 1], xf.frac, yfrac, zf.frac - 1.0), grad(p[ba + 1], xf.frac - 1.0, yfrac, zf.frac - 1.0));
+                    corner_hh = lerp(fade_x, grad(p[ab + 1], xf.frac, yfrac - 1.0, zf.frac - 1.0), grad(p[bb + 1], xf.frac - 1.0, yfrac - 1.0, zf.frac - 1.0));
                 }
 
+                const fade_y = y_fade[iy];
                 const lo = lerp(fade_y, corner_ll, corner_lh);
                 const hi = lerp(fade_y, corner_hl, corner_hh);
                 out[index] += lerp(fade_z, lo, hi) * inv_scale;

@@ -30,7 +30,7 @@ pub fn generate(
     @memset(out, 0);
 
     var amplitude: f64 = 1.0;
-    for (self.generators) |gen| {
+    for (self.generators) |*gen| {
         gen.addBatch(out, offset, size, .{
             .x = scale.x * amplitude,
             .y = scale.y * amplitude,
@@ -43,7 +43,7 @@ pub fn generate(
 pub fn samplePoint2D(self: PerlinOctaves, x: f64, z: f64) f64 {
     var total: f64 = 0.0;
     var frequency: f64 = 1.0;
-    for (self.generators) |gen| {
+    for (self.generators) |*gen| {
         total += gen.noise(x * frequency, z * frequency, 0.0) / frequency;
         frequency /= 2.0;
     }
