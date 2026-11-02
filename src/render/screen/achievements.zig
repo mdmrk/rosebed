@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const gl = @import("gl");
 const game = @import("game");
 const achievements = game.achievements;
 const world = @import("world");
@@ -273,6 +274,14 @@ pub fn draw(
     const skip_x: f32 = @floatFromInt(@mod(@as(i64, @intFromFloat(pan[0])) + 288, 16));
     const skip_y: f32 = @floatFromInt(@mod(@as(i64, @intFromFloat(pan[1])) + 288, 16));
 
+    gl.Enable(gl.SCISSOR_TEST);
+    gl.Scissor(
+        @intFromFloat(left * ui.res.factor),
+        @intFromFloat((ui.res.ortho_height - top - map_height) * ui.res.factor),
+        @intFromFloat(map_width * ui.res.factor),
+        @intFromFloat(map_height * ui.res.factor),
+    );
+
     var terrain: MeshBuilder = .{};
     defer terrain.deinit(ui.gpa);
 
@@ -371,6 +380,8 @@ pub fn draw(
     try gui.drawTexturedMesh(&plates, ui.shader, ui.textures.achievement);
     try gui.drawTexturedMesh(&blocks, ui.shader, ui.textures.terrain);
     try gui.drawTexturedMesh(&items, ui.shader, ui.textures.items);
+
+    gl.Disable(gl.SCISSOR_TEST);
 
     var frame: MeshBuilder = .{};
     defer frame.deinit(ui.gpa);
