@@ -34,16 +34,28 @@ Or download a build:
 | iOS (arm64)      | [ipa](https://github.com/mdmrk/rosebed/releases/latest/download/rosebed-aarch64-ios.ipa)             | [ipa](https://github.com/mdmrk/rosebed/releases/download/nightly/rosebed-aarch64-ios.ipa)             |
 
 ```sh
-./rosebed                                                              # client
-./rosebed-server [--port 25565] [--world world] [--seed <n>] [--ticks <n>]  # server
+./rosebed          # client
+./rosebed-server   # server
 ```
+
+Server options:
+
+| Option                | Default | Description                          |
+| --------------------- | ------- | ------------------------------------ |
+| `--port <n>`          | `25565` | Port to listen on                    |
+| `--world <name>`      | `world` | Save folder                          |
+| `--seed <n>`          | random  | Seed for a new world                 |
+| `--difficulty <name>` | `easy`  | `peaceful`, `easy`, `normal`, `hard` |
+| `--pvp <bool>`        | `true`  | Whether players can hurt each other  |
+| `--ticks <n>`         |         | Stop after this many ticks           |
 
 ### Extras not in b1.7.3
 
-- Chat and commands in single player: `/help`, `/freecam`, `/give`, `/kill`, `/spawn`, ...
-- Chat input editing: history, ctrl+backspace, paste.
+- Chat and commands in single player: `/help`, `/give`, `/tp`, `/time`, `/weather`, `/fill`, `/freecam`, ...
+- Chat input editing (history, ctrl+backspace, paste) and a chat log you can scroll back through.
 - A fullscreen option in Video Settings (vanilla only has F11).
-- Touch controls and auto-jump on Android and iOS.
+- Optional mipmaps and anisotropic filtering in Video Settings, off by default.
+- Touch controls on Android and iOS: fixed, floating or d-pad movement, a minimal button layout, and auto-jump.
 - Gamepad support on every platform.
 
 ## Build
@@ -61,6 +73,7 @@ Other commands:
 zig build run                # run the client
 zig build run-server         # run the server
 zig build test               # run the tests
+zig build bench -Doptimize=fast   # time world generation, meshing and ticks
 zig build run-server -- --port 25566   # pass arguments after --
 ```
 
@@ -106,6 +119,8 @@ patch -p1 -d ziglib < .github/zig-ios.patch
 zig build fetch-ios-sdl   # once: downloads SDL3
 ZIG_LIB_DIR="$PWD/ziglib" zig build -Dtarget=aarch64-ios -Doptimize=fast
 ```
+
+The iPhoneOS SDK is found with `xcrun`; pass `-Dios-sdk=<path>` if that fails.
 
 ## License
 
