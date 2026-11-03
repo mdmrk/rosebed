@@ -3,10 +3,10 @@
 [![license](https://img.shields.io/github/license/mdmrk/rosebed)](LICENSE)
 [![ci](https://img.shields.io/github/actions/workflow/status/mdmrk/rosebed/ci.yml?branch=main)](https://github.com/mdmrk/rosebed/actions/workflows/ci.yml)
 
-Minecraft Beta 1.7.3 rewritten from scratch in Zig, with a client and a dedicated server. The goal is to match the original: same behavior, same worlds from the same seed, and multiplayer that works with it.
+Minecraft Beta 1.7.3 rewritten in Zig, with a client and a dedicated server. It is a port of the original game's decompiled source, obtained with [RetroMCP-Java](https://github.com/MCPHackers/RetroMCP-Java), and matches it: same behavior, same worlds from the same seed, and multiplayer that works with it.
 
 > [!IMPORTANT]
-> Most of the game is playable. Anything that behaves differently from the real b1.7.3 is a bug. If you find one, [open an issue](https://github.com/mdmrk/rosebed/issues) saying what you did and what the original does instead.
+> The whole game is implemented. Anything that behaves differently from the real b1.7.3 is a bug. If you find one, [open an issue](https://github.com/mdmrk/rosebed/issues) saying what you did and what the original does instead.
 
 ## Index
 
