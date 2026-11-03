@@ -412,7 +412,7 @@ pub fn tick(self: *TextureFx, compass_target: f64, clock_target: f64, spins_free
     self.portal.tick();
 }
 
-fn uploadTile(image: *const [cells * 4]u8, index: u8, span: gl.int, desaturate: bool) void {
+fn uploadTile(image: *const [cells * 4]u8, index: u8, span: gl.int, desaturate: bool, mip_levels: u8) void {
     var converted = image.*;
     anaglyph.pixels(desaturate, &converted);
 
@@ -423,23 +423,26 @@ fn uploadTile(image: *const [cells * 4]u8, index: u8, span: gl.int, desaturate: 
         var dy: gl.int = 0;
         while (dy < span) : (dy += 1) {
             gl.TexSubImage2D(gl.TEXTURE_2D, 0, x + dx * tile, y + dy * tile, tile, tile, gl.RGBA, gl.UNSIGNED_BYTE, &converted);
+            var scratch: [Atlas.mipScratchBytes(tile, tile)]u8 = undefined;
+            Atlas.uploadMips(&scratch, &converted, tile, tile, @intCast(x + dx * tile), @intCast(y + dy * tile), mip_levels);
         }
     }
 }
 
 pub fn upload(self: *const TextureFx, terrain: Atlas, items: Atlas, desaturate: bool) void {
     terrain.bind();
-    uploadTile(&self.water.image, waterStillTile(), 1, desaturate);
-    uploadTile(&self.water_flow.image, waterFlowTile(), 2, desaturate);
-    uploadTile(&self.lava.image, lavaStillTile(), 1, desaturate);
-    uploadTile(&self.lava_flow.image, lavaFlowTile(), 2, desaturate);
-    uploadTile(&self.flames.image, fire_tile, 1, desaturate);
-    uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1, desaturate);
-    uploadTile(&self.portal.image, portal_tile, 1, desaturate);
+    const terrain_mips = @min(terrain.mip_levels, std.math.log2_int(usize, tile));
+    uploadTile(&self.water.image, waterStillTile(), 1, desaturate, terrain_mips);
+    uploadTile(&self.water_flow.image, waterFlowTile(), 2, desaturate, terrain_mips);
+    uploadTile(&self.lava.image, lavaStillTile(), 1, desaturate, terrain_mips);
+    uploadTile(&self.lava_flow.image, lavaFlowTile(), 2, desaturate, terrain_mips);
+    uploadTile(&self.flames.image, fire_tile, 1, desaturate, terrain_mips);
+    uploadTile(&self.flames_back.image, fire_tile + Atlas.tiles_per_row, 1, desaturate, terrain_mips);
+    uploadTile(&self.portal.image, portal_tile, 1, desaturate, terrain_mips);
 
     items.bind();
-    uploadTile(&self.compass.image, compass_tile, 1, desaturate);
-    uploadTile(&self.clock.image, clock_tile, 1, desaturate);
+    uploadTile(&self.compass.image, compass_tile, 1, desaturate, 0);
+    uploadTile(&self.clock.image, clock_tile, 1, desaturate, 0);
 }
 
 test "the needle eases onto its bearing instead of snapping to it" {

@@ -70,7 +70,7 @@ pumpkin_blur: Atlas,
 shadow: Atlas,
 
 const Wrap = enum { clamp, repeat };
-const Filter = enum { nearest, blur };
+const Filter = enum { nearest, blur, mipmap };
 
 const Resource = struct {
     path: []const u8,
@@ -87,13 +87,17 @@ fn repeated(asset: assets.Asset) Resource {
     return .{ .path = asset.path, .bytes = asset.bytes, .wrap = .repeat };
 }
 
+fn mipmapped(asset: assets.Asset) Resource {
+    return .{ .path = asset.path, .bytes = asset.bytes, .filter = .mipmap };
+}
+
 fn blurred(asset: assets.Asset) Resource {
     return .{ .path = asset.path, .bytes = asset.bytes, .filter = .blur };
 }
 
 fn resourceFor(comptime field: []const u8) Resource {
     return switch (@as(Field, @field(Field, field))) {
-        .terrain => clamped(assets.terrain_png),
+        .terrain => mipmapped(assets.terrain_png),
         .gui => clamped(assets.gui.gui_png),
         .icons => clamped(assets.gui.icons_png),
         .items => clamped(assets.gui.items_png),
@@ -158,8 +162,9 @@ fn resourceFor(comptime field: []const u8) Resource {
 
 const Field = std.meta.FieldEnum(Textures);
 
-fn atlasFrom(bytes: []const u8, resource: Resource, desaturate: bool) !Atlas {
+fn atlasFrom(gpa: std.mem.Allocator, bytes: []const u8, resource: Resource, desaturate: bool) !Atlas {
     if (resource.filter == .blur) return Atlas.loadBlurred(bytes, desaturate);
+    if (resource.filter == .mipmap) return Atlas.loadMipmapped(gpa, bytes, desaturate);
     return switch (resource.wrap) {
         .clamp => Atlas.load(bytes, desaturate),
         .repeat => Atlas.loadRepeat(bytes, desaturate),
@@ -167,13 +172,13 @@ fn atlasFrom(bytes: []const u8, resource: Resource, desaturate: bool) !Atlas {
 }
 
 fn loadOne(gpa: std.mem.Allocator, archive: ?[]const u8, resource: Resource, desaturate: bool) !Atlas {
-    const bytes = archive orelse return atlasFrom(resource.bytes, resource, desaturate);
+    const bytes = archive orelse return atlasFrom(gpa, resource.bytes, resource, desaturate);
 
     const overridden = texture_pack.readArchiveEntry(gpa, bytes, resource.path, texture_pack.max_resource_bytes) catch null;
-    const replacement = overridden orelse return atlasFrom(resource.bytes, resource, desaturate);
+    const replacement = overridden orelse return atlasFrom(gpa, resource.bytes, resource, desaturate);
     defer gpa.free(replacement);
 
-    return atlasFrom(replacement, resource, desaturate) catch atlasFrom(resource.bytes, resource, desaturate);
+    return atlasFrom(gpa, replacement, resource, desaturate) catch atlasFrom(gpa, resource.bytes, resource, desaturate);
 }
 
 pub fn load(gpa: std.mem.Allocator, archive: ?[]const u8, desaturate: bool) !Textures {

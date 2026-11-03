@@ -68,6 +68,7 @@ pub fn encode(gpa: std.mem.Allocator, settings: *const Settings) ![]u8 {
     try out.print("autoJump:{s}\n", .{boolText(settings.auto_jump)});
     try out.print("touchScheme:{d}\n", .{@backingInt(settings.touch_scheme)});
     try out.print("touchButtons:{d}\n", .{@backingInt(settings.touch_buttons)});
+    try out.print("textureFiltering:{d}\n", .{@backingInt(settings.texture_filtering)});
     try out.print("fpsLimit:{d}\n", .{@backingInt(settings.framerate_limit)});
     try out.print("difficulty:{d}\n", .{@backingInt(settings.difficulty)});
     try out.print("fancyGraphics:{s}\n", .{boolText(settings.fancy_graphics)});
@@ -119,6 +120,8 @@ fn applyOption(settings: *Settings, name: []const u8, value: []const u8) void {
         settings.advanced_opengl = parseBool(value);
     } else if (std.mem.eql(u8, name, "fullscreen")) {
         settings.fullscreen = parseBool(value);
+    } else if (std.mem.eql(u8, name, "textureFiltering")) {
+        settings.texture_filtering = parseChoice(Settings.TextureFiltering, value) orelse return;
     } else if (std.mem.eql(u8, name, "fpsLimit")) {
         settings.framerate_limit = parseChoice(Settings.FramerateLimit, value) orelse return;
     } else if (std.mem.eql(u8, name, "difficulty")) {
@@ -206,6 +209,7 @@ test "every field survives a round trip" {
         .view_bobbing = false,
         .gui_scale = .large,
         .advanced_opengl = true,
+        .texture_filtering = .anisotropic_4x,
         .fullscreen = true,
         .auto_jump = !(Settings{}).auto_jump,
         .touch_scheme = .floating,
@@ -235,6 +239,7 @@ test "every field survives a round trip" {
     try std.testing.expectEqual(written.view_bobbing, read.view_bobbing);
     try std.testing.expectEqual(written.gui_scale, read.gui_scale);
     try std.testing.expectEqual(written.advanced_opengl, read.advanced_opengl);
+    try std.testing.expectEqual(written.texture_filtering, read.texture_filtering);
     try std.testing.expectEqual(written.fullscreen, read.fullscreen);
     try std.testing.expectEqual(written.auto_jump, read.auto_jump);
     try std.testing.expectEqual(written.touch_scheme, read.touch_scheme);

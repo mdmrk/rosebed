@@ -492,6 +492,7 @@ pub fn init(
     const startup_pack = render.Textures.openArchive(gpa, io, packs_dir, app_state.settings.skin.text());
     defer if (startup_pack) |bytes| gpa.free(bytes);
     app_state.textures = try render.Textures.load(gpa, startup_pack, app_state.settings.anaglyph);
+    applyTextureFiltering(&app_state);
     app_state.map_surface = render.map_render.Surface.init();
     errdefer app_state.textures.deinit();
 
@@ -1731,6 +1732,11 @@ fn saveOptions(app_state: *AppState) void {
     };
 }
 
+fn applyTextureFiltering(app_state: *AppState) void {
+    const filtering = app_state.settings.texture_filtering;
+    app_state.textures.terrain.applyFiltering(.{ .mipmaps = filtering.usesMipmaps(), .anisotropy = filtering.anisotropy() });
+}
+
 fn refreshTextures(app_state: *AppState) !void {
     const archive = render.Textures.openArchive(app_state.gpa, app_state.io, app_state.packs_dir, app_state.settings.skin.text());
     defer if (archive) |bytes| app_state.gpa.free(bytes);
@@ -1738,6 +1744,7 @@ fn refreshTextures(app_state: *AppState) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    applyTextureFiltering(app_state);
 
     const font = try render.Font.load(font_png, app_state.settings.anaglyph);
     app_state.font.deinit();
@@ -1756,6 +1763,7 @@ fn selectTexturePack(app_state: *AppState, index: usize) !void {
     const reloaded = try render.Textures.load(app_state.gpa, archive, app_state.settings.anaglyph);
     app_state.textures.deinit();
     app_state.textures = reloaded;
+    applyTextureFiltering(app_state);
     app_state.settings.skin.set(name);
     saveOptions(app_state);
 }
@@ -2407,6 +2415,7 @@ fn videoClick(app_state: *AppState) !void {
         switch (hit) {
             .ambient_occlusion, .graphics => try app_state.chunks.markAllDirty(app_state.gpa),
             .anaglyph => try refreshTextures(app_state),
+            .texture_filtering => applyTextureFiltering(app_state),
             .fullscreen => applyFullscreen(app_state),
             else => {},
         }

@@ -24,6 +24,7 @@ pub const Hit = enum {
     view_bobbing,
     gui_scale,
     advanced_opengl,
+    texture_filtering,
     fullscreen,
     done,
 };
@@ -37,6 +38,7 @@ const order = [_]Hit{
     .view_bobbing,
     .gui_scale,
     .advanced_opengl,
+    .texture_filtering,
 } ++ if (wasm or android) [_]Hit{} else [_]Hit{.fullscreen};
 
 const Control = struct { x: f32, y: f32, w: f32, hit: Hit };
@@ -72,6 +74,7 @@ pub fn cycle(settings: *game.Settings, hit: Hit) void {
         .view_bobbing => settings.view_bobbing = !settings.view_bobbing,
         .gui_scale => settings.gui_scale = settings.gui_scale.next(),
         .advanced_opengl => settings.advanced_opengl = !settings.advanced_opengl,
+        .texture_filtering => settings.texture_filtering = settings.texture_filtering.next(),
         .fullscreen => settings.fullscreen = !settings.fullscreen,
         .done => {},
     }
@@ -91,6 +94,7 @@ fn controlLabel(hit: Hit, settings: game.Settings, buf: []u8) []const u8 {
         .view_bobbing => std.mem.print(buf, "View Bobbing: {s}", .{onOff(settings.view_bobbing)}) catch "View Bobbing: ",
         .gui_scale => std.mem.print(buf, "GUI Scale: {s}", .{settings.gui_scale.label()}) catch "GUI Scale: ",
         .advanced_opengl => std.mem.print(buf, "Advanced OpenGL: {s}", .{onOff(settings.advanced_opengl)}) catch "Advanced OpenGL: ",
+        .texture_filtering => std.mem.print(buf, "Mipmaps: {s}", .{settings.texture_filtering.label()}) catch "Mipmaps: ",
         .fullscreen => std.mem.print(buf, "Fullscreen: {s}", .{onOff(settings.fullscreen)}) catch "Fullscreen: ",
         .done => "Done",
     };

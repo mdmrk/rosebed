@@ -113,6 +113,38 @@ pub const TouchScheme = enum(u2) {
     }
 };
 
+pub const TextureFiltering = enum(u2) {
+    off,
+    mipmaps,
+    anisotropic_4x,
+    anisotropic_16x,
+
+    pub fn label(self: TextureFiltering) []const u8 {
+        return switch (self) {
+            .off => "OFF",
+            .mipmaps => "ON",
+            .anisotropic_4x => "4x AF",
+            .anisotropic_16x => "16x AF",
+        };
+    }
+
+    pub fn next(self: TextureFiltering) TextureFiltering {
+        return @fromBackingInt(@backingInt(self) +% 1);
+    }
+
+    pub fn usesMipmaps(self: TextureFiltering) bool {
+        return self != .off;
+    }
+
+    pub fn anisotropy(self: TextureFiltering) f32 {
+        return switch (self) {
+            .off, .mipmaps => 1,
+            .anisotropic_4x => 4,
+            .anisotropic_16x => 16,
+        };
+    }
+};
+
 pub const TouchButtons = enum(u1) {
     full,
     minimal,
@@ -201,6 +233,7 @@ anaglyph: bool = false,
 view_bobbing: bool = true,
 gui_scale: GuiScale = .auto,
 advanced_opengl: bool = false,
+texture_filtering: TextureFiltering = .off,
 fullscreen: bool = false,
 auto_jump: bool = touch,
 touch_scheme: TouchScheme = .joystick,
