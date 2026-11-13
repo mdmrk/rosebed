@@ -404,6 +404,7 @@ pub fn init(
 ) !struct { AppState, sdl3.AppResult } {
     _ = init_data;
 
+    if (android) try sdl3.hints.set(.joystick_hidapi, "0");
     try sdl3.init(init_flags);
     errdefer sdl3.quit(init_flags);
 
@@ -5194,7 +5195,11 @@ const PadMove = struct {
     right: bool = false,
 };
 
+const max_pads = 8;
+
 const Pad = struct {
+    opened: [max_pads]sdl3.gamepad.Gamepad = undefined,
+    count: usize = 0,
     device: ?sdl3.gamepad.Gamepad = null,
     active: bool = false,
     move: PadMove = .{},
@@ -5229,28 +5234,44 @@ fn isActivePad(app_state: *const AppState, id: sdl3.joystick.Id) bool {
     return active_id.value == id.value;
 }
 
+fn padIndex(app_state: *const AppState, id: sdl3.joystick.Id) ?usize {
+    for (app_state.pad.opened[0..app_state.pad.count], 0..) |device, i| {
+        const device_id = device.getJoystickId() catch continue;
+        if (device_id.value == id.value) return i;
+    }
+    return null;
+}
+
 fn padAdded(app_state: *AppState, id: sdl3.joystick.Id) void {
-    if (app_state.pad.device != null) return;
-    app_state.pad.device = sdl3.gamepad.Gamepad.init(id) catch |err| {
+    if (padIndex(app_state, id) != null or app_state.pad.count == max_pads) return;
+    const device = sdl3.gamepad.Gamepad.init(id) catch |err| {
         std.log.warn("could not open the gamepad: {t}", .{err});
         return;
     };
+    app_state.pad.opened[app_state.pad.count] = device;
+    app_state.pad.count += 1;
+    if (app_state.pad.device == null) app_state.pad.device = device;
 }
 
 fn padRemoved(app_state: *AppState, id: sdl3.joystick.Id) !void {
-    if (!isActivePad(app_state, id)) return;
-    try releasePad(app_state);
-    app_state.pad.device.?.deinit();
-    app_state.pad.device = null;
-    setPadActive(app_state, false);
-
-    const ids = sdl3.gamepad.getGamepads() catch return;
-    defer sdl3.free(ids);
-    for (ids) |other| {
-        if (other.value == id.value) continue;
-        padAdded(app_state, other);
-        if (app_state.pad.device != null) return;
+    const index = padIndex(app_state, id) orelse return;
+    if (isActivePad(app_state, id)) {
+        try releasePad(app_state);
+        app_state.pad.device = null;
+        setPadActive(app_state, false);
     }
+    app_state.pad.opened[index].deinit();
+    app_state.pad.count -= 1;
+    app_state.pad.opened[index] = app_state.pad.opened[app_state.pad.count];
+    if (app_state.pad.device == null and app_state.pad.count > 0) app_state.pad.device = app_state.pad.opened[0];
+}
+
+fn padSelect(app_state: *AppState, id: sdl3.joystick.Id) !bool {
+    if (isActivePad(app_state, id)) return true;
+    const index = padIndex(app_state, id) orelse return false;
+    try releasePad(app_state);
+    app_state.pad.device = app_state.pad.opened[index];
+    return true;
 }
 
 fn releasePad(app_state: *AppState) !void {
@@ -5474,11 +5495,14 @@ pub fn event(
     switch (curr_event) {
         .gamepad_added => |d| padAdded(app_state, d.id),
         .gamepad_removed => |d| try padRemoved(app_state, d.id),
-        .gamepad_button_down => |b| if (isActivePad(app_state, b.id)) {
+        .gamepad_button_down => |b| if (try padSelect(app_state, b.id)) {
             setPadActive(app_state, true);
             return padButtonDown(app_state, b.button);
         },
         .gamepad_button_up => |b| if (isActivePad(app_state, b.id)) return padButtonUp(app_state, b.button),
+        .gamepad_axis_motion => |a| if (@abs(@as(f32, @floatFromInt(a.value)) / 32767.0) >= pad_dead_zone) {
+            _ = try padSelect(app_state, a.id);
+        },
         .mouse_motion => |m| if (m.x_rel != 0 or m.y_rel != 0) setPadActive(app_state, false),
         .finger_down => setPadActive(app_state, false),
         else => {},
@@ -5742,7 +5766,7 @@ pub fn quit(
         state.chunks.deinit(state.gpa);
         state.level.deinit(state.gpa);
         if (state.sound) |*sound| sound.deinit(state.gpa);
-        if (state.pad.device) |device| device.deinit();
+        for (state.pad.opened[0..state.pad.count]) |device| device.deinit();
         state.sky.deinit();
         state.colorizer.deinit(state.gpa);
         state.shader.deinit();
