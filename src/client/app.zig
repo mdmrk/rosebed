@@ -36,6 +36,7 @@ const touch_ui = android or ios;
 const touch_dig_delay_ms = 180;
 const touch_drag_slop = 12.0;
 const max_touches = 4;
+const touch_split_hold_ms = 350;
 const pad_dead_zone = 0.25;
 const pad_trigger_press = 0.5;
 const pad_trigger_release = 0.3;
@@ -81,6 +82,8 @@ const Touch = struct {
     const Role = enum { none, move, button, world };
 };
 
+const SlotPaint = std.StaticBitSet(game.Window.max_slots);
+
 pub const AppState = struct {
     gpa: std.mem.Allocator,
     frame: std.mem.Allocator,
@@ -112,6 +115,8 @@ pub const AppState = struct {
     touches: [max_touches]Touch = @splat(.{}),
     touch_move: ?[2]f32 = null,
     touch_origin: ?[2]f32 = null,
+    slot_press_since_ms: ?u64 = null,
+    slot_paint: ?SlotPaint = null,
     pad: Pad = .{},
     keys: struct {
         forward: bool = false,
@@ -1039,40 +1044,34 @@ fn shiftHeld() bool {
 
 fn openContainerClickAt(app_state: *AppState, click_type: game.Window.Click) !void {
     const shift = shiftHeld();
+    const aimed = aimedOpenSlot(app_state);
+    try containerClickAt(app_state, aimed, click_type, shift);
+    try reportWindowClick(app_state, aimed, click_type, shift);
+}
+
+fn aimedOpenSlot(app_state: *AppState) i16 {
     if (app_state.furnace_open != null) {
         const layout = render.screen.furnace.slots();
-        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
+        return aimedWindowSlot(app_state, &layout, render.screen.container.height);
     } else if (openedChest(app_state)) |open| {
         const rows = open.rows();
         var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
         const layout = render.screen.chest.slots(rows, &buffer, .chest);
-        try windowClickAt(app_state, layout, click_type, render.screen.chest.height(rows), shift);
+        return aimedWindowSlot(app_state, layout, render.screen.chest.height(rows));
     } else if (openedDispenser(app_state) != null) {
         const layout = render.screen.dispenser.slots();
-        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
+        return aimedWindowSlot(app_state, &layout, render.screen.container.height);
     } else if (openedMinecart(app_state) != null) {
         var buffer: [render.screen.chest.max_slot_count]render.screen.container.Slot = undefined;
         const layout = render.screen.chest.slots(game.Minecart.chest_rows, &buffer, .minecart);
-        try windowClickAt(app_state, layout, click_type, render.screen.chest.height(game.Minecart.chest_rows), shift);
+        return aimedWindowSlot(app_state, layout, render.screen.chest.height(game.Minecart.chest_rows));
     } else if (app_state.workbench_open) {
         const layout = render.screen.crafting.slots();
-        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
+        return aimedWindowSlot(app_state, &layout, render.screen.container.height);
     } else {
         const layout = render.screen.inventory.slots();
-        try windowClickAt(app_state, &layout, click_type, render.screen.container.height, shift);
+        return aimedWindowSlot(app_state, &layout, render.screen.container.height);
     }
-}
-
-fn windowClickAt(
-    app_state: *AppState,
-    slots: []const render.screen.container.Slot,
-    click_type: game.Window.Click,
-    box_height: f32,
-    shift: bool,
-) !void {
-    const aimed = aimedWindowSlot(app_state, slots, box_height);
-    try containerClickAt(app_state, aimed, click_type, shift);
-    try reportWindowClick(app_state, aimed, click_type, shift);
 }
 
 fn aimedWindowSlot(
@@ -4683,6 +4682,7 @@ pub fn iterate(
     _ = dt;
 
     if (try padFrame(app_state) == .success) return .success;
+    if (touch_ui) try slotPressFrame(app_state);
 
     app_state.frame_started_ns = sdl3.timer.getNanosecondsSinceInit();
     app_state.chunk_stream_deadline_ns = app_state.frame_started_ns +% chunk_stream_budget_ns;
@@ -5508,7 +5508,90 @@ pub fn event(
         else => {},
     }
     if (touch_ui and worldFocused(app_state) and fromTouchMouse(curr_event)) return .run;
+    if (touch_ui and fromTouchMouse(curr_event)) {
+        if (try slotPressEvent(app_state, curr_event)) |result| return result;
+    }
     return dispatch(app_state, curr_event);
+}
+
+fn slotTouchActive(app_state: *const AppState) bool {
+    return containerOpen(app_state) and app_state.sign_edit == null and
+        !app_state.controls_open and !app_state.video_open and !app_state.options_open and
+        !app_state.stats_open and !app_state.achievements_open and
+        !app_state.paused and !app_state.dead and !app_state.chat.open;
+}
+
+fn slotPressEvent(app_state: *AppState, curr_event: sdl3.events.Event) !?sdl3.AppResult {
+    switch (curr_event) {
+        .mouse_button_down => |m| {
+            if (m.button != .left or !slotTouchActive(app_state)) return null;
+            app_state.mouse_x = m.x;
+            app_state.mouse_y = m.y;
+            app_state.slot_paint = null;
+            app_state.slot_press_since_ms = sdl3.timer.getMillisecondsSinceInit();
+            return .run;
+        },
+        .mouse_button_up => |m| {
+            if (m.button != .left) return null;
+            app_state.slot_paint = null;
+            if (app_state.slot_press_since_ms == null) return null;
+            app_state.slot_press_since_ms = null;
+            if (!slotTouchActive(app_state)) return null;
+            var press = m;
+            press.down = true;
+            const result = try dispatch(app_state, .{ .mouse_button_down = press });
+            if (result != .run) return result;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+fn slotPressFrame(app_state: *AppState) !void {
+    if (!slotTouchActive(app_state)) {
+        app_state.slot_press_since_ms = null;
+        app_state.slot_paint = null;
+        return;
+    }
+    if (app_state.slot_paint != null) return slotPaintFrame(app_state);
+
+    const since = app_state.slot_press_since_ms orelse return;
+    if (sdl3.timer.getMillisecondsSinceInit() -% since < touch_split_hold_ms) return;
+    app_state.slot_press_since_ms = null;
+
+    if (slotTakesOne(app_state)) |index| {
+        var painted: SlotPaint = .empty;
+        painted.set(index);
+        app_state.slot_paint = painted;
+    }
+    try openContainerClickAt(app_state, .right);
+}
+
+fn slotTakesOne(app_state: *AppState) ?usize {
+    const held = app_state.held_stack orelse return null;
+    const aimed = aimedOpenSlot(app_state);
+    if (aimed < 0 or aimed >= game.Window.max_slots) return null;
+    const index: usize = @intCast(aimed);
+    const window = currentWindow(app_state);
+    if (index >= window.count) return null;
+    const kind = window.slots[index].kind;
+    if (kind == .craft_result or kind == .output) return null;
+    if (window.stackAt(index)) |existing| {
+        if (!existing.id.eql(held.id) or existing.meta != held.meta) return null;
+    }
+    return index;
+}
+
+fn slotPaintFrame(app_state: *AppState) !void {
+    const painted = &(app_state.slot_paint orelse return);
+    if (app_state.held_stack == null) {
+        app_state.slot_paint = null;
+        return;
+    }
+    const index = slotTakesOne(app_state) orelse return;
+    if (painted.isSet(index)) return;
+    painted.set(index);
+    try openContainerClickAt(app_state, .right);
 }
 
 fn dispatch(
